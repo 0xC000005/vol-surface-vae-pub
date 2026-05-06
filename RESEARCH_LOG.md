@@ -108320,3 +108320,1040 @@ Mention adaptive graph as an optional dependency-structure add-on, not as the ce
 - `experiments/backfill/block_ar/analyze_770a_adaptive_graph_attribution.py`
 
 ---
+## 2026-05-03: Natural language conditioned joint scenario generator plan
+
+### Context
+We want to build a natural-language conditioned layer on top of the existing state-normalized innovation conditional scenario generator. The user-facing goal is a risk-manager interface: a user can describe a market scenario in ordinary language, and the system generates plausible 30-day joint scenarios plus a breakdown of the historical analogue windows that support the projection.
+
+This should start directly with the joint panel, not an IV-only proof of concept. The earlier NLP roadmap used the then-current joint scenario dimension `D=38`: 25 IV surface cells plus 13 anchor factors. The current protected risk-manager/paper candidate is `734a/739a`, whose joint checkpoint is `models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt`; that panel is effectively 25 IV cells plus 14 anchors because real VIX was added. Therefore the first implementation should target the current joint39 model unless we deliberately reproduce the older 38-factor setup for compatibility.
+
+### Proposed System
+The first useful version should be a frozen-generator adapter, not a new generative model and not an end-to-end LLM fine-tune:
+
+1. Build a historical scenario-text dataset from selected joint windows.
+2. Encode each text description with a frozen sentence embedder.
+3. Train a small projector from text/structured-description features into the current SNI model's condition/memory space.
+4. At inference, parse and embed the risk-manager description, retrieve nearby historical analogue windows, optionally snap or blend within the historical condition manifold, and generate 30-day joint paths with the frozen scenario generator.
+
+The practical target condition vector is the current model's 128-dimensional Transformer memory state produced by `_encode_prefix(...)` from a 30-day joint history/prefix. The text adapter should learn to map descriptions into this condition space, while the generator and state transforms remain unchanged.
+
+### First Artifact To Build
+Do not start by calling an LLM on every rolling day. First build a salience/diversity sampler and write:
+
+- `data/scenario_text/windows_to_label.jsonl`
+
+Each row should include:
+
+- `window_id`, `start_date`, `end_date`, and split metadata;
+- whether the row comes from the historical D=38 panel or the current real-VIX joint39 panel;
+- a deterministic numeric summary of the 30-day window and optionally its preceding history;
+- salience bucket: `eventful`, `moderate`, or `calm`;
+- selection reasons such as SPX drawdown, VIX/IV jump, rate move, credit spread move, FX trend, commodity trend, or cross-asset stress;
+- enough raw summary fields to let a labeler describe the market without inventing news or causality.
+
+A good pilot is about 1,000 windows, not every day: roughly 500 eventful windows, 300 moderate windows, and 200 calm/control windows. Use weekly or non-overlapping anchors only after salience/diversity filtering. Daily rolling windows are too redundant and often too quiet to deserve separate natural-language labels.
+
+### Text Description Generation
+For each selected window, use an LLM or local model to generate multiple descriptions from the deterministic market summary. The output should contain both free-form descriptions and a structured audit section.
+
+The free-form descriptions are for language robustness:
+
+- terse trader style;
+- formal risk-manager style;
+- macro narrative style;
+- historical-analogy style that does not name unsupported news events;
+- incomplete or underspecified user style.
+
+The structured audit is not the user interface. It is internal supervision/debugging so the adapter does not lose direction, magnitude, or missingness information. It should include mentioned markets, inferred directions, severity, confidence, and which fields were absent or inferred.
+
+For the first version, do not use live web search or news retrieval. Stay with direct market descriptions: e.g. equities falling with high volatility, gold rallying but weakening, front-end rates rising, USDJPY strengthening, credit spreads widening. News/geopolitical enrichment can be added later as a retrieval layer, but it creates source-quality, hindsight, licensing, and reproducibility risks that are unnecessary for proving the core text-to-scenario bridge.
+
+### Direction Collapse And Contrastive Data
+Generic sentence embeddings can put "rates go up" and "rates go down" close together because the topic token "rates" dominates and up/down are semantically associated. This is a real failure mode.
+
+Mitigations should be built into v1:
+
+- generate multiple paraphrase positives for the same scenario;
+- generate hard contrastive negatives with the same markets but opposite directions;
+- generate partial negatives where only one or two important dimensions are flipped;
+- generate magnitude negatives where direction is held fixed but severity changes;
+- include a canonical machine-readable prefix in training text, while still preserving free-form text variants.
+
+Example training text can include both:
+
+- free prose: "Front-end rates rose sharply while equities sold off and volatility climbed.";
+- canonical prefix: `US2Y: UP LARGE; SPX: DOWN LARGE; VIX: UP LARGE; BBB_OAS: WIDER MEDIUM`.
+
+The canonical prefix is not meant to constrain what a risk manager can type. It is a training scaffold that makes direction and magnitude separable during embedding/projector training. At inference, an extractor can produce the same internal scaffold from arbitrary user language.
+
+### Training Objective
+Train the text adapter in stages:
+
+1. Frozen sentence embedder produces text vectors for all descriptions.
+2. Supervised contrastive or InfoNCE pretraining: paraphrases of the same historical window are positives; opposite/partial/magnitude variants and different windows are negatives.
+3. Projection alignment: MSE/cosine loss from projected text embedding to the historical numeric condition/memory embedding.
+4. Optional frozen-generator fine-tune/evaluation: use scenario-quality losses or audits only after the embedding-to-condition mapping works.
+
+Do not treat artificial opposite descriptions as real historical target scenarios. They are contrastive negatives for the text adapter, not generated ground-truth paths.
+
+### Historical Analogue Reporting
+The inference path should always return historical analogue support:
+
+- nearest training descriptions in text-embedding space;
+- nearest historical condition/memory vectors in model space;
+- dates and salience labels for the supporting windows;
+- blend/snap weights if convex-hull snapping is used;
+- an OOD/density warning if the query falls outside the historical manifold.
+
+This is important for risk-manager trust: the app should say which historical windows the text-conditioned scenario resembles, while avoiding causal claims.
+
+### Technology Choices
+For the pilot labeling job, use the OpenAI Python SDK with Structured Outputs and a Pydantic schema. This is a controlled batch transformation from numeric summaries to JSON labels, not an agent problem. The API call should be wrapped by a simple script that retries invalid outputs, writes JSONL, and records model/version/prompt metadata.
+
+Use OpenAI first if the numeric market summaries are allowed to leave the machine and label quality/reliability matter. Use Ollama/Qwen/Llama locally if privacy/locality is the binding constraint, accepting more prompt tuning and stricter JSON validation. LangChain or LlamaIndex are not needed for the first labeling pass; they become useful later if we add historical news retrieval, RAG over macro event databases, or multi-step app orchestration.
+
+For embeddings and adapter training:
+
+- use `sentence-transformers` with a frozen sentence embedder such as `BAAI/bge-small-en-v1.5` for the first baseline;
+- use PyTorch for the projection MLP and contrastive/alignment losses;
+- use FAISS, LanceDB, or a simple normalized-vector index for analogue retrieval;
+- keep all generated labels, prompts, schema versions, and model names under a versioned `data/scenario_text/` artifact path, ignored if the data should remain local.
+
+### What To Watch Out For
+- Do not over-prescribe user language. Structured fields are internal supervision; the user can remain free-form.
+- Do not label every small daily move. Select eventful, moderate, and calm windows with diversity controls.
+- Do not let the LLM invent geopolitics, central bank motives, or causality when only numeric market summaries were provided.
+- Do not use web/news enrichment in v1 unless the source and date filtering are curated and reproducible.
+- Do not claim the output is a fully calibrated conditional probability law. The current `734a/739a` framing is risk-manager stress-scenario-ready with documented calibration limitations.
+- Do not collapse the old `D=38` roadmap and the current real-VIX `D=39` candidate. State the panel version explicitly in every dataset row and model artifact.
+- Do not rely on raw text embeddings for signed financial semantics; use contrastive hard negatives and structured directional scaffolds.
+- Do not hide analogue support. Historical-window retrieval is a feature, not just a debugging tool.
+
+### Immediate Next Step
+Implement the salience sampler before the OpenAI labeling script. The next concrete artifact should be `data/scenario_text/windows_to_label.jsonl` for the current joint39 `734a/739a` panel, with enough numeric summaries to support direct market-state descriptions without web search.
+
+---
+## 2026-05-04: Natural-language scenario description and contrastive text-conditioning pilot
+
+### Context
+This entry records the first implementation pass for the natural-language conditioned scenario-generator layer, from generated historical scenario descriptions through a small contrastive text-embedding pilot. The target remains the current `joint39` setup: 25 IV surface cells plus 14 anchors, with the protected risk-manager/paper candidate checkpoint `models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt`. The checkpoint config was inspected and confirmed `n_cells=39`, `history_len=30`, `future_len=30`, and `memory_dim=128`.
+
+### Implemented Artifacts
+- Added `experiments/backfill/block_ar/nl_scenario_descriptions.py` for OpenAI Responses structured-output generation of historical scenario descriptions from deterministic market-window summaries. The schema emits canonical machine text, multiple free-form descriptions, structured audit rows, contrastive negatives, critique, and a revised description.
+- Added `experiments/backfill/block_ar/nl_text_conditioning.py` for text-to-embedding and text-to-condition-vector demos. The first backend is OpenAI `text-embedding-3-small`, producing 1536-dimensional normalized text embeddings. A PyTorch `TextConditionAdapter` projects embeddings to a 128-dimensional vector shaped like the SNI generator memory condition.
+- Added `contrastive-pilot` to `nl_text_conditioning.py`. It builds one anchor, free-form paraphrase positives, and opposite/partial/magnitude hard negatives from one description bundle, embeds them, and trains a small normalized projection with a triplet-style ranking loss.
+- Added tests in `test_code/test_771a_nl_scenario_descriptions.py` and `test_code/test_772a_nl_text_conditioning.py` covering schema validation, JSONL/batch helpers, conditioning-text construction, contrastive-example construction, cosine metrics, deterministic adapter projection, and toy contrastive training.
+
+### Smoke Scenario Result
+The live smoke scenario is `/tmp/joint39_smoke_description_uv.json`, a synthetic March-2020-style joint39 summary. The generated description correctly stayed at the market-move level: SPX down large, VIX/IV up large, BBB spreads wider large, Treasury yields lower, IV skew steeper, USDJPY down small, and gold up small. This is a description-quality smoke, not a full historical labeling run.
+
+The text-conditioning demo command produced `/tmp/joint39_text_condition_demo.json` and `/tmp/joint39_text_condition_demo.npz`:
+
+- text embeddings shape: `(6, 1536)`;
+- demo condition vectors shape: `(6, 128)`;
+- normalized embedding row norms: all `1.0`;
+- 128-dimensional condition vector norm: approximately `11.31`, consistent with a layer-normalized vector of dimension 128.
+
+Important caveat: the 128-dimensional condition vector is only an untrained shape-compatible projection. It must not be treated as generator-ready until trained against historical `model._encode_prefix(... )[:, -1]` memory-state targets.
+
+### Contrastive Pilot Result
+The contrastive pilot command produced `/tmp/joint39_contrastive_pilot.json` and `/tmp/joint39_contrastive_pilot.npz`. It used one anchor, five paraphrase positives, and five generated hard negatives.
+
+Raw OpenAI embedding geometry failed the signed-direction task on this smoke example:
+
+- positive mean cosine: `0.6973`;
+- negative mean cosine: `0.7569`;
+- separation mean: `-0.0596`;
+- hard margin: `-0.1422`.
+
+The generated negatives were, on average, closer to the anchor than the free-form positives. This confirms the earlier concern that generic sentence embeddings can over-weight shared market topics and under-separate direction/magnitude.
+
+After training the small contrastive projection in-sample:
+
+- positive mean cosine: `0.999999`;
+- negative mean cosine: `-0.6041`;
+- separation mean: `1.6041`;
+- hard margin: `1.4711`;
+- loss decreased from `0.4944` to approximately `1.0e-7`.
+
+This proves the contrastive mechanism works mechanically on the pilot example. It does not yet prove generalization, because this was one smoke record and an in-sample projection.
+
+### Interpretation
+Contrastive learning should be included before large batch labeling/training, but it should be staged correctly:
+
+1. Text-space contrastive pretraining: frozen base embedder plus a small projection, with paraphrases as positives and opposite/partial/magnitude variants as hard negatives. This attacks direction collapse directly.
+2. Generator-condition alignment: train the text adapter to match historical SNI memory states `model._encode_prefix(... )[:, -1]` for real 30-day joint39 histories, using MSE/cosine alignment and optionally contrastive losses in condition space.
+3. Frozen-generator evaluation: only after the text-to-memory mapping works, use the frozen 734a/739a joint generator to sample 30-day scenarios and report nearest historical analogues.
+
+Do not treat artificial opposite descriptions as historical target scenarios. They are hard negatives for representation learning only.
+
+### Technology Decision
+OpenAI embeddings are now the working first backend because the SDK and key path are already in place and no extra dependencies were required. This does not settle the final embedding choice. A later bake-off should compare OpenAI embeddings, `sentence-transformers`/BGE or E5, and FinBERT-style pooled embeddings under the actual task metrics: contrast separation, historical analogue retrieval, and adapter alignment to `_encode_prefix` memory vectors. Off-the-shelf FinBERT should not be assumed better merely because it is financial; most common FinBERT checkpoints are sentiment/classification models, not directional market-state embedding models.
+
+### Verification
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py -q` passed: `17 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_scenario_descriptions.py` passed.
+
+---
+## 2026-05-05: Narrative-grounded text-controlled scenario-generation framing
+
+### Context
+We reviewed recent text-to-time-series and grounded-generation work to position the natural-language scenario-generator extension. The closest public framing is not raw natural-language embedding alone, but text-controlled or narrative-grounded time-series generation with explicit controls for semantic grounding and hallucination risk.
+
+### Related Work Framing
+- `BRIDGE: Bootstrapping Text to Control Time-Series Generation via Multi-Agent Iterative Optimization and Diffusion Modeling` frames the task as text-controlled time-series generation and uses LLM-generated text-time-series data plus semantic prototypes for domain guidance.
+- `T2S: High-resolution Time Series Generation with Text-to-Series Diffusion Models` frames the task as text-to-time-series generation, aligning textual representations with time-series latent embeddings using a VAE plus flow matching / DiT.
+- `Towards Time Series Generation Conditioned on Unstructured Natural Language` shows the broader direction of diffusion models combined with language models for natural-language conditioned time-series generation.
+- Existing financial scenario-generation papers mostly focus on neural economic scenario generators or GAN-based multivariate financial scenario generation, not risk-manager narrative-conditioned scenario generation.
+- Hallucination mitigation literature around RAG/grounded generation reinforces that retrieval/evidence grounding can reduce unsupported claims, but retrieval failure and generation failure remain separate risks that must be audited.
+
+### Project Positioning
+The best phrase for our extension is:
+
+`Narrative-grounded text-controlled financial scenario generation`
+
+Alternative concise title candidates:
+
+- `Hallucination-Aware Natural-Language Conditioning for Joint Financial Scenario Generation`
+- `From Risk Narratives to Joint Market Scenarios: Grounded Text Conditioning for Volatility-Surface and Cross-Asset Generation`
+- `Narrative-Grounded Text-Controlled Scenario Generation for Multivariate Financial Risk Factors`
+
+Avoid over-broad phrasing such as `anti-hallucinating neuro-generation`. The defensible contribution is narrower: a risk-narrative interface that converts user narratives into auditable market implications, aligns those implications with the latent conditioning space of the existing joint scenario generator, and reports historical analogue support.
+
+### Method Implication
+Do not rely on raw narrative embeddings alone. The more principled architecture is:
+
+1. risk-manager narrative;
+2. hallucination-aware narrative grounding with observed facts, inferred macro story, implied market moves, confidence, unsupported claims, and alternative interpretations;
+3. text embedding and contrastive projection over paraphrase positives and hard narrative/market negatives;
+4. adapter alignment to historical SNI memory states `model._encode_prefix(... )[:, -1]`;
+5. frozen joint scenario generation plus historical analogue/OOD reporting.
+
+This keeps the user interface natural-language based while making the generator condition auditable and anchored to historical market states.
+
+---
+## 2026-05-05: End-to-end narrative-grounded joint39 scenario pilot
+
+### Context
+After the narrative-grounded framing entry, we implemented an end-to-end pilot that goes beyond the earlier text-embedding demo. The new script is `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`.
+
+### Pipeline
+The pilot performs the full proposed workflow on the current protected joint39 checkpoint:
+
+1. rebuild validation joint39 windows for `models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt`;
+2. compute real 128-dimensional SNI memory targets with `model._encode_prefix(... )[:, -1]`;
+3. generate hallucination-aware narrative bundles from observed 30-day market facts, including observed facts, inferred macro story, unsupported-claim audit, alternative interpretation, and hard contrastive narratives;
+4. embed the narrative examples with OpenAI `text-embedding-3-small`;
+5. train a PyTorch narrative adapter from text embeddings to SNI memory states with alignment loss plus contrastive ranking loss;
+6. feed the learned narrative condition directly into the frozen generator velocity field as a memory override, using the nearest historical analogue for current level, center, and scale anchoring;
+7. generate 30-day joint39 scenario paths and report historical analogues.
+
+### OpenAI Pilot Result
+Command output directory: `experiments/backfill/block_ar/nl_scenario_demo_outputs/narrative_grounded_openai_pilot/`.
+
+Key artifacts:
+
+- `narrative_pipeline_report.json`;
+- `narrative_pipeline_arrays.npz`;
+- `narrative_adapter.pt`.
+
+Run configuration and results:
+
+- train windows: `8`;
+- narrative examples: `48`;
+- memory target shape: `(8, 128)`;
+- text embedding shape: `(48, 1536)`;
+- adapter loss: `1.3120 -> 0.1096` over `300` steps;
+- generated scenario state shape: `(1, 8, 30, 39)`;
+- generated finite rate: `1.0`;
+- nearest historical analogue: `joint39_val_0000`, cosine `0.9860`.
+
+The first query narrative was a COVID-style liquidity/growth-shock analogy, but the hallucination audit explicitly marks the named event as an analogy inferred from market pattern rather than an observed fact in the panel. The observed market facts include SPX down, VIX up, BBB/AAA OAS wider, rates lower, USDJPY down, DXY up, gold up, and crude oil down.
+
+### Important Caveat
+The direct generator feed is a pilot memory override. The learned text condition is injected directly into the frozen velocity field, while the nearest historical analogue supplies level, center, and scale. This demonstrates the end-to-end mechanism but is not yet the production interface. The next version should train on a larger salience/diversity-selected window set and evaluate retrieval quality, condition-space OOD distance, and generated scenario realism against held-out historical windows.
+
+### Verification
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py -q` passed: `21 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py` passed.
+
+---
+## 2026-05-05: Production-style narrative retrieval pilot without memory override
+
+### Context
+The previous narrative-grounded pilot demonstrated an end-to-end path but used a direct memory override, which is not close enough to the production interface. We replaced the production-style path with historical-retrieval conditioning: the learned narrative condition is used only to retrieve real historical joint39 contexts, and the frozen 734a/739a generator is then called through its normal `sample_batched(...)` path.
+
+### Implementation
+Updated `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`:
+
+- added retrieval softmax weights and OOD diagnostics;
+- added `sample_normal_generator_for_retrieved_analogues(...)`, which calls the frozen model normally on retrieved history prefixes, normalized innovations, centers, scales, and drift features;
+- changed `run_pipeline(...)` to default to `inference_mode = retrieval_normal_generator`;
+- retained the direct memory override helper only as an experimental mechanism, not as the production path.
+
+Added tests in `test_code/test_773a_narrative_grounded_pipeline.py` for retrieval weights, OOD diagnostics, and normal-generator retrieval sampling.
+
+### OpenAI Production-Style Pilot
+Command output directory: `experiments/backfill/block_ar/nl_scenario_demo_outputs/production_retrieval_openai_pilot/`.
+
+Run configuration and results:
+
+- historical windows indexed/trained: `24`;
+- narrative examples embedded: `144`;
+- text embedding shape: `(144, 1536)`;
+- memory target shape: `(24, 128)`;
+- adapter loss: `1.3074 -> 0.0906` over `400` steps;
+- inference mode: `retrieval_normal_generator`;
+- retrieved analogue indices: `[1, 0, 16]`;
+- top analogue cosine: `0.9696`;
+- OOD warning: `false` at threshold `0.75`;
+- generated scenario state shape: `(3, 8, 30, 39)`;
+- generated finite rate: `1.0`.
+
+This is closer to production because every generated path is conditioned on a real historical prefix. The language model does not invent a generator state; it selects analogue-supported historical conditioning states, and the generator remains within its normal conditioning interface.
+
+### Interpretation
+This is now the right product direction for a risk-manager-convincing system:
+
+1. build the full historical SNI memory index for all rolling joint39 windows;
+2. label a salience/diversity-selected subset with hallucination-aware narratives and hard negatives;
+3. train CLIP-style narrative-to-scenario retrieval/alignment;
+4. at inference, retrieve supported historical prefixes, show analogue dates/facts/confidence/OOD diagnostics, and generate 30-day paths normally.
+
+Do not label only Mondays. Use weekly anchors for report-style coverage, but include eventful midweek windows and calm controls so crisis onsets and regime shifts are not missed.
+
+### Verification
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py -q` passed: `24 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py` passed.
+
+---
+## 2026-05-06: OpenAI-label 50-window narrative conditioning pilot
+
+### Context
+The production-style narrative-conditioned scenario pilot was rerun with OpenAI-generated narrative labels instead of rule-built narratives. The goal was to test a low-cost 50-window label set that is closer to the intended risk-manager-facing system: OpenAI writes grounded market narratives from supplied joint39 market facts; OpenAI embeddings are then mapped into the existing SNI memory space; the frozen generator is run through its normal retrieval-conditioned path.
+
+### Implementation
+- Added `--label-backend openai` as the default label path in `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`.
+- Added a JSONL label cache (`narrative_label_cache.jsonl`) so OpenAI labels are written incrementally and reused on reruns.
+- Kept the rule-based label path only as an explicit offline/test fallback (`--label-backend rule`), not the production pilot default.
+- Added validation filtering: labels with severity=`error` validation issues are rejected before adapter training and historical retrieval.
+- The run did not use web search. Labels were constrained to supplied joint39 market facts to avoid injecting unverified news causality.
+
+### 50-window OpenAI-label pilot
+Command:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py \
+  --label-backend openai \
+  --embedding-backend openai \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_label_50_window_pilot_filtered \
+  --label-cache experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_label_50_window_pilot/narrative_label_cache.jsonl \
+  --train-windows 50 \
+  --adapter-steps 600 \
+  --top-k 5 \
+  --samples 8 \
+  --n-steps 30 \
+  --device cpu \
+  --seed 776
+```
+
+Results:
+- Label backend: OpenAI `gpt-5.4-mini`.
+- Text embedding backend: OpenAI `text-embedding-3-small`.
+- Requested windows: 50.
+- Effective training windows after validation filtering: 49.
+- Rejected label: `joint39_val_0022`, due to one unsupported external-news claim (`war`) caught by the hallucination guard.
+- Training examples: 553.
+- SNI memory targets: `(49, 128)`.
+- Adapter loss: `1.322623 -> 0.018030` over 600 steps.
+- Retrieval OOD diagnostic: no OOD warning; top cosine `0.990238`, top gap `0.019784`.
+- Generator mode: `retrieval_normal_generator`.
+- Generated state shape: `(5, 8, 30, 39)`.
+- Finite generated value rate: 1.0.
+
+Top retrieved analogues were `joint39_val_0000`, `joint39_val_0001`, `joint39_val_0015`, `joint39_val_0016`, and `joint39_val_0019`, all drawn from retained OpenAI-labeled windows. Terminal 30-day generated summaries showed broad risk-off normalization: average SPX terminal delta `+19.04` with wide p10/p90 range, VIX `-5.05`, BBB OAS `-0.0806`, and mixed rates outcomes.
+
+### Interpretation
+This is the first pilot where the training narratives are generated by the OpenAI model rather than by hard-coded narrative templates. The run also surfaced a useful production requirement: generated labels must be audited and invalid labels must be excluded automatically. One label included unsupported external-news language, which validates the need for a hallucination-aware label QA layer before training.
+
+For now, web search should remain off for training labels. The model should first learn the mapping from observed joint39 market states to grounded narrative/condition embeddings. Web search can be added later as a separate evidence layer for demo explanations or report enrichment, but it should not be mixed into the core condition target unless each retrieved news claim is timestamped, cited, and separated from observed market facts.
+
+### Verification
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py -q`
+- Result: 27 passed.
+
+---
+## 2026-05-06: Schema-v2 narrative catalyst conditioning pilot
+
+### Context
+Risk-manager-facing text conditioning needs stories, not only direct market-state descriptions. The label schema was therefore upgraded so external-causal language such as `2008-style credit stress`, `COVID-style panic`, `war-style oil shock`, `flash-crash analogy`, or tariff-policy shocks can be represented without turning uncited causes into training truth.
+
+### Implementation
+- Extended `ScenarioDescriptionBundle` in `experiments/backfill/block_ar/nl_scenario_descriptions.py` with:
+  - calendar fields: `calendar_start_date`, `calendar_end_date`, `forecast_start_date`, `forecast_end_date`;
+  - explicit `market_implications`;
+  - structured `narrative_catalysts` with `grounding_status`;
+  - optional catalyst citations.
+- Updated the OpenAI labeling prompt to separate observed market facts, market implications, and narrative catalysts.
+- Added window calendar metadata from the aligned joint39 panel dates.
+- Added bounded OpenAI label concurrency and JSONL cache reuse.
+- Raised label `max_output_tokens` from 2200 to 5000 after the richer schema produced truncated JSON on one concurrent request.
+- Revalidated cached labels when reading from cache so stale validation severities do not reject usable labels after guardrail updates.
+
+### Label semantics
+The generator condition should be trained primarily on explicit `market_implications`. Risk-manager stories are retained as catalyst/context fields with grounding:
+- `observed_market_pattern`: descriptive regime inferred from market facts;
+- `historical_analogy`: story framing, not confirmed cause;
+- `user_hypothetical`: scenario requested by a user;
+- `cited_external_event`: allowed only with supplied citations;
+- `unsupported`: warning-only unless it contaminates the direct market implications.
+
+### 50-window schema-v2 OpenAI pilot
+Command:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py \
+  --label-backend openai \
+  --label-concurrency 2 \
+  --label-max-output-tokens 5000 \
+  --embedding-backend openai \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot_all_valid \
+  --label-cache experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot/narrative_label_cache.jsonl \
+  --train-windows 50 \
+  --adapter-steps 600 \
+  --top-k 5 \
+  --samples 8 \
+  --n-steps 30 \
+  --device cpu \
+  --seed 778
+```
+
+Results:
+- Label backend: OpenAI `gpt-5.4-mini`.
+- Text embedding backend: OpenAI `text-embedding-3-small`.
+- Requested/effective windows: 50/50.
+- Training examples: 621.
+- SNI memory targets: `(50, 128)`.
+- Adapter loss: `1.325359 -> 0.004298` over 600 steps.
+- Retrieval OOD diagnostic: no OOD warning; top cosine `0.998248`, top gap `0.029911`.
+- Generator mode: `retrieval_normal_generator`.
+- Generated state shape: `(5, 8, 30, 39)`.
+- Finite generated value rate: 1.0.
+- Catalyst statuses across retained labels: `observed_market_pattern=102`, `historical_analogy=125`, `user_hypothetical=5`, `unsupported=1`.
+- Validation warnings: 11 grounded external-catalyst warnings and 1 unsupported-catalyst warning; no validation errors.
+
+Sample catalyst labels included `2008-style credit stress analogy`, `COVID-style panic analogy`, `war-style oil shock analogy`, `flash-crash analogy`, `oil-price collapse analogy`, `safe-haven bid`, and `risk-off equity deleveraging`.
+
+Top retrieved analogues were `joint39_val_0000`, `joint39_val_0001`, `joint39_val_0015`, `joint39_val_0016`, and `joint39_val_0019`. The generated 30-day terminal summary was consistent with risk-off normalization: SPX mean terminal delta `+25.13` with broad p10/p90 range, VIX `-4.47`, BBB OAS `-0.134`, and mixed rates.
+
+### Interpretation
+This is the first pilot where the text labels contain risk-manager-style causal stories while preserving a clean distinction between market implications and causal/catalyst language. This directly addresses the boss-facing narrative requirement without training the condition bridge on hallucinated causality.
+
+The next production step is to add an optional web-evidence enrichment path that fills `cited_external_event` with timestamped citations for selected historical windows. That enrichment should remain separate from the core market implication condition so cited news improves explanation and auditability without contaminating the numerical scenario target.
+
+### Verification
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py -q`
+- Result: 30 passed.
+
+---
+## 2026-05-06: Web-evidence enrichment pilot for narrative catalysts
+
+### Context
+After the schema-v2 narrative-catalyst pilot, the next production step was to add evidence enrichment without contaminating the core market-implication condition. Risk-manager stories can now be supported by citations when public evidence exists, while uncited analogies remain analogies.
+
+### Implementation
+- Added `experiments/backfill/block_ar/nl_web_evidence_enrichment.py`.
+- The script reads a schema-v2 `narrative_pipeline_report.json`, sends selected window bundles through the OpenAI Responses API with the `web_search` tool, and writes a separate JSONL evidence artifact.
+- The web-evidence output is intentionally separate from the adapter-training condition:
+  - `market_implications` remain the primary generator-conditioning text;
+  - `web_evidence.cited_events` are for report explanation and audit;
+  - `raw_sources` records searched/cited URLs when available.
+- Added tests in `test_code/test_774a_nl_web_evidence_enrichment.py` for prompt guardrails, source extraction, and summary counting.
+
+### Pilot
+Command:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_web_evidence_enrichment.py \
+  --input-report experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot_all_valid/narrative_pipeline_report.json \
+  --output experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_5_window_pilot/web_evidence.jsonl \
+  --summary experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_5_window_pilot/summary.json \
+  --max-windows 5 \
+  --max-events 2 \
+  --search-context-size low \
+  --model gpt-5.4-mini
+```
+
+Results:
+- Enriched windows: 5.
+- Cited external events: 10.
+- Raw searched/cited source records: 136.
+- Event statuses: `cited_external_event=10`.
+
+The first five validation windows cover mid-December 2015 through late January / early February 2016. The evidence layer found contemporaneous catalysts such as China-led global market turmoil, oil-price stress, and Fed-policy context. Example cited events included:
+- `China-led global market selloff intensifies` on 2016-01-07;
+- `Fed leaves rates unchanged amid global financial turmoil` on 2016-01-27;
+- `Oil price collapse below $30 intensifies broad market stress` on 2016-01-15;
+- `China yuan devaluation and Shanghai selloff jolts global markets` on 2016-01-07.
+
+### Interpretation
+This is the first implementation of a production-style evidence layer for the narrative system. It gives risk managers named stories and citations while preserving a clean numerical conditioning contract. The evidence layer should be used for audit/reporting, not as direct training supervision, unless a later experiment explicitly tests whether cited-event text improves held-out analogue retrieval.
+
+The next step is to add caching and selection policy for broader enrichment: enrich only selected eventful windows first, prefer high-quality source domains, and keep a review queue for low-confidence or conflicting evidence.
+
+### Verification
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py`
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py -q`
+- Result: 33 passed.
+
+---
+## 2026-05-06: Salience-selected web-evidence review pilot
+
+### Context
+
+After the schema-v2 narrative catalyst pilot and the first web-evidence smoke tests, the next production-oriented step was to stop enriching arbitrary first-N windows and instead choose windows that a risk manager would actually want explained. The design keeps the generator condition anchored to explicit market implications; web evidence is a report and audit layer, not a mechanism for rewriting the conditional target.
+
+### Implementation
+
+- Added salience-based window selection to `experiments/backfill/block_ar/nl_web_evidence_enrichment.py`.
+  - The selector scores already-extracted `market_implications` by direction, magnitude, and market class.
+  - It does not generate hard-coded narratives; it only decides which historical windows should receive web-evidence enrichment.
+  - It selects high-salience event windows plus low-salience controls from the available pilot slice.
+- Added a review report over cited events.
+  - A cited event is accepted for reporting only when it has citation(s), date alignment inside or near the scenario window, and relevance above the threshold.
+  - The review report records flag counts, source-domain counts, date-match counts, and per-event acceptance.
+- Added CLI options:
+  - `--selection-mode salience`
+  - `--eventful-windows`
+  - `--calm-windows`
+  - `--review-output`
+  - `--min-relevance`
+
+### Pilot Command
+
+```bash
+uv run python experiments/backfill/block_ar/nl_web_evidence_enrichment.py \
+  --input-report experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot_all_valid/narrative_pipeline_report.json \
+  --output experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/web_evidence.jsonl \
+  --summary experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/summary.json \
+  --review-output experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/review.json \
+  --selection-mode salience \
+  --eventful-windows 6 \
+  --calm-windows 2 \
+  --max-events 2 \
+  --search-context-size low \
+  --model gpt-5.4-mini
+```
+
+### Pilot Results
+
+- Input: schema-v2 50-window OpenAI narrative pilot.
+- Selected eventful windows:
+  - `joint39_val_0011`
+  - `joint39_val_0040`
+  - `joint39_val_0009`
+  - `joint39_val_0010`
+  - `joint39_val_0012`
+  - `joint39_val_0016`
+- Selected low-salience controls within this pilot slice:
+  - `joint39_val_0028`
+  - `joint39_val_0045`
+- Output artifacts:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/web_evidence.jsonl`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/summary.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/web_evidence_schema_v2_salience_pilot/review.json`
+- Summary:
+  - `window_count=8`
+  - `cited_external_event_count=16`
+  - `raw_source_count=162`
+  - `accepted_cited_event_count=16`
+  - `flag_counts={}`
+  - `date_match_counts={"inside_window": 16}`
+- Qualitative check:
+  - The stress windows were grounded mostly in the early-2016 China/oil/global-risk-off regime.
+  - The rebound windows were grounded in ECB stimulus, Fed rate-path repricing, oil rebound, and risk-asset recovery narratives.
+  - The so-called calm controls are only low-salience controls relative to this 50-window pilot; they are not guaranteed to be globally calm market regimes because the pilot slice is concentrated around 2016 stress/rebound.
+
+### Decision
+
+This is the right production direction:
+
+- The model-facing condition remains explicit market implications extracted from the joint39 scenario state.
+- Narrative catalysts are separated into:
+  - observed market patterns,
+  - analogies/hypotheticals,
+  - cited external events.
+- Web search is used only to support or reject external causal/contextual stories for the risk-manager report layer.
+- Before a larger batch, add caching/resume controls and periodic human spot-review, because web evidence is slower and source quality matters more than throughput.
+
+### Verification
+
+```bash
+uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py
+uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py -q
+```
+
+Result: `36 passed in 2.05s`.
+
+---
+## 2026-05-06: Natural-language conditioning progress recap
+
+### Context
+
+This entry recaps the current state of the natural-language conditioned scenario-generator thread before moving from demos toward a held-out bridge evaluation. The project target is a risk-manager interface where narrative language can condition the existing joint39 conditional scenario generator without letting unsupported causal stories overwrite the market state.
+
+### Progress So Far
+
+- Built the first OpenAI-based historical scenario description path.
+  - It labels historical joint scenarios from observed market facts.
+  - The joint scenario is treated as the implied-volatility surface plus anchor factors, with the current paper model using the joint39 setup.
+  - Labels include direct market implications, narrative descriptions, contrastive negatives, and hallucination warnings.
+- Built the first text-conditioning bridge.
+  - Text is embedded with the OpenAI embedding model in the current baseline.
+  - A small adapter maps text embeddings toward the real generator condition memory target, using `_encode_prefix(... )[:, -1]`.
+  - The generator remains the existing conditional scenario generator; the text layer is a condition interface, not a replacement generator.
+- Ran a 50-window schema-v2 OpenAI pilot.
+  - The pilot produced 50 valid narrative bundles.
+  - The adapter trained on 621 text examples with 128-dimensional memory targets.
+  - The pilot demonstrated that narrative text can be mapped into the same condition space used by the existing generator.
+- Added narrative grounding and hallucination separation.
+  - The label schema separates observed market patterns, historical analogies, user hypotheticals, unsupported claims, and cited external events.
+  - The generator-facing condition remains explicit market implications.
+  - External causal stories are report-layer explanations unless cited and reviewed.
+- Added web-evidence enrichment.
+  - Web search is used selectively for external catalyst claims, not for every training example and not for the core generator condition.
+  - The web-evidence layer writes cited events, raw sources, and a review report.
+  - A salience-selected pilot enriched 8 windows with 16 cited events; all 16 passed the review layer with inside-window date alignment and no missing-citation or low-relevance flags.
+
+### Current Design Principle
+
+The system should not be framed as raw natural language directly controlling the model without guardrails. The safer and more defensible framing is:
+
+1. Risk-manager narrative is parsed into explicit market implications.
+2. Explicit market implications and narrative text are embedded.
+3. A learned bridge maps those text/implication embeddings to the existing generator's condition memory.
+4. The frozen scenario generator produces next-30-day scenarios from that condition.
+5. Historical analogues and web-cited catalysts are reported separately for explanation and audit.
+
+### Immediate Next Step
+
+The most principled next step is a held-out bridge evaluation:
+
+- Train the text-to-condition adapter on one set of labeled historical windows.
+- Evaluate on held-out windows.
+- Measure condition-vector cosine similarity, retrieval rank of the true held-out window, top-k analogue quality, and hard-negative separation.
+- Use this to decide whether the natural-language interface is a real predictive condition bridge or only a narrative labeling demo.
+
+---
+## 2026-05-06: Held-out bridge evaluation for narrative-to-condition mapping
+
+### Context
+
+After the progress recap, the next production-critical question was whether narrative text can generalize out of sample into the existing generator condition memory. This evaluation uses the already generated schema-v2 50-window pilot artifacts, so it makes no new OpenAI API calls.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/nl_condition_bridge_evaluation.py`.
+
+The script:
+
+1. Loads `narrative_pipeline_report.json` and `narrative_pipeline_arrays.npz` from a prior narrative pipeline run.
+2. Rebuilds the same narrative example order used by the original pipeline.
+3. Splits windows into train and held-out test sets.
+4. Trains the text-to-condition adapter only on train-window examples.
+5. Evaluates held-out examples against the real generator memory targets.
+6. Reports:
+   - held-out target cosine,
+   - true-window rank in the full memory pool,
+   - true-window rank inside the held-out pool,
+   - nearest train-window analogue cosine,
+   - hard-negative separation on held-out windows.
+
+Added tests in `test_code/test_775a_nl_condition_bridge_evaluation.py`.
+
+### Main Command
+
+```bash
+uv run python experiments/backfill/block_ar/nl_condition_bridge_evaluation.py \
+  --input-report experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot_all_valid/narrative_pipeline_report.json \
+  --input-npz experiments/backfill/block_ar/nl_scenario_demo_outputs/production_openai_schema_v2_50_window_pilot_all_valid/narrative_pipeline_arrays.npz \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout \
+  --train-windows 40 \
+  --test-windows 10 \
+  --adapter-steps 700 \
+  --top-k 5 \
+  --seed 775
+```
+
+### Main Result: Contrastive Weight 0.25
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout/bridge_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout/bridge_eval_arrays.npz`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout/bridge_adapter.pt`
+
+Metrics:
+
+- Train windows: 40
+- Held-out windows: 10
+- Train examples: 488
+- Held-out non-negative examples: 47
+- Adapter loss: `1.36625289917 -> 0.00206704624`
+- Held-out mean target cosine: `0.851934681547`
+- Held-out median target cosine: `0.868343710899`
+- Held-out full-pool recall@1: `0.0`
+- Held-out full-pool recall@3: `0.0`
+- Held-out median true rank in full pool: `35.0`
+- Held-out test-pool recall@1: `0.085106382979`
+- Held-out test-pool recall@3: `0.255319148936`
+- Held-out median true rank in test pool: `6.0`
+- Mean nearest train-analogue cosine: `0.976991469556`
+- Held-out hard-negative mean margin: `0.670270676725`
+- Held-out hard-negative mean gap: `0.884123798822`
+
+### Contrastive Ablation: Weight 0.0
+
+Command was the same except:
+
+```bash
+--output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout_no_contrast \
+--contrastive-weight 0.0
+```
+
+Metrics:
+
+- Adapter loss: `1.36620759964 -> 0.002883728361`
+- Held-out mean target cosine: `0.86004649071`
+- Held-out full-pool recall@1: `0.0`
+- Held-out full-pool recall@3: `0.0`
+- Held-out median true rank in full pool: `32.0`
+- Held-out test-pool recall@1: `0.127659574468`
+- Held-out test-pool recall@3: `0.170212765957`
+- Held-out median true rank in test pool: `6.0`
+- Mean nearest train-analogue cosine: `0.976795772289`
+- Held-out hard-negative mean margin: `0.259089934826`
+- Held-out hard-negative mean gap: `0.400901824493`
+
+### Interpretation
+
+This is an important result:
+
+- The adapter does learn a meaningful held-out condition direction: held-out target cosine is around `0.85`.
+- It does not recover exact day/window identity from language. Exact-window recall is weak, with full-pool recall@1 and recall@3 both `0.0`.
+- The nearest train analogues are very close (`~0.977` cosine), meaning the language interface is acting like a regime/analogue retriever rather than an exact historical-memory lookup.
+- Contrastive learning strongly improves held-out hard-negative separation:
+  - margin improves from `0.2591` to `0.6703`;
+  - gap improves from `0.4009` to `0.8841`.
+- Contrastive learning does not obviously improve exact-window retrieval in this first pilot. Its main value here is robustness to opposite/incorrect narratives.
+
+### Decision
+
+The production objective should not be "recover the exact historical window from a narrative." That is too strict and not what risk managers need. The better objective is:
+
+1. Extract explicit market implications from the narrative.
+2. Map those implications into the generator condition space.
+3. Retrieve a high-quality historical analogue set.
+4. Generate a plausible next-30-day distribution from the existing generator.
+5. Report the analogue set, market implications, generated scenario summary, and cited external context when needed.
+
+The next modeling step should therefore evaluate scenario-level usefulness: do held-out narrative conditions retrieve the correct regime and generate next-30-day distributions that resemble the realized next-30-day path better than simple baselines?
+
+### Verification
+
+```bash
+uv run python -m py_compile experiments/backfill/block_ar/nl_condition_bridge_evaluation.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py
+uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py -q
+```
+
+Result: `40 passed in 1.75s`.
+
+---
+## 2026-05-06: Scenario-level evaluation for narrative-conditioned generator
+
+### Context
+
+The held-out bridge evaluation showed that narrative text learns a useful generator-memory direction but does not recover exact historical window identity. The next production-critical test is scenario-level usefulness: when held-out narrative conditions retrieve train-window analogues and run the frozen generator, are the generated next-30-day scenario distributions closer to the realized next-30-day paths than simple baselines?
+
+This evaluation uses existing bridge reports and saved OpenAI embeddings. It makes no new OpenAI API calls.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/nl_scenario_level_evaluation.py`.
+
+The script:
+
+1. Loads a held-out bridge report.
+2. Selects one held-out narrative query per test window, currently the `anchor` row.
+3. Rebuilds the matching validation block from the checkpoint.
+4. Converts realized futures into future-delta paths relative to each window's last history state.
+5. Standardizes path errors by train-window future-delta variability.
+6. Scores:
+   - `persistence`: zero future delta,
+   - `train_median_delta`: median train future delta,
+   - `historical_replay_topk`: realized futures from the retrieved train analogues,
+   - `narrative_generator_topk`: frozen generator samples from the retrieved train analogue histories,
+   - `oracle_generator_true_history`: frozen generator samples from the true held-out history.
+7. Reports standardized mean-path MAE/RMSE, terminal MAE, ensemble CRPS, energy score, and 80% ensemble coverage where applicable.
+
+Added tests in `test_code/test_776a_nl_scenario_level_evaluation.py`.
+
+### Main Command: Contrastive Bridge
+
+```bash
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout/bridge_eval_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/scenario_level_eval_schema_v2_40_train_10_holdout \
+  --top-k 3 \
+  --samples 4 \
+  --n-steps 30 \
+  --max-windows-eval 10 \
+  --include-oracle-generator \
+  --device cpu \
+  --seed 776
+```
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/scenario_level_eval_schema_v2_40_train_10_holdout/scenario_level_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/scenario_level_eval_schema_v2_40_train_10_holdout/scenario_level_eval_arrays.npz`
+
+### Main Results: Contrastive Bridge
+
+Held-out windows: 10.
+
+Mean standardized scores:
+
+| method | mean path MAE | energy score | ensemble CRPS | coverage 80 | energy improvement vs persistence |
+|---|---:|---:|---:|---:|---:|
+| persistence | 0.6382 | 0.8803 | 0.6382 | n/a | n/a |
+| train median delta | 0.8426 | 1.0502 | 0.8426 | n/a | -19.3% |
+| historical replay top-k | 0.8754 | 0.8856 | 0.7254 | 0.2904 | -0.6% |
+| narrative generator top-k | 0.6792 | 0.6718 | 0.5249 | 0.7641 | +23.7% |
+| oracle generator true history | 0.7069 | 0.7521 | 0.5475 | 0.5467 | +14.6% |
+
+### Contrastive Ablation Scenario Run
+
+```bash
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/bridge_eval_schema_v2_40_train_10_holdout_no_contrast/bridge_eval_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/scenario_level_eval_schema_v2_40_train_10_holdout_no_contrast \
+  --top-k 3 \
+  --samples 4 \
+  --n-steps 30 \
+  --max-windows-eval 10 \
+  --include-oracle-generator \
+  --device cpu \
+  --seed 776
+```
+
+Mean standardized scores:
+
+| method | mean path MAE | energy score | ensemble CRPS | coverage 80 | energy improvement vs persistence |
+|---|---:|---:|---:|---:|---:|
+| persistence | 0.6382 | 0.8803 | 0.6382 | n/a | n/a |
+| historical replay top-k | 0.9059 | 0.9194 | 0.7544 | 0.2630 | -4.4% |
+| narrative generator top-k | 0.6855 | 0.6765 | 0.5288 | 0.7665 | +23.2% |
+| oracle generator true history | 0.7069 | 0.7521 | 0.5475 | 0.5467 | +14.6% |
+
+### Interpretation
+
+The language-conditioned generator is not a good point forecaster in this pilot:
+
+- `narrative_generator_topk` has worse mean-path MAE than persistence.
+- `oracle_generator_true_history` also has worse mean-path MAE than persistence, so this is not only a text-conditioning issue; the generator's ensemble mean is not optimized for deterministic future-path tracking.
+
+But it is useful as a scenario distribution generator:
+
+- With the contrastive bridge, `narrative_generator_topk` improves energy score by `23.7%` versus persistence.
+- It improves ensemble CRPS from `0.6382` to `0.5249`.
+- It gives much higher 80% path coverage (`0.7641`) than historical replay (`0.2904`).
+- It beats the oracle true-history generator on these distributional metrics in this small run, likely because the retrieved analogue histories produce a broader or better-centered scenario mixture for this particular held-out slice.
+
+Contrastive learning is still useful but not because it changes the scenario-level score dramatically here:
+
+- Contrastive bridge: narrative generator energy score `0.6718`.
+- No-contrast bridge: narrative generator energy score `0.6765`.
+- The difference is small at this sample size.
+- The prior bridge evaluation remains the stronger evidence that contrastive learning improves robustness to opposite and hard-negative narratives.
+
+### Decision
+
+The production demo should be framed as a risk-manager scenario-distribution tool, not as a point forecast:
+
+1. User writes a narrative.
+2. System extracts explicit market implications.
+3. Learned bridge maps the narrative/implications into condition memory.
+4. System retrieves historical analogues.
+5. Frozen generator produces a scenario distribution from analogue histories.
+6. Report shows analogue set, distributional forecast, coverage/uncertainty, and cited external context where available.
+
+The next principled modeling step is to scale this scenario-level evaluation beyond the 50-window pilot, preferably with weekly plus eventful windows, and evaluate regime-level retrieval/forecast quality over a less clustered validation slice.
+
+### Verification
+
+```bash
+uv run python -m py_compile experiments/backfill/block_ar/nl_condition_bridge_evaluation.py experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py
+uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py -q
+```
+
+Result: `45 passed in 2.33s`.
+
+---
+## 2026-05-06: Architecture bake-off for narrative condition bridge
+
+### Context
+
+After the first hallucination-aware narrative pipeline and scenario-level evaluation, the open question was whether the current text-to-condition bridge is too naive and should be replaced by a more mature contrastive architecture before scaling labels. I implemented an offline architecture bake-off that uses the existing 50-window OpenAI narrative artifacts and generator memory targets, so this step made no new OpenAI API calls.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py` with two bridge families:
+
+- `mlp_mse_contrastive`: the existing small MLP bridge that maps OpenAI text embeddings into the 128-dimensional `_encode_prefix(... )[:, -1]` condition-memory target, trained with direct memory alignment plus the existing contrastive/hard-negative terms.
+- `clip_infonce_hybrid`: a supervised CLIP-style candidate with a learned text projection, a learned condition projection, InfoNCE over window classes, direct MSE alignment to the generator condition memory, and hard-negative margin loss.
+
+The bake-off evaluates held-out narratives by direct target cosine, held-out pool retrieval recall, hard-negative separation, and nearest training analogue similarity. It also writes a JSON report under `experiments/backfill/block_ar/nl_scenario_demo_outputs/`.
+
+### Results
+
+Main 40-train / 10-holdout run, default CLIP-hybrid weights:
+
+- MLP bridge: target cosine `0.8597`, recall@1 `0.1064`, recall@3 `0.2553`, hard-negative gap `0.9091`, top-train cosine `0.9779`.
+- CLIP-hybrid bridge: target cosine `0.3835`, recall@1 `0.0851`, recall@3 `0.2553`, hard-negative gap `0.7840`, top-train cosine `0.5469`.
+
+Sensitivity runs increased the CLIP-hybrid direct MSE weight:
+
+- CLIP MSE weight `1.0`: target cosine `0.6949`, recall@1 `0.0638`, recall@3 `0.1915`, hard-negative gap `0.7676`, top-train cosine `0.8590`.
+- CLIP MSE weight `5.0`: target cosine `0.8302`, recall@1 `0.1064`, recall@3 `0.2128`, hard-negative gap `0.7082`, top-train cosine `0.9607`.
+
+### Interpretation
+
+The more mature contrastive objective did not beat the current direct bridge on this pilot. The tuned CLIP-style bridge can approach the MLP on target cosine, but it still trails on recall@3 and hard-negative separation. This suggests the immediate bottleneck is not simply that the current MLP is too naive. For this generator, the bridge output must land in the exact 128-dimensional condition-memory coordinate system used by the Block-AR model; a shared retrieval geometry alone is not enough.
+
+The practical decision is to keep the MLP bridge as the current production-facing baseline, keep the CLIP/InfoNCE candidate as an ablation, and avoid swapping architectures blindly before building a larger and more representative labeled/evaluated dataset.
+
+### Verification
+
+Commands run:
+
+```bash
+uv run python -m py_compile experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py experiments/backfill/block_ar/nl_condition_bridge_evaluation.py experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py
+uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py -q
+```
+
+Result: `48 passed`.
+
+### Next step
+
+The next principled step is to scale the evaluation set, not to make the bridge more complex immediately: label/evaluate a representative weekly-plus-eventful dataset, preserve multiple narratives per market state, include explicit historical analogue reporting, then rerun the same bake-off with scenario-level generator metrics as the primary decision criterion.
+
+---
+## 2026-05-06: Manifest-aware OpenAI narrative pilot and representative split evaluation
+
+### Context
+
+After the 50-window narrative-conditioning pilot and bridge architecture bake-off, the next production-critical blocker was evaluation coverage rather than model complexity. We added manifest-aware pipeline support so the narrative pipeline can label exactly the windows selected by `nl_window_selection_manifest.py`, preserve each selected row's original `source_index` and validation-block `window_index`, and write artifacts that bridge/scenario evaluation can consume without treating arbitrary selected rows as contiguous validation windows.
+
+### Implementation
+
+Updated `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`:
+
+- added `--selection-manifest` and `--manifest-split train|validation|test|all`;
+- labels only selected manifest rows;
+- preserves `window_id`, original `window_index`, original `source_index`, `selection_reasons`, and `manifest_split` in `window_metadata` and narrative bundles;
+- writes `source_indices` and `window_indices` to the report/NPZ;
+- keeps the production guard: rule labels require `--local-test`.
+
+Updated downstream evaluation:
+
+- `nl_condition_bridge_evaluation.py` now uses manifest train/test split metadata when present and carries window metadata into the bridge report.
+- `nl_scenario_level_evaluation.py` now maps bridge-local indices back to original validation-block indices before reconstructing realized futures or sampling retrieved analogue histories.
+
+### Runs
+
+Local manifest smoke, no OpenAI calls:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_local_test_smoke \
+  --selection-manifest experiments/backfill/block_ar/nl_scenario_demo_outputs/window_selection_manifest_pilot/window_selection_manifest.json \
+  --manifest-split all \
+  --label-backend rule \
+  --local-test \
+  --embedding-backend hash \
+  --adapter-steps 30 \
+  --samples 2 \
+  --n-steps 30 \
+  --chunk-size 2 \
+  --batch-size 16 \
+  --device cpu
+```
+
+OpenAI manifest pilot:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_schema_v2_pilot \
+  --selection-manifest experiments/backfill/block_ar/nl_scenario_demo_outputs/window_selection_manifest_pilot/window_selection_manifest.json \
+  --manifest-split all \
+  --label-backend openai \
+  --label-cache experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_schema_v2_pilot/narrative_label_cache.jsonl \
+  --label-concurrency 4 \
+  --embedding-backend openai \
+  --adapter-steps 400 \
+  --samples 4 \
+  --n-steps 30 \
+  --chunk-size 4 \
+  --batch-size 16 \
+  --device cpu
+```
+
+OpenAI pilot result:
+
+- selected manifest split rows labeled: `51` (`35` train, `8` validation, `8` test; embargo rows are excluded);
+- narrative examples: `624`;
+- memory target shape: `[51, 128]`;
+- label cache rows: `51`;
+- rejected labels: `0`.
+
+Bridge evaluation on manifest train/test split:
+
+- split source: `manifest`;
+- train windows: `35`;
+- test windows: `8`;
+- validation windows excluded from bridge test: `8`;
+- held-out examples: `37`;
+- held-out mean target cosine: `0.8339`;
+- held-out recall@1 over test pool: `0.0811`;
+- held-out recall@3 over test pool: `0.2162`;
+- hard-negative mean gap: `0.8702`.
+
+Scenario-level evaluation on manifest test split:
+
+- held-out windows: `8`;
+- narrative generator energy score improvement vs persistence: `+16.7%`;
+- narrative generator ensemble CRPS improvement vs persistence: `+9.4%`;
+- narrative generator coverage_80: `0.7006`;
+- narrative generator mean-path MAE improvement vs persistence: `-15.4%`.
+
+### Interpretation
+
+The representative manifest pilot confirms the earlier product pattern on a less naive split: the language-conditioned system is useful as a distributional scenario generator with analogue explanations, not as a point forecast. It improves energy score and CRPS while still underperforming persistence on mean path/terminal point error.
+
+Exact historical-window retrieval remains weak, but the bridge still maps narratives into a meaningful generator-memory direction and separates hard negatives well. This supports continuing with representative dataset scaling and evaluation rather than switching architectures prematurely.
+
+### Verification
+
+Commands run:
+
+```bash
+uv run python -m py_compile experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_condition_bridge_evaluation.py experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_window_selection_manifest.py experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py
+uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_778a_nl_window_selection_manifest.py -q
+```
+
+Result: `56 passed`.
+
+---

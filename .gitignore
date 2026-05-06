@@ -239,6 +239,9 @@ archived_docs/paper_backups/
 lancedb/
 # Note: embedding model (~90MB) cached in ~/.cache/, not in repo
 
+# Natural-language scenario demo outputs: generated labels, embeddings, adapters, reports
+experiments/backfill/block_ar/nl_scenario_demo_outputs/
+
 # Claude Code artifacts
 docs/superpowers/
 conversation_with_claude_web_latest/
