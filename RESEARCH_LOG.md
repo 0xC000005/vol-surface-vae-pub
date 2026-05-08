@@ -111583,3 +111583,44 @@ Do not rely on start selection as the main fix. The next principled experiment i
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 25 rollout reranker upper bound
+
+### Context
+Iteration 24 showed that implication-aligned start selection can pick starts whose recent prefixes match the story, but the decoded-prefix rollout still loses direction. The next bounded question was whether a rollout-level reranker over available candidates can recover enough alignment to justify a broader candidate-generation strategy.
+
+### Hypothesis
+If rollout-level candidate choice is a promising path, then selecting the lower-mismatch generated output per story across existing balanced-start and implication-start casebooks should materially reduce implication mismatch versus the `0.50` balanced-start baseline.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_rollout_reranker.py`.
+- The reranker reads existing Gradio product casebook summaries and chooses the candidate output with the lowest generated scenario implication mismatch rate for each story. It makes no OpenAI calls.
+- Added `test_code/test_796a_nl_prefix_latent_rollout_reranker.py` covering candidate parsing, per-case selection, aggregation, and artifact writing.
+- Ran the reranker over:
+  - balanced-start live casebook `prefix_latent_gradio_live_casebook_800b_alignment`;
+  - implication-start live casebook `prefix_latent_gradio_live_casebook_802a_implication_start`.
+
+### Result
+- The reranker selected balanced-start for defensive risk-off and rates-led tightening, and implication-start for fragile risk-on.
+- Combined mismatch rate improved only weakly to `0.4706` from the balanced-start baseline `0.50`.
+- Absolute mismatches did not improve: 8 mismatches remained, with 17 checked implications.
+- All reranker-selected cases still had selected-start `warning` status.
+
+### Mechanism Read
+Reranking across two candidate strategies is not enough. It can slightly change the denominator and pick a better-looking case for one story, but it does not remove the directional failure. The core issue remains that the decoded prefix and frozen rollout do not sufficiently honor the narrative implications. A production system needs either a stronger implication-aware decoded-prefix objective or a richer candidate generator whose candidates genuinely span the requested directional regimes.
+
+### Decision / Next Step
+Do not treat simple rollout reranking as the fix. The next principled step is to train or evaluate an implication-aware decoder/bridge loss using offline labels from historical prefixes: for each grounded narrative, decoded prefixes should preserve both memory compatibility and recent-prefix implication alignment before rollout. A small local ablation can add an implication-alignment term to the memory+start decoder target selection or training objective and compare against the current `0.50` / `0.4706` baselines.
+
+### Artifacts
+- Reranker: `experiments/backfill/block_ar/nl_prefix_latent_rollout_reranker.py`
+- Tests: `test_code/test_796a_nl_prefix_latent_rollout_reranker.py`
+- Reranker output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_rollout_reranker_803a_balanced_vs_implication/rollout_reranker_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_796a_nl_prefix_latent_rollout_reranker.py -q` -> 4 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_rollout_reranker.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_rollout_reranker.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_rollout_reranker_803a_balanced_vs_implication --candidate balanced=experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/gradio_live_casebook_summary.json --candidate implication_start=experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_802a_implication_start/gradio_live_casebook_summary.json` -> mismatch rate `0.4706`, 8 mismatches, 17 checked.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py -q` -> 76 passed.
+- `git diff --check` -> passed.
+
+---
