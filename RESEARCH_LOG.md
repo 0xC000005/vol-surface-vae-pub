@@ -113591,3 +113591,52 @@ warnings, fixed start, candidate support, analogue mixture labels, scenario fan
 charts, selected IV-cell redraws, and generated report artifacts.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 64 boss-demo runbook
+
+### Context
+
+The cached casebook Gradio smoke proved that a safe-haven fixed-start demo row
+can run without OpenAI calls and redraw a selected IV cell after generation.
+The next production-readiness gap was operational: the demo workflow still
+lived across app controls, JSON artifacts, and research-log entries rather than
+one risk-manager-facing walkthrough.
+
+### Hypothesis
+
+A concise boss-demo runbook should reduce demo risk by making the current
+product contract explicit: narratives describe current/recent conditions,
+forward-looking phrases are warning-only, the starting state is fixed before
+prefix support is formed, and the frozen joint39 generator produces a
+distribution rather than a point forecast.
+
+### Execute
+
+- Added `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
+- Linked the runbook from
+  `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`.
+- Documented the recommended cached path:
+  `Safe-haven gold bid / start 18`.
+- Documented launch commands, exact Gradio controls, panel-by-panel talking
+  points, the no-OpenAI cached smoke command, expected pass criteria, and what
+  not to claim.
+
+### Analyze
+
+Verification passed:
+
+- `test -f docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`
+  -> passed.
+- `rg -n "boss-demo|Safe-haven gold bid|external_condition_report|nl_prefix_latent_boss_demo_runbook" docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+  -> found the linked runbook, selected casebook row, and expected provenance.
+- `git diff --check` -> passed.
+
+### Decide
+
+The cached boss-demo story is now reproducible from documentation and a smoke
+test. The next highest-value production step is either manual browser QA
+against a restarted local Gradio app or a live OpenAI TestFlight path with the
+same UX/provenance expectations as the cached casebook path. Manual/browser QA
+is the safer next step before spending additional API calls, because it checks
+the actual boss-facing interaction rather than backend artifacts only.
+
+---

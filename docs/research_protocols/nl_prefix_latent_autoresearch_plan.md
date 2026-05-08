@@ -8,6 +8,9 @@ narrative-and-start residual refinement before reusing the frozen state-aware
 normalized-innovation (SNI) conditional scenario generator and its native
 autoregressive rollout.
 
+Current boss-demo runbook:
+`docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
+
 The long-run product contract has two modes:
 
 1. **Model-chosen starting point.** The risk manager supplies only a narrative.
