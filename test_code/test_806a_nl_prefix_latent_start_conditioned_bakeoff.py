@@ -23,6 +23,18 @@ def test_selected_historical_cases_excludes_modified_user_start() -> None:
     assert all(row["start_name"] != "extreme_user_start" for row in rows)
 
 
+def test_selected_historical_cases_supports_expanded_case_set() -> None:
+    rows = selected_historical_cases(case_set="expanded")
+
+    assert len(rows) == 8
+    assert {row["case_name"] for row in rows} == {
+        "fragile_risk_on",
+        "defensive_risk_off",
+        "rates_selloff",
+    }
+    assert any(row["candidate_index"] == 178 for row in rows)
+
+
 def test_selected_variants_supports_temperature_calibration_set() -> None:
     rows = selected_variants(2, variant_set="temperature")
 
@@ -202,6 +214,7 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
     text = render_markdown(
         {
             "status": "pass",
+            "case_set": "default",
             "variant_set": "prior",
             "case_count": 1,
             "variant_count": 1,

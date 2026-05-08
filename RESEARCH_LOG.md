@@ -113190,3 +113190,35 @@ The calibrated temperature validation made rollout temperature 0.50 the stronges
 The risk-manager-facing workflow now uses the best validated calibrated rollout setting by default and shows that setting in the UI/report. The next step is to scale validation beyond the four-row representative smoke set while keeping this calibrated default fixed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 55 expanded calibrated validation
+
+### Context
+After productizing calibrated rollout temperature 0.50, the next production risk was whether the result only held on the four hand-picked starts. This iteration expanded the no-OpenAI fixed-start validation grid using cached narratives and additional defensible historical starts from the start-policy audit.
+
+### HEAD
+- Hypothesis: if the calibrated fixed-start workflow is robust enough to keep as the product default, temperature 0.50 should remain positive on a broader narrative/start grid, not only on the original four rows.
+- Execute: added an `expanded` case set to the fixed-start bakeoff. The expanded set covers eight historical narrative/start rows: fragile risk-on starts 18, 0, and balanced-policy 40; defensive risk-off starts 22, balanced-policy 77, and memory-nearest 0; rates selloff starts 18 and balanced-policy 178. Ran an 8-row, 8-sample TestFlight and then an 8-row, 16-sample validation at 250 solver steps with no OpenAI calls.
+- Analyze: both expanded runs passed. The 16-sample expanded validation had 8 target-available rows, statuses 6 pass / 2 warning, mean energy z 0.789, mean CRPS z 0.571, mean energy improvement vs persistence +0.159, and mean CRPS improvement +0.145.
+- Decide: the calibrated fixed-start combined-decoder path remains the main production direction. The remaining gap is not basic viability, but larger-scale validation and warning policy for starts that pass scenario metrics but still warn on support/shift gates.
+
+### Evidence
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 29 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`: passed.
+- `git diff --check`: passed.
+- TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820a_expanded_temp050_s8 --case-set expanded --variant-set temperature --case-count 8 --variant-count 1 --samples 8 --steps 250 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.134.
+- Validation: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820b_expanded_temp050_s16 --case-set expanded --variant-set temperature --case-count 8 --variant-count 1 --samples 16 --steps 250 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.145.
+
+### Artifacts
+- Expanded 8-sample report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820a_expanded_temp050_s8/start_conditioned_bakeoff.json`
+- Expanded 16-sample report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820b_expanded_temp050_s16/start_conditioned_bakeoff.json`
+- Expanded 16-sample Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820b_expanded_temp050_s16/start_conditioned_bakeoff.md`
+
+### Key result
+- All eight expanded rows improved versus persistence on ensemble CRPS.
+- Mean CRPS improvement was +0.145 at 16 samples.
+- Warning rows were fragile risk-on alternate start 0 and defensive risk-off memory-nearest start 0; both still improved CRPS, so the warning gate is about support/shift trust, not distributional failure.
+
+### Production implication
+The current story-to-scenario workflow is now credible as a calibrated, fixed-start, analogue-mixture-supported generator on the cached narrative set. The next production step is to scale the validation grid further and make warning semantics explicit in the demo: pass means supported and calibrated; warning means usable with caveats, not necessarily poor scenario metrics.
+
+---

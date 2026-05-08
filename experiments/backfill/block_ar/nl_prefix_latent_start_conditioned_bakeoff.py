@@ -19,7 +19,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.backfill.block_ar.nl_prefix_latent_start_conditioned_acceptance import (  # noqa: E402
+    DEFENSIVE_REPORT,
     DEFAULT_MATRIX,
+    FRAGILE_REPORT,
+    RATES_REPORT,
     _operational_row,
     _operational_score_row,
     _score_metrics,
@@ -36,6 +39,57 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_start_conditioned_bakeoff_816a"
 )
+
+EXPANDED_MATRIX = [
+    {
+        "case_name": "fragile_risk_on",
+        "start_name": "validated_start_18",
+        "condition_report": FRAGILE_REPORT,
+        "candidate_index": 18,
+    },
+    {
+        "case_name": "fragile_risk_on",
+        "start_name": "alternate_start_0",
+        "condition_report": FRAGILE_REPORT,
+        "candidate_index": 0,
+    },
+    {
+        "case_name": "fragile_risk_on",
+        "start_name": "balanced_policy_start_40",
+        "condition_report": FRAGILE_REPORT,
+        "candidate_index": 40,
+    },
+    {
+        "case_name": "defensive_risk_off",
+        "start_name": "validated_start_22",
+        "condition_report": DEFENSIVE_REPORT,
+        "candidate_index": 22,
+    },
+    {
+        "case_name": "defensive_risk_off",
+        "start_name": "balanced_policy_start_77",
+        "condition_report": DEFENSIVE_REPORT,
+        "candidate_index": 77,
+    },
+    {
+        "case_name": "defensive_risk_off",
+        "start_name": "memory_nearest_start_0",
+        "condition_report": DEFENSIVE_REPORT,
+        "candidate_index": 0,
+    },
+    {
+        "case_name": "rates_selloff",
+        "start_name": "validated_start_18",
+        "condition_report": RATES_REPORT,
+        "candidate_index": 18,
+    },
+    {
+        "case_name": "rates_selloff",
+        "start_name": "balanced_policy_start_178",
+        "condition_report": RATES_REPORT,
+        "candidate_index": 178,
+    },
+]
 
 DEFAULT_VARIANTS = [
     {
@@ -123,8 +177,17 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     )
 
 
-def selected_historical_cases(case_count: int | None = None) -> list[dict[str, Any]]:
-    rows = [case for case in DEFAULT_MATRIX if "candidate_index" in case]
+def selected_historical_cases(
+    case_count: int | None = None,
+    *,
+    case_set: str = "default",
+) -> list[dict[str, Any]]:
+    if str(case_set) == "default":
+        rows = [case for case in DEFAULT_MATRIX if "candidate_index" in case]
+    elif str(case_set) == "expanded":
+        rows = list(EXPANDED_MATRIX)
+    else:
+        raise ValueError(f"unknown case set: {case_set!r}")
     if case_count:
         return rows[: int(case_count)]
     return rows
@@ -376,6 +439,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "# Fixed-Start Prefix-Mixture Bakeoff",
         "",
         f"- Status: `{summary.get('status')}`",
+        f"- Case set: `{summary.get('case_set', 'default')}`",
         f"- Variant set: `{summary.get('variant_set', 'prior')}`",
         f"- Case count: `{summary.get('case_count')}`",
         f"- Variant count: `{summary.get('variant_count')}`",
@@ -456,7 +520,7 @@ def _format_optional(value: Any) -> str:
 def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    cases = selected_historical_cases(args.case_count)
+    cases = selected_historical_cases(args.case_count, case_set=args.case_set)
     variants = selected_variants(args.variant_count, variant_set=args.variant_set)
     rows: list[dict[str, Any]] = []
     for case in cases:
@@ -496,6 +560,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
             "using realized-future metrics where historical starts are selected."
         ),
         "case_count": int(len(cases)),
+        "case_set": str(args.case_set),
         "variant_count": int(len(variants)),
         "variant_set": str(args.variant_set),
         "run_count": int(len(rows)),
@@ -519,6 +584,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--case-count", type=int, default=4)
+    parser.add_argument(
+        "--case-set", choices=["default", "expanded"], default="default"
+    )
     parser.add_argument("--variant-count", type=int, default=4)
     parser.add_argument("--variant-set", choices=sorted(VARIANT_SETS), default="prior")
     parser.add_argument("--samples", type=int, default=2)
