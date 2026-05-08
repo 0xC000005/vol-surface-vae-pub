@@ -28,6 +28,11 @@ from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (  # noqa:
     render_story_smoke_markdown,
     run_story_smoke,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa: E402
+    DEFAULT_BRIDGE_ARRAYS as DEFAULT_PREFIX_BRIDGE_ARRAYS,
+    DEFAULT_BRIDGE_REPORT as DEFAULT_PREFIX_BRIDGE_REPORT,
+    run_prefix_latent_story_smoke,
+)
 
 
 DEFAULT_APP_OUTPUT_DIR = (
@@ -38,6 +43,10 @@ DEFAULT_PREFIX_VALIDATION_GATE_REPORT = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_validation_gate_790b/"
     "prefix_latent_validation_gate_report.json"
+)
+DEFAULT_PREFIX_APP_OUTPUT_DIR = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "risk_manager_story_gradio_demo/prefix_latent_live_smoke"
 )
 IMPLICATION_COLUMNS = [
     "Market",
@@ -71,6 +80,13 @@ VALIDATION_GATE_COLUMNS = [
     "Terminal Shift",
     "Warnings",
     "Failures",
+]
+PREFIX_VARIANT_COLUMNS = [
+    "Variant",
+    "Query Window",
+    "Start Window",
+    "Start Distance",
+    "Start Split",
 ]
 FAN_MARKET_CHOICES = [
     ("SPX", "SPX"),
@@ -272,13 +288,66 @@ def validation_gate_table(report: dict[str, Any]) -> pd.DataFrame:
     return _frame(rows, VALIDATION_GATE_COLUMNS)
 
 
+def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for item in _as_list(report.get("variant_rows")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Variant": str(item.get("variant", "")),
+                "Query Window": str(item.get("query_window_id", "")),
+                "Start Window": str(item.get("start_window_id", "")),
+                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Start Split": str(item.get("start_manifest_split", "")),
+            }
+        )
+    return _frame(rows, PREFIX_VARIANT_COLUMNS)
+
+
+def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
+    gate = _as_dict(report.get("validation_gate"))
+    rows: list[dict[str, Any]] = []
+    for item in _as_list(gate.get("cases")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Variant": str(item.get("variant", "")),
+                "Query": str(item.get("query_window_index", "")),
+                "Start": str(item.get("start_window_index", "")),
+                "Status": str(item.get("status", "")),
+                "Memory Cosine": _fmt_float(item.get("input_memory_cosine")),
+                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Terminal Shift": _fmt_float(item.get("terminal_mean_abs_delta_z")),
+                "Warnings": ", ".join(str(x) for x in _as_list(item.get("warnings"))),
+                "Failures": ", ".join(str(x) for x in _as_list(item.get("failures"))),
+            }
+        )
+    return _frame(rows, VALIDATION_GATE_COLUMNS)
+
+
 def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
     choices = [("All retrieved analogues", "ALL")]
+    added = False
     for rank, item in enumerate(_as_list(report.get("historical_analogues")), start=1):
         if not isinstance(item, dict):
             continue
         window_id = str(item.get("window_id", f"analogue_{rank}"))
         choices.append((f"Analogue {rank}: {window_id}", f"RANK_{rank}"))
+        added = True
+    if added:
+        return choices
+    seen: set[str] = {"ALL"}
+    for row in _as_list(_as_dict(report.get("generation")).get("path_quantiles")):
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("analogue_key", "ALL"))
+        if key in seen or key == "ALL":
+            continue
+        label = str(row.get("analogue_label") or key)
+        choices.append((label, key))
+        seen.add(key)
     return choices
 
 
@@ -497,6 +566,28 @@ def status_markdown(report: dict[str, Any]) -> str:
     )
 
 
+def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
+    query = _as_dict(report.get("cached_query"))
+    gate = _as_dict(report.get("validation_gate"))
+    generation = _as_dict(report.get("generation"))
+    artifacts = _as_dict(report.get("artifact_paths"))
+    return "\n".join(
+        [
+            "## Prefix-Latent Run Status",
+            "",
+            f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
+            f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
+            f"- Overall: `{gate.get('overall_status', 'n/a')}`",
+            f"- Operational: `{gate.get('operational_status', 'n/a')}`",
+            f"- Stress: `{gate.get('stress_status', 'n/a')}`",
+            f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
+            f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
+            f"- Markdown report: `{artifacts.get('markdown', 'n/a')}`",
+            f"- JSON report: `{artifacts.get('report', 'n/a')}`",
+        ]
+    )
+
+
 def report_json_text(report: dict[str, Any]) -> str:
     return json.dumps(report, indent=2, sort_keys=True)
 
@@ -530,8 +621,31 @@ def _progress_status_markdown(
     )
 
 
+def _prefix_progress_status_markdown(
+    *,
+    start_time: float,
+    start_mode: str,
+    samples: int,
+) -> str:
+    return "\n".join(
+        [
+            "## Prefix-Latent Run Status",
+            "",
+            f"- Prefix-latent run started: `{_elapsed_text(start_time)} ago`",
+            "- Current step: `cached text memory, start selection, prefix decoding, frozen rollout`",
+            f"- Start mode: `{start_mode}`",
+            f"- Generator samples per variant: `{int(samples)}`",
+            "- Outputs will fill in automatically when the run completes.",
+        ]
+    )
+
+
 def _completed_status_markdown(report: dict[str, Any], start_time: float) -> str:
     return status_markdown(report) + f"\n- Completed in: `{_elapsed_text(start_time)}`"
+
+
+def _completed_prefix_status_markdown(report: dict[str, Any], start_time: float) -> str:
+    return prefix_latent_status_markdown(report) + f"\n- Completed in: `{_elapsed_text(start_time)}`"
 
 
 def _error_status_markdown(error: BaseException, start_time: float) -> str:
@@ -577,6 +691,34 @@ def _blank_run_outputs(
     )
 
 
+def _blank_prefix_outputs(
+    *,
+    status: str,
+    fan_market: str,
+) -> tuple[
+    str,
+    str,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    go.Figure,
+    str,
+    dict[str, Any],
+    Any,
+]:
+    return (
+        "Prefix-latent run in progress. Results will appear here when complete.",
+        status,
+        _frame([], PREFIX_VARIANT_COLUMNS),
+        _frame([], VALIDATION_GATE_COLUMNS),
+        _frame([], SCENARIO_COLUMNS),
+        fan_chart_figure({}, fan_market, "ALL"),
+        "{}",
+        {},
+        analogue_scope_update({}),
+    )
+
+
 def build_run_args(
     *,
     story: str,
@@ -607,6 +749,61 @@ def build_run_args(
         device="cpu",
         skip_generator=bool(skip_generator),
         output_dir=str(output_dir),
+    )
+
+
+def build_prefix_latent_run_args(
+    *,
+    start_mode: str,
+    samples: int,
+    output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        bridge_report=DEFAULT_PREFIX_BRIDGE_REPORT,
+        bridge_arrays=DEFAULT_PREFIX_BRIDGE_ARRAYS,
+        pipeline_report=DEFAULT_PIPELINE_REPORT,
+        checkpoint=(
+            "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/"
+            "best_model.pt"
+        ),
+        output_dir=str(output_dir),
+        query_role="anchor",
+        query_kind=None,
+        query_window_id=None,
+        query_index=0,
+        start_mode=str(start_mode),
+        explicit_start_window_index=None,
+        include_original_baseline=True,
+        hidden_dim=256,
+        steps=1000,
+        batch_size=64,
+        eval_batch_size=16,
+        lr=1e-3,
+        seed=791,
+        device="cuda",
+        skip_rollout=False,
+        samples=int(samples),
+        n_steps=30,
+        chunk_size=max(4, min(16, int(samples))),
+        temperature=1.0,
+        score_scale_floor=1e-3,
+        hard_case_count=8,
+        max_paths=6,
+        state_scope="joint38",
+        eval_split="val",
+        test_start=4511,
+        val_size=441,
+        max_windows=441,
+        iv_count=25,
+        clean_nonpositive_log_levels=True,
+        positive_level_policy="reference_based",
+        iv_transform="log_level",
+        iv_lower_bound=1e-4,
+        iv_upper_bound=1.0,
+        scale_half_life=0.0,
+        scale_floor=1e-4,
+        center_mode="zero",
+        drift_feature_mode="none",
     )
 
 
@@ -677,6 +874,66 @@ def run_story_for_app(
     )
 
 
+def run_prefix_latent_for_app(
+    start_mode: str,
+    samples: int,
+    fan_market: str,
+    analogue_scope: str,
+    *,
+    runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
+) -> Any:
+    start_time = time.monotonic()
+    running_status = _prefix_progress_status_markdown(
+        start_time=start_time,
+        start_mode=str(start_mode),
+        samples=int(samples),
+    )
+    yield _blank_prefix_outputs(status=running_status, fan_market=fan_market)
+
+    args = build_prefix_latent_run_args(
+        start_mode=str(start_mode),
+        samples=int(samples),
+    )
+    try:
+        report = runner(args)
+    except Exception as error:  # pragma: no cover - defensive UI path
+        error_report = {
+            "status": "error",
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+        }
+        yield (
+            "The prefix-latent run failed before a report could be produced.",
+            _error_status_markdown(error, start_time),
+            _frame([], PREFIX_VARIANT_COLUMNS),
+            _frame([], VALIDATION_GATE_COLUMNS),
+            _frame([], SCENARIO_COLUMNS),
+            fan_chart_figure({}, fan_market, "ALL"),
+            report_json_text(error_report),
+            error_report,
+            analogue_scope_update({}),
+        )
+        return
+
+    markdown_path = Path(_as_dict(report.get("artifact_paths")).get("markdown", ""))
+    markdown = (
+        markdown_path.read_text(encoding="utf-8")
+        if str(markdown_path) and markdown_path.exists()
+        else prefix_latent_status_markdown(report)
+    )
+    yield (
+        markdown,
+        _completed_prefix_status_markdown(report, start_time),
+        prefix_variant_table(report),
+        prefix_validation_table(report),
+        scenario_table(report),
+        fan_chart_figure(report, fan_market, "ALL"),
+        report_json_text(report),
+        report,
+        analogue_scope_update(report),
+    )
+
+
 RunStoryForAppOutput = tuple[
     str,
     pd.DataFrame,
@@ -697,6 +954,7 @@ def build_demo() -> Any:
     validation_report = load_validation_gate_report()
     with gr.Blocks(title="Narrative Conditioned Scenario Demo") as demo:
         report_state = gr.State({})
+        prefix_report_state = gr.State({})
         gr.Markdown(
             "# Narrative Conditioned Scenario Demo\n"
             "Read this top to bottom: story, grounded market implications, "
@@ -804,6 +1062,65 @@ def build_demo() -> Any:
             label="Top validation hard cases",
             interactive=False,
         )
+        gr.Markdown("## 6. Prefix-latent live smoke")
+        gr.Markdown(
+            "This cached smoke path uses a held-out narrative text memory plus "
+            "a selected start state, decodes a recent prefix, and runs the "
+            "frozen joint39 generator. It makes no OpenAI calls."
+        )
+        with gr.Row():
+            prefix_start_mode = gr.Dropdown(
+                choices=[
+                    ("Original start", "original"),
+                    ("Nearest train start", "nearest_train_start"),
+                    ("Farthest train start", "farthest_train_start"),
+                ],
+                value="nearest_train_start",
+                label="Start mode",
+            )
+            prefix_samples = gr.Slider(
+                minimum=2,
+                maximum=64,
+                value=16,
+                step=1,
+                label="Prefix-latent samples per variant",
+            )
+        prefix_run_button = gr.Button("Run Prefix-Latent Smoke", variant="secondary")
+        prefix_status = gr.Markdown(
+            "## Prefix-Latent Run Status\n\n- Waiting for a cached prefix-latent run.",
+            label="Prefix-latent status",
+        )
+        with gr.Row():
+            prefix_fan_market = gr.Dropdown(
+                choices=FAN_MARKET_CHOICES,
+                value="SPX",
+                label="Prefix-latent fan chart factor",
+            )
+            prefix_analogue_scope = gr.Dropdown(
+                choices=[("All retrieved analogues", "ALL")],
+                value="ALL",
+                label="Prefix-latent start variant",
+            )
+        prefix_fan_plot = gr.Plot(label="Prefix-latent 30-day fan chart")
+        prefix_variants = gr.Dataframe(
+            headers=PREFIX_VARIANT_COLUMNS,
+            label="Prefix-latent start variants",
+            interactive=False,
+        )
+        prefix_validation = gr.Dataframe(
+            headers=VALIDATION_GATE_COLUMNS,
+            label="Prefix-latent current-run validation",
+            interactive=False,
+        )
+        prefix_scenario = gr.Dataframe(
+            headers=SCENARIO_COLUMNS,
+            label="Prefix-latent terminal delta summary",
+            interactive=False,
+        )
+        with gr.Accordion("Prefix-latent Markdown report", open=False):
+            prefix_report_markdown = gr.Markdown(label="Prefix-latent report")
+        with gr.Accordion("Prefix-latent raw JSON report", open=False):
+            prefix_report_json = gr.Code(language="json", label="Prefix-latent JSON")
         with gr.Accordion("Full Markdown report", open=False):
             report_markdown = gr.Markdown(label="Full report")
         with gr.Accordion("Raw JSON report", open=False):
@@ -836,6 +1153,40 @@ def build_demo() -> Any:
             fn=refresh_fan_chart,
             inputs=[report_state, fan_market, analogue_scope],
             outputs=fan_plot,
+            show_progress="hidden",
+        )
+        prefix_run_button.click(
+            fn=run_prefix_latent_for_app,
+            inputs=[
+                prefix_start_mode,
+                prefix_samples,
+                prefix_fan_market,
+                prefix_analogue_scope,
+            ],
+            outputs=[
+                prefix_report_markdown,
+                prefix_status,
+                prefix_variants,
+                prefix_validation,
+                prefix_scenario,
+                prefix_fan_plot,
+                prefix_report_json,
+                prefix_report_state,
+                prefix_analogue_scope,
+            ],
+            show_progress="full",
+            show_progress_on=prefix_status,
+        )
+        prefix_fan_market.change(
+            fn=refresh_fan_chart,
+            inputs=[prefix_report_state, prefix_fan_market, prefix_analogue_scope],
+            outputs=prefix_fan_plot,
+            show_progress="hidden",
+        )
+        prefix_analogue_scope.change(
+            fn=refresh_fan_chart,
+            inputs=[prefix_report_state, prefix_fan_market, prefix_analogue_scope],
+            outputs=prefix_fan_plot,
             show_progress="hidden",
         )
     return demo

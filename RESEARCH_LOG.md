@@ -110385,3 +110385,115 @@ mode with a small cached TestFlight.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 10 Gradio prefix-latent live smoke
+
+### Context
+
+Iteration 9 produced a cached live prefix-latent story smoke script, but the
+boss-facing Gradio app still only exposed the older analogue-conditioned story
+workflow plus a read-only aggregate prefix-latent validation section. The next
+production-readiness gap was UX: the app needed to run the live cached
+text-memory-plus-start prefix path and show its per-run validation and fan-chart
+artifacts.
+
+### Hypothesis
+
+The existing Gradio demo can support a separate prefix-latent live-smoke section
+without disrupting the current analogue-conditioned story flow. The UI should
+make the distinction explicit:
+
+- current story flow: live OpenAI grounding, text embedding, analogue retrieval,
+  analogue-conditioned generator fans;
+- prefix-latent smoke: cached held-out text memory, selected start state,
+  decoded recent prefix, frozen joint39 SNI rollout, current-run validation.
+
+### Execution
+
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Extended `test_code/test_785a_nl_risk_manager_story_gradio_app.py`.
+- Added prefix-latent UI helpers:
+  - `prefix_latent_status_markdown`;
+  - `prefix_variant_table`;
+  - `prefix_validation_table`;
+  - `build_prefix_latent_run_args`;
+  - `run_prefix_latent_for_app`.
+- Added a separate Gradio section, state object, start-mode selector, sample
+  control, run button, current-run validation table, start-variant table,
+  terminal-delta table, fan chart, Markdown report, and JSON report.
+- Added fan-chart scope fallback logic so reports without `historical_analogues`
+  can still expose path-quantile scopes from prefix-latent variants.
+- Set the Gradio prefix-latent default output directory to:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke`
+  so app runs do not overwrite the canonical research artifact
+  `prefix_latent_story_smoke_791a`.
+
+### Result
+
+The Gradio app now has a cached "Prefix-latent live smoke" path that:
+
+1. streams visible progress immediately after click;
+2. runs cached text memory plus start selection through the learned prefix
+   decoder;
+3. executes the frozen joint39 SNI rollout;
+4. displays current-run validation status and warnings;
+5. shows original/selected start variants;
+6. reuses the factor and selected-IV-cell fan-chart controls;
+7. writes separate app artifacts for audit.
+
+A real wrapper smoke with 2 samples returned:
+
+- progress emitted before model execution;
+- final status containing `Overall: pass`;
+- 2 variant rows;
+- 2 validation rows;
+- SPX fan-chart title;
+- report path under the Gradio demo output folder.
+
+### Mechanism Read
+
+This closes an important product gap. Previously, the UI could make the project
+look more mature than it was because the visible fan charts came from the
+analogue-conditioned path while the prefix-latent validation was only a
+read-only aggregate. The new section makes the live prefix-latent path visible
+as its own workflow and preserves the distinction between:
+
+- analogue-supported scenario generation;
+- decoded-prefix prompt-conditioned research path.
+
+This keeps the demo honest while moving toward the long-term product objective.
+
+### Decision
+
+Keep the app split into two modes for now. The next principled step is to add
+OpenAI-backed live narrative input to the prefix-latent mode with a small
+TestFlight:
+
+```text
+risk-manager narrative
+-> grounded implications/warnings
+-> text embedding / text memory bridge
+-> selected or explicit start
+-> decoded prefix
+-> frozen joint39 rollout
+-> current-run validation
+```
+
+Do not scale OpenAI calls until the 1-5 narrative TestFlight verifies schema,
+cache behavior, and non-garbage text-memory outputs.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/prefix_latent_story_smoke_report.json`
+
+### Verification
+
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 14 passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 52 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: printed `Blocks`.
+- Real wrapper smoke through `run_prefix_latent_for_app(...)`: progress true, final pass true, 2 variant rows, 2 validation rows, SPX fan chart.
+- `git diff --check`: passed.
+
+---

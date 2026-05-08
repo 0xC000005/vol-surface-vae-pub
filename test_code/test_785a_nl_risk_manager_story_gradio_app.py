@@ -7,10 +7,15 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     DEFAULT_STORY,
     analogues_table,
     analogue_scope_choices,
+    build_prefix_latent_run_args,
     build_run_args,
     fan_chart_figure,
     implications_table,
+    prefix_latent_status_markdown,
+    prefix_validation_table,
+    prefix_variant_table,
     refresh_fan_chart,
+    run_prefix_latent_for_app,
     run_story_for_app,
     scenario_table,
     status_markdown,
@@ -138,6 +143,93 @@ def _report() -> dict:
     }
 
 
+def _prefix_report() -> dict:
+    return {
+        "artifact_paths": {
+            "report": "outputs/prefix_latent_story_smoke_report.json",
+            "markdown": "outputs/prefix_latent_story_smoke_report.md",
+            "arrays": "outputs/prefix_latent_story_smoke_arrays.npz",
+        },
+        "cached_query": {
+            "window_id": "joint39_val_0370",
+            "kind": "revised_market_description",
+            "narrative_text": "Risk-on market tape with tighter spreads.",
+            "text_memory_dim": 128,
+        },
+        "variant_rows": [
+            {
+                "variant": "original",
+                "query_window_id": "joint39_val_0370",
+                "start_window_id": "joint39_val_0370",
+                "start_distance_z": 0.0,
+            },
+            {
+                "variant": "nearest_train_start",
+                "query_window_id": "joint39_val_0370",
+                "start_window_id": "joint39_val_0269",
+                "start_distance_z": 6.94,
+            },
+        ],
+        "validation_gate": {
+            "overall_status": "pass",
+            "operational_status": "pass",
+            "stress_status": "pass",
+            "endpoint_max_abs_error": 0.0,
+            "warning_counts": {},
+            "fail_counts": {},
+            "cases": [
+                {
+                    "variant": "original",
+                    "query_window_index": 153,
+                    "start_window_index": 153,
+                    "status": "pass",
+                    "input_memory_cosine": 0.899,
+                    "start_distance_z": 0.0,
+                    "terminal_mean_abs_delta_z": 0.0,
+                    "warnings": [],
+                    "failures": [],
+                }
+            ],
+        },
+        "generation": {
+            "generated_state_shape": [2, 16, 30, 39],
+            "finite_rate": 1.0,
+            "path_quantiles": [
+                {
+                    "market": "SPX",
+                    "display_name": "SPX",
+                    "analogue_key": "ALL",
+                    "analogue_label": "All start variants",
+                    "days": [1, 2],
+                    "p10": [-1.0, -2.0],
+                    "p50": [0.1, 0.2],
+                    "p90": [1.0, 2.0],
+                    "mean": [0.2, 0.3],
+                },
+                {
+                    "market": "SPX",
+                    "display_name": "SPX",
+                    "analogue_key": "RANK_1",
+                    "analogue_label": "Analogue 1: joint39_val_0370",
+                    "days": [1, 2],
+                    "p10": [0.0, 0.1],
+                    "p50": [0.3, 0.5],
+                    "p90": [0.8, 1.1],
+                    "mean": [0.4, 0.6],
+                },
+            ],
+            "terminal_delta_summary": [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": -52.5,
+                    "p10": -113.3,
+                    "p90": 8.4,
+                }
+            ],
+        },
+    }
+
+
 def test_table_formatters_expose_demo_evidence() -> None:
     report = _report()
 
@@ -189,6 +281,47 @@ def test_validation_gate_formatters_explain_prefix_latent_qc() -> None:
     assert "Stress status: `fail`" in markdown
     assert table.iloc[0]["Variant"] == "farthest_train_start"
     assert table.iloc[0]["Status"] == "fail"
+
+
+def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
+    report = _prefix_report()
+
+    markdown = prefix_latent_status_markdown(report)
+    variants = prefix_variant_table(report)
+    validation = prefix_validation_table(report)
+
+    assert "Overall: `pass`" in markdown
+    assert "joint39_val_0370" in markdown
+    assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
+    assert validation.iloc[0]["Memory Cosine"] == "0.899"
+
+
+def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
+    choices = analogue_scope_choices(_prefix_report())
+
+    assert choices == [
+        ("All retrieved analogues", "ALL"),
+        ("Analogue 1: joint39_val_0370", "RANK_1"),
+    ]
+
+
+def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
+    args = build_prefix_latent_run_args(
+        start_mode="nearest_train_start",
+        samples=12,
+        output_dir="tmp/prefix",
+    )
+
+    assert args.start_mode == "nearest_train_start"
+    assert args.samples == 12
+    assert args.output_dir == "tmp/prefix"
+    assert args.device == "cuda"
+
+    default_args = build_prefix_latent_run_args(
+        start_mode="nearest_train_start",
+        samples=12,
+    )
+    assert "risk_manager_story_gradio_demo" in default_args.output_dir
 
 
 def test_build_run_args_sets_generator_controls() -> None:
@@ -298,3 +431,29 @@ def test_run_story_for_app_streams_visible_progress_before_runner_finishes() -> 
     assert "OpenAI grounding" in first[4]
     assert calls == ["A risk-on recovery."]
     assert "Completed in" in final[4]
+
+
+def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.start_mode, args.samples))
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="nearest_train_start",
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "Prefix-latent run started" in first[1]
+    assert calls == [("nearest_train_start", 8)]
+    assert "Completed in" in final[1]
+    assert final[2].iloc[0]["Variant"] == "original"
+    assert final[3].iloc[0]["Status"] == "pass"
+    assert final[5].layout.title.text == "SPX 30-day scenario fan"
