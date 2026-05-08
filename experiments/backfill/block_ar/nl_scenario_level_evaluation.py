@@ -31,6 +31,8 @@ from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovati
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
     _reconstruct_states,
     sample_normal_generator_for_retrieved_analogues,
+    sample_with_memory_condition,
+    sample_with_memory_residual_condition,
 )
 
 
@@ -61,6 +63,92 @@ def _round(value: float | np.floating[Any]) -> float | None:
 
 def load_bridge_report(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def bridge_report_arrays_path(
+    bridge_report: dict[str, Any],
+    *,
+    explicit_path: str | Path | None,
+) -> Path:
+    """Return the bridge arrays path used for direct-memory ablations."""
+
+    if explicit_path:
+        return Path(explicit_path)
+    artifact_paths = bridge_report.get("artifact_paths", {})
+    if isinstance(artifact_paths, dict) and artifact_paths.get("arrays"):
+        return Path(str(artifact_paths["arrays"]))
+    raise ValueError(
+        "bridge arrays path is required for direct-memory evaluation; pass "
+        "--bridge-arrays or include artifact_paths.arrays in the bridge report"
+    )
+
+
+def load_bridge_arrays(path: str | Path) -> dict[str, np.ndarray]:
+    """Load bridge-evaluation arrays needed for direct memory injection."""
+
+    with np.load(path) as payload:
+        arrays = {name: payload[name].copy() for name in payload.files}
+    required = {"condition_vectors", "memory_targets"}
+    missing = sorted(required.difference(arrays))
+    if missing:
+        raise ValueError(f"bridge arrays missing required keys: {missing}")
+    return arrays
+
+
+def direct_memory_condition_for_query(
+    query_row: dict[str, Any],
+    condition_vectors: np.ndarray,
+) -> np.ndarray:
+    """Return the text-predicted condition-memory vector for a held-out query."""
+
+    if "embedding_index" not in query_row:
+        raise ValueError("held-out query row does not contain embedding_index")
+    embedding_index = int(query_row["embedding_index"])
+    vectors = np.asarray(condition_vectors, dtype=np.float32)
+    if embedding_index < 0 or embedding_index >= vectors.shape[0]:
+        raise IndexError(
+            f"embedding_index {embedding_index} outside condition_vectors with "
+            f"{vectors.shape[0]} rows"
+        )
+    return vectors[embedding_index].astype(np.float32, copy=True)
+
+
+def true_memory_condition_for_window(
+    window_index: int,
+    memory_targets: np.ndarray,
+) -> np.ndarray:
+    """Return the frozen generator memory target for an original bridge window."""
+
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    idx = int(window_index)
+    if idx < 0 or idx >= targets.shape[0]:
+        raise IndexError(
+            f"window_index {idx} outside memory_targets with {targets.shape[0]} rows"
+        )
+    return targets[idx].astype(np.float32, copy=True)
+
+
+def parse_memory_residual_alphas(raw: str) -> list[float]:
+    """Parse comma-separated residual strengths for prompt-conditioning sweeps."""
+
+    values: list[float] = []
+    for item in str(raw).split(","):
+        text = item.strip()
+        if not text:
+            continue
+        value = float(text)
+        if value < 0.0 or value > 1.0:
+            raise ValueError("memory residual alphas must be in [0, 1]")
+        values.append(value)
+    if not values:
+        raise ValueError("at least one memory residual alpha is required")
+    return values
+
+
+def memory_residual_method_name(prefix: str, alpha: float) -> str:
+    """Build stable report keys for alpha-grid residual methods."""
+
+    return f"{prefix}_a{int(round(float(alpha) * 100)):03d}"
 
 
 def select_heldout_query_rows(
@@ -280,6 +368,96 @@ def _states_to_deltas(states: np.ndarray, current_states: np.ndarray) -> np.ndar
     return (state_arr - current[:, None, None, :]).reshape(-1, state_arr.shape[2], state_arr.shape[3])
 
 
+def _sample_direct_memory_deltas(
+    model: Any,
+    condition_memory: np.ndarray,
+    *,
+    block_index: int,
+    history_level: np.ndarray,
+    history_norm: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    drift_feature: np.ndarray,
+    history_raw: np.ndarray,
+    specs: list[Any],
+    n_samples: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    device: torch.device,
+) -> np.ndarray:
+    """Sample held-out history paths while directly injecting condition memory."""
+
+    idx = int(block_index)
+    sampled_increments = sample_with_memory_condition(
+        model,
+        np.asarray(condition_memory, dtype=np.float32),
+        history_level[idx],
+        history_norm[idx],
+        center[idx],
+        scale[idx],
+        drift_feature[idx],
+        n_samples=int(n_samples),
+        n_steps=int(n_steps),
+        chunk_size=int(chunk_size),
+        temperature=float(temperature),
+        device=device,
+    )
+    generated_states = _reconstruct_states(
+        history_raw[[idx], -1, :],
+        sampled_increments,
+        specs,
+    )
+    return _states_to_deltas(generated_states, history_raw[[idx], -1, :])
+
+
+def _sample_memory_residual_deltas(
+    model: Any,
+    condition_memory: np.ndarray,
+    base_memory: np.ndarray,
+    *,
+    block_indices: list[int],
+    history_level: np.ndarray,
+    history_norm: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    drift_feature: np.ndarray,
+    history_raw: np.ndarray,
+    specs: list[Any],
+    alpha: float,
+    n_samples: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    device: torch.device,
+) -> np.ndarray:
+    """Sample paths with dynamic market memory plus a text-memory residual."""
+
+    indices = [int(idx) for idx in block_indices]
+    sampled_increments = sample_with_memory_residual_condition(
+        model,
+        np.asarray(condition_memory, dtype=np.float32),
+        np.asarray(base_memory, dtype=np.float32),
+        history_level[indices],
+        history_norm[indices],
+        center[indices],
+        scale[indices],
+        drift_feature[indices],
+        alpha=float(alpha),
+        n_samples=int(n_samples),
+        n_steps=int(n_steps),
+        chunk_size=int(chunk_size),
+        temperature=float(temperature),
+        device=device,
+    )
+    generated_states = _reconstruct_states(
+        history_raw[indices, -1, :],
+        sampled_increments,
+        specs,
+    )
+    return _states_to_deltas(generated_states, history_raw[indices, -1, :])
+
+
 @torch.no_grad()
 def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     np.random.seed(int(args.seed))
@@ -290,6 +468,23 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         role=args.query_role,
         max_windows=int(args.max_windows_eval),
     )
+    bridge_arrays: dict[str, np.ndarray] | None = None
+    bridge_arrays_source: str | None = None
+    residual_alphas = (
+        parse_memory_residual_alphas(args.memory_residual_alphas)
+        if bool(args.include_memory_residual_generator)
+        else []
+    )
+    needs_bridge_arrays = bool(args.include_direct_memory_generator) or bool(
+        args.include_memory_residual_generator
+    )
+    if needs_bridge_arrays:
+        bridge_arrays_path_value = bridge_report_arrays_path(
+            bridge_report,
+            explicit_path=args.bridge_arrays,
+        )
+        bridge_arrays = load_bridge_arrays(bridge_arrays_path_value)
+        bridge_arrays_source = str(bridge_arrays_path_value)
     all_window_count = max(
         int(max(row["window_index"] for row in query_rows)) + 1,
         int(max(idx for row in query_rows for idx in [item["window_index"] for item in row["top_train_pool"]])) + 1,
@@ -331,13 +526,12 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         window_index = int(query["window_index"])
         target_block_index = int(local_to_block[window_index])
         target = future_delta[target_block_index]
-        top_train = [
-            int(local_to_block[int(item["window_index"])])
-            for item in query.get("top_train_pool", [])[: int(args.top_k)]
-        ]
+        top_train_items = query.get("top_train_pool", [])[: int(args.top_k)]
+        top_train_local = [int(item["window_index"]) for item in top_train_items]
+        top_train = [int(local_to_block[idx]) for idx in top_train_local]
         analogue_rows = [
             {"index": idx, "cosine": float(item.get("cosine", 0.0))}
-            for idx, item in zip(top_train, query.get("top_train_pool", [])[: int(args.top_k)])
+            for idx, item in zip(top_train, top_train_items)
         ]
         sampled = sample_normal_generator_for_retrieved_analogues(
             model,
@@ -386,6 +580,145 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                 scale=delta_scale,
             ),
         }
+        if bridge_arrays is not None:
+            direct_condition = direct_memory_condition_for_query(
+                query,
+                bridge_arrays["condition_vectors"],
+            )
+            direct_samples = _sample_direct_memory_deltas(
+                model,
+                direct_condition,
+                block_index=target_block_index,
+                history_level=history_level,
+                history_norm=history_norm,
+                center=center,
+                scale=scale,
+                drift_feature=drift_feature,
+                history_raw=history_raw,
+                specs=specs,
+                n_samples=int(args.samples),
+                n_steps=int(args.n_steps),
+                chunk_size=int(args.chunk_size),
+                temperature=float(args.temperature),
+                device=device,
+            )
+            methods["narrative_direct_memory"] = score_sample_distribution(
+                direct_samples,
+                target,
+                scale=delta_scale,
+            )
+            generated_chunks[f"direct_memory_{window_index}"] = direct_samples.astype(
+                np.float32
+            )
+            if residual_alphas:
+                base_condition = true_memory_condition_for_window(
+                    window_index,
+                    bridge_arrays["memory_targets"],
+                )
+                for alpha in residual_alphas:
+                    method_name = memory_residual_method_name(
+                        "narrative_residual_memory",
+                        alpha,
+                    )
+                    residual_samples = _sample_memory_residual_deltas(
+                        model,
+                        direct_condition,
+                        base_condition,
+                        block_indices=[target_block_index],
+                        history_level=history_level,
+                        history_norm=history_norm,
+                        center=center,
+                        scale=scale,
+                        drift_feature=drift_feature,
+                        history_raw=history_raw,
+                        specs=specs,
+                        alpha=float(alpha),
+                        n_samples=int(args.samples),
+                        n_steps=int(args.n_steps),
+                        chunk_size=int(args.chunk_size),
+                        temperature=float(args.temperature),
+                        device=device,
+                    )
+                    methods[method_name] = score_sample_distribution(
+                        residual_samples,
+                        target,
+                        scale=delta_scale,
+                    )
+                    generated_chunks[
+                        f"{method_name}_{window_index}"
+                    ] = residual_samples.astype(np.float32)
+                if bool(args.include_memory_residual_topk_generator):
+                    top_base_conditions = np.asarray(
+                        bridge_arrays["memory_targets"][np.asarray(top_train_local)],
+                        dtype=np.float32,
+                    )
+                    top_text_conditions = np.repeat(
+                        direct_condition[None],
+                        len(top_train_local),
+                        axis=0,
+                    )
+                    for alpha in residual_alphas:
+                        method_name = memory_residual_method_name(
+                            "narrative_residual_topk",
+                            alpha,
+                        )
+                        topk_residual_samples = _sample_memory_residual_deltas(
+                            model,
+                            top_text_conditions,
+                            top_base_conditions,
+                            block_indices=top_train,
+                            history_level=history_level,
+                            history_norm=history_norm,
+                            center=center,
+                            scale=scale,
+                            drift_feature=drift_feature,
+                            history_raw=history_raw,
+                            specs=specs,
+                            alpha=float(alpha),
+                            n_samples=int(args.samples),
+                            n_steps=int(args.n_steps),
+                            chunk_size=int(args.chunk_size),
+                            temperature=float(args.temperature),
+                            device=device,
+                        )
+                        methods[method_name] = score_sample_distribution(
+                            topk_residual_samples,
+                            target,
+                            scale=delta_scale,
+                        )
+                        generated_chunks[
+                            f"{method_name}_{window_index}"
+                        ] = topk_residual_samples.astype(np.float32)
+            if bool(args.include_oracle_generator):
+                true_condition = true_memory_condition_for_window(
+                    window_index,
+                    bridge_arrays["memory_targets"],
+                )
+                oracle_direct_samples = _sample_direct_memory_deltas(
+                    model,
+                    true_condition,
+                    block_index=target_block_index,
+                    history_level=history_level,
+                    history_norm=history_norm,
+                    center=center,
+                    scale=scale,
+                    drift_feature=drift_feature,
+                    history_raw=history_raw,
+                    specs=specs,
+                    n_samples=int(args.samples),
+                    n_steps=int(args.n_steps),
+                    chunk_size=int(args.chunk_size),
+                    temperature=float(args.temperature),
+                    device=device,
+                )
+                methods["oracle_direct_memory_true_history"] = score_sample_distribution(
+                    oracle_direct_samples,
+                    target,
+                    scale=delta_scale,
+                )
+                generated_chunks[
+                    f"oracle_direct_memory_{window_index}"
+                ] = oracle_direct_samples.astype(np.float32)
         if bool(args.include_oracle_generator):
             oracle_sampled = sample_normal_generator_for_retrieved_analogues(
                 model,
@@ -449,6 +782,31 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         "samples": int(args.samples),
         "n_steps": int(args.n_steps),
         "seed": int(args.seed),
+        "direct_memory": {
+            "enabled": bool(args.include_direct_memory_generator),
+            "bridge_arrays": bridge_arrays_source,
+            "method": (
+                "For narrative_direct_memory, the held-out window's own "
+                "current history/normalization state is used, while the "
+                "frozen generator memory state is replaced by the "
+                "text-predicted bridge condition vector. When oracle output "
+                "is enabled, oracle_direct_memory_true_history uses the true "
+                "encoded memory target for the same window."
+            ),
+        },
+        "memory_residual": {
+            "enabled": bool(args.include_memory_residual_generator),
+            "topk_enabled": bool(args.include_memory_residual_topk_generator),
+            "alphas": residual_alphas,
+            "method": (
+                "For residual methods, the generator keeps re-encoding its "
+                "evolving market prefix. Text conditioning enters only as "
+                "alpha * (text_predicted_memory - base_history_memory). "
+                "narrative_residual_memory uses the held-out window history; "
+                "narrative_residual_topk applies the same text target as a "
+                "residual over each retrieved analogue history."
+            ),
+        },
         "summary": summary,
         "window_scores": window_scores,
         "artifact_paths": {
@@ -476,6 +834,7 @@ def main() -> None:
     parser.add_argument("--bridge-report", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--bridge-arrays")
     parser.add_argument("--query-role", default="anchor")
     parser.add_argument("--max-windows-eval", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=3)
@@ -483,6 +842,10 @@ def main() -> None:
     parser.add_argument("--n-steps", type=int, default=30)
     parser.add_argument("--chunk-size", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--include-direct-memory-generator", action="store_true")
+    parser.add_argument("--include-memory-residual-generator", action="store_true")
+    parser.add_argument("--include-memory-residual-topk-generator", action="store_true")
+    parser.add_argument("--memory-residual-alphas", default="0.10,0.25,0.50")
     parser.add_argument("--include-oracle-generator", action="store_true")
     parser.add_argument("--score-scale-floor", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=776)

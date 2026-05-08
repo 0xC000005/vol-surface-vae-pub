@@ -7,7 +7,11 @@ sys.path.insert(0, ".")
 from experiments.backfill.block_ar.nl_scenario_level_evaluation import (
     build_delta_scale,
     bridge_local_to_block_indices,
+    bridge_report_arrays_path,
+    direct_memory_condition_for_query,
     future_delta_paths,
+    memory_residual_method_name,
+    parse_memory_residual_alphas,
     score_sample_distribution,
     select_heldout_query_rows,
     summarize_method_scores,
@@ -65,6 +69,42 @@ def test_bridge_local_to_block_indices_uses_manifest_window_indices() -> None:
     mapping = bridge_local_to_block_indices(report, n_windows=3)
 
     assert mapping.tolist() == [4, 1, 8]
+
+
+def test_bridge_report_arrays_path_prefers_explicit_then_artifact() -> None:
+    report = {"artifact_paths": {"arrays": "outputs/bridge_arrays.npz"}}
+
+    assert str(bridge_report_arrays_path(report, explicit_path="manual.npz")) == "manual.npz"
+    assert str(bridge_report_arrays_path(report, explicit_path=None)) == "outputs/bridge_arrays.npz"
+
+
+def test_direct_memory_condition_for_query_uses_embedding_index() -> None:
+    condition_vectors = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    condition = direct_memory_condition_for_query(
+        {"embedding_index": 1},
+        condition_vectors,
+    )
+
+    np.testing.assert_allclose(condition, [0.0, 2.0, 0.0])
+
+
+def test_parse_memory_residual_alphas_accepts_comma_separated_values() -> None:
+    alphas = parse_memory_residual_alphas("0, 0.10,0.25, 1")
+
+    assert alphas == [0.0, 0.1, 0.25, 1.0]
+
+
+def test_memory_residual_method_name_is_stable_for_report_keys() -> None:
+    assert memory_residual_method_name("narrative_residual_memory", 0.25) == (
+        "narrative_residual_memory_a025"
+    )
 
 
 def test_future_delta_paths_subtracts_last_history_state() -> None:

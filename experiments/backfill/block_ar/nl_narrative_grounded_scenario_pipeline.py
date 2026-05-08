@@ -1098,6 +1098,173 @@ def sample_with_memory_condition(
     return torch.cat(outs, dim=0).cpu().numpy().astype(np.float32)[None]
 
 
+@torch.no_grad()
+def sample_with_memory_residual_condition(
+    model: Any,
+    condition_memory: np.ndarray,
+    base_memory: np.ndarray,
+    history_level_values: np.ndarray,
+    history_normalized_innovation: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    drift_feature: np.ndarray,
+    *,
+    alpha: float,
+    n_samples: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    device: torch.device,
+) -> np.ndarray:
+    """Sample while adding a text-memory residual to normal dynamic memory.
+
+    Unlike `sample_with_memory_condition`, this keeps the generator's normal
+    evolving-prefix encoder active. The injected text condition is a residual
+    from the base history memory, so alpha=0 is the normal frozen generator.
+    """
+
+    h_level = torch.from_numpy(np.asarray(history_level_values, dtype=np.float32)).to(
+        device
+    )
+    h_norm = torch.from_numpy(
+        np.asarray(history_normalized_innovation, dtype=np.float32)
+    ).to(device)
+    ctr = torch.from_numpy(np.asarray(center, dtype=np.float32)).to(device)
+    scl = torch.from_numpy(np.asarray(scale, dtype=np.float32)).to(device)
+    drift = torch.from_numpy(np.asarray(drift_feature, dtype=np.float32)).to(device)
+    if h_level.ndim == 2:
+        h_level = h_level[None]
+        h_norm = h_norm[None]
+        ctr = ctr[None]
+        scl = scl[None]
+        drift = drift[None]
+    if h_level.ndim != 3:
+        raise ValueError("history_level_values must have shape [K,T,C] or [T,C]")
+    bsz = int(h_level.shape[0])
+    cond = np.asarray(condition_memory, dtype=np.float32)
+    base = np.asarray(base_memory, dtype=np.float32)
+    if cond.ndim == 1:
+        cond = np.repeat(cond[None], bsz, axis=0)
+    if base.ndim == 1:
+        base = np.repeat(base[None], bsz, axis=0)
+    if cond.shape != (bsz, int(model.cfg.memory_dim)):
+        raise ValueError("condition_memory must have shape [K,memory_dim] or [memory_dim]")
+    if base.shape != cond.shape:
+        raise ValueError("base_memory must match condition_memory shape")
+    residual = float(alpha) * (cond - base)
+    residual_t = torch.from_numpy(residual.astype(np.float32)).to(device)
+    level_scores = model.level_values_to_scores(h_level)
+    history_flow = model._to_flow_coordinate(h_norm)
+    chunk_size = max(1, min(int(chunk_size), int(n_samples)))
+    temp = float(temperature)
+    dt = 1.0 / float(model.cfg.flow_steps)
+    outs: list[torch.Tensor] = []
+    for start in range(0, int(n_samples), chunk_size):
+        k = min(chunk_size, int(n_samples) - start)
+        prefix_level_values = (
+            h_level.unsqueeze(1)
+            .expand(bsz, k, model.cfg.history_len, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.history_len, model.cfg.n_cells)
+            .clone()
+        )
+        prefix_level_scores = (
+            level_scores.unsqueeze(1)
+            .expand(bsz, k, model.cfg.history_len, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.history_len, model.cfg.n_cells)
+            .clone()
+        )
+        prefix_norm = (
+            history_flow.unsqueeze(1)
+            .expand(bsz, k, model.cfg.history_len, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.history_len, model.cfg.n_cells)
+            .clone()
+        )
+        center_rep = (
+            ctr.unsqueeze(1)
+            .expand(bsz, k, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.n_cells)
+        )
+        scale_rep = (
+            scl.unsqueeze(1)
+            .expand(bsz, k, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.n_cells)
+        )
+        drift_rep = (
+            drift.unsqueeze(1)
+            .expand(bsz, k, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.n_cells)
+        )
+        residual_rep = (
+            residual_t.unsqueeze(1)
+            .expand(bsz, k, model.cfg.memory_dim)
+            .reshape(bsz * k, model.cfg.memory_dim)
+        )
+        _risk_prediction, risk_context = model._risk_state_from_history(
+            prefix_level_scores,
+            prefix_norm,
+            center_rep,
+            scale_rep,
+            drift_rep,
+        )
+        base_noise = temp * model._base_noise_like(
+            torch.empty(
+                bsz * k,
+                int(n_steps),
+                model.cfg.n_cells,
+                device=device,
+                dtype=h_level.dtype,
+            )
+        )
+        frames: list[torch.Tensor] = []
+        for step in range(int(n_steps)):
+            memory_state = model._encode_prefix(
+                prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep
+            )[:, -1]
+            memory_state = memory_state + residual_rep
+            if risk_context is not None:
+                memory_state = memory_state + risk_context
+            current_level_score = prefix_level_scores[:, -1]
+            x = base_noise[:, step]
+            base_noise_scale = model._conditional_base_noise_scale(memory_state)
+            if base_noise_scale is not None:
+                x = x * base_noise_scale
+            for flow_step in range(int(model.cfg.flow_steps)):
+                t = torch.full(
+                    (bsz * k,),
+                    (flow_step + 0.5) * dt,
+                    device=device,
+                    dtype=h_level.dtype,
+                )
+                x = x + dt * model.velocity(x, current_level_score, memory_state, t)
+            next_flow = x
+            next_norm = model._from_flow_coordinate(next_flow)
+            next_increment = next_norm * scale_rep + center_rep
+            if model.no_update_head is not None and bool(model.no_update_mask.any()):
+                logits = model.no_update_head(memory_state)
+                probs = torch.sigmoid(logits)
+                no_update = torch.rand_like(probs) < probs
+                no_update = no_update & model.no_update_mask.to(
+                    device=probs.device
+                ).view(1, model.cfg.n_cells)
+                next_increment = torch.where(
+                    no_update, torch.zeros_like(next_increment), next_increment
+                )
+                next_norm = (next_increment - center_rep) / scale_rep.clamp_min(1e-8)
+                next_flow = model._to_flow_coordinate(next_norm)
+            next_level_value = prefix_level_values[:, -1] + next_increment
+            next_level_score = model.level_values_to_scores(next_level_value)
+            frames.append(next_increment.view(bsz, k, model.cfg.n_cells))
+            prefix_level_values = torch.cat(
+                [prefix_level_values, next_level_value[:, None, :]], dim=1
+            )
+            prefix_level_scores = torch.cat(
+                [prefix_level_scores, next_level_score[:, None, :]], dim=1
+            )
+            prefix_norm = torch.cat([prefix_norm, next_flow[:, None, :]], dim=1)
+        outs.append(torch.stack(frames, dim=2))
+    return torch.cat(outs, dim=1).detach().cpu().numpy().astype(np.float32)
+
+
 def summarize_generated_states(
     generated_states: np.ndarray,
     current_state: np.ndarray,

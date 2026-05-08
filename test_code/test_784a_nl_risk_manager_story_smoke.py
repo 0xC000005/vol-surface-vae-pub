@@ -9,6 +9,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (
     assess_hard_case_gate,
     build_story_query_text,
     build_story_smoke_report,
+    path_quantiles_for_generated_states,
     render_story_smoke_markdown,
     score_implication_alignment,
 )
@@ -223,6 +224,114 @@ def test_score_implication_alignment_flags_direction_mismatches() -> None:
     assert mismatch["status"] == "warning"
     assert mismatch["match_rate"] == 0.0
     assert mismatch["mismatches"][0]["market"] == "SPX"
+
+
+def test_path_quantiles_for_generated_states_builds_factor_fan_chart_data() -> None:
+    states = np.zeros((1, 3, 2, 4), dtype=np.float32)
+    states[0, :, :, 0] = [[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]]
+    states[0, :, :, 3] = [[10.0, 12.0], [20.0, 22.0], [30.0, 32.0]]
+    current = np.zeros((1, 4), dtype=np.float32)
+    result = path_quantiles_for_generated_states(
+        states,
+        current,
+        ["iv:0", "iv:1", "iv:2", "factor:spx"],
+    )
+
+    spx = next(row for row in result if row["market"] == "SPX")
+    assert spx["days"] == [1, 2]
+    assert spx["p50"] == [20.0, 22.0]
+    assert spx["p10"][0] < spx["p50"][0] < spx["p90"][0]
+
+
+def test_path_quantiles_for_generated_states_includes_paper_selected_iv_cells() -> None:
+    states = np.zeros((1, 3, 2, 25), dtype=np.float32)
+    current = np.zeros((1, 25), dtype=np.float32)
+    states[0, :, :, 7] = [[0.10, 0.20], [0.30, 0.40], [0.50, 0.60]]
+    states[0, :, :, 17] = [[1.10, 1.20], [1.30, 1.40], [1.50, 1.60]]
+    result = path_quantiles_for_generated_states(
+        states,
+        current,
+        [f"iv:{idx}" for idx in range(25)],
+    )
+
+    atm_3m = next(row for row in result if row["market"] == "IV_ATM_3M")
+    assert atm_3m["display_name"] == "IV ATM 3M (K=1.00)"
+    assert atm_3m["cell"] == {
+        "row": 1,
+        "col": 2,
+        "maturity": "3M",
+        "moneyness": "1.00",
+    }
+    assert atm_3m["p50"] == [0.30000001192092896, 0.4000000059604645]
+
+    atm_1y = next(row for row in result if row["market"] == "IV_ATM_1Y")
+    assert atm_1y["p50"] == [1.2999999523162842, 1.399999976158142]
+
+
+def test_path_quantiles_for_generated_states_can_split_by_analogue() -> None:
+    states = np.zeros((2, 2, 2, 26), dtype=np.float32)
+    states[0, :, :, 25] = [[10.0, 11.0], [12.0, 13.0]]
+    states[1, :, :, 25] = [[30.0, 31.0], [32.0, 33.0]]
+    current = np.zeros((2, 26), dtype=np.float32)
+    result = path_quantiles_for_generated_states(
+        states,
+        current,
+        [*(f"iv:{idx}" for idx in range(25)), "factor:spx"],
+        analogues=[
+            {"window_id": "joint39_val_0001"},
+            {"window_id": "joint39_val_0002"},
+        ],
+    )
+
+    pooled = next(
+        row for row in result if row["market"] == "SPX" and row["analogue_key"] == "ALL"
+    )
+    first = next(
+        row
+        for row in result
+        if row["market"] == "SPX" and row["analogue_key"] == "RANK_1"
+    )
+    second = next(
+        row
+        for row in result
+        if row["market"] == "SPX" and row["analogue_key"] == "RANK_2"
+    )
+
+    assert pooled["p50"] == [21.0, 22.0]
+    assert first["window_id"] == "joint39_val_0001"
+    assert first["p50"] == [11.0, 12.0]
+    assert second["window_id"] == "joint39_val_0002"
+    assert second["p50"] == [31.0, 32.0]
+
+
+def test_path_quantiles_for_generated_states_adds_paths_and_realized_analogue_future() -> (
+    None
+):
+    states = np.zeros((1, 8, 3, 26), dtype=np.float32)
+    for sample in range(8):
+        states[0, sample, :, 25] = [sample, sample + 1, sample + 2]
+    current = np.zeros((1, 26), dtype=np.float32)
+    future = np.zeros((1, 3, 26), dtype=np.float32)
+    future[0, :, 25] = [2.0, 4.0, 8.0]
+
+    result = path_quantiles_for_generated_states(
+        states,
+        current,
+        [*(f"iv:{idx}" for idx in range(25)), "factor:spx"],
+        analogues=[{"window_id": "joint39_val_0001"}],
+        future_states=future,
+        max_paths=5,
+    )
+
+    spx = next(
+        row
+        for row in result
+        if row["market"] == "SPX" and row["analogue_key"] == "RANK_1"
+    )
+    assert spx["realized_path"] == [2.0, 4.0, 8.0]
+    assert len(spx["sample_paths"]) == 5
+    assert spx["sample_paths"][0]["label"].startswith("Generated path")
+    assert spx["sample_paths"][0]["values"] == [0.0, 1.0, 2.0]
 
 
 def test_render_story_smoke_markdown_contains_boss_demo_sections() -> None:

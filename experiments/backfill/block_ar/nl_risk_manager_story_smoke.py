@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
+    KEY_FACTOR_NAMES,
     NarrativeAdapter,
     _load_joint39_block,
     _reconstruct_states,
@@ -73,6 +74,34 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_smoke_fragile_risk_on"
 )
+IV_MATURITY_LABELS = ["1M", "3M", "6M", "1Y", "2Y"]
+IV_MONEYNESS_LABELS = ["0.70", "0.85", "1.00", "1.15", "1.30"]
+SELECTED_IV_CELLS = [
+    {
+        "market": "IV_ATM_3M",
+        "row": 1,
+        "col": 2,
+        "display_name": "IV ATM 3M (K=1.00)",
+    },
+    {
+        "market": "IV_ATM_1Y",
+        "row": 3,
+        "col": 2,
+        "display_name": "IV ATM 1Y (K=1.00)",
+    },
+    {
+        "market": "IV_OTM_PUT_1Y",
+        "row": 3,
+        "col": 0,
+        "display_name": "IV OTM Put 1Y (K=0.70)",
+    },
+    {
+        "market": "IV_WING_6M_K130",
+        "row": 2,
+        "col": 4,
+        "display_name": "IV Wing 6M (K=1.30)",
+    },
+]
 
 
 class StoryMarketImplication(BaseModel):
@@ -681,6 +710,7 @@ def _selected_generator_arrays(
         "scale": scale[selected],
         "drift_feature": drift_feature[selected],
         "history_raw": history_raw[selected],
+        "future_raw": _block.future_state[selected].astype(np.float32),
         "specs": specs,
         "spec_names": _spec_names(specs),
     }
@@ -725,11 +755,182 @@ def _run_retrieval_generator(
         sampled["increments"],
         arrays["specs"],
     )
-    return summarize_retrieval_generated_states(
+    summary = summarize_retrieval_generated_states(
         generated_states,
         arrays["history_raw"][retrieved_indices, -1, :],
         arrays["spec_names"],
     )
+    return _with_path_quantiles(
+        summary,
+        generated_states=generated_states,
+        current_states=arrays["history_raw"][retrieved_indices, -1, :],
+        spec_names=arrays["spec_names"],
+        analogues=analogues,
+        future_states=arrays["future_raw"][retrieved_indices],
+    )
+
+
+def path_quantiles_for_generated_states(
+    generated_states: np.ndarray,
+    current_states: np.ndarray,
+    spec_names: list[str],
+    analogues: list[dict[str, Any]] | None = None,
+    future_states: np.ndarray | None = None,
+    max_paths: int = 6,
+) -> list[dict[str, Any]]:
+    """Build path-level quantiles for the demo fan chart."""
+
+    states = np.asarray(generated_states, dtype=np.float32)
+    current = np.asarray(current_states, dtype=np.float32)
+    if states.ndim != 4:
+        raise ValueError("generated_states must have shape [K,S,T,C]")
+    if current.shape != (states.shape[0], states.shape[-1]):
+        raise ValueError("current_states must have shape [K,C]")
+    delta = states - current[:, None, None, :]
+    future_delta: np.ndarray | None = None
+    if future_states is not None:
+        future = np.asarray(future_states, dtype=np.float32)
+        expected_future_shape = (states.shape[0], states.shape[2], states.shape[-1])
+        if future.shape != expected_future_shape:
+            raise ValueError("future_states must have shape [K,T,C]")
+        future_delta = future - current[:, None, :]
+    index = {name: idx for idx, name in enumerate(spec_names)}
+    days = list(range(1, int(states.shape[2]) + 1))
+
+    def _market_series(scope_delta: np.ndarray) -> dict[str, np.ndarray]:
+        series_by_market: dict[str, np.ndarray] = {
+            "IV_SURFACE": np.nanmean(scope_delta[..., :25], axis=-1),
+        }
+        if states.shape[-1] >= 25:
+            for cell in SELECTED_IV_CELLS:
+                row = int(cell["row"])
+                col = int(cell["col"])
+                flat_index = row * 5 + col
+                series_by_market[str(cell["market"])] = scope_delta[..., flat_index]
+        for market, spec_name in KEY_FACTOR_NAMES.items():
+            if spec_name in index:
+                series_by_market[market] = scope_delta[..., index[spec_name]]
+        return series_by_market
+
+    def _representative_paths(flat: np.ndarray) -> list[dict[str, Any]]:
+        path_count = min(int(max_paths), int(flat.shape[0]))
+        if path_count <= 0:
+            return []
+        terminal = np.asarray(flat[:, -1], dtype=np.float32)
+        order = np.argsort(terminal)
+        selected = np.unique(
+            np.round(np.linspace(0, len(order) - 1, path_count)).astype(int)
+        )
+        rows = []
+        for out_idx, order_idx in enumerate(selected, start=1):
+            path = flat[int(order[int(order_idx)])]
+            rows.append(
+                {
+                    "label": f"Generated path {out_idx}",
+                    "values": np.asarray(path, dtype=np.float32).astype(float).tolist(),
+                }
+            )
+        return rows
+
+    def _market_metadata(market: str) -> dict[str, Any]:
+        if market == "IV_SURFACE":
+            return {"display_name": "IV surface average"}
+        for cell in SELECTED_IV_CELLS:
+            if str(cell["market"]) != market:
+                continue
+            row = int(cell["row"])
+            col = int(cell["col"])
+            return {
+                "display_name": str(cell["display_name"]),
+                "cell": {
+                    "row": row,
+                    "col": col,
+                    "maturity": IV_MATURITY_LABELS[row],
+                    "moneyness": IV_MONEYNESS_LABELS[col],
+                },
+            }
+        return {"display_name": market}
+
+    def _rows_for_scope(
+        scope_delta: np.ndarray,
+        *,
+        analogue_key: str,
+        analogue_label: str,
+        window_id: str | None = None,
+        scope_future_delta: np.ndarray | None = None,
+    ) -> list[dict[str, Any]]:
+        rows_for_scope = []
+        future_by_market = (
+            _market_series(scope_future_delta) if scope_future_delta is not None else {}
+        )
+        for market, series in _market_series(scope_delta).items():
+            flat = np.asarray(series, dtype=np.float32).reshape(-1, states.shape[2])
+            row = {
+                "market": market,
+                "analogue_key": analogue_key,
+                "analogue_label": analogue_label,
+                "window_id": window_id,
+                "days": days,
+                "p10": np.nanquantile(flat, 0.10, axis=0).astype(float).tolist(),
+                "p50": np.nanquantile(flat, 0.50, axis=0).astype(float).tolist(),
+                "p90": np.nanquantile(flat, 0.90, axis=0).astype(float).tolist(),
+                "mean": np.nanmean(flat, axis=0).astype(float).tolist(),
+                "sample_paths": _representative_paths(flat),
+            }
+            if market in future_by_market:
+                realized = np.asarray(future_by_market[market], dtype=np.float32)
+                realized_flat = realized.reshape(-1, states.shape[2])
+                row["realized_path"] = (
+                    realized_flat[0].astype(float).tolist()
+                    if realized_flat.size
+                    else []
+                )
+            row.update(_market_metadata(market))
+            rows_for_scope.append(row)
+        return rows_for_scope
+
+    rows: list[dict[str, Any]] = _rows_for_scope(
+        delta,
+        analogue_key="ALL",
+        analogue_label="All retrieved analogues",
+    )
+    if analogues:
+        for rank, analogue in enumerate(analogues[: states.shape[0]], start=1):
+            window_id = str(analogue.get("window_id", f"analogue_{rank}"))
+            rows.extend(
+                _rows_for_scope(
+                    delta[rank - 1 : rank],
+                    analogue_key=f"RANK_{rank}",
+                    analogue_label=f"Analogue {rank}: {window_id}",
+                    window_id=window_id,
+                    scope_future_delta=(
+                        future_delta[rank - 1 : rank]
+                        if future_delta is not None
+                        else None
+                    ),
+                )
+            )
+    return rows
+
+
+def _with_path_quantiles(
+    summary: dict[str, Any],
+    *,
+    generated_states: np.ndarray,
+    current_states: np.ndarray,
+    spec_names: list[str],
+    analogues: list[dict[str, Any]] | None = None,
+    future_states: np.ndarray | None = None,
+) -> dict[str, Any]:
+    updated = dict(summary)
+    updated["path_quantiles"] = path_quantiles_for_generated_states(
+        generated_states,
+        current_states,
+        spec_names,
+        analogues=analogues,
+        future_states=future_states,
+    )
+    return updated
 
 
 def _load_story_grounding(
