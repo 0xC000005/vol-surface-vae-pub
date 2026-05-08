@@ -897,11 +897,15 @@ def path_quantiles_for_generated_states(
     if analogues:
         for rank, analogue in enumerate(analogues[: states.shape[0]], start=1):
             window_id = str(analogue.get("window_id", f"analogue_{rank}"))
+            analogue_key = str(analogue.get("analogue_key") or f"RANK_{rank}")
+            analogue_label = str(
+                analogue.get("analogue_label") or f"Analogue {rank}: {window_id}"
+            )
             rows.extend(
                 _rows_for_scope(
                     delta[rank - 1 : rank],
-                    analogue_key=f"RANK_{rank}",
-                    analogue_label=f"Analogue {rank}: {window_id}",
+                    analogue_key=analogue_key,
+                    analogue_label=analogue_label,
                     window_id=window_id,
                     scope_future_delta=(
                         future_delta[rank - 1 : rank]

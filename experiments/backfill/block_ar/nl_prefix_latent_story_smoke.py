@@ -641,10 +641,16 @@ def _variant_path_labels(
     for row in variant_rows:
         start_idx = int(row["start_window_index"])
         info = window_metadata.get(start_idx, {})
+        window_id = str(info.get("window_id", f"window_{start_idx}"))
+        is_operational = bool(row.get("is_operational", True))
+        label_prefix = "Selected start" if is_operational else "Diagnostic baseline"
         labels.append(
             {
-                "window_id": str(info.get("window_id", f"window_{start_idx}")),
+                "window_id": window_id,
                 "variant": str(row.get("variant", "")),
+                "case_role": str(row.get("case_role", "")),
+                "is_operational": is_operational,
+                "analogue_label": f"{label_prefix}: {window_id}",
                 "start_window_index": start_idx,
             }
         )
@@ -941,7 +947,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             current_raw,
             _spec_names(specs),
         )
-        generation["path_quantiles"] = path_quantiles_for_generated_states(
+        path_quantiles = path_quantiles_for_generated_states(
             generated_states,
             current_raw,
             _spec_names(specs),
@@ -949,6 +955,10 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             future_states=future_raw[start_indices],
             max_paths=int(args.max_paths),
         )
+        for item in path_quantiles:
+            if isinstance(item, dict) and str(item.get("analogue_key", "ALL")) == "ALL":
+                item["analogue_label"] = "All start variants"
+        generation["path_quantiles"] = path_quantiles
         generation["window_scores"] = window_scores
         generation["rollout_summary"] = rollout_summary
     rollout_shifts = case_rollout_shift_rows(

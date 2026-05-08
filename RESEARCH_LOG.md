@@ -111285,3 +111285,71 @@ distribution, especially when showing multiple start variants.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 19 product-role fan labels
+
+### Context
+
+Iteration 18 added a cached Gradio wrapper smoke. It showed that the selected
+start and diagnostic baseline were separated in tables, but the fan-chart scope
+labels still used generic analogue language. For a risk-manager demo, the
+distribution selector should clearly distinguish proposed selected-start paths
+from diagnostic original-start paths.
+
+### Hypothesis
+
+If path-quantile labels carry product roles, the fan-chart selector and chart
+annotation will communicate which distribution is the proposed scenario and
+which one is diagnostic, without changing model behavior.
+
+### Execution
+
+- Updated `path_quantiles_for_generated_states` to honor an optional
+  `analogue_label` supplied by the caller.
+- Updated prefix-latent path labels to emit:
+  - `Selected start: <window_id>` for operational selected-start rows;
+  - `Diagnostic baseline: <window_id>` for original-start diagnostic rows.
+- Kept the pooled path label as `All start variants`.
+- Reran the cached Gradio wrapper smoke.
+
+### Result
+
+The cached wrapper smoke passed again. SPX fan-chart labels are now:
+
+- `ALL`: `All start variants`;
+- `RANK_1`: `Diagnostic baseline: joint39_val_0370`;
+- `RANK_2`: `Selected start: joint39_val_0063`.
+
+Smoke summary:
+
+- selected-start status: `pass`;
+- diagnostic-baseline status: `pass`;
+- fan trace count: `8`;
+- selected table rows: `1`;
+- diagnostic table rows: `1`;
+- validation table rows: `2`;
+- scenario table rows: `11`;
+- no smoke errors.
+
+### Decision
+
+Commit the product-role fan-chart labels. The next principled step is to make
+the cached wrapper smoke stricter by checking for these role labels directly,
+so regressions in demo wording are caught automatically.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_risk_manager_story_smoke.py`
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `test_code/test_784a_nl_risk_manager_story_smoke.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_797a_labels/gradio_cached_smoke_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`: 26 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_797a_labels --start-mode balanced_memory_start --samples 2 --fan-market SPX`: smoke passed with role labels.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`: 63 passed.
+- `git diff --check`: passed.
+
+---

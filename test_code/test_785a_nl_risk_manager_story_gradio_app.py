@@ -223,7 +223,7 @@ def _prefix_report() -> dict:
                     "market": "SPX",
                     "display_name": "SPX",
                     "analogue_key": "RANK_1",
-                    "analogue_label": "Analogue 1: joint39_val_0370",
+                    "analogue_label": "Diagnostic baseline: joint39_val_0370",
                     "days": [1, 2],
                     "p10": [0.0, 0.1],
                     "p50": [0.3, 0.5],
@@ -321,7 +321,7 @@ def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
 
     assert choices == [
         ("All retrieved analogues", "ALL"),
-        ("Analogue 1: joint39_val_0370", "RANK_1"),
+        ("Diagnostic baseline: joint39_val_0370", "RANK_1"),
     ]
 
 

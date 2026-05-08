@@ -278,7 +278,10 @@ def test_path_quantiles_for_generated_states_can_split_by_analogue() -> None:
         current,
         [*(f"iv:{idx}" for idx in range(25)), "factor:spx"],
         analogues=[
-            {"window_id": "joint39_val_0001"},
+            {
+                "window_id": "joint39_val_0001",
+                "analogue_label": "Selected start: joint39_val_0001",
+            },
             {"window_id": "joint39_val_0002"},
         ],
     )
@@ -299,6 +302,7 @@ def test_path_quantiles_for_generated_states_can_split_by_analogue() -> None:
 
     assert pooled["p50"] == [21.0, 22.0]
     assert first["window_id"] == "joint39_val_0001"
+    assert first["analogue_label"] == "Selected start: joint39_val_0001"
     assert first["p50"] == [11.0, 12.0]
     assert second["window_id"] == "joint39_val_0002"
     assert second["p50"] == [31.0, 32.0]
