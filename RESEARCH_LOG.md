@@ -110705,3 +110705,109 @@ mechanism is better understood.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 13 live narrative casebook
+
+### Context
+
+Iteration 12 exposed live-story prefix-latent mode in Gradio, but the first
+live OpenAI TestFlight from iteration 11 warned on low memory compatibility. We
+needed a small bounded casebook before making more architectural changes, so the
+next step was to test whether the warning was specific to one story or
+systematic across a few risk-manager-style narratives.
+
+### Hypothesis
+
+If warnings are driven mostly by story wording or bad grounding, different live
+narratives should show different failure modes. If warnings are driven by the
+fixed starting-state choice, the pattern should repeat: original fixed start
+warns, while a nearby alternative start may pass.
+
+### Execution
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py`.
+- Added `test_code/test_792a_nl_prefix_latent_live_casebook.py`.
+- The harness runs a bounded live casebook through the script-level
+  `--live-story` path and writes `live_prefix_casebook_summary.json`.
+- Ran 3 stories:
+  - fragile risk-on rebound;
+  - defensive risk-off shock;
+  - rates-led tightening scare.
+- Each case used:
+  - OpenAI grounding and text embedding;
+  - 100 decoder steps;
+  - 2 samples per variant;
+  - nearest-train start mode;
+  - CUDA.
+
+### Result
+
+All three casebook cases produced finite `[2, 2, 30, 39]` rollout arrays and
+all three returned overall validation `warning`.
+
+Summary:
+
+| Case | Status | Warning Counts | Min Memory Cosine | Mean Memory Cosine | Grounding Warnings |
+| --- | --- | --- | ---: | ---: | ---: |
+| fragile_risk_on_rebound | warning | low_memory_compatibility=1 | 0.7731 | 0.8091 | 3 |
+| defensive_risk_off_shock | warning | low_memory_compatibility=1 | 0.7425 | 0.7820 | 3 |
+| rates_selloff_tightening_fear | warning | low_memory_compatibility=1 | 0.7549 | 0.7898 | 3 |
+
+Per-case gate pattern:
+
+- the fixed original start warned in every case;
+- the nearest-train start passed in every case;
+- no endpoint failures occurred;
+- no generated arrays were non-finite.
+
+Grounding quality was usable. The model extracted reasonable market
+implications for all three narratives, including SPX/VIX/spread risk-off
+directions for the defensive shock and US10Y/US2Y/SPX/DXY/VIX directions for
+the rates-led tightening scare.
+
+### Mechanism Read
+
+The repeated pattern points away from a pure grounding/schema issue. The live
+story can be grounded and projected to generator-memory space, but the current
+default start policy is weak: all live stories inherit the same fixed cached
+query start (`joint39_val_0370`). That start is not necessarily compatible with
+the projected live story memory. The nearest-train start, despite being chosen
+by start proximity to the fixed query start rather than by live memory support,
+already improves compatibility enough to pass.
+
+The next mechanism to test is start proposal. For live narratives, the system
+should not default to a fixed cached query start. It should propose starts from
+history using the projected live memory and explicit start-support diagnostics,
+while still allowing a risk manager to override the start.
+
+### Decision
+
+Do not scale OpenAI labeling yet. The next principled step is to implement a
+memory-compatible start proposal mode for live narratives:
+
+```text
+live story -> projected text memory
+-> choose start window by nearest generator memory support
+-> decode prefix from text memory + proposed start
+-> frozen rollout
+-> validation gate
+```
+
+Then rerun the 3-story casebook and check whether the original-start
+low-memory-compatibility warning disappears or changes into a more informative
+support warning.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py`
+- `test_code/test_792a_nl_prefix_latent_live_casebook.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_792a/live_prefix_casebook_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 3 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_792a --case-count 3 --steps 100 --samples 2 --chunk-size 2 --start-mode nearest_train_start --device cuda`: 3 cases, all warning.
+- `uv run pytest test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 26 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `git diff --check`: passed.
+
+---
