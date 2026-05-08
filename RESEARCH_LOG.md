@@ -114255,3 +114255,39 @@ This improves the operations and risk-manager UX gates. The system is now easier
 The next production-readiness step is now browser or hosted-environment QA: either add lightweight screenshot/browser verification once a browser dependency is acceptable, or package the staged tree for a private hosted Gradio prototype with authentication, platform secrets, and persistent audit storage.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 78 private auth smoke
+
+### Context
+After the staged demo QA packet passed, the next hosted-prototype blocker was basic private access control. The Gradio app previously launched without an authentication hook, so a private hosted demo would have depended entirely on platform-level controls outside the repo.
+
+### Hypothesis
+Adding optional Gradio basic-auth support through environment variables should improve private-host readiness without changing local default behavior. The API smoke should also support the same auth contract so an authenticated staged app can be tested automatically.
+
+### Execution
+- Added `resolve_launch_auth` to `nl_risk_manager_story_gradio_app.py` with default env names `NARRATIVE_DEMO_AUTH_USER` and `NARRATIVE_DEMO_AUTH_PASSWORD`.
+- Added app CLI flags `--auth-user-env`, `--auth-password-env`, and `--require-auth`; local default remains unauthenticated unless required or credentials are present.
+- Added matching auth resolution to `nl_prefix_latent_gradio_api_smoke.py` and recorded `auth_used` in smoke summaries.
+- Extended the demo QA packet to accept optional `--auth-smoke` evidence and add an `authenticated_cached_demo_path` gate.
+- Built a fresh staged tree at `/tmp/nl_prefix_latent_demo_stage_837a_auth`, launched the staged app on port 7864 with auth required, ran an authenticated cached API smoke, then stopped the server.
+
+### Result
+The fresh staged auth path passed. The staging manifest passed with 25 artifacts and no private path violations. The authenticated cached smoke returned `auth_used=true`, status `ok`, selected-start `pass`, overall `pass`, 8 support candidates, 8 factor fan traces, and 8 IV-cell redraw traces. The auth-aware QA packet passed 8/8 gates.
+
+Latest auth-aware QA artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_837b_auth_staged/demo_qa_packet.json`
+
+### Mechanism Read
+This closes a practical hosted-prototype gap: the app can now enforce Gradio basic auth using platform secrets, and the API smoke can verify that protected path. This is not full production authorization, but it is a controlled internal-demo boundary and is materially safer than relying on an unprotected shared URL.
+
+### Verification
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` passed 40 tests.
+- `uv run pytest test_code/test_812a_nl_prefix_latent_demo_qa_packet.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` passed 46 tests.
+- Fresh staging command returned status `pass`: `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py --stage-root /tmp/nl_prefix_latent_demo_stage_837a_auth --run-preflight`.
+- Authenticated staged smoke returned status `ok` and `auth_used=true`.
+- Auth-aware QA packet returned status `pass` with 8 gates.
+- Port 7864 was stopped after the smoke.
+
+### Decision / Next Step
+The remaining production-readiness blockers are persistent audit storage and browser/screenshot QA across the real UI. The next step should make live/cached run artifacts durable outside local `/tmp`, then add browser screenshots once a browser dependency is acceptable.
+
+---

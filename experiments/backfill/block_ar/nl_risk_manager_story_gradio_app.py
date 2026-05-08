@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -93,6 +94,8 @@ DEFAULT_BOSS_DEMO_PACK_JSON = (
     "prefix_latent_boss_demo_pack_829a_live_casebook/"
     "boss_demo_pack.json"
 )
+DEFAULT_AUTH_USER_ENV = "NARRATIVE_DEMO_AUTH_USER"
+DEFAULT_AUTH_PASSWORD_ENV = "NARRATIVE_DEMO_AUTH_PASSWORD"
 CACHED_PREFIX_CASEBOOK_CONFIG = [
     (
         "commodity_inflation_pressure",
@@ -158,6 +161,33 @@ CACHED_PREFIX_CASEBOOK_CONFIG = [
         178,
     ),
 ]
+
+
+def resolve_launch_auth(
+    *,
+    env: dict[str, str] | None = None,
+    user_env: str = DEFAULT_AUTH_USER_ENV,
+    password_env: str = DEFAULT_AUTH_PASSWORD_ENV,
+    require_auth: bool = False,
+) -> tuple[str, str] | None:
+    env_map = os.environ if env is None else env
+    user = str(env_map.get(user_env, "")).strip()
+    password = str(env_map.get(password_env, "")).strip()
+    if user and password:
+        return user, password
+    if require_auth:
+        missing = []
+        if not user:
+            missing.append(user_env)
+        if not password:
+            missing.append(password_env)
+        raise RuntimeError(
+            "missing required Gradio auth environment variable(s): "
+            + ", ".join(missing)
+        )
+    return None
+
+
 IMPLICATION_COLUMNS = [
     "Market",
     "Direction",
@@ -2506,12 +2536,25 @@ def main() -> None:
     parser.add_argument("--server-name", default="127.0.0.1")
     parser.add_argument("--server-port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
+    parser.add_argument("--auth-user-env", default=DEFAULT_AUTH_USER_ENV)
+    parser.add_argument("--auth-password-env", default=DEFAULT_AUTH_PASSWORD_ENV)
+    parser.add_argument(
+        "--require-auth",
+        action="store_true",
+        help="fail launch unless auth user/password env vars are present",
+    )
     args = parser.parse_args()
+    auth = resolve_launch_auth(
+        user_env=str(args.auth_user_env),
+        password_env=str(args.auth_password_env),
+        require_auth=bool(args.require_auth),
+    )
     demo = build_demo()
     demo.queue(default_concurrency_limit=1).launch(
         server_name=args.server_name,
         server_port=int(args.server_port),
         share=bool(args.share),
+        auth=auth,
     )
 
 

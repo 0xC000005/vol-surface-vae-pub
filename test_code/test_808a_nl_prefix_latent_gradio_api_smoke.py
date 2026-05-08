@@ -24,6 +24,58 @@ def test_plot_trace_count_handles_plotly_payload() -> None:
     assert smoke._plot_trace_count(object()) == 0
 
 
+def test_resolve_client_auth_defaults_to_none() -> None:
+    args = SimpleNamespace()
+
+    assert smoke.resolve_client_auth(args, env={}) is None
+
+
+def test_resolve_client_auth_reads_env_names() -> None:
+    args = SimpleNamespace(
+        auth_user_env="DEMO_USER",
+        auth_password_env="DEMO_PASSWORD",
+        require_auth=False,
+    )
+
+    assert smoke.resolve_client_auth(
+        args,
+        env={"DEMO_USER": "risk", "DEMO_PASSWORD": "manager"},
+    ) == ("risk", "manager")
+
+
+def test_resolve_client_auth_require_auth_fails_on_missing_password() -> None:
+    args = SimpleNamespace(
+        auth_user_env="DEMO_USER",
+        auth_password_env="DEMO_PASSWORD",
+        require_auth=True,
+    )
+
+    try:
+        smoke.resolve_client_auth(args, env={"DEMO_USER": "risk"})
+    except RuntimeError as error:
+        assert "DEMO_PASSWORD" in str(error)
+    else:  # pragma: no cover - defensive failure branch
+        raise AssertionError("expected missing auth password to fail")
+
+
+def test_make_client_passes_auth_only_when_supplied(monkeypatch) -> None:
+    calls = []
+
+    class FakeClient:
+        def __init__(self, url: str, auth=None):
+            calls.append((url, auth))
+
+    monkeypatch.setattr(smoke, "_client_class", lambda: FakeClient)
+
+    smoke.make_client("http://demo")
+    smoke.make_client("http://demo", auth=("risk", "manager"))
+
+    assert calls == [
+        ("http://demo", None),
+        ("http://demo", ("risk", "manager")),
+    ]
+
+
 def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> None:
     calls = []
 

@@ -229,6 +229,25 @@ GitHub source repo. Space secrets should hold `OPENAI_API_KEY`. The cached
 casebook path is the safest default demo mode because it can run without live
 API calls during a presentation.
 
+The app also supports optional Gradio basic auth for private prototypes. Set
+`NARRATIVE_DEMO_AUTH_USER` and `NARRATIVE_DEMO_AUTH_PASSWORD` in the hosting
+platform's secret manager, then launch with:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py \
+  --server-name 0.0.0.0 \
+  --server-port 7860 \
+  --require-auth
+```
+
+The API smoke helper can use the same auth secret names:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py \
+  --url http://127.0.0.1:7860 \
+  --require-auth
+```
+
 ## Clean Staging Dry Run
 
 Use the staging harness to assemble a clean source-plus-artifact tree before
@@ -338,6 +357,18 @@ evidence, future-language warning-only semantics, and secret/paper hygiene.
 The packet records the 25-file / 52,835,108-byte artifact bundle, 8 cached and
 live support candidates, 8 fan traces, 8 IV-cell redraw traces, 1,943 live
 OpenAI tokens, and zero staged private path violations.
+
+The auth-capable staged tree also passed an authenticated cached smoke using
+`NARRATIVE_DEMO_AUTH_USER` and `NARRATIVE_DEMO_AUTH_PASSWORD` supplied as
+environment variables. The auth-aware packet is:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_837b_auth_staged/demo_qa_packet.md
+```
+
+Summary: status `pass` across eight gates, adding
+`authenticated_cached_demo_path` with `auth_used=True`, selected-start `pass`,
+8 support candidates, 8 fan traces, and 8 IV-cell redraw traces.
 
 ## Manual Visual QA Checklist
 

@@ -35,6 +35,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_variant_table,
     prefix_warning_component_table,
     refresh_fan_chart,
+    resolve_launch_auth,
     run_prefix_latent_for_app,
     run_story_for_app,
     scenario_table,
@@ -408,6 +409,34 @@ def _prefix_user_start_report() -> dict:
         "max_abs_user_start_z": 1.817,
     }
     return report
+
+
+def test_resolve_launch_auth_defaults_to_none_for_local_dev() -> None:
+    assert resolve_launch_auth(env={}) is None
+
+
+def test_resolve_launch_auth_reads_configured_env_names() -> None:
+    auth = resolve_launch_auth(
+        env={"DEMO_USER": "risk", "DEMO_PASSWORD": "manager"},
+        user_env="DEMO_USER",
+        password_env="DEMO_PASSWORD",
+    )
+
+    assert auth == ("risk", "manager")
+
+
+def test_resolve_launch_auth_requires_both_values_when_enabled() -> None:
+    try:
+        resolve_launch_auth(
+            env={"DEMO_USER": "risk"},
+            user_env="DEMO_USER",
+            password_env="DEMO_PASSWORD",
+            require_auth=True,
+        )
+    except RuntimeError as error:
+        assert "DEMO_PASSWORD" in str(error)
+    else:  # pragma: no cover - defensive failure branch
+        raise AssertionError("expected missing password to fail")
 
 
 def test_table_formatters_expose_demo_evidence() -> None:

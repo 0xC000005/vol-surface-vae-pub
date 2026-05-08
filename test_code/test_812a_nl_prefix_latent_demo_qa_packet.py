@@ -61,6 +61,7 @@ def _staging_manifest(private: bool = False) -> dict:
 def _smoke_report(*, mode: str, live: bool = False, fan_traces: int = 8) -> dict:
     return {
         "status": "ok",
+        "auth_used": False,
         "mode": mode,
         "url": "http://127.0.0.1:7863",
         "condition_source": "external_condition_report",
@@ -113,6 +114,12 @@ def _smoke_report(*, mode: str, live: bool = False, fan_traces: int = 8) -> dict
     }
 
 
+def _auth_smoke_report() -> dict:
+    report = _smoke_report(mode="cached_casebook")
+    report["auth_used"] = True
+    return report
+
+
 def test_snapshots_extract_demo_readiness_evidence() -> None:
     preflight = preflight_snapshot(_preflight_report())
     staging = staging_snapshot(_staging_manifest())
@@ -146,6 +153,21 @@ def test_gates_pass_for_clean_staged_cached_and_live_evidence() -> None:
     assert all(gate["status"] == "pass" for gate in gates)
 
 
+def test_gates_include_authenticated_cached_demo_when_supplied() -> None:
+    gates = build_gates(
+        preflight=preflight_snapshot(_preflight_report()),
+        staging=staging_snapshot(_staging_manifest()),
+        cached=smoke_snapshot(_smoke_report(mode="cached_casebook")),
+        live=smoke_snapshot(_smoke_report(mode="live_condition_only", live=True)),
+        auth_smoke=smoke_snapshot(_auth_smoke_report()),
+    )
+
+    by_name = {gate["name"]: gate for gate in gates}
+    assert overall_status(gates) == "pass"
+    assert by_name["authenticated_cached_demo_path"]["status"] == "pass"
+    assert "auth_used=True" in by_name["authenticated_cached_demo_path"]["evidence"]
+
+
 def test_gates_fail_for_private_path_and_missing_visual_evidence() -> None:
     gates = build_gates(
         preflight=preflight_snapshot(_preflight_report()),
@@ -176,6 +198,7 @@ def test_render_markdown_explains_contract_and_manual_qa() -> None:
         "live_smoke": smoke_snapshot(
             _smoke_report(mode="live_condition_only", live=True)
         ),
+        "auth_smoke": smoke_snapshot(_auth_smoke_report()),
         "gates": gates,
     }
 
@@ -185,6 +208,7 @@ def test_render_markdown_explains_contract_and_manual_qa() -> None:
     assert "future-looking phrases are warning-only" in markdown
     assert "Manual Visual QA Still Required" in markdown
     assert "Top Live Support Candidates" in markdown
+    assert "Authenticated Staged Smoke" in markdown
 
 
 def test_build_qa_packet_writes_json_and_markdown(tmp_path: Path) -> None:
@@ -201,6 +225,8 @@ def test_build_qa_packet_writes_json_and_markdown(tmp_path: Path) -> None:
         json.dumps(_smoke_report(mode="live_condition_only", live=True)),
         encoding="utf-8",
     )
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps(_auth_smoke_report()), encoding="utf-8")
 
     packet = build_qa_packet(
         SimpleNamespace(
@@ -208,10 +234,12 @@ def test_build_qa_packet_writes_json_and_markdown(tmp_path: Path) -> None:
             staging_manifest=str(staging_path),
             cached_smoke=str(cached_path),
             live_smoke=str(live_path),
+            auth_smoke=str(auth_path),
             output_dir=str(tmp_path / "out"),
         )
     )
 
     assert packet["status"] == "pass"
+    assert packet["auth_smoke"]["auth_used"] is True
     assert (tmp_path / "out" / "demo_qa_packet.json").is_file()
     assert (tmp_path / "out" / "demo_qa_packet.md").is_file()

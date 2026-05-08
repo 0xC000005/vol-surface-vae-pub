@@ -25,6 +25,7 @@ DEFAULT_LIVE_SMOKE = (
     "nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env/"
     "gradio_api_smoke_summary.json"
 )
+DEFAULT_AUTH_SMOKE = ""
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_demo_qa_packet_836a"
@@ -133,6 +134,7 @@ def smoke_snapshot(report: Mapping[str, Any]) -> dict[str, Any]:
     usage = _as_dict(report.get("openai_usage"))
     return {
         "status": str(report.get("status", "")),
+        "auth_used": bool(report.get("auth_used", False)),
         "mode": str(report.get("mode", "")),
         "url": str(report.get("url", "")),
         "condition_source": str(report.get("condition_source", "")),
@@ -201,8 +203,9 @@ def build_gates(
     staging: Mapping[str, Any],
     cached: Mapping[str, Any],
     live: Mapping[str, Any],
+    auth_smoke: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    return [
+    gates = [
         _gate(
             "artifact_bundle_complete",
             preflight["status"] == "pass"
@@ -284,6 +287,27 @@ def build_gates(
             ),
         ),
     ]
+    if auth_smoke is not None:
+        gates.append(
+            _gate(
+                "authenticated_cached_demo_path",
+                auth_smoke["status"] == "ok"
+                and auth_smoke["auth_used"]
+                and auth_smoke["selected_start_status"] == "pass"
+                and auth_smoke["overall_status"] == "pass"
+                and auth_smoke["support_candidate_count"] > 0
+                and auth_smoke["fan_trace_count"] > 0
+                and auth_smoke["redraw_trace_count"] > 0,
+                (
+                    f"auth_used={auth_smoke['auth_used']}, "
+                    f"selected_start={auth_smoke['selected_start_status']}, "
+                    f"support={auth_smoke['support_candidate_count']}, "
+                    f"fan/redraw={auth_smoke['fan_trace_count']}/"
+                    f"{auth_smoke['redraw_trace_count']}"
+                ),
+            )
+        )
+    return gates
 
 
 def overall_status(gates: Sequence[Mapping[str, Any]]) -> str:
@@ -304,6 +328,7 @@ def render_markdown(packet: Mapping[str, Any]) -> str:
     staging = _as_dict(packet.get("staging"))
     cached = _as_dict(packet.get("cached_smoke"))
     live = _as_dict(packet.get("live_smoke"))
+    auth_smoke = _as_dict(packet.get("auth_smoke"))
     gates = _as_list(packet.get("gates"))
     lines = [
         "# Narrative Scenario Demo QA Packet",
@@ -369,6 +394,26 @@ def render_markdown(packet: Mapping[str, Any]) -> str:
             f"- Prefix report: `{live.get('prefix_report_path', '')}`",
             f"- Condition report: `{live.get('condition_report_path', '')}`",
             "",
+        ]
+    )
+    if auth_smoke:
+        lines.extend(
+            [
+                "## Authenticated Staged Smoke",
+                "",
+                f"- Status: `{auth_smoke.get('status', '')}`",
+                f"- Auth used: `{auth_smoke.get('auth_used', False)}`",
+                f"- Selected start: `{auth_smoke.get('selected_start_status', '')}`",
+                f"- Support candidates: `{auth_smoke.get('support_candidate_count', 0)}`",
+                f"- Fan redraw: `{auth_smoke.get('fan_market', '')}` "
+                f"{auth_smoke.get('fan_trace_count', 0)} traces; "
+                f"`{auth_smoke.get('redraw_market', '')}` "
+                f"{auth_smoke.get('redraw_trace_count', 0)} traces",
+                "",
+            ]
+        )
+    lines.extend(
+        [
             "## Top Live Support Candidates",
             "",
             "| Rank | Window | Weight | History | Forecast |",
@@ -413,16 +458,22 @@ def build_qa_packet(args: argparse.Namespace) -> dict[str, Any]:
     staging_manifest = _load_json(args.staging_manifest)
     cached_report = _load_json(args.cached_smoke)
     live_report = _load_json(args.live_smoke)
+    auth_report = None
+    auth_smoke_path = str(getattr(args, "auth_smoke", "") or "").strip()
+    if auth_smoke_path:
+        auth_report = _load_json(auth_smoke_path)
 
     preflight = preflight_snapshot(preflight_report)
     staging = staging_snapshot(staging_manifest)
     cached = smoke_snapshot(cached_report)
     live = smoke_snapshot(live_report)
+    auth_smoke = smoke_snapshot(auth_report) if auth_report is not None else None
     gates = build_gates(
         preflight=preflight,
         staging=staging,
         cached=cached,
         live=live,
+        auth_smoke=auth_smoke,
     )
     output_dir = Path(args.output_dir)
     artifact_paths = {
@@ -441,6 +492,7 @@ def build_qa_packet(args: argparse.Namespace) -> dict[str, Any]:
             "staging_manifest": str(args.staging_manifest),
             "cached_smoke": str(args.cached_smoke),
             "live_smoke": str(args.live_smoke),
+            "auth_smoke": auth_smoke_path,
         },
         "preflight": preflight,
         "staging": staging,
@@ -449,6 +501,8 @@ def build_qa_packet(args: argparse.Namespace) -> dict[str, Any]:
         "gates": gates,
         "artifact_paths": artifact_paths,
     }
+    if auth_smoke is not None:
+        packet["auth_smoke"] = auth_smoke
     _write_json(artifact_paths["summary_json"], packet)
     Path(artifact_paths["summary_markdown"]).write_text(
         render_markdown(packet).rstrip() + "\n",
@@ -463,6 +517,7 @@ def main() -> None:
     parser.add_argument("--staging-manifest", default=DEFAULT_STAGING_MANIFEST)
     parser.add_argument("--cached-smoke", default=DEFAULT_CACHED_SMOKE)
     parser.add_argument("--live-smoke", default=DEFAULT_LIVE_SMOKE)
+    parser.add_argument("--auth-smoke", default=DEFAULT_AUTH_SMOKE)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     packet = build_qa_packet(args)

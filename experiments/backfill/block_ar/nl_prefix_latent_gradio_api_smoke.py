@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,8 @@ DEFAULT_LIVE_STORY = (
     "remains elevated, and the dollar is not providing a clear offset. The "
     "forward risk is that safe-haven demand becomes a broader risk-off move."
 )
+DEFAULT_AUTH_USER_ENV = "NARRATIVE_DEMO_AUTH_USER"
+DEFAULT_AUTH_PASSWORD_ENV = "NARRATIVE_DEMO_AUTH_PASSWORD"
 
 
 def _table_rows(value: Any) -> int:
@@ -72,6 +75,38 @@ def _client_class() -> Any:
     except ImportError as error:  # pragma: no cover - environment guard
         raise RuntimeError("gradio_client is required for the API smoke") from error
     return Client
+
+
+def resolve_client_auth(
+    args: argparse.Namespace,
+    env: dict[str, str] | None = None,
+) -> tuple[str, str] | None:
+    env_map = os.environ if env is None else env
+    user_env = str(getattr(args, "auth_user_env", DEFAULT_AUTH_USER_ENV))
+    password_env = str(getattr(args, "auth_password_env", DEFAULT_AUTH_PASSWORD_ENV))
+    require_auth = bool(getattr(args, "require_auth", False))
+    user = str(env_map.get(user_env, "")).strip()
+    password = str(env_map.get(password_env, "")).strip()
+    if user and password:
+        return user, password
+    if require_auth:
+        missing = []
+        if not user:
+            missing.append(user_env)
+        if not password:
+            missing.append(password_env)
+        raise RuntimeError(
+            "missing required Gradio auth environment variable(s): "
+            + ", ".join(missing)
+        )
+    return None
+
+
+def make_client(url: str, auth: tuple[str, str] | None = None) -> Any:
+    Client = _client_class()
+    if auth is None:
+        return Client(str(url))
+    return Client(str(url), auth=auth)
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -140,8 +175,8 @@ def _forward_warning_summary(report: dict[str, Any]) -> list[dict]:
 
 
 def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
-    Client = _client_class()
-    client = Client(str(args.url))
+    auth = resolve_client_auth(args)
+    client = make_client(str(args.url), auth=auth)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -294,6 +329,7 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "status": "ok" if not errors else "fail",
         "errors": errors,
         "url": str(args.url),
+        "auth_used": auth is not None,
         "mode": mode,
         "casebook_choice": str(args.casebook_choice),
         "casebook_start_index": int(explicit_start_index),
@@ -375,6 +411,13 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--fan-market", default="SPX")
     parser.add_argument("--redraw-market", default="IV_ATM_3M")
+    parser.add_argument("--auth-user-env", default=DEFAULT_AUTH_USER_ENV)
+    parser.add_argument("--auth-password-env", default=DEFAULT_AUTH_PASSWORD_ENV)
+    parser.add_argument(
+        "--require-auth",
+        action="store_true",
+        help="fail unless Gradio auth user/password env vars are present",
+    )
     args = parser.parse_args()
     summary = run_gradio_api_smoke(args)
     print(
