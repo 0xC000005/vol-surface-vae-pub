@@ -111211,3 +111211,77 @@ without manually running the app.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 18 cached Gradio wrapper smoke
+
+### Context
+
+Iteration 17 made the prefix-latent Gradio section product-first, but there was
+not yet a repeatable command that exercised the Gradio wrapper path without
+starting a browser or calling OpenAI. For production-readiness, the demo needs a
+cheap pre-demo smoke check.
+
+### Hypothesis
+
+A cached wrapper smoke can validate the important UI contract without external
+API calls:
+
+- progress status appears;
+- selected-start table is populated;
+- diagnostic-baseline table is populated;
+- current-run validation table is populated;
+- scenario table and fan chart are non-empty;
+- JSON report contains selected-start gate fields.
+
+### Execution
+
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`.
+- The script calls `run_prefix_latent_for_app` with a bounded real cached runner
+  and fast smoke controls:
+  - no OpenAI calls;
+  - `balanced_memory_start`;
+  - 100 decoder steps;
+  - 2 samples;
+  - SPX fan chart.
+- Added `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py`.
+
+### Result
+
+The real cached wrapper smoke passed:
+
+- selected-start status: `pass`;
+- diagnostic-baseline status: `pass`;
+- research overall status: `pass`;
+- selected table rows: `1`;
+- diagnostic table rows: `1`;
+- validation table rows: `2`;
+- scenario table rows: `11`;
+- fan trace count: `8`;
+- no smoke errors.
+
+The smoke artifact is:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_796a/gradio_cached_smoke_summary.json`
+
+### Decision
+
+Commit the cached Gradio wrapper smoke. The next principled step is to improve
+the scenario table/fan chart labeling for the prefix-latent path so the selected
+start and diagnostic baseline are visually distinguishable in the generated
+distribution, especially when showing multiple start variants.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`
+- `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_796a/gradio_cached_smoke_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 17 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_796a --start-mode balanced_memory_start --samples 2 --fan-market SPX`: smoke passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`: 63 passed.
+- `git diff --check`: passed.
+
+---
