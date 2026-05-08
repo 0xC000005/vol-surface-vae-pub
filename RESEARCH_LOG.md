@@ -114044,3 +114044,34 @@ screenshots or moving from local Gradio toward a deployable demo package with
 clear data/artifact boundaries and secret handling.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 72 deployment readiness boundary
+
+### Context
+The current HEAD Gradio app has passed cached and live API smokes on port 7862. The remaining production-readiness bottleneck is not another modeling knob; it is a deployable demo boundary that states which code, checkpoints, generated artifacts, and secrets are allowed to move into an internal or hosted prototype.
+
+### Hypothesis
+A tracked deployment-readiness note can move the operations gate forward by making the local demo reproducible while preventing accidental upload of ignored generated artifacts, private paper files, or `.env` credentials.
+
+### Execution
+- Added `docs/research_protocols/nl_prefix_latent_deployment_readiness.md`.
+- Linked the new deployment note from `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
+- Documented the current product contract: narrative, condition-only implications, accepted/user-supplied joint39 start, start-compatible analogue mixture, frozen SNI rollout, and auditable scenario fan outputs.
+- Documented the minimal external artifact bundle: the `734a` joint39 checkpoint folder, representative OpenAI narrative artifacts, bridge-evaluation artifacts, live casebook summaries, and boss-demo pack.
+- Documented secret handling: `OPENAI_API_KEY` belongs in `.env` locally or a platform secret manager for hosted demos, never Git.
+- Documented that under-review paper drafts, paper backups, generated outputs, checkpoints, data, and local credentials stay out of GitHub.
+
+### Result
+The deployment boundary is now explicit and tracked. The current recommended demo path remains a private/local Gradio app first, with a hosted Gradio or Hugging Face Space-style prototype only after the minimal artifact bundle is copied through a private artifact channel and cached smoke gates pass.
+
+### Mechanism Read
+This does not change the generator. It reduces operational ambiguity: the risk-manager demo can be reproduced without turning the source repo into an artifact store and without confusing cached casebook outputs, live OpenAI calls, model checkpoints, and private paper material.
+
+### Verification
+- `test -f docs/research_protocols/nl_prefix_latent_deployment_readiness.md`
+- `rg -n "OPENAI_API_KEY|734a_joint39|manifest_bridge_eval|manifest_openai|Hugging Face|paper|artifact manifest|preflight" docs/research_protocols/nl_prefix_latent_deployment_readiness.md docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`
+- `git diff --check`
+
+### Decision / Next Step
+The next production-readiness iteration should build an artifact-manifest and preflight checker. It should verify that the minimal bundle exists, compute hashes and sizes, check secret hygiene, confirm ignored generated outputs are not staged, and optionally run the cached Gradio API smoke against a local or hosted URL.
+
+---

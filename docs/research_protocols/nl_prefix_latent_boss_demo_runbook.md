@@ -5,6 +5,9 @@ prefix-latent scenario generator. It is written for a boss or risk manager who
 cares about the product workflow, provenance, and generated scenario relevance,
 not about ML implementation details.
 
+Deployment and artifact packaging boundaries are tracked separately in
+`docs/research_protocols/nl_prefix_latent_deployment_readiness.md`.
+
 ## Current Demo Claim
 
 A risk manager can provide a market narrative and a starting market state. The
