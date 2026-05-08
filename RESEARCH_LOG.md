@@ -114188,3 +114188,37 @@ This found the difference between a file-manifest preflight and a true runnable 
 The next production step is either a private hosted prototype using this 25-file artifact bundle and platform secret handling, or a browser/screenshot QA pass from the staged app. The cached path is now deployable as an internal demo boundary; live OpenAI TestFlight from a clean hosted environment still needs platform-secret wiring rather than `.env`.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 76 staged live TestFlight
+
+### Context
+The clean staged tree now launches and passes cached Gradio API smoke with the complete 25-file artifact bundle. The remaining hosted-demo risk was whether the live OpenAI path also works when `OPENAI_API_KEY` is supplied like a platform secret, without copying `.env` into the staged tree.
+
+### Hypothesis
+The staged app should pass one small live condition-only TestFlight if `OPENAI_API_KEY` is present only in the app process environment. The staged tree should still contain no `.env`, paper/PDF files, `.venv`, `.agents`, `.claude`, or `paper/` paths.
+
+### Execution
+- Started the clean staged Gradio app on port 7863 with `OPENAI_API_KEY` sourced from the local repo `.env` into the process environment only.
+- Did not copy `.env` into `/tmp/nl_prefix_latent_demo_stage_832a`.
+- Ran `nl_prefix_latent_gradio_api_smoke.py` in `live_condition_only` mode against the staged app with `samples=2`, `fan-market=SPX`, and `redraw-market=IV_ATM_3M`.
+- Inspected the live smoke summary and stopped the staged server after the run.
+
+### Result
+The staged live TestFlight passed. The live condition-only report used 1,943 OpenAI tokens, returned condition-only validation `pass`, produced one warning-only forward-risk item, selected-start `pass`, overall `pass`, 8 support candidates, 8 fan traces, and 8 redraw traces. The staged tree still had no `.env`, PDF, `.venv`, `.agents`, `.claude`, or `paper/` path.
+
+Latest staged live artifact:
+`/tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env/gradio_api_smoke_summary.json`
+
+### Mechanism Read
+This closes the biggest local-vs-hosted gap for the live narrative path. The demo can now be run from a clean staged source tree using explicit artifacts and platform-secret-style environment injection. The remaining production gap is no longer basic artifact completeness or live OpenAI wiring; it is browser/screenshot QA, private hosted deployment mechanics, authentication, persistent audit storage, and broader narrative coverage.
+
+### Verification
+- Staged page check on port 7863 returned HTTP `200` with readiness evidence.
+- Staged live smoke returned status `ok`: `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7863 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env --mode live_condition_only --expected-start-index 18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`.
+- Live smoke summary: condition source `external_condition_report`, condition-only validation `pass`, forward-warning count `1`, selected-start `pass`, overall `pass`, support candidates `8`, fan/redraw traces `8/8`, OpenAI total tokens `1,943`.
+- Absence check found no staged `.env`, `*.pdf`, `.venv`, `.agents`, `.claude`, or `paper/` path.
+- Staged server on port 7863 was stopped after the smoke.
+
+### Decision / Next Step
+The next production-readiness step is browser/screenshot QA or a private hosted prototype using the same 25-file bundle and platform-secret contract. Capture the readiness panel, cached and live run statuses, implications/warnings, support candidates, factor fan redraw, IV-cell fan redraw, and report paths.
+
+---

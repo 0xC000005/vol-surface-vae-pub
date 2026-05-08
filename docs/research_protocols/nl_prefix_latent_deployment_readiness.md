@@ -276,6 +276,46 @@ or `paper/` path present in the staged tree. A `data/` directory is present
 only because the four explicit base data artifacts are part of the required
 bundle.
 
+## Staged Live TestFlight
+
+The staged app can also run a live condition-only OpenAI TestFlight when
+`OPENAI_API_KEY` is supplied as a process secret rather than copied as `.env`.
+The local simulation used:
+
+```bash
+set -a; . /home/max/Documents/vol-surface-vae-pub/.env; set +a
+UV_PROJECT_ENVIRONMENT=/tmp/nl_prefix_latent_demo_stage_832a_app_uv_env \
+  uv run python experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py \
+  --server-port 7863
+```
+
+Then:
+
+```bash
+UV_PROJECT_ENVIRONMENT=/tmp/nl_prefix_latent_demo_stage_832a_app_uv_env \
+  uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py \
+  --url http://127.0.0.1:7863 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env \
+  --mode live_condition_only \
+  --expected-start-index 18 \
+  --samples 2 \
+  --fan-market SPX \
+  --redraw-market IV_ATM_3M
+```
+
+Latest staged live artifact:
+
+```text
+/tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env/gradio_api_smoke_summary.json
+```
+
+Summary: status `ok`, condition source `external_condition_report`,
+condition-only validation `pass`, one forward-warning item, selected-start
+`pass`, overall `pass`, 8 support candidates, 8 fan traces, 8 redraw traces,
+and 1,943 OpenAI tokens. The staged tree still had no `.env`, PDF, `.venv`,
+`.agents`, `.claude`, or `paper/` path, and the staged server was stopped after
+the run.
+
 ## Manual Visual QA Checklist
 
 Before showing the demo externally:
@@ -310,7 +350,7 @@ The main gaps are:
 ## Next Production Step
 
 The next most useful production-readiness iteration is a manual/browser QA pass
-from the clean staged tree or a private hosted prototype: launch the staged
-Gradio app, run one cached casebook, run one live OpenAI TestFlight with a
-platform secret rather than `.env`, capture screenshots, and archive the audit
-trail.
+or private hosted prototype using the same 25-file bundle and platform-secret
+contract. Capture screenshots for the readiness panel, cached casebook,
+condition-only implications, warnings, support candidates, fan chart redraw,
+and final audit report.
