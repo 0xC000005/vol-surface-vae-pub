@@ -113765,3 +113765,64 @@ report path in the API smoke summary/UI, expose mixture weights more plainly,
 and then run a small 3-story live casebook only if those artifacts remain clean.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 67 live provenance summary
+
+### Context
+
+The live typed-story TestFlight passed, but the API smoke summary did not expose
+enough provenance for a production-style review. A risk manager or reviewer
+should not have to open the full prefix JSON to find the condition report,
+OpenAI usage, market implications, forward-warning text, or soft top-k support
+weights.
+
+### Hypothesis
+
+If the API smoke summary directly surfaces live condition-report paths,
+grounding and embedding metadata, warning details, and top support candidates,
+then the next live-scale step can be audited from a compact artifact instead of
+manually spelunking nested reports.
+
+### Execute
+
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py`
+  to include prefix report paths, condition report paths, OpenAI response/usage
+  metadata, market implications, forward-warning details, support prior mode,
+  support alignment status, support weight sum, and top support candidates.
+- Added regression assertions in
+  `test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py`.
+- Reran the one-story live condition-only API smoke and fixed a shadowed
+  variable bug that had collapsed the forward-warning list into a count.
+
+### Analyze
+
+Verification passed:
+
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py -q`
+  -> 3 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7861 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_827b_provenance_fixed --mode live_condition_only --expected-start-index 18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, fan/redraw traces 8/8.
+- `rg -n '"forward_warnings"|"support_top_candidates"|"openai_usage"|"condition_report_path"|"status"|"support_candidate_count"' experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_827b_provenance_fixed/gradio_api_smoke_summary.json`
+  -> confirmed the compact summary now includes the live provenance fields.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 35 passed.
+- `git diff --check` -> passed.
+
+Saved artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_827b_provenance_fixed/gradio_api_smoke_summary.json`
+
+The richer summary reports the live condition report path, `gpt-5.4-mini`
+grounding model, `text-embedding-3-small` embedding model, OpenAI usage, five
+market implications, one forward-warning item, support prior mode
+`soft_topk_combined`, support alignment `pass`, eight support candidates, and a
+support weight sum of about 1.0.
+
+### Decide
+
+The live one-story path now has compact provenance. The next principled step is
+a bounded three-story live API casebook that reuses this summary schema across
+different narrative families, but only if the stop file remains absent and the
+API key continues to work. Keep samples low and treat any schema or warning
+leakage failure as a stop condition rather than scaling further.
+
+---

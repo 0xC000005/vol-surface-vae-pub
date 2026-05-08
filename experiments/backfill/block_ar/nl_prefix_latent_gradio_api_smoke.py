@@ -74,6 +74,71 @@ def _client_class() -> Any:
     return Client
 
 
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _support_candidate_summary(report: dict[str, Any], *, limit: int = 8) -> list[dict]:
+    query = _as_dict(report.get("cached_query"))
+    memory_prior = _as_dict(query.get("memory_prior"))
+    rows = _as_list(memory_prior.get("candidate_details"))
+    summary: list[dict] = []
+    for row in rows[:limit]:
+        item = _as_dict(row)
+        summary.append(
+            {
+                "rank": item.get("rank"),
+                "window_id": item.get("window_id"),
+                "window_index": item.get("window_index"),
+                "weight": item.get("weight"),
+                "memory_support_cosine": item.get("memory_support_cosine"),
+                "start_distance_z": item.get("start_distance_z"),
+                "recent_prefix_alignment_score": item.get(
+                    "recent_prefix_alignment_score"
+                ),
+                "history_start_date": item.get("history_start_date"),
+                "history_end_date": item.get("history_end_date"),
+                "forecast_start_date": item.get("forecast_start_date"),
+                "forecast_end_date": item.get("forecast_end_date"),
+            }
+        )
+    return summary
+
+
+def _market_implication_summary(report: dict[str, Any]) -> list[dict]:
+    grounding = _as_dict(_as_dict(report.get("cached_query")).get("grounding"))
+    rows = _as_list(grounding.get("market_implications"))
+    return [
+        {
+            "market": _as_dict(row).get("market"),
+            "direction": _as_dict(row).get("direction"),
+            "magnitude": _as_dict(row).get("magnitude"),
+            "confidence": _as_dict(row).get("confidence"),
+            "horizon": _as_dict(row).get("horizon"),
+            "target_use": _as_dict(row).get("target_use"),
+        }
+        for row in rows
+    ]
+
+
+def _forward_warning_summary(report: dict[str, Any]) -> list[dict]:
+    grounding = _as_dict(_as_dict(report.get("cached_query")).get("grounding"))
+    rows = _as_list(grounding.get("non_conditioning_forward_language"))
+    return [
+        {
+            "phrase": _as_dict(row).get("phrase"),
+            "handling": _as_dict(row).get("handling"),
+            "severity": _as_dict(row).get("severity"),
+            "reason": _as_dict(row).get("reason"),
+        }
+        for row in rows
+    ]
+
+
 def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
     Client = _client_class()
     client = Client(str(args.url))
@@ -154,8 +219,24 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
 
     query = report.get("cached_query", {}) if isinstance(report, dict) else {}
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
+    artifact_paths = _as_dict(report.get("artifact_paths"))
+    embedding_metadata = _as_dict(_as_dict(query).get("embedding_metadata"))
+    memory_prior = _as_dict(_as_dict(query).get("memory_prior"))
+    support_candidates = _support_candidate_summary(report)
+    support_weights = [
+        row.get("weight")
+        for row in support_candidates
+        if isinstance(row.get("weight"), int | float)
+    ]
+    market_implications = _market_implication_summary(report)
+    forward_warnings = _forward_warning_summary(report)
     condition_only_case = (
         report.get("condition_only_case", {}) if isinstance(report, dict) else {}
+    )
+    condition_only_metadata = _as_dict(
+        condition_only_case.get("metadata")
+        if isinstance(condition_only_case, dict)
+        else {}
     )
     condition_only_validation = (
         condition_only_case.get("condition_only_validation", {})
@@ -178,8 +259,11 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
             errors.append("condition_only_validation_missing")
         elif str(condition_only_validation.get("status", "")) != "pass":
             errors.append("condition_only_validation_not_pass")
-        forward_warnings = condition_only_validation.get("forward_warning_count", 0)
-        if int(forward_warnings or 0) < 1:
+        forward_warning_count = condition_only_validation.get(
+            "forward_warning_count",
+            0,
+        )
+        if int(forward_warning_count or 0) < 1:
             errors.append("forward_warning_count_missing")
     if report.get("status") != "ok":
         errors.append("report_not_ok")
@@ -197,6 +281,8 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("warning_table_empty")
     if _table_rows(candidate_table) < 1:
         errors.append("candidate_table_empty")
+    if len(support_candidates) < 1:
+        errors.append("support_candidates_missing")
     if _plot_trace_count(fan_plot) < 1:
         errors.append("fan_plot_empty")
     if _plot_trace_count(redraw_plot) < 1:
@@ -213,6 +299,17 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "casebook_start_index": int(explicit_start_index),
         "casebook_status_length": len(str(casebook_status)),
         "condition_source": str(query.get("condition_source", "")),
+        "prefix_report_path": str(artifact_paths.get("report", "")),
+        "prefix_markdown_path": str(artifact_paths.get("markdown", "")),
+        "prefix_arrays_path": str(artifact_paths.get("arrays", "")),
+        "condition_report_path": str(embedding_metadata.get("condition_report", "")),
+        "condition_arrays_path": str(embedding_metadata.get("condition_arrays", "")),
+        "grounding_model": str(embedding_metadata.get("grounding_model", "")),
+        "embedding_model": str(embedding_metadata.get("embedding_model", "")),
+        "embedding_dim": int(embedding_metadata.get("embedding_dim", 0) or 0),
+        "condition_dim": int(embedding_metadata.get("condition_dim", 0) or 0),
+        "openai_response_id": str(condition_only_metadata.get("response_id", "")),
+        "openai_usage": condition_only_metadata.get("usage", {}),
         "condition_only_validation_status": str(
             condition_only_validation.get("status", "")
             if isinstance(condition_only_validation, dict)
@@ -235,6 +332,15 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "warning_component_rows": _table_rows(warning_component_table),
         "shift_factor_rows": _table_rows(shift_factor_table),
         "candidate_table_rows": _table_rows(candidate_table),
+        "market_implications": market_implications,
+        "forward_warnings": forward_warnings,
+        "support_prior_mode": str(memory_prior.get("mode", "")),
+        "support_alignment_status": str(
+            _as_dict(memory_prior.get("support_alignment")).get("status", "")
+        ),
+        "support_candidate_count": len(support_candidates),
+        "support_weight_sum": float(sum(float(weight) for weight in support_weights)),
+        "support_top_candidates": support_candidates,
         "user_start_table_rows": _table_rows(user_start_table),
         "fan_market": str(args.fan_market),
         "fan_trace_count": _plot_trace_count(fan_plot),

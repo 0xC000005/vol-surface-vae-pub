@@ -58,7 +58,41 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
                         {
                             "status": "ok",
                             "cached_query": {
-                                "condition_source": "external_condition_report"
+                                "condition_source": "external_condition_report",
+                                "embedding_metadata": {
+                                    "condition_report": "condition_report.json",
+                                    "condition_arrays": "condition_arrays.npz",
+                                    "embedding_dim": 1536,
+                                    "condition_dim": 128,
+                                },
+                                "grounding": {
+                                    "market_implications": [
+                                        {
+                                            "market": "GOLD",
+                                            "direction": "up",
+                                            "target_use": "support_prior",
+                                        }
+                                    ],
+                                    "non_conditioning_forward_language": [
+                                        {
+                                            "phrase": "forward risk",
+                                            "handling": "ignore_for_conditioning",
+                                        }
+                                    ],
+                                },
+                                "memory_prior": {
+                                    "mode": "soft_topk_combined",
+                                    "support_alignment": {"status": "pass"},
+                                    "candidate_details": [
+                                        {
+                                            "rank": 1,
+                                            "window_id": "joint39_val_0036",
+                                            "window_index": 18,
+                                            "weight": 1.0,
+                                            "memory_support_cosine": 0.9,
+                                        }
+                                    ],
+                                },
                             },
                             "validation_gate": {
                                 "selected_start_status": "pass",
@@ -98,6 +132,10 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
     assert summary["selected_start_status"] == "pass"
     assert summary["fan_trace_count"] == 8
     assert summary["redraw_trace_count"] == 8
+    assert summary["support_candidate_count"] == 1
+    assert summary["support_top_candidates"][0]["window_id"] == "joint39_val_0036"
+    assert summary["market_implications"][0]["market"] == "GOLD"
+    assert summary["forward_warnings"][0]["handling"] == "ignore_for_conditioning"
     assert calls[0][0] == "/cached_prefix_casebook_update"
     assert calls[1][0] == "/run_prefix_latent_for_app"
     assert calls[2] == ("/refresh_fan_chart_2", ("IV_ATM_3M", "ALL"))
@@ -135,7 +173,41 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
                                 }
                             },
                             "cached_query": {
-                                "condition_source": "external_condition_report"
+                                "condition_source": "external_condition_report",
+                                "embedding_metadata": {
+                                    "condition_report": "condition_report.json",
+                                    "condition_arrays": "condition_arrays.npz",
+                                    "embedding_dim": 1536,
+                                    "condition_dim": 128,
+                                },
+                                "grounding": {
+                                    "market_implications": [
+                                        {
+                                            "market": "GOLD",
+                                            "direction": "up",
+                                            "target_use": "support_prior",
+                                        }
+                                    ],
+                                    "non_conditioning_forward_language": [
+                                        {
+                                            "phrase": "forward risk",
+                                            "handling": "ignore_for_conditioning",
+                                        }
+                                    ],
+                                },
+                                "memory_prior": {
+                                    "mode": "soft_topk_combined",
+                                    "support_alignment": {"status": "pass"},
+                                    "candidate_details": [
+                                        {
+                                            "rank": 1,
+                                            "window_id": "joint39_val_0036",
+                                            "window_index": 18,
+                                            "weight": 1.0,
+                                            "memory_support_cosine": 0.9,
+                                        }
+                                    ],
+                                },
                             },
                             "validation_gate": {
                                 "selected_start_status": "pass",
@@ -181,4 +253,7 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
     assert summary["mode"] == "live_condition_only"
     assert summary["condition_only_validation_status"] == "pass"
     assert summary["condition_only_forward_warning_count"] == 1
+    assert summary["support_candidate_count"] == 1
+    assert summary["condition_report_path"] == "condition_report.json"
+    assert summary["forward_warnings"][0]["phrase"] == "forward risk"
     assert summary["status"] == "ok"
