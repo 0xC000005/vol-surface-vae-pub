@@ -111999,3 +111999,88 @@ Do not train residual bridge components until the condition-only path is operati
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 32 condition-only rollout integration
+
+### Context
+Iteration 31 established the condition-only narrative contract. The next production gate was integration: the clean condition query text needed to drive the existing prefix-latent story-smoke path without reintroducing future-target semantics.
+
+### Hypothesis
+If condition-only grounding is a valid production contract, then the clean condition text should be embeddable, projectable into the bridge condition-memory space, and consumable by the existing analogue-mixture/frozen-rollout path. The falsifier is failure to create a valid condition report, poor support-prior alignment, or operational rollout failures.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py`.
+- Added `test_code/test_800a_nl_prefix_latent_condition_only_report.py`.
+- The converter:
+  - loads a condition-only grounding case or casebook summary row;
+  - embeds only `candidate_query_text`;
+  - projects the embedding through the existing bridge adapter;
+  - writes a story-smoke-compatible condition report and `text_memory` arrays file;
+  - maps condition-only implications into the legacy `market_implications` shape for analogue-mixture support alignment.
+- Ran one real converter on the fragile-risk-on case, then a short frozen rollout.
+- Scaled the same converter/rollout path to the defensive risk-off and rates-led tightening cases.
+- Ran temporal-role alignment across the three condition-only rollouts.
+
+### Result
+The condition-only path is operational end to end.
+
+Final condition-only story-smoke outputs:
+
+- fragile risk-on: validation `pass`, operational `pass`;
+- defensive risk-off: validation `warning`, operational `warning`;
+- rates tightening scare: validation `pass`, operational `pass`.
+
+Temporal-role support alignment over the three generated reports:
+
+- current/regime checked: `12`;
+- current/regime mismatches: `0`;
+- current/regime mismatch rate: `0.0`;
+- future checked: `0`;
+- ambiguous implications: `0`.
+
+The defensive risk-off warning was not a language-grounding failure. It came from the rollout validation gate:
+
+- selected start memory cosine: `0.9694`;
+- selected start distance z: `14.9222`;
+- terminal mean absolute delta z: `1.1654`;
+- warning: `large_rollout_shift`.
+
+### Mechanism Read
+The language side now behaves the way we want:
+
+```text
+risk-manager narrative -> condition-only query text -> bridge memory -> analogue-mixture support
+```
+
+The generator is no longer being asked to satisfy future scenario implications. The old legacy all-implications-vs-future mismatch remains noisy, but that is now expected and should not be used as the production gate.
+
+The new bottleneck is the start/support contract. Defensive risk-off finds a high-memory-cosine support point, but the selected start creates a rollout shift warning. That means production readiness now depends on making starting-state selection more defensible, not on adding more natural-language parsing.
+
+### Decision / Next Step
+Keep the condition-only report converter. The next principled step is a start/support selection audit for condition-only reports:
+
+1. compare `balanced_memory_start`, `memory_nearest_start`, and `implication_aligned_start` on the same three condition-only reports;
+2. score validation status, rollout shift, support-prior alignment, and start distance;
+3. choose the default production start policy for narrative-only mode;
+4. only then update the Gradio/demo path to use condition-only reports by default.
+
+### Artifacts
+- Converter: `experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py`
+- Tests: `test_code/test_800a_nl_prefix_latent_condition_only_report.py`
+- Fragile condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json`
+- Defensive condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json`
+- Rates condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json`
+- Fragile rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_809a_condition_only_fragile/prefix_latent_story_smoke_report.json`
+- Defensive rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_809b_condition_only_defensive/prefix_latent_story_smoke_report.json`
+- Rates rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_809c_condition_only_rates/prefix_latent_story_smoke_report.json`
+- Casebook temporal alignment: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_temporal_role_alignment_809b_condition_only_casebook/temporal_role_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_800a_nl_prefix_latent_condition_only_report.py -q` -> 5 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py test_code/test_800a_nl_prefix_latent_condition_only_report.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py --case-json ...01_fragile... --output-dir ...809a_fragile` -> 128-D condition report.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report ...809a_fragile... --memory-prior-mode soft_topk_combined --start-mode balanced_memory_start --steps 100 --samples 2 --device cuda` -> validation pass.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_role_alignment.py --output-dir ...809b_condition_only_casebook --input ...809a... --input ...809b... --input ...809c...` -> current mismatch rate `0.0`.
+- `uv run pytest test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 24 passed.
+- `git diff --check` -> passed.
+
+---
