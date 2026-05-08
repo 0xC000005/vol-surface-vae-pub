@@ -111498,3 +111498,44 @@ Move from product plumbing to model alignment. The next principled experiment sh
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 23 offline implication alignment metric
+
+### Context
+Iteration 22 showed that the live Gradio product casebook works mechanically but often generates scenario directions that contradict grounded market implications. The next step was to make that finding a reusable offline metric rather than a one-off casebook observation.
+
+### Hypothesis
+An offline implication-alignment evaluator can score existing product casebook summaries and raw prefix story-smoke reports without new OpenAI calls, producing a reproducible mismatch rate that can guide the next bridge/prefix training objective.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py`.
+- The evaluator accepts either a Gradio live casebook summary or one or more raw prefix story-smoke reports.
+- For raw prefix reports, it recomputes alignment from `cached_query.grounding.market_implications` and `generation.terminal_delta_summary`.
+- For product casebook summaries, it aggregates the stored per-case `market_alignment` blocks.
+- Added `test_code/test_795a_nl_prefix_latent_implication_alignment.py` covering prefix-report input, casebook-summary input, summary aggregation, and artifact writing.
+
+### Result
+- Scoring the 3-story Gradio live casebook summary produced 3 warning cases, 16 checked implications, 8 mismatches, and a mismatch rate of `0.50`.
+- Scoring the three underlying prefix story-smoke reports directly produced the same result: 3 warning cases, 16 checked implications, 8 mismatches, and a mismatch rate of `0.50`.
+- This confirms the alignment issue is not a casebook formatting artifact; it is present in the raw model outputs.
+
+### Mechanism Read
+The offline metric makes the model bottleneck measurable. The OpenAI grounding layer produced usable market implications, but the current text-memory-plus-start prefix decoder and start-selection path do not reliably turn those implications into directionally faithful generated scenarios. This gives us a concrete target for the next model experiment: reduce mismatch rate while preserving the frozen SNI rollout contract and existing validation gates.
+
+### Decision / Next Step
+Use the offline evaluator as the acceptance gate for implication-aware model work. The next principled experiment is to add an implication-consistent candidate selection or training objective, then compare against the current `0.50` mismatch-rate baseline on the same 3-story casebook before scaling.
+
+### Artifacts
+- Evaluator: `experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py`
+- Tests: `test_code/test_795a_nl_prefix_latent_implication_alignment.py`
+- Casebook-summary evaluator output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_801a/implication_alignment_summary.json`
+- Raw-report evaluator output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_801b_reports/implication_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_795a_nl_prefix_latent_implication_alignment.py -q` -> 3 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py test_code/test_795a_nl_prefix_latent_implication_alignment.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_801a --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/gradio_live_casebook_summary.json` -> 3 warning cases, 16 checked, 8 mismatches.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_801b_reports --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/01_fragile_risk_on_rebound/prefix_run/prefix_latent_story_smoke_report.json --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/02_defensive_risk_off_shock/prefix_run/prefix_latent_story_smoke_report.json --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/03_rates_selloff_tightening_fear/prefix_run/prefix_latent_story_smoke_report.json` -> 3 warning cases, 16 checked, 8 mismatches.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py -q` -> 71 passed.
+- `git diff --check` -> passed.
+
+---
