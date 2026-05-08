@@ -111413,3 +111413,45 @@ casebook rerun.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 21 live Gradio wrapper TestFlight
+
+### Context
+Iteration 20 made the cached Gradio-wrapper smoke strict about product-role fan labels. The remaining product-readiness gap was whether the same wrapper path works when the condition is produced by a live OpenAI narrative grounding and embedding call rather than a cached bridge query.
+
+### Hypothesis
+A bounded one-story live TestFlight should preserve the Gradio product contract: immediate progress output, `live_openai_story` condition source, populated selected-start and diagnostic-start tables, selected/diagnostic fan labels, and a finite prefix-latent rollout through the frozen joint39 SNI generator.
+
+### Execution
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py` so the existing wrapper smoke can run in cached or live-story mode.
+- Added a condition-source assertion: cached mode must report `cached_bridge_query`, live mode must report `live_openai_story`.
+- Added unit coverage for the live-story wiring and summary artifact naming.
+- Ran a cached real-wrapper regression and one bounded live OpenAI TestFlight with `balanced_memory_start`, 100 training steps, 2 samples, and SPX fan output.
+
+### Result
+- Cached regression: `status=ok`, selected-start `pass`, research overall `pass`, 8 fan traces, labels `All start variants`, `Diagnostic baseline: joint39_val_0370`, and `Selected start: joint39_val_0063`.
+- Live TestFlight: `status=ok`, condition source `live_openai_story`, selected-start `pass`, diagnostic baseline `warning`, research overall `warning`, 8 fan traces, labels `All start variants`, `Diagnostic baseline: joint39_val_0370`, and `Selected start: joint39_val_0115`.
+- The live grounding parsed the fragile risk-on rebound story into explicit SPX-up, VIX-down, BBB-OAS tighter, and IV-surface-down implications, while preserving warnings for interpretive phrases such as "fragile risk-on rebound" and "rotating back into carry".
+- The selected operational start passed with memory compatibility cosine about 0.872, start distance about 13.21 z-units, endpoint error 0, and finite generated shape `[2, 2, 30, 39]`. The diagnostic original-start row warned on low memory compatibility, which is expected because it is now treated as non-operational diagnostic evidence.
+
+### Mechanism Read
+The Gradio product wrapper now exercises the same live condition path a risk manager would trigger from the UI, rather than only the cached research path. The selected-start/diagnostic split remains important: product readiness should judge the operational selected start separately from the diagnostic original-history comparison.
+
+### Decision / Next Step
+The next bottleneck is live breadth, not single-story plumbing. Run a small live Gradio product casebook or equivalent wrapper-level casebook across multiple narrative archetypes, keeping OpenAI calls bounded and checking that each story returns clean implications, warnings, selected-start status, fan labels, and scenario summaries.
+
+### Artifacts
+- `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`
+- `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py`
+- Cached summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_799a_regression/gradio_cached_smoke_summary.json`
+- Live summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_smoke_799a_one_story/gradio_live_smoke_summary.json`
+- Live report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_smoke_799a_one_story/prefix_run/prefix_latent_story_smoke_report.json`
+
+### Verification
+- `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q` -> 3 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_799a_regression --start-mode balanced_memory_start --samples 2 --fan-market SPX` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --live-story --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_smoke_799a_one_story --start-mode balanced_memory_start --samples 2 --fan-market SPX` -> passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q` -> 64 passed.
+- `git diff --check` -> passed.
+
+---

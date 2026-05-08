@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Cached Gradio-wrapper smoke for the prefix-latent scenario demo."""
+"""Cached/live Gradio-wrapper smoke for the prefix-latent scenario demo."""
 
 from __future__ import annotations
 
@@ -38,10 +38,14 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     )
 
 
-def _fast_cached_runner(args: SimpleNamespace) -> dict[str, Any]:
-    """Run the real cached prefix smoke with bounded demo-safe controls."""
+def _fast_prefix_runner(
+    args: SimpleNamespace,
+    *,
+    live_story: bool,
+) -> dict[str, Any]:
+    """Run the real prefix smoke with bounded demo-safe controls."""
 
-    args.live_story = False
+    args.live_story = bool(live_story)
     args.steps = min(int(getattr(args, "steps", 1000)), 100)
     args.samples = min(int(getattr(args, "samples", 2)), 2)
     args.chunk_size = min(int(getattr(args, "chunk_size", 2)), 2)
@@ -61,17 +65,23 @@ def _table_rows(value: Any) -> int:
 def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    live_story = bool(getattr(args, "live_story", False))
+    summary_name = (
+        "gradio_live_smoke_summary.json"
+        if live_story
+        else "gradio_cached_smoke_summary.json"
+    )
 
     def runner(run_args: SimpleNamespace) -> dict[str, Any]:
         run_args.output_dir = str(output_dir / "prefix_run")
-        return _fast_cached_runner(run_args)
+        return _fast_prefix_runner(run_args, live_story=live_story)
 
     stream = run_prefix_latent_for_app(
         start_mode=str(args.start_mode),
         samples=int(args.samples),
         fan_market=str(args.fan_market),
         analogue_scope="ALL",
-        live_story=False,
+        live_story=live_story,
         story=str(args.story),
         runner=runner,
     )
@@ -109,6 +119,15 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
     if not isinstance(gate, dict) or "selected_start_status" not in gate:
         errors.append("gate_selected_status_missing")
+    query = report.get("cached_query", {}) if isinstance(report, dict) else {}
+    condition_source = (
+        str(query.get("condition_source", "")) if isinstance(query, dict) else ""
+    )
+    expected_condition_source = (
+        "live_openai_story" if live_story else "cached_bridge_query"
+    )
+    if condition_source != expected_condition_source:
+        errors.append("condition_source_mismatch")
     if not str(report_json).strip().startswith("{"):
         errors.append("json_report_missing")
     generation = report.get("generation", {}) if isinstance(report, dict) else {}
@@ -130,9 +149,18 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     summary = {
         "status": "ok" if not errors else "fail",
         "errors": errors,
+        "mode": "live_story" if live_story else "cached",
+        "live_story": live_story,
+        "condition_source": condition_source,
         "scope_note": (
-            "Cached Gradio wrapper smoke. This calls the real prefix-latent "
-            "Gradio wrapper path with cached text memory and makes no OpenAI calls."
+            "Live Gradio wrapper smoke. This calls the real prefix-latent Gradio "
+            "wrapper path with OpenAI grounding and embedding, then verifies the "
+            "product tables, labels, and prefix rollout."
+            if live_story
+            else (
+                "Cached Gradio wrapper smoke. This calls the real prefix-latent "
+                "Gradio wrapper path with cached text memory and makes no OpenAI calls."
+            )
         ),
         "start_mode": str(args.start_mode),
         "selected_table_rows": _table_rows(selected_table),
@@ -150,13 +178,13 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "markdown_length": int(len(str(markdown))),
         "status_markdown_length": int(len(str(status_markdown))),
         "artifact_paths": {
-            "summary": str(output_dir / "gradio_cached_smoke_summary.json"),
+            "summary": str(output_dir / summary_name),
             "prefix_report": str(
                 output_dir / "prefix_run" / "prefix_latent_story_smoke_report.json"
             ),
         },
     }
-    _write_json(output_dir / "gradio_cached_smoke_summary.json", summary)
+    _write_json(output_dir / summary_name, summary)
     if errors:
         raise RuntimeError(f"Gradio cached smoke failed: {errors}")
     return summary
@@ -169,6 +197,11 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--fan-market", default="SPX")
     parser.add_argument("--story", default=DEFAULT_STORY)
+    parser.add_argument(
+        "--live-story",
+        action="store_true",
+        help="Call OpenAI for live grounding and text embedding instead of cached text memory.",
+    )
     args = parser.parse_args()
     summary = run_gradio_cached_smoke(args)
     print(

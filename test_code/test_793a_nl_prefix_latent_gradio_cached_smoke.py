@@ -47,6 +47,7 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(tmp_path, monkeypatch
                     "diagnostic_baseline_status": "warning",
                     "overall_status": "warning",
                 },
+                "cached_query": {"condition_source": "cached_bridge_query"},
                 "generation": {
                     "path_quantiles": [
                         {"analogue_label": "Diagnostic baseline: joint39_val_0370"},
@@ -69,6 +70,7 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(tmp_path, monkeypatch
             samples=2,
             fan_market="SPX",
             story="A cached story.",
+            live_story=False,
         )
     )
 
@@ -79,3 +81,71 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(tmp_path, monkeypatch
     assert summary["has_selected_start_label"] is True
     assert summary["has_diagnostic_baseline_label"] is True
     assert (tmp_path / "gradio_cached_smoke_summary.json").exists()
+
+
+def test_run_gradio_live_smoke_requires_live_condition_source(
+    tmp_path, monkeypatch
+) -> None:
+    captured = {}
+
+    def fake_run_prefix_latent_for_app(**kwargs):
+        captured.update(kwargs)
+        yield (
+            "in progress",
+            "## Prefix-Latent Run Status\n\n- Prefix-latent run started: `0.0s ago`",
+            pd.DataFrame(),
+            pd.DataFrame(),
+            pd.DataFrame(),
+            go.Figure(),
+            "{}",
+            {},
+            None,
+        )
+        yield (
+            "markdown",
+            "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+            pd.DataFrame([{"Variant": "balanced_memory_start"}]),
+            pd.DataFrame([{"Variant": "original"}]),
+            pd.DataFrame([{"Status": "pass"}]),
+            pd.DataFrame([{"Market": "SPX"}]),
+            go.Figure(data=[go.Scatter(y=[1, 2, 3])]),
+            '{"status": "ok"}',
+            {
+                "status": "ok",
+                "cached_query": {"condition_source": "live_openai_story"},
+                "validation_gate": {
+                    "selected_start_status": "pass",
+                    "diagnostic_baseline_status": "warning",
+                    "overall_status": "warning",
+                },
+                "generation": {
+                    "path_quantiles": [
+                        {"analogue_label": "Diagnostic baseline: joint39_val_0370"},
+                        {"analogue_label": "Selected start: joint39_val_0063"},
+                    ]
+                },
+            },
+            {"choices": [("All", "ALL")]},
+        )
+
+    monkeypatch.setattr(
+        "experiments.backfill.block_ar.nl_prefix_latent_gradio_cached_smoke."
+        "run_prefix_latent_for_app",
+        fake_run_prefix_latent_for_app,
+    )
+    summary = run_gradio_cached_smoke(
+        SimpleNamespace(
+            output_dir=str(tmp_path),
+            start_mode="balanced_memory_start",
+            samples=2,
+            fan_market="SPX",
+            story="A live story.",
+            live_story=True,
+        )
+    )
+
+    assert captured["live_story"] is True
+    assert summary["status"] == "ok"
+    assert summary["mode"] == "live_story"
+    assert summary["condition_source"] == "live_openai_story"
+    assert (tmp_path / "gradio_live_smoke_summary.json").exists()
