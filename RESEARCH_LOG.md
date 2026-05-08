@@ -112084,3 +112084,78 @@ Keep the condition-only report converter. The next principled step is a start/su
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 33 start policy audit
+
+### Context
+Iteration 32 made the condition-only narrative path operational end to end. The next production-readiness risk was narrative-only starting-state selection: the system needs a defensible default start policy before a risk manager supplies no explicit joint39 starting state.
+
+### Hypothesis
+A start policy that balances memory support and start-state proximity should be more production-defensible than pure nearest-memory selection. The falsifier is that the balanced policy either fails more often, produces worse rollout shifts, or weakens support-prior alignment versus memory-nearest or implication-aligned starts.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_start_policy_audit.py`.
+- Added `test_code/test_801a_nl_prefix_latent_start_policy_audit.py`.
+- The audit replays saved condition-only reports only; it makes no OpenAI calls.
+- Compared three start policies on the same three condition-only casebook narratives:
+  - `balanced_memory_start`;
+  - `memory_nearest_start`;
+  - `implication_aligned_start`.
+- Each run used the existing soft top-k combined memory prior and frozen joint39 rollout:
+  - `--memory-prior-mode soft_topk_combined`;
+  - `--memory-prior-top-k 8`;
+  - `--memory-prior-temperature 0.2`;
+  - `--steps 100`;
+  - `--samples 2`;
+  - `--device cuda`.
+
+### Result
+All policies passed the fragile risk-on and rates-tightening narratives. All policies warned on the defensive risk-off narrative, so the defensive case remains the current hard case.
+
+Aggregate audit result:
+
+| Start policy | Status counts | Warnings | Support mismatches | Mean start z | Max terminal shift | Mean memory cosine |
+|---|---:|---:|---:|---:|---:|---:|
+| `balanced_memory_start` | `{"pass": 2, "warning": 1}` | `{"large_rollout_shift": 1}` | `0/12` | `13.735` | `1.165` | `0.959` |
+| `implication_aligned_start` | `{"pass": 2, "warning": 1}` | `{"large_rollout_shift": 1}` | `0/12` | `13.735` | `1.165` | `0.959` |
+| `memory_nearest_start` | `{"pass": 2, "warning": 1}` | `{"large_start_distance": 1, "large_rollout_shift": 1}` | `0/12` | `16.120` | `1.597` | `0.960` |
+
+Case-level read:
+
+- fragile risk-on: all three policies selected `joint39_val_0040`, passed, start distance z `14.398`, terminal shift `0.970`;
+- defensive risk-off:
+  - balanced and implication-aligned selected `joint39_val_0077`, warned only on `large_rollout_shift`, start distance z `14.922`, terminal shift `1.165`;
+  - memory-nearest selected `joint39_val_0000`, warned on both `large_start_distance` and `large_rollout_shift`, start distance z `22.075`, terminal shift `1.597`;
+- rates tightening: all three policies selected `joint39_val_0178`, passed, start distance z `11.886`, terminal shift `0.864`.
+
+### Mechanism Read
+Pure memory-nearest support is not production-safe as the default. It can chase a slightly higher condition-memory cosine while selecting a starting level farther from the query-support manifold, which increases rollout shift risk.
+
+The implication-aligned policy tied balanced on this small condition-only casebook, which means the current condition-only implication alignment is not adding useful start-policy discrimination beyond the balanced memory/distance rule. This is acceptable for now because support-prior alignment is already clean at the current/regime level.
+
+The remaining hard case is not language grounding or support-prior mismatch. It is a generator/start compatibility warning for defensive risk-off narratives: the selected start is close enough to avoid the start-distance warning, but rollout still moves enough to trigger `large_rollout_shift`.
+
+### Decision / Next Step
+Keep `balanced_memory_start` as the narrative-only production default for now. Do not promote pure `memory_nearest_start`.
+
+The next principled step is to add a defensive-hard-case validation slice around the warning mechanism:
+
+1. collect the selected defensive start candidates and their top-k support pool;
+2. report whether the warning comes from the chosen start, the decoded prefix, or the frozen rollout sensitivity;
+3. define the production behavior for this class as either accepted warning, reranked start, or explicit user-start request.
+
+This advances the validation-and-trust gate without changing the model contract or adding another research knob.
+
+### Artifacts
+- Audit harness: `experiments/backfill/block_ar/nl_prefix_latent_start_policy_audit.py`
+- Tests: `test_code/test_801a_nl_prefix_latent_start_policy_audit.py`
+- Audit summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_policy_audit_810a_condition_only/start_policy_audit_summary.json`
+- Audit markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_policy_audit_810a_condition_only/start_policy_audit_summary.md`
+
+### Verification
+- `uv run pytest test_code/test_801a_nl_prefix_latent_start_policy_audit.py -q` -> 5 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_policy_audit.py test_code/test_801a_nl_prefix_latent_start_policy_audit.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_policy_audit.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_policy_audit_810a_condition_only --steps 100 --samples 2 --chunk-size 2 --device cuda` -> 9 story-smoke rollouts, recommendation `balanced_memory_start`.
+- `uv run pytest test_code/test_801a_nl_prefix_latent_start_policy_audit.py test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 29 passed.
+- `git diff --check` -> passed.
+
+---
