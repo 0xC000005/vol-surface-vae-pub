@@ -113377,3 +113377,63 @@ is fixed. This moves the system away from a single historical analogue story
 and toward a defensible narrative-plus-start scenario generator.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 60 broader condition-only validation
+
+### Context
+Iteration 59 made custom fixed-start validation possible for newly grounded
+narratives. The next production-readiness step was to expand beyond the
+commodity story and test whether more condition-only narratives could be
+grounded, cached, and validated without treating future-risk language as a
+scenario target.
+
+### HEAD
+- Hypothesis: the remaining two new casebook narratives, dollar liquidity
+  squeeze and safe-haven gold bid, should pass the condition-only grounding
+  schema. If they do, a three-narrative custom fixed-start grid should remain
+  positive under the calibrated fixed-start workflow.
+- Execute: ran one-case OpenAI grounding pilots for `dollar_liquidity_squeeze`
+  and `safe_haven_gold_bid`. Both passed, so each was converted into a
+  128-dimensional condition report. Built a local ignored 9-row custom case
+  grid with three narratives and three fixed starts per narrative. Ran an
+  8-sample TestFlight and a 16-sample / 250-step validation using the calibrated
+  temperature-0.50 fixed-start variant.
+- Analyze: the dollar narrative produced five current-state implications:
+  DXY up, USDJPY up, SPX down, BBB_OAS wider, and VIX up, with funding-stress
+  spillover kept warning-only. The safe-haven narrative produced GOLD up,
+  US10Y down, SPX mixed, VIX up, and DXY flat, with broad risk-off escalation
+  kept warning-only. The 9-row validation passed with 8 pass / 1 warning, all
+  rows target-available, all rows improving CRPS and energy versus persistence,
+  mean CRPS improvement +0.147, and mean energy improvement +0.158.
+- Decide: the immediate workflow is now working as intended for a broader
+  condition-only casebook: narrative grounding, fixed start, start-conditioned
+  mixture, frozen rollout, and distributional validation. The next production
+  step is not another model knob; it is to package this broader validation into
+  the boss/demo evidence pack and update the UI/report language so the user sees
+  narrative family, fixed start, mixture support, warning semantics, and
+  scenario quality together.
+
+### Evidence
+- Dollar grounding: `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823a_dollar_pilot --case-name dollar_liquidity_squeeze --model gpt-5.4-mini --dotenv .env --max-output-tokens 1800`: status counts `{"pass": 1}`, 5 current implications, 1 forward warning, 0 future targets.
+- Dollar condition report: `uv run python experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823a_dollar_pilot/condition_only_grounding_summary.json --case-name dollar_liquidity_squeeze --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar --dotenv .env`: text memory dim `128`.
+- Safe-haven grounding: `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823b_safe_haven_pilot --case-name safe_haven_gold_bid --model gpt-5.4-mini --dotenv .env --max-output-tokens 1800`: status counts `{"pass": 1}`, 5 current implications, 1 forward warning, 0 future targets.
+- Safe-haven condition report: `uv run python experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823b_safe_haven_pilot/condition_only_grounding_summary.json --case-name safe_haven_gold_bid --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven --dotenv .env`: text memory dim `128`.
+- 9-row TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823c_new_conditions_temp050_s8 --case-spec-json autoresearch-session/new_condition_fixed_start_grid_823c.json --case-count 9 --variant-set temperature --variant-count 1 --samples 8 --steps 180 --chunk-size 4 --device cuda`: status `pass`, 8 pass / 1 warning, mean CRPS improvement +0.135.
+- 9-row validation: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823d_new_conditions_temp050_s16 --case-spec-json autoresearch-session/new_condition_fixed_start_grid_823c.json --case-count 9 --variant-set temperature --variant-count 1 --samples 16 --steps 250 --chunk-size 4 --device cuda`: status `pass`, 8 pass / 1 warning, mean CRPS improvement +0.147, mean energy improvement +0.158.
+
+### Artifacts
+- Dollar grounding summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823a_dollar_pilot/condition_only_grounding_summary.json`
+- Dollar condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json`
+- Safe-haven grounding summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_823b_safe_haven_pilot/condition_only_grounding_summary.json`
+- Safe-haven condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json`
+- 9-row validation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823d_new_conditions_temp050_s16/start_conditioned_bakeoff.json`
+- 9-row validation Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823d_new_conditions_temp050_s16/start_conditioned_bakeoff.md`
+
+### Production implication
+The start-conditioned narrative workflow is no longer only a three-story cached
+demo. It now covers six casebook narratives overall, including three new
+condition-only stories grounded through OpenAI and validated through the frozen
+SNI generator. The strongest current claim remains distributional scenario
+generation, not point forecasting: the broader new-condition grid improved CRPS
+and energy versus persistence across every tested row.
+
+---
