@@ -156,6 +156,39 @@ Known verified outputs:
 - three-story live casebook: 3/3 pass, 5609 OpenAI tokens, condition-only and
   selected-start gates pass for all cases.
 
+## Artifact Preflight
+
+The deployment boundary is now machine-checkable with:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_preflight.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed \
+  --run-cached-smoke \
+  --gradio-url http://127.0.0.1:7862 \
+  --samples 2 \
+  --fan-market SPX \
+  --redraw-market IV_ATM_3M
+```
+
+The checker validates:
+
+- every required artifact in the minimal bundle exists;
+- required artifacts have byte counts and SHA-256 hashes;
+- `.env` exists locally only as an ignored file;
+- the report records whether `OPENAI_API_KEY` is present without writing the
+  key value;
+- generated outputs, checkpoints, data, paper files, and `.env` are not staged;
+- optional cached Gradio API smoke passes against the supplied URL.
+
+Latest verified preflight artifact:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed/demo_preflight_report.json
+```
+
+Summary: status `pass`, 15/15 artifacts present, 48,818,004 required bytes,
+zero unsafe staged paths, `.env` ignored, cached smoke `pass`.
+
 ## Hosted Prototype Boundary
 
 A hosted prototype should be treated as a private app until the artifact and
@@ -214,7 +247,7 @@ The main gaps are:
 
 ## Next Production Step
 
-The next most useful production-readiness iteration is an artifact manifest and
-preflight checker. It should verify the minimal bundle exists, compute hashes,
-check secret handling, confirm ignored generated outputs are not staged, and run
-the cached Gradio API smoke against a local or hosted URL.
+The next most useful production-readiness iteration is a hosted-demo dry run:
+copy only the minimal artifact bundle into a clean local staging directory or
+private hosted prototype, run the preflight checker there, then run one cached
+casebook and one live OpenAI TestFlight with the same saved audit trail.

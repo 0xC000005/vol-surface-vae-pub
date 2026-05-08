@@ -114075,3 +114075,37 @@ This does not change the generator. It reduces operational ambiguity: the risk-m
 The next production-readiness iteration should build an artifact-manifest and preflight checker. It should verify that the minimal bundle exists, compute hashes and sizes, check secret hygiene, confirm ignored generated outputs are not staged, and optionally run the cached Gradio API smoke against a local or hosted URL.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 73 demo preflight checker
+
+### Context
+Iteration 72 documented the deployment boundary. The next operations gate was to make that boundary machine-checkable before a boss demo or hosted prototype.
+
+### Hypothesis
+A small preflight checker can catch missing demo artifacts, unsafe staged generated files, and secret-handling mistakes before the Gradio app is presented or moved to a hosted environment. It should also be able to run the cached Gradio API smoke without making OpenAI calls.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_demo_preflight.py`.
+- Added `test_code/test_810a_nl_prefix_latent_demo_preflight.py` with TDD coverage for artifact hashing, missing-artifact failure, unsafe staging failure, secret redaction, Markdown rendering, and persisted output paths.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the preflight command and latest verified artifact.
+- Ran the real preflight twice: first without smoke, then with cached Gradio API smoke against `http://127.0.0.1:7862`.
+
+### Result
+The real preflight with cached smoke passed. It found 15/15 required artifacts, computed hashes over 48,818,004 required bytes, confirmed zero unsafe staged paths, confirmed `.env` exists but is Git-ignored, and ran cached Gradio API smoke successfully.
+
+Latest preflight artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed/demo_preflight_report.json`
+
+### Mechanism Read
+The workflow now has an operations-level guardrail: before a risk-manager demo, we can prove the minimal bundle is present and hashed, the source tree is not accidentally staging ignored outputs/checkpoints/paper files/secrets, and the cached Gradio API path still works. This narrows the remaining production gap from "can we reproduce the demo?" to "can we stage it cleanly in a hosted/private environment and do manual visual QA?"
+
+### Verification
+- Red test: `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py -q` failed before the module existed.
+- Green test: `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py -q` passed, 4 tests.
+- Integration test: `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py -q` passed, 7 tests.
+- Real preflight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_preflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed --run-cached-smoke --gradio-url http://127.0.0.1:7862 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M` returned status `pass`.
+- `git diff --check` passed.
+
+### Decision / Next Step
+The next production-readiness step is a clean hosted-demo dry run boundary: copy only the minimal artifact bundle into a clean local staging directory or private hosted prototype, run this preflight there, then run one cached casebook plus one live OpenAI TestFlight with the same audit trail.
+
+---
