@@ -114222,3 +114222,36 @@ This closes the biggest local-vs-hosted gap for the live narrative path. The dem
 The next production-readiness step is browser/screenshot QA or a private hosted prototype using the same 25-file bundle and platform-secret contract. Capture the readiness panel, cached and live run statuses, implications/warnings, support candidates, factor fan redraw, IV-cell fan redraw, and report paths.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 77 demo QA packet
+
+### Context
+The clean staged demo now passes both cached and live Gradio API smokes. The next production-readiness need was to make those artifacts reviewable as a single acceptance packet rather than leaving evidence scattered across the preflight report, staging manifest, cached smoke, and live smoke.
+
+### Hypothesis
+A deterministic QA packet builder can turn existing staged evidence into a boss-demo acceptance artifact without launching Gradio, calling OpenAI, or adding browser dependencies. The packet should fail if the artifact bundle is incomplete, the staged tree contains private paths, cached/live smoke gates fail, fan/IV redraw evidence is missing, or forward-looking narrative language is not routed to warning-only handling.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_demo_qa_packet.py`.
+- Added `test_code/test_812a_nl_prefix_latent_demo_qa_packet.py`.
+- The script consumes the source preflight JSON, staging manifest, staged cached Gradio API smoke, and staged live OpenAI TestFlight smoke.
+- It emits `demo_qa_packet.json` and `demo_qa_packet.md` with seven gates: artifact bundle complete, staged tree clean, cached demo path, live OpenAI condition path, support/visual evidence, future-language warning-only semantics, and secret/paper hygiene.
+- Documented the QA packet command in `docs/research_protocols/nl_prefix_latent_deployment_readiness.md`.
+
+### Result
+The real staged QA packet passed all seven gates. It records the 25-file / 52,835,108-byte artifact bundle, clean staged source with zero private path violations, cached and live smoke status `ok`, selected-start `pass`, condition-only validation `pass` for the live run, 8 support candidates, 8 factor fan traces, 8 IV-cell redraw traces, one forward warning treated as non-conditioning, and 1,943 live OpenAI tokens.
+
+Latest QA artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_836a_staged_live/demo_qa_packet.json`
+
+### Mechanism Read
+This improves the operations and risk-manager UX gates. The system is now easier to hand off for an internal demo because the acceptance evidence is one report rather than a set of ad hoc logs. This still does not replace human/browser screenshot QA; it makes the pre-browser gate deterministic and reproducible.
+
+### Verification
+- `uv run pytest test_code/test_812a_nl_prefix_latent_demo_qa_packet.py -q` passed 5 tests.
+- `python experiments/backfill/block_ar/nl_prefix_latent_demo_qa_packet.py --help` succeeded.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_qa_packet.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_836a_staged_live` returned status `pass` with 7 gates.
+
+### Decision / Next Step
+The next production-readiness step is now browser or hosted-environment QA: either add lightweight screenshot/browser verification once a browser dependency is acceptable, or package the staged tree for a private hosted Gradio prototype with authentication, platform secrets, and persistent audit storage.
+
+---

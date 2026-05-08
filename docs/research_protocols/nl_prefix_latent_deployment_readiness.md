@@ -316,6 +316,29 @@ and 1,943 OpenAI tokens. The staged tree still had no `.env`, PDF, `.venv`,
 `.agents`, `.claude`, or `paper/` path, and the staged server was stopped after
 the run.
 
+## Demo QA Packet
+
+The staged preflight, cached smoke, and live smoke can be consolidated into a
+single acceptance packet without launching Gradio or calling OpenAI:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_qa_packet.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_836a_staged_live
+```
+
+Latest QA packet:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_836a_staged_live/demo_qa_packet.md
+```
+
+Summary: status `pass` across seven gates: artifact bundle complete, staged
+tree clean, cached demo path, live OpenAI condition path, support/visual
+evidence, future-language warning-only semantics, and secret/paper hygiene.
+The packet records the 25-file / 52,835,108-byte artifact bundle, 8 cached and
+live support candidates, 8 fan traces, 8 IV-cell redraw traces, 1,943 live
+OpenAI tokens, and zero staged private path violations.
+
 ## Manual Visual QA Checklist
 
 Before showing the demo externally:
