@@ -109424,3 +109424,836 @@ Skipped the architecture bake-off for this run. The larger evaluation supports t
 - `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_778a_nl_window_selection_manifest.py -q` passed: 57 tests.
 
 ---
+## 2026-05-07: Direct memory ablation for narrative-conditioned generator
+
+### Context
+
+We tested whether the text-predicted condition memory can directly drive the frozen joint39 SNI generator, instead of using the text bridge mainly to retrieve historical analogue histories. This is the clean architecture test for whether the system is already a true prompt-conditioned scenario generator or remains an analogue-conditioned scenario retrieval/generation system.
+
+### Implementation
+
+Updated `experiments/backfill/block_ar/nl_scenario_level_evaluation.py` to add a direct-memory ablation:
+
+- `narrative_direct_memory`: uses the held-out window's actual current history, but replaces the frozen generator's encoded memory with the text-predicted bridge condition vector from `bridge_eval_arrays.npz`.
+- `oracle_direct_memory_true_history`: same direct-injection path, but uses the true encoded memory target for that held-out window.
+- Existing methods remain in the same report: persistence, train median delta, historical replay top-k, narrative generator top-k, and oracle generator true history.
+
+The direct-memory path makes no OpenAI API calls. It consumes the existing representative bridge report and bridge arrays.
+
+### Command
+
+```bash
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_direct_memory \
+  --include-direct-memory-generator \
+  --include-oracle-generator \
+  --samples 4 \
+  --chunk-size 4 \
+  --max_windows 441 \
+  --device cpu
+```
+
+### Results
+
+Held-out windows: `29`.
+
+Same-run comparison versus persistence:
+
+| method | energy improvement | CRPS improvement | 80% coverage | mean-path MAE improvement |
+|---|---:|---:|---:|---:|
+| narrative generator top-k | `+20.3884%` | `+15.6684%` | `0.6297` | `-10.8365%` |
+| historical replay top-k | `+10.0321%` | `+4.8903%` | `0.3988` | `-13.1271%` |
+| oracle generator true history | `+10.4234%` | `+5.2603%` | `0.3943` | `-18.0485%` |
+| narrative direct memory | `+8.5938%` | `+2.9437%` | `0.3866` | `-22.0628%` |
+| oracle direct memory true history | `-2.6758%` | `-12.0401%` | `0.3702` | `-38.3520%` |
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_direct_memory/scenario_level_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_direct_memory/scenario_level_eval_arrays.npz`
+
+### Interpretation
+
+Directly injecting the predicted text condition memory into the frozen generator does not currently beat analogue-conditioned generation. The key diagnostic is that `oracle_direct_memory_true_history` is also weak, even though it uses the true encoded memory target. That means the failure is not only the text bridge; the direct fixed-memory injection mechanism is not equivalent to the generator's normal rollout contract.
+
+The current frozen SNI generator normally re-encodes the evolving prefix during rollout. A single fixed memory vector can influence the velocity field, but it does not reproduce the normal dynamic conditioning path. Therefore the current system should still be described as analogue-conditioned scenario generation with a language-to-memory retrieval bridge, not yet as a fully direct prompt-conditioned scenario generator.
+
+### Decision
+
+Do not fine-tune the decoder yet. The next principled architecture step is to design a proper prompt-conditioning interface that preserves the generator's dynamic rollout behavior, for example:
+
+1. additive text-memory residual on top of the normal market-history encoder,
+2. a dual encoder with market-history memory plus text condition memory,
+3. a learned prefix-memory initializer that is updated during rollout,
+4. then a small adapter/LoRA-style fine-tune only if frozen-generator ablations show the conditioning interface is the bottleneck.
+
+Decoder fine-tuning or replacing the generator encoder should wait until this interface is tested against the same scenario-level metrics.
+
+### Verification
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py` passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py -q` passed: `8 passed`.
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_778a_nl_window_selection_manifest.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` passed: `77 passed`.
+
+---
+## 2026-05-07: Residual prompt-conditioning alpha grid for narrative generator
+
+### Context
+
+The fixed direct-memory ablation showed that replacing the frozen generator's memory state with a single text-predicted condition vector is not equivalent to the generator's normal rollout contract. The next architecture test was to keep the normal dynamic market-history encoder active and add language as a residual steering term:
+
+```text
+memory_state_t = encode_prefix(evolving_market_prefix)_t
+                 + alpha * (text_predicted_memory - base_history_memory)
+```
+
+This tests a more production-plausible prompt-conditioning interface: the market-history encoder still controls the evolving state, while the narrative bridge can steer the conditional memory.
+
+### Implementation
+
+Added `sample_with_memory_residual_condition` in `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`.
+
+Updated `experiments/backfill/block_ar/nl_scenario_level_evaluation.py` with an alpha-grid residual evaluation:
+
+- `narrative_residual_memory_aXXX`: held-out current history plus text-memory residual.
+- `narrative_residual_topk_aXXX`: retrieved analogue histories plus text-memory residual relative to each analogue's base memory.
+
+The latter preserves the current analogue-supported product workflow but lets the text condition steer each retrieved analogue's dynamic generator memory.
+
+### Command
+
+```bash
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_residual_alpha_grid \
+  --include-memory-residual-generator \
+  --include-memory-residual-topk-generator \
+  --include-oracle-generator \
+  --samples 4 \
+  --chunk-size 4 \
+  --max_windows 441 \
+  --device cpu
+```
+
+### Results
+
+Held-out windows: `29`.
+
+Same-run comparison versus persistence:
+
+| method | energy improvement | CRPS improvement | 80% coverage | mean-path MAE improvement |
+|---|---:|---:|---:|---:|
+| narrative generator top-k | `+20.7562%` | `+16.9773%` | `0.6364` | `-9.4505%` |
+| narrative residual top-k alpha 0.10 | `+20.9499%` | `+16.7399%` | `0.6385` | `-9.1780%` |
+| narrative residual top-k alpha 0.25 | `+20.8630%` | `+16.5279%` | `0.6490` | `-9.0030%` |
+| narrative residual top-k alpha 0.50 | `+20.7371%` | `+16.7982%` | `0.6483` | `-8.6395%` |
+| narrative residual current-history alpha 0.25 | `+12.0139%` | `+6.5172%` | `0.3999` | `-16.5375%` |
+| narrative direct memory | `+8.4748%` | `+3.1627%` | `0.3976` | `-21.0999%` |
+| oracle generator true history | `+10.5703%` | `+5.0964%` | `0.3945` | `-18.3108%` |
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_residual_alpha_grid/scenario_level_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220_residual_alpha_grid/scenario_level_eval_arrays.npz`
+
+### Interpretation
+
+Current-history residual conditioning is still not enough: it improves over fixed direct-memory injection but remains far below analogue-conditioned generation on coverage and distributional scores.
+
+The useful signal is `narrative_residual_topk`: adding a small-to-moderate text-memory residual on top of retrieved analogue histories preserves the analogue-supported generator performance and slightly improves some metrics. Alpha `0.25` gives the best coverage in this run (`0.6490` vs `0.6364` for top-k without residual), while alpha `0.10` gives the best energy score (`+20.9499%` vs `+20.7562%`). The gains are modest, not decisive, but this is the first architecture variant that steers with text while preserving the generator's dynamic rollout contract.
+
+### Decision
+
+The production-leaning architecture should remain analogue-supported for now, with text-memory residual steering as the next candidate feature. The direct current-history prompt-conditioned generator is not ready. The next principled step is to repeat the residual-topk alpha comparison with more samples/seeds and then promote only the stable residual strength, if the improvement survives.
+
+Do not fine-tune the decoder yet. If residual-topk remains stable, the next trainable architecture should be a small dual-conditioning adapter that combines dynamic market memory, retrieved analogue memory, and text residual memory without unfreezing the full generator.
+
+### Verification
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py` passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py -q` passed: `10 passed`.
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_778a_nl_window_selection_manifest.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` passed: `79 passed`.
+- `git diff --check` passed.
+
+---
+## 2026-05-07: Narrative prefix-latent autoresearch plan
+
+### Context
+
+We clarified the long-run product target for the narrative-conditioned scenario
+generator. The current analogue-driven workflow is useful for auditability, but
+it risks becoming a K-nearest-neighbor product if retrieved historical prefixes
+remain the hidden scenario engine. The desired system should let a risk manager
+enter either (1) a narrative only, letting the model choose plausible starting
+states, or (2) a narrative plus an explicit joint39 starting state, then generate
+30-day scenarios through the frozen SNI autoregressive rollout.
+
+### Decision
+
+Adopt a prefix-latent research direction:
+
+```text
+narrative + starting state -> prefix latent -> synthetic recent-prefix object
+synthetic recent-prefix object -> frozen SNI encoder/rollout -> future scenarios
+```
+
+The historical analogue should be demoted to start-state proposal, provenance,
+and support diagnostics. It should not define the full recent 30-day prefix
+dynamics in the final prompt-conditioned system.
+
+### Rationale
+
+The frozen generator recomputes memory from the evolving prefix at each
+autoregressive step. A single text-predicted final memory vector can drive the
+decoder mechanically, but it is not the native rollout contract. The cleaner
+solution is to learn a compact latent representation of recent-prefix dynamics,
+condition that latent on text plus starting state, decode a compatible prefix
+object, and then reuse the frozen generator normally.
+
+### Prepared Artifacts
+
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `autoresearch-session/nl_prefix_latent_goal.json`
+- `autoresearch-session/nl_prefix_latent_state.json`
+
+### Next HEAD Step After Approval
+
+Start with an oracle prefix-autoencoder gate before scaling text labels or
+OpenAI calls. The first falsifier is whether a low-dimensional prefix latent can
+reconstruct enough of the 30-day joint39 recent-prefix object that the frozen
+SNI encoder produces nearly the same memory and the frozen generator produces
+similar scenario distributions.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 1 oracle prefix autoencoder gate
+
+### Context
+
+Started the separate narrative prefix-latent HEAD workflow. The first local
+gate asks whether a compact latent can reconstruct enough of the 30-day joint39
+recent-prefix object that the frozen SNI encoder and autoregressive generator
+still behave like they do on true prefixes. This run made no OpenAI API calls.
+
+### Hypothesis
+
+A start-aware prefix autoencoder can reconstruct the SNI recent-prefix object
+well enough that decoded prefixes preserve the frozen generator's final memory
+and scenario-level rollout behavior.
+
+### Execution
+
+Added a local oracle-prefix experiment:
+
+- `experiments/backfill/block_ar/nl_prefix_latent_oracle_autoencoder.py`
+- `test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py`
+
+The feature object is:
+
+```text
+[history_level - final_history_level, history_norm, center, log(scale), drift]
+```
+
+The decoder pins the final history level to the supplied starting state, then
+feeds the decoded prefix through the unchanged frozen joint39 SNI generator.
+
+Representative full held-out command:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_oracle_autoencoder.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_oracle_fullheldout_786c \
+  --latent-dim 32 \
+  --hidden-dim 256 \
+  --steps 1000 \
+  --batch-size 64 \
+  --run-rollout \
+  --max-eval-windows 0 \
+  --samples 4 \
+  --chunk-size 4 \
+  --device cpu
+```
+
+### Result
+
+Using the representative OpenAI-manifest split, the autoencoder trained on 128
+train windows and evaluated on 29 held-out test windows.
+
+Autoencoder diagnostics:
+
+- train MSE: `0.000466`
+- held-out test MSE: `0.668386`
+- held-out memory cosine mean: `0.927112`
+- held-out memory cosine median: `0.932342`
+- held-out memory cosine min: `0.829842`
+- held-out memory cosine p10: `0.848190`
+
+Scenario-level rollout versus persistence on 29 held-out windows:
+
+| method | energy improvement | CRPS improvement | 80% coverage | mean-path MAE improvement |
+|---|---:|---:|---:|---:|
+| true-prefix oracle generator | `+11.52%` | `+7.01%` | `0.386` | `-16.70%` |
+| decoded-prefix generator | `+9.92%` | `+4.05%` | `0.431` | `-20.01%` |
+
+The decoded-prefix generator is weaker than the existing analogue-top-k
+narrative generator, but it nearly matches the true-prefix oracle generator on
+energy score and preserves higher coverage in this run.
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_oracle_fullheldout_786c/prefix_latent_oracle_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_oracle_fullheldout_786c/prefix_latent_oracle_arrays.npz`
+
+### Mechanism Read
+
+The oracle prefix-latent gate passes mechanically. This means the prefix-latent
+decomposition is viable enough to continue: we do not need to predict a raw
+sequence of hidden states from text, and we do not need a historical analogue to
+provide the entire prefix. A decoded latent prefix can preserve the frozen SNI
+rollout contract.
+
+The remaining gap is now the text-conditioned bridge:
+
+```text
+text embedding + starting state -> prefix latent
+```
+
+### Decision
+
+Continue without new OpenAI calls. The next HEAD iteration should reuse the
+existing cached OpenAI embeddings and the saved prefix latents from this run to
+train a small text-plus-start to prefix-latent bridge. Only after that cached
+bridge proves non-garbage should we spend additional API calls on new labels or
+embeddings.
+
+### Verification
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_oracle_autoencoder.py` passed.
+- `uv run pytest test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_776a_nl_scenario_level_evaluation.py -q` passed: `12 passed`.
+- `git diff --check` passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 2 cached text-start bridge
+
+### Context
+
+After the oracle prefix-autoencoder gate passed, the next test was whether the
+existing cached OpenAI narrative embeddings can predict the prefix latent when
+combined with the explicit starting state. This run made no new OpenAI API
+calls.
+
+### Hypothesis
+
+A small supervised bridge
+
+```text
+text embedding + starting state -> prefix latent
+```
+
+should produce held-out prefix latents that decode into generator-useful recent
+prefixes before we spend any additional API budget.
+
+### Execution
+
+Added the cached bridge experiment:
+
+- `experiments/backfill/block_ar/nl_prefix_latent_text_bridge.py`
+- `test_code/test_787a_nl_prefix_latent_text_bridge.py`
+
+The script reuses:
+
+- cached text embeddings from `manifest_openai_schema_v2_representative_220`;
+- the representative manifest train/test split;
+- the local prefix autoencoder from iteration 1;
+- the frozen joint39 SNI generator.
+
+The first bridge target used the raw 32-dimensional prefix-autoencoder latent.
+After a pilot showed severe scale issues, target latents were standardized using
+train-example statistics before bridge training.
+
+### Result
+
+Target-normalized bridge diagnostics:
+
+- train non-negative examples: `553`
+- held-out non-negative examples: `126`
+- train MSE: `0.0584`
+- held-out MSE: `23.3185`
+- held-out latent cosine mean: `0.1545`
+- held-out latent cosine median: `0.1108`
+- held-out latent cosine p10: `-0.0562`
+
+Decoded-memory check on the held-out anchor windows:
+
+- memory cosine mean: `0.9108`
+- memory cosine median: `0.9286`
+- memory cosine min: `0.7789`
+- memory cosine p10: `0.8118`
+
+Eight-window rollout pilot versus persistence:
+
+| method | energy improvement | CRPS improvement | 80% coverage |
+|---|---:|---:|---:|
+| true-prefix oracle generator | `+0.78%` | `-3.83%` | `0.374` |
+| text-start prefix generator | `-6.83%` | `-9.91%` | `0.362` |
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_text_bridge_memorycheck_787c_targetnorm/prefix_latent_text_bridge_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_text_bridge_rollout_787d_targetnorm/prefix_latent_text_bridge_report.json`
+
+### Mechanism Read
+
+The direct bridge to an arbitrary autoencoder coordinate is not stable enough.
+The model can overfit the training examples, but held-out latent cosine is poor.
+The high decoded-memory cosine is not sufficient evidence of scenario usefulness:
+the rollout pilot is worse than persistence. This suggests the autoencoder
+latent coordinates are not an identifiable or semantically stable regression
+target for language.
+
+### Decision
+
+Do not call OpenAI and do not scale labeling. The next HEAD step should be
+post-experiment analysis / ablation:
+
+1. compare text+start, start-only, text-only, mean-latent, and nearest-latent
+   baselines;
+2. test whether generator-memory or memory-sequence targets are more stable than
+   arbitrary autoencoder coordinates;
+3. only then decide whether the prefix latent needs contrastive alignment,
+   VQ-style discrete regime codes, or a different latent target.
+
+### Verification
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_oracle_autoencoder.py experiments/backfill/block_ar/nl_prefix_latent_text_bridge.py` passed.
+- `uv run pytest test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_776a_nl_scenario_level_evaluation.py -q` passed: `14 passed`.
+- `git diff --check` passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 3 bridge input ablation
+
+### Context
+
+The cached text-plus-start bridge in iteration 2 overfit the training examples
+and failed the small rollout pilot. Before changing architecture or spending API
+budget, this iteration isolated whether the useful signal was coming from text,
+starting state, or neither. No OpenAI API calls were made.
+
+### Hypothesis
+
+If the bridge failure is mainly an input problem, then `text_start`,
+`text_only`, and `start_only` ablations should clearly identify a useful
+conditioning source. If all variants fail similarly, the target representation
+is probably the problem.
+
+### Execution
+
+Extended `experiments/backfill/block_ar/nl_prefix_latent_text_bridge.py` with
+`--input-mode`:
+
+- `text_start`
+- `text_only`
+- `start_only`
+
+Added coverage in `test_code/test_787a_nl_prefix_latent_text_bridge.py`.
+
+Also fixed the local `nl-prefix-latent-autoresearch` skill frontmatter by
+quoting both `name` and `description`; the skill now validates with
+`quick_validate.py`, and direct YAML parsing confirms both fields are strings.
+
+### Result
+
+Held-out latent bridge ablation on cached representative embeddings:
+
+| input mode | train MSE | held-out MSE | held-out latent cosine mean | held-out memory cosine mean |
+|---|---:|---:|---:|---:|
+| text + start | `0.0584` | `23.3185` | `0.1545` | `0.9108` |
+| text only | `0.5925` | `20.9575` | `0.1952` | `0.9054` |
+| start only | `0.0041` | `50.0104` | `0.0510` | `0.9118` |
+
+Text-only was the least bad latent predictor. Start-only mostly memorized the
+train set and generalized poorly, even though decoded-memory cosine looked high.
+
+Text-only 8-window rollout pilot:
+
+| method | energy improvement | CRPS improvement | 80% coverage |
+|---|---:|---:|---:|
+| true-prefix oracle generator | `+0.31%` | `-5.64%` | `0.359` |
+| text-only prefix generator | `-1.26%` | `-4.35%` | `0.395` |
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_bridge_ablation_787e_text_start/prefix_latent_text_bridge_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_bridge_ablation_787e_text_only/prefix_latent_text_bridge_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_bridge_ablation_787e_start_only/prefix_latent_text_bridge_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_bridge_ablation_787g_text_only_rollout/prefix_latent_text_bridge_report.json`
+
+### Mechanism Read
+
+The text embeddings contain some useful information, but the raw autoencoder
+latent is not an identifiable language target. The start state alone is not
+enough and mostly encourages memorization. Decoded-memory cosine is also too
+weak as a standalone gate: every variant can look memory-close while still not
+beating persistence on rollout.
+
+### Decision
+
+Do not call OpenAI. The next HEAD step should redesign the supervised target
+toward generator-relevant latent coordinates:
+
+1. final generator memory target;
+2. memory-sequence target;
+3. or a start-conditioned decoder whose latent is trained with a memory/rollout
+   consistency loss, not just feature reconstruction.
+
+Only after a cached target redesign improves held-out rollout should new
+labeling or embedding calls be considered.
+
+### Verification
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_oracle_autoencoder.py experiments/backfill/block_ar/nl_prefix_latent_text_bridge.py` passed.
+- `uv run pytest test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_776a_nl_scenario_level_evaluation.py -q` passed: `15 passed`.
+- `python /home/max/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/nl-prefix-latent-autoresearch` passed: `Skill is valid!`.
+- `git diff --check` passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 4 generator-memory prefix decoder
+
+### Context
+
+The previous prefix-latent ablation showed that predicting the arbitrary prefix-autoencoder latent from cached narrative embeddings was not a stable language target. Text carried some held-out signal, but rollout quality stayed weak and start-only overfit. The next HEAD experiment tested a more generator-relevant contract:
+
+```text
+cached text-predicted final SNI memory + explicit starting state
+-> decoded recent-prefix feature object
+-> frozen SNI encoder/autoregressive rollout
+```
+
+No OpenAI API calls were made in this iteration.
+
+### Hypothesis
+
+Final SNI memory plus the explicit last-day starting state is a better supervised target than an arbitrary autoencoder latent. If this is true, a memory+start prefix decoder should reconstruct generator-relevant recent-prefix objects and recover distributional scenario quality on held-out windows.
+
+### Execution
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py`.
+- Added `test_code/test_788a_nl_prefix_latent_memory_decoder.py`.
+- The decoder standardizes final SNI memory and starting state, then trains an MLP to predict prefix features used to reconstruct `history_level`, `history_norm`, `center`, `scale`, and `drift_feature`.
+- Ran a small 8-window CPU pilot first, then a full 29-window held-out GPU run using cached bridge arrays from `manifest_bridge_eval_openai_schema_v2_representative_220`.
+
+### Result
+
+Full held-out artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_decoder_fullheldout_788b/prefix_latent_memory_decoder_report.json`
+- arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_decoder_fullheldout_788b/prefix_latent_memory_decoder_arrays.npz`
+
+Key full held-out numbers over 29 anchor windows:
+
+- train MSE: `0.000373`
+- held-out feature MSE: `0.945985`
+- oracle decoded-memory cosine mean: `0.9438`
+- text decoded-memory cosine mean: `0.9214`
+- text-memory prefix decoder energy improvement vs persistence: `+12.40%`
+- text-memory prefix decoder ensemble CRPS improvement vs persistence: `+7.26%`
+- text-memory prefix decoder 80% coverage: `0.399`
+- mean-path MAE remains worse than persistence: `-15.06%`
+
+For comparison on the same 29-window run:
+
+- true-prefix oracle generator energy improvement: `+10.74%`
+- true-prefix oracle generator CRPS improvement: `+5.87%`
+- oracle-memory prefix decoder energy improvement: `+11.95%`
+- oracle-memory prefix decoder CRPS improvement: `+5.36%`
+
+### Mechanism Read
+
+This is the first cached prefix-latent result that supports a production-facing contract closer to the desired workflow. The model is no longer using a historical analogue as the hidden prefix. It uses a text-predicted generator memory plus an explicit starting state to decode a synthetic recent-prefix object, then lets the frozen SNI generator run through its native encoder and autoregressive rollout.
+
+The result does not make this a point-forecasting system. Mean-path MAE is still worse than persistence, consistent with the broader narrative scenario framing. The positive result is distributional: energy and CRPS improve while the generator remains pathwise and auditable.
+
+### Decision
+
+Promote final-memory-plus-start decoding as the current active prefix-latent contract. The next principled step is not more OpenAI labeling. It is a user-start sensitivity and hard-case validation harness:
+
+1. hold the same narrative/text memory fixed;
+2. perturb or substitute the explicit starting state;
+3. verify the decoded prefix ends exactly at the supplied start;
+4. measure decoded-memory drift, rollout validity, and scenario distribution sensitivity;
+5. compare against the current analogue-conditioned workflow.
+
+This directly tests the user's core production requirement: the same story should generate different, plausible scenario distributions when the risk manager changes the starting market state.
+
+### Verification
+
+- `python /home/max/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/nl-prefix-latent-autoresearch`: skill valid after YAML frontmatter fix.
+- `uv run pytest test_code/test_788a_nl_prefix_latent_memory_decoder.py -q`: 2 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_decoder_pilot_788a --steps 300 --hidden-dim 256 --batch-size 64 --max-eval-windows 8 --samples 4 --chunk-size 4 --run-rollout --device cpu`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_decoder_fullheldout_788b --steps 1000 --hidden-dim 256 --batch-size 64 --max-eval-windows 0 --samples 4 --chunk-size 4 --run-rollout --device cuda`: passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py`: passed.
+- `git diff --check`: passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 5 explicit start sensitivity gate
+
+### Context
+
+The previous HEAD iteration promoted the memory+start prefix decoder as the current active prefix-latent contract. That result still needed a robustness gate for the user's production requirement: the same story should generate different plausible scenarios when the risk manager changes the explicit starting market state.
+
+This iteration tested that contract without any OpenAI API calls.
+
+### Hypothesis
+
+If the memory+start prefix decoder is a real prompt-conditioned mechanism rather than a decorative start input, then holding the same text-predicted generator memory fixed while changing the start state should:
+
+1. decode prefixes whose final level equals the requested start;
+2. preserve reasonable compatibility with the input text memory for nearby starts;
+3. expose lower compatibility for far/OOD starts;
+4. produce nonzero rollout distribution changes as the start changes.
+
+### Execution
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py`.
+- Added `test_code/test_789a_nl_prefix_latent_start_sensitivity.py`.
+- The harness builds three variants for each held-out narrative: original start, nearest train start, and farthest train start.
+- It keeps the same cached text-predicted memory for the narrative, swaps only the explicit start, decodes a prefix, checks endpoint pinning, computes decoded-memory cosine against the input memory, and optionally samples the frozen SNI rollout.
+- Ran a 4-query pilot first, then a full 29-query held-out run. Each full run query created 3 start variants, for 87 decoded variants.
+
+### Result
+
+Full held-out artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_sensitivity_fullheldout_789b/prefix_latent_start_sensitivity_report.json`
+- arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_sensitivity_fullheldout_789b/prefix_latent_start_sensitivity_arrays.npz`
+
+Key full held-out numbers:
+
+- decoded-prefix endpoint max absolute error: `0.0`
+- decoded-prefix endpoint mean absolute error: `0.0`
+- input-memory cosine, original start: mean `0.9109`, p10 `0.8793`, min `0.8499`
+- input-memory cosine, nearest train start: mean `0.9367`, p10 `0.8969`, min `0.8728`
+- input-memory cosine, farthest train start: mean `0.8436`, p10 `0.7719`, min `0.7053`
+- nearest-start rollout mean absolute shift vs original, z units: `0.6414`
+- farthest-start rollout mean absolute shift vs original, z units: `1.0654`
+- nearest-start terminal shift, z units: `0.7478`
+- farthest-start terminal shift, z units: `1.3439`
+
+Original-start rollout scoring in this harness used only 3 samples, so it is a noisier quality read than the prior 4-sample full-heldout decoder run:
+
+- energy improvement vs persistence: `+6.47%`
+- ensemble CRPS improvement vs persistence: `+0.95%`
+- 80% coverage: `0.333`
+- mean-path MAE remains worse than persistence: `-19.68%`
+
+### Mechanism Read
+
+The explicit starting state is now a real control in the pipeline. The decoder pins the reconstructed recent prefix exactly to the supplied start, and the frozen generator's rollout distribution changes when the start changes. Nearby train starts remain highly compatible with the same narrative memory. Far starts lower memory compatibility and create larger scenario shifts, which is a useful out-of-distribution warning signal rather than a silent failure.
+
+This supports the product distinction we wanted: historical analogues may still help suggest plausible starting points, but the hidden 30-day prefix dynamics are not copied from an analogue. The model uses text memory plus explicit start to synthesize a prefix object and then rolls forward through the frozen SNI generator.
+
+### Decision
+
+Promote start sensitivity to a required validation gate. The next principled step is to turn these diagnostics into explicit acceptance/warning thresholds and wire them into a boss-facing report/demo:
+
+- warn when input-memory cosine is low;
+- warn when requested start is far from training support;
+- warn when rollout sensitivity is extreme;
+- report endpoint pinning as a hard pass/fail;
+- include a small hard-case narrative/start casebook before new OpenAI scaling.
+
+### Verification
+
+- `uv run pytest test_code/test_789a_nl_prefix_latent_start_sensitivity.py -q`: 3 passed.
+- `uv run pytest test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py -q`: 5 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_sensitivity_pilot_789a --steps 300 --hidden-dim 256 --batch-size 64 --max-eval-windows 4 --samples 3 --chunk-size 3 --run-rollout --device cuda`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_sensitivity_fullheldout_789b --steps 1000 --hidden-dim 256 --batch-size 64 --max-eval-windows 0 --samples 3 --chunk-size 3 --run-rollout --device cuda`: passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py`: passed.
+- `git diff --check`: passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 6 validation gate
+
+### Context
+
+The start-sensitivity gate showed that explicit starting states are real controls: decoded prefixes end exactly at the requested start and rollout distributions move when starts change. The next production issue was reporting. A boss-facing demo should not simply say "generated"; it should explain whether the request is operationally supported, a warning case, or a stress/OOD case.
+
+This iteration converted cached start-sensitivity diagnostics into an explicit validation gate. No OpenAI API calls were made.
+
+### Hypothesis
+
+The held-out start-sensitivity artifacts contain enough information to produce a useful pass/warn/fail gate:
+
+- hard pass/fail for endpoint pinning;
+- warning/fail for low text-memory compatibility;
+- warning/fail for start states far from training support;
+- warning/fail for excessive rollout sensitivity;
+- separate operational status from deliberately far-start stress status.
+
+### Execution
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py`.
+- Added `test_code/test_790a_nl_prefix_latent_validation_gate.py`.
+- Patched `nl_prefix_latent_start_sensitivity.py` to save `delta_scale` so case-level rollout shifts are measured in z units.
+- Regenerated the full held-out start-sensitivity artifact with the same cached inputs.
+- Ran the validation gate over `prefix_latent_start_sensitivity_fullheldout_789b`.
+
+### Result
+
+Validation-gate artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_validation_gate_790b/prefix_latent_validation_gate_report.json`
+
+Key gate results:
+
+- overall status: `fail`
+- operational status: `warning`
+- stress status: `fail`
+- warning counts: `large_rollout_shift=29`, `large_start_distance=29`, `low_memory_compatibility=9`
+- fail counts: `rollout_shift_fail=1`
+- hard endpoint failure reasons: none
+
+The overall failure is driven by a deliberately farthest-start stress case, not by endpoint pinning or a normal original-start run. The top hard case was query window `177` with farthest train start `6`, input-memory cosine `0.7774`, start distance `29.5434` z units, mean rollout shift `1.5520` z units, and terminal shift `2.0067` z units.
+
+Operational status is still only `warning` because two nearest-start cases had large rollout shifts. This is the right product signal: the model can run, but the UI/report should flag those cases rather than silently presenting them as routine.
+
+### Mechanism Read
+
+The validation gate turns the prefix-latent model from a raw generator into an auditable scenario tool. It distinguishes:
+
+- mathematical contract failure: decoded prefix does not end at the requested start;
+- support warning: requested start is far from the training manifold;
+- semantic compatibility warning: decoded prefix memory does not match the text-predicted memory well;
+- scenario sensitivity warning: the generated distribution changes sharply under a start substitution.
+
+This is important for hallucination-aware narrative conditioning. We should not hide uncertainty behind a smooth fan chart. The gate makes support and sensitivity visible.
+
+### Decision
+
+Keep this validation gate as a required quality-control layer for the narrative prefix-latent workflow. The next principled step is integration rather than another model change:
+
+1. wire the validation report into the Gradio/story smoke path;
+2. show operational status, stress status, endpoint pinning, warning counts, and top hard cases;
+3. use the gate to decide whether a scenario is accepted, warning-only, or rejected/OOD;
+4. build a small hard-case narrative/start casebook for the boss-facing demo.
+
+### Verification
+
+- `uv run pytest test_code/test_790a_nl_prefix_latent_validation_gate.py -q`: 3 passed.
+- `uv run pytest test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py -q`: 6 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_sensitivity_fullheldout_789b --steps 1000 --hidden-dim 256 --batch-size 64 --max-eval-windows 0 --samples 3 --chunk-size 3 --run-rollout --device cuda`: passed after adding `delta_scale`.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_validation_gate_790b --hard-case-count 8`: passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py`: passed.
+- `git diff --check`: passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 7 Gradio validation integration
+
+### Context
+
+The previous HEAD iteration produced a cached validation gate for the prefix-latent workflow. The next production gap was visibility: the local Gradio demo showed story grounding, analogues, and fan charts, but not the new prefix-latent quality-control status.
+
+This integration makes the boss-facing demo more honest by showing the validation gate explicitly as system-level QC.
+
+### Hypothesis
+
+Adding the validation gate to the demo/report will make the current status of the narrative prefix-latent project easier to explain without overstating the live app. The existing fan charts still come from the analogue-conditioned story smoke path, while the new section shows the validation status of the text-memory-plus-start prefix decoder.
+
+### Execution
+
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Added `DEFAULT_PREFIX_VALIDATION_GATE_REPORT`.
+- Added `validation_gate_markdown()` and `validation_gate_table()`.
+- Added a read-only "Latent-prefix validation" section to the Gradio app.
+- Extended `test_code/test_785a_nl_risk_manager_story_gradio_app.py` to verify the formatter and hard-case table.
+
+### Result
+
+The app now displays:
+
+- operational status;
+- stress status;
+- overall diagnostic status;
+- endpoint max error;
+- warning/failure counts;
+- top validation hard cases.
+
+The section reads from:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_validation_gate_790b/prefix_latent_validation_gate_report.json`
+
+This is deliberately presented as system-level validation, not per-story output from the current analogue-conditioned fan-chart path.
+
+### Mechanism Read
+
+This is an integration step, not a new model result. It improves the product narrative by making the distinction visible:
+
+- current demo scenario fan charts: analogue-conditioned story smoke workflow;
+- new prefix-latent research path: text-predicted memory plus explicit start, decoded recent prefix, frozen SNI rollout;
+- validation gate: QC layer for support, start compatibility, endpoint pinning, and rollout sensitivity.
+
+That distinction matters because the product should not hide behind a polished chart while the underlying prompt-conditioned prefix path is still being validated.
+
+### Decision
+
+Keep the validation-gate section in the local demo. The next principled step is to build a live prefix-latent story smoke mode:
+
+1. choose a cached held-out narrative/text memory first;
+2. allow original, nearest, farthest, or explicit start selection;
+3. decode the prefix from text memory plus start;
+4. run the frozen generator;
+5. emit scenario fan charts plus the same validation fields for that specific run.
+
+Do this with cached text-memory examples before making new OpenAI calls.
+
+### Verification
+
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 10 passed.
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_790a_nl_prefix_latent_validation_gate.py -q`: 13 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py`: passed.
+- `git diff --check`: passed.
+
+---
+## 2026-05-07: HEAD nl-prefix-latent 8 production-readiness workflow update
+
+### Context
+
+The latent-prefix workflow originally said to commit each HEAD iteration unless the user explicitly said not to. That was too coarse. It did not distinguish ignored local state and skill files from tracked production scripts, tests, docs, demo code, and research-log entries. It also did not define a production-readiness path clearly enough for the long-term objective: a usable narrative-conditioned scenario generator that risk managers can trust.
+
+### Workflow Change
+
+Updated the separate `nl-prefix-latent-autoresearch` workflow without touching the existing 11x11 conditional-generator autoresearch loop.
+
+The skill now includes:
+
+- a production objective: the loop is not done until a risk manager can inspect why a scenario should be trusted, warned on, or rejected;
+- production-readiness gates: workflow integrity, grounded narrative input, prefix-latent contract, frozen-generator rollout, validation/trust, risk-manager UX, and operations;
+- OpenAI API discipline: calls are allowed when useful, but with TestFlight pilots, schema validation, caching, model/prompt/token metadata, and no private paper content;
+- commit discipline: commit verified tracked production scripts/tests/docs/demo/research-log changes by default, but do not commit ignored `.agents/` or `autoresearch-session/` state, large artifacts, or private paper material;
+- a current production backlog headed by the live prefix-latent story smoke path.
+
+Also updated the tracked protocol:
+
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+
+### Decision
+
+Going forward, the workflow should not avoid OpenAI calls categorically. It should use them deliberately after a cached/local pilot proves the code path is sane. The next technical milestone remains:
+
+```text
+narrative/text memory + selected or explicit start
+-> decoded recent prefix
+-> frozen SNI rollout
+-> per-run validation gate
+-> risk-manager-readable fan charts and warnings
+```
+
+Start with cached text-memory examples, then add live OpenAI-backed narrative mode once the cached prefix-latent smoke is working.
+
+### Verification
+
+- `python /home/max/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/nl-prefix-latent-autoresearch`: skill valid.
+- `python -m json.tool autoresearch-session/nl_prefix_latent_state.json`: passed.
+- YAML frontmatter type check: skill `name` and `description` are strings.
+- `git diff --check`: passed.
+
+---
