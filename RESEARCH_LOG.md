@@ -112722,3 +112722,46 @@ Keep the acceptance harness. The next production step is to scale this from one 
 - Run report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_812a/user_start_run/prefix_latent_story_smoke_report.json`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 44 product acceptance casebook
+
+### Context
+The one-case product acceptance smoke passed, but production confidence requires more than one narrative/start combination. The next step was to scale the acceptance gate to a small saved casebook without new OpenAI calls.
+
+### Hypothesis
+A three-case no-OpenAI acceptance suite over saved condition-only reports should catch basic product regressions across different narrative regimes: fragile risk-on, defensive risk-off, and rates selloff. Passing this suite would show that the current workflow is demo-stable across more than one story.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py`.
+- Added `test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py`.
+- The casebook suite runs the product acceptance smoke over:
+  - `fragile_risk_on`, candidate 18;
+  - `defensive_risk_off`, candidate 22;
+  - `rates_selloff`, candidate 18.
+- Each case reuses a saved condition-only report, exports a start JSON, previews it, runs `user_start_state`, and applies the same product checks as the single acceptance smoke.
+
+### Result
+- Casebook unit tests: `uv run pytest test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py -q` -> 5 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py -q` -> 44 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py` -> passed.
+- Diff hygiene: `git diff --check` -> passed.
+- Actual casebook run:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813a --case-count 3 --samples 2 --steps 100 --chunk-size 2 --device cuda`
+  returned `status=pass`, `case_count=3`, `pass_count=3`.
+- Case statuses:
+  - fragile risk-on: pass, candidate 18;
+  - defensive risk-off: pass, candidate 22;
+  - rates selloff: pass, candidate 18.
+
+### Mechanism Read
+This is a stronger product-readiness signal than a single smoke. It still does not prove statistical production quality, but it verifies the complete narrative -> support -> exported current-state start -> user-start rollout -> fan/validation artifact path over three materially different saved narratives.
+
+### Decision / Next Step
+Keep the casebook suite as the demo regression gate. The next production step is to make the casebook report more decision-useful: include per-case validation status, support-candidate count, start distance, preview field count, fan counts, and artifact links in the summary table so it can be handed to a risk manager or boss without opening each nested JSON.
+
+### Artifacts
+- Casebook harness: `experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py`
+- Tests: `test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py`
+- Casebook report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813a/product_acceptance_casebook.json`
+- Casebook markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813a/product_acceptance_casebook.md`
+
+---
