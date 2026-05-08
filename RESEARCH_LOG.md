@@ -111789,3 +111789,62 @@ Stay with the analogue-mixture main direction, but move from **memory mixture** 
 - `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 81 passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 29 feature-mixture TestFlight
+
+### Context
+Iteration 28 showed that a soft analogue-memory mixture had clean support-prior alignment but did not improve generated rollout alignment. The next TestFlight asked whether preserving the full weighted prefix feature object, instead of only averaging final memory vectors, would carry story-consistent direction into the frozen generator.
+
+### Hypothesis
+If the loss of direction was caused by collapsing the analogue mixture into a single averaged memory vector, then a start-pinned prefix reconstructed from weighted analogue prefix features should improve generated implication alignment on the fragile-risk-on TestFlight.
+
+### Execution
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` with `--prefix-prior-mode feature_mixture`.
+- In `feature_mixture` mode, the script:
+  - uses the already selected analogue weights from the memory-prior pool;
+  - mixes full historical prefix feature vectors from the oracle prefix feature matrix;
+  - reconstructs a start-pinned synthetic prefix through `reconstruct_prefix_from_features`;
+  - bypasses the learned memory+start decoder;
+  - runs the frozen joint39 SNI generator normally.
+- Ran a one-story TestFlight on the saved fragile-risk-on live condition with `soft_topk_combined`, `top_k=8`, temperature `0.2`, short rollout settings, and CUDA.
+
+### Result
+The operational path worked but the generated direction got worse:
+
+- validation status: `pass`;
+- support-prior alignment: `0/3` mismatches, `pass`;
+- generated alignment: `3/3` mismatches, mismatch rate `1.0`;
+- generated terminal signs still showed SPX down and VIX up, despite the support prior matching SPX up / VIX down.
+
+The TestFlight failed, so this was not scaled to the full three-story casebook.
+
+### Mechanism Read
+The failure is no longer just a memory-vector averaging issue. Even when the recent-prefix support object is reconstructed from weighted analogue prefix features and endpoint-pinned, the frozen generator can roll out in a direction that contradicts the current-market implications. This suggests a deeper contract issue:
+
+1. The current implication-alignment evaluator may be comparing future generated paths against current/recent market-state implications.
+2. The narrative often contains both observed current regime language and forward-looking risk language.
+3. The current grounding schema does not cleanly separate `current/regime evidence` from `forward scenario expectation`.
+
+For the fragile-risk-on story, "equities are recovering, vol is compressing" describes the current/recent regime, while "a volatility reversal could unwind the move" is a forward risk. A generated future with SPX down and VIX up may be economically coherent under the forward-risk part, even though it fails the current implication checker.
+
+### Decision / Next Step
+Do not keep adding prefix-mixing knobs until the evaluation target is fixed. The next principled step is temporal-role-aware grounding and evaluation:
+
+- current/regime implications should score analogue support and reconstructed prefix plausibility;
+- forward-risk / forecast implications should score generated future paths;
+- unsupported causal claims should remain warnings, not generator targets.
+
+The next iteration should add a local temporal-role alignment evaluator over existing grounding artifacts first. Only after that should we ask OpenAI for a revised schema or train a residual bridge.
+
+### Artifacts
+- Updated story smoke: `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- TestFlight report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_806a_feature_mixture_one/prefix_latent_story_smoke_report.json`
+- Alignment summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_806a_feature_mixture_one/implication_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 16 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report .../01_fragile_risk_on_rebound/prefix_run/prefix_latent_story_smoke_report.json --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --prefix-prior-mode feature_mixture --start-mode balanced_memory_start --steps 100 --samples 2 --chunk-size 2 --device cuda` -> validation `pass`.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_806a_feature_mixture_one --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_806a_feature_mixture_one/prefix_latent_story_smoke_report.json` -> 3 mismatches / 3 checked.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 81 passed.
+
+---

@@ -53,6 +53,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_memory_decoder import (  # n
 from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import (  # noqa: E402
     DEFAULT_BRIDGE_REPORT,
     build_prefix_feature_matrix,
+    reconstruct_prefix_from_features,
     sample_prefix_generator_deltas,
     selected_bridge_window_indices,
     split_indices_from_bridge_report,
@@ -103,6 +104,10 @@ MemoryPriorMode = Literal[
     "soft_topk_memory",
     "soft_topk_combined",
     "diverse_topk_combined",
+]
+PrefixPriorMode = Literal[
+    "decoder",
+    "feature_mixture",
 ]
 
 DEFAULT_OUTPUT_DIR = (
@@ -1182,15 +1187,39 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     )
     requested_start = history_level[start_indices, -1, :]
     variant_inputs = apply_memory_start_stats(text_memory, requested_start, input_stats)
-    decoded_prefix = _decode_features(
-        decoder_result["model"],
-        decoder_result["target_mean"],
-        decoder_result["target_std"],
-        variant_inputs,
-        start_state=requested_start,
-        layout=layout,
-        device=device,
-    )
+    prefix_prior_mode = str(getattr(args, "prefix_prior_mode", "decoder"))
+    if prefix_prior_mode == "feature_mixture":
+        prior_indices = np.asarray(memory_prior.get("window_indices", []), dtype=np.int64)
+        prior_weights = np.asarray(memory_prior.get("weights", []), dtype=np.float32)
+        if prior_indices.size == 0 or prior_weights.size != prior_indices.size:
+            raise ValueError(
+                "feature_mixture prefix prior requires an analogue mixture "
+                "memory prior with non-empty window_indices and weights"
+            )
+        prior_weights = prior_weights / max(float(np.sum(prior_weights)), 1e-8)
+        mixed_feature = np.sum(features[prior_indices] * prior_weights[:, None], axis=0)
+        mixed_features = np.repeat(
+            mixed_feature[None, :].astype(np.float32),
+            repeats=len(variant_rows),
+            axis=0,
+        )
+        decoded_prefix = reconstruct_prefix_from_features(
+            mixed_features,
+            start_state=requested_start,
+            layout=layout,
+        )
+    elif prefix_prior_mode == "decoder":
+        decoded_prefix = _decode_features(
+            decoder_result["model"],
+            decoder_result["target_mean"],
+            decoder_result["target_std"],
+            variant_inputs,
+            start_state=requested_start,
+            layout=layout,
+            device=device,
+        )
+    else:
+        raise ValueError(f"unknown prefix_prior_mode: {prefix_prior_mode!r}")
     endpoint = endpoint_alignment_summary(
         decoded_prefix["history_level"],
         requested_start,
@@ -1328,6 +1357,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "test_window_count": int(test_indices.size),
         "device": str(device),
         "decoder": {
+            "prefix_prior_mode": prefix_prior_mode,
             "loss_first": float(decoder_result["loss_first"]),
             "loss_last": float(decoder_result["loss_last"]),
             "train_mse": float(decoder_result["train_mse"]),
@@ -1441,6 +1471,16 @@ def main() -> None:
         "--memory-prior-diverse-max-pairwise-cosine",
         type=float,
         default=0.98,
+    )
+    parser.add_argument(
+        "--prefix-prior-mode",
+        choices=["decoder", "feature_mixture"],
+        default="decoder",
+        help=(
+            "decoder uses the learned memory+start prefix decoder. "
+            "feature_mixture bypasses that decoder and reconstructs a "
+            "start-pinned prefix directly from weighted analogue prefix features."
+        ),
     )
     parser.add_argument(
         "--include-original-baseline", action="store_true", default=True
