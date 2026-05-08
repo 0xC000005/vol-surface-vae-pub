@@ -113325,3 +113325,55 @@ targets while still allowing a risk manager to provide a story and a starting
 level.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 59 custom fixed-start commodity validation
+
+### Context
+After adding a new commodity-led condition-only narrative, the workflow needed a
+no-new-OpenAI way to validate that narrative under several fixed starting
+levels. The existing fixed-start bakeoff only supported hardcoded case sets, so
+it could not easily test "same narrative, different accepted/user-specified
+start" for newly grounded stories.
+
+### HEAD
+- Hypothesis: if the start-before-mixture contract is correct, a reusable custom
+  case-spec bakeoff should let us validate one condition report against multiple
+  fixed starts without new OpenAI calls, and the commodity narrative should pass
+  the calibrated fixed-start scenario gate on more than one start.
+- Execute: added `--case-spec-json` to the fixed-start bakeoff. The JSON case
+  spec accepts `case_name`, `start_name`, `condition_report`, and
+  `candidate_index`, overriding the hardcoded case set. Built a local ignored
+  commodity case spec for starts 18, 40, and 178. Ran an 8-sample TestFlight and
+  then a 16-sample / 250-step validation with the calibrated temperature-0.50
+  variant and no additional OpenAI calls.
+- Analyze: the custom bakeoff support passed unit tests. The 8-sample commodity
+  TestFlight passed 3/3 rows with mean CRPS improvement +0.130 and mean energy
+  improvement +0.143 versus persistence. The 16-sample validation also passed
+  3/3 rows, with mean CRPS improvement +0.143 and mean energy improvement
+  +0.152 versus persistence. Each fixed start improved on both CRPS and energy.
+- Decide: custom fixed-start validation should remain in the workflow because it
+  directly tests the user concern that the mixture must be conditioned on the
+  fixed start. The commodity narrative family is good enough to keep. The next
+  step is to pilot and cache the dollar-liquidity and safe-haven narratives with
+  the same one-case grounding gate, then rerun a larger custom narrative/start
+  validation grid.
+
+### Evidence
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q`: 9 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`: passed.
+- `git diff --check`: passed.
+- Commodity 8-sample TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_822b_commodity_temp050_s8 --case-spec-json autoresearch-session/commodity_condition_fixed_start_cases_822b.json --case-count 3 --variant-set temperature --variant-count 1 --samples 8 --steps 180 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.130, mean energy improvement +0.143.
+- Commodity 16-sample validation: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_822c_commodity_temp050_s16 --case-spec-json autoresearch-session/commodity_condition_fixed_start_cases_822b.json --case-count 3 --variant-set temperature --variant-count 1 --samples 16 --steps 250 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.143, mean energy improvement +0.152.
+
+### Artifacts
+- Commodity 8-sample report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_822b_commodity_temp050_s8/start_conditioned_bakeoff.json`
+- Commodity 16-sample report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_822c_commodity_temp050_s16/start_conditioned_bakeoff.json`
+- Commodity 16-sample Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_822c_commodity_temp050_s16/start_conditioned_bakeoff.md`
+
+### Production implication
+The workflow now has a reusable evaluation path for the strict production
+contract: a fixed condition report can be paired with several accepted or
+user-specified starts, and the analogue mixture is recomputed after that start
+is fixed. This moves the system away from a single historical analogue story
+and toward a defensible narrative-plus-start scenario generator.
+
+---

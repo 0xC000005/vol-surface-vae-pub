@@ -177,12 +177,39 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _load_case_spec_json(path: str | Path) -> list[dict[str, Any]]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw_cases = payload.get("cases", payload) if isinstance(payload, dict) else payload
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise ValueError(f"{path}: expected non-empty case list")
+    cases: list[dict[str, Any]] = []
+    required = {"case_name", "start_name", "condition_report", "candidate_index"}
+    for index, row in enumerate(raw_cases):
+        if not isinstance(row, dict):
+            raise ValueError(f"{path}: case {index} is not an object")
+        missing = sorted(required - set(row))
+        if missing:
+            raise ValueError(f"{path}: case {index} missing fields {missing}")
+        cases.append(
+            {
+                "case_name": str(row["case_name"]),
+                "start_name": str(row["start_name"]),
+                "condition_report": str(row["condition_report"]),
+                "candidate_index": int(row["candidate_index"]),
+            }
+        )
+    return cases
+
+
 def selected_historical_cases(
     case_count: int | None = None,
     *,
     case_set: str = "default",
+    case_spec_json: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    if str(case_set) == "default":
+    if case_spec_json:
+        rows = _load_case_spec_json(case_spec_json)
+    elif str(case_set) == "default":
         rows = [case for case in DEFAULT_MATRIX if "candidate_index" in case]
     elif str(case_set) == "expanded":
         rows = list(EXPANDED_MATRIX)
@@ -520,7 +547,11 @@ def _format_optional(value: Any) -> str:
 def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    cases = selected_historical_cases(args.case_count, case_set=args.case_set)
+    cases = selected_historical_cases(
+        args.case_count,
+        case_set=args.case_set,
+        case_spec_json=getattr(args, "case_spec_json", None),
+    )
     variants = selected_variants(args.variant_count, variant_set=args.variant_set)
     rows: list[dict[str, Any]] = []
     for case in cases:
@@ -560,7 +591,10 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
             "using realized-future metrics where historical starts are selected."
         ),
         "case_count": int(len(cases)),
-        "case_set": str(args.case_set),
+        "case_set": (
+            "custom" if getattr(args, "case_spec_json", None) else str(args.case_set)
+        ),
+        "case_spec_json": str(getattr(args, "case_spec_json", "") or ""),
         "variant_count": int(len(variants)),
         "variant_set": str(args.variant_set),
         "run_count": int(len(rows)),
@@ -586,6 +620,13 @@ def main() -> None:
     parser.add_argument("--case-count", type=int, default=4)
     parser.add_argument(
         "--case-set", choices=["default", "expanded"], default="default"
+    )
+    parser.add_argument(
+        "--case-spec-json",
+        help=(
+            "Optional JSON case list with case_name, start_name, condition_report, "
+            "and candidate_index. When provided, it overrides --case-set."
+        ),
     )
     parser.add_argument("--variant-count", type=int, default=4)
     parser.add_argument("--variant-set", choices=sorted(VARIANT_SETS), default="prior")

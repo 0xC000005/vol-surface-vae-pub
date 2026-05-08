@@ -1,3 +1,4 @@
+import json
 import sys
 
 import numpy as np
@@ -33,6 +34,36 @@ def test_selected_historical_cases_supports_expanded_case_set() -> None:
         "rates_selloff",
     }
     assert any(row["candidate_index"] == 178 for row in rows)
+
+
+def test_selected_historical_cases_supports_custom_case_spec(tmp_path) -> None:
+    path = tmp_path / "cases.json"
+    path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "case_name": "commodity_inflation_pressure",
+                        "start_name": "explicit_18",
+                        "condition_report": "condition_report.json",
+                        "candidate_index": 18,
+                    },
+                    {
+                        "case_name": "commodity_inflation_pressure",
+                        "start_name": "explicit_40",
+                        "condition_report": "condition_report.json",
+                        "candidate_index": 40,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = selected_historical_cases(case_spec_json=path)
+
+    assert [row["start_name"] for row in rows] == ["explicit_18", "explicit_40"]
+    assert all(row["condition_report"] == "condition_report.json" for row in rows)
 
 
 def test_selected_variants_supports_temperature_calibration_set() -> None:
