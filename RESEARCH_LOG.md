@@ -113886,3 +113886,61 @@ OpenAI usage, and condition-only warning contract easy to inspect without
 opening nested JSON files.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 69 boss pack live casebook evidence
+
+### Context
+
+The three-story live API casebook passed, but the boss-facing evidence pack
+still only summarized the broader offline validation. The live proof was
+available in separate JSON/Markdown artifacts but not integrated into the main
+presentation artifact.
+
+### Hypothesis
+
+Adding an optional live-casebook section to the boss-demo pack should make the
+current product status easier to communicate: offline distributional validation
+plus live typed-story Gradio API evidence in one Markdown/JSON pack.
+
+### Execute
+
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py`
+  with `--live-casebook-report`.
+- Added live casebook summary extraction: pass count, token usage, grounding
+  and embedding models, per-case warning counts, support candidates, and summary
+  links.
+- Added tests in `test_code/test_807a_nl_prefix_latent_boss_demo_pack.py`.
+- Regenerated the boss pack at
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run pytest test_code/test_807a_nl_prefix_latent_boss_demo_pack.py -q`
+  -> 6 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py --validation-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823d_new_conditions_temp050_s16/start_conditioned_bakeoff.json --live-casebook-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_828a_three_story/gradio_live_api_casebook_summary.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook`
+  -> status `ok`, mean CRPS improvement +0.1469.
+- `uv run pytest test_code/test_807a_nl_prefix_latent_boss_demo_pack.py test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 43 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py test_code/test_807a_nl_prefix_latent_boss_demo_pack.py`
+  -> passed.
+- `git diff --check` -> passed.
+
+Saved artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/boss_demo_pack.md`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/boss_demo_pack.json`
+
+The Markdown pack now reports the 9/9 CRPS and energy improvements from the
+representative validation and the 3/3 live Gradio API casebook, including 5609
+OpenAI tokens, one warning-only forward-risk item per case, and eight support
+candidates per case.
+
+### Decide
+
+The project now has a credible boss-facing local demo pack. The next production
+step is UI polish: show the live casebook/evidence-pack path or equivalent
+summary inside the Gradio app so the boss can inspect the evidence without
+opening repo artifacts manually.
+
+---

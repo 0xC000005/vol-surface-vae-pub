@@ -23,6 +23,7 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_boss_demo_pack_821a"
 )
+DEFAULT_LIVE_CASEBOOK_REPORT = ""
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
@@ -121,8 +122,63 @@ def validation_snapshot(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def live_casebook_snapshot(report: dict[str, Any]) -> dict[str, Any]:
+    cases = [row for row in report.get("cases", []) if isinstance(row, dict)]
+    models = sorted(
+        {
+            str(row.get("grounding_model", ""))
+            for row in cases
+            if str(row.get("grounding_model", ""))
+        }
+    )
+    embedding_models = sorted(
+        {
+            str(row.get("embedding_model", ""))
+            for row in cases
+            if str(row.get("embedding_model", ""))
+        }
+    )
+    case_rows = []
+    for row in cases:
+        case_rows.append(
+            {
+                "case_name": str(row.get("case_name", "")),
+                "casebook_choice": str(row.get("casebook_choice", "")),
+                "status": str(row.get("status", "")),
+                "expected_start_index": row.get("expected_start_index"),
+                "condition_only_validation_status": str(
+                    row.get("condition_only_validation_status", "")
+                ),
+                "selected_start_status": str(row.get("selected_start_status", "")),
+                "overall_status": str(row.get("overall_status", "")),
+                "forward_warning_count": int(
+                    row.get("condition_only_forward_warning_count", 0) or 0
+                ),
+                "support_candidate_count": int(
+                    row.get("support_candidate_count", 0) or 0
+                ),
+                "support_prior_mode": str(row.get("support_prior_mode", "")),
+                "summary_path": str(row.get("summary_path", "")),
+            }
+        )
+    return {
+        "status": str(report.get("status", "")),
+        "case_count": int(report.get("case_count", len(cases)) or len(cases)),
+        "pass_count": int(report.get("pass_count", 0) or 0),
+        "total_openai_tokens": int(report.get("total_openai_tokens", 0) or 0),
+        "min_support_candidate_count": int(
+            report.get("min_support_candidate_count", 0) or 0
+        ),
+        "grounding_models": models,
+        "embedding_models": embedding_models,
+        "case_rows": case_rows,
+        "artifact_paths": report.get("artifact_paths", {}),
+    }
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
     snapshot = summary["validation_snapshot"]
+    live_snapshot = summary.get("live_casebook_snapshot")
     lines = [
         "# Narrative-Conditioned Scenario Generator Evidence Pack",
         "",
@@ -163,33 +219,67 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Mean energy improvement vs persistence: `{_fmt_pct(snapshot['mean_energy_improvement_vs_persistence'])}`",
         f"- Mean CRPS improvement vs persistence: `{_fmt_pct(snapshot['mean_crps_improvement_vs_persistence'])}`",
         "",
-        "## Warning Semantics",
-        "",
-        (
-            "`pass` means the run is supported and calibrated under current "
-            "gates. `warning` means the run can still be useful, but the UI "
-            "must show support/shift caveats. In the current "
-            "validation, warning rows can still improve CRPS versus persistence, "
-            "so warning is a trust caveat rather than an automatic scenario "
-            "metric failure."
-        ),
-        "",
-        "## Demo Talking Points",
-        "",
-        "- This is not an LLM inventing future paths; the LLM only grounds the narrative into conditioning language.",
-        "- The numerical scenario paths come from the frozen joint39 generator and calibrated rollout.",
-        "- Historical analogues are support/provenance for the recent prefix, not a single nearest-neighbor replay.",
-        "- The risk manager can override the starting level; the prefix mixture is rebuilt after the start is fixed.",
-        "- The demo should show the narrative, extracted implications, warnings, analogue weights, fan charts, selected IV cells, and JSON report.",
-        "",
-        "## Next Validation Step",
-        "",
-        (
-            "Turn the broader condition-only validation into a selectable demo "
-            "casebook, then keep scaling narratives and fixed starts while "
-            "preserving the same pass/warning semantics."
-        ),
     ]
+    if isinstance(live_snapshot, dict):
+        lines.extend(
+            [
+                "## Live Gradio API Casebook",
+                "",
+                f"- Live casebook report: `{summary.get('live_casebook_report', '')}`",
+                f"- Status: `{live_snapshot['status']}`",
+                f"- Cases: `{live_snapshot['case_count']}`",
+                f"- Pass count: `{live_snapshot['pass_count']}`",
+                f"- Total OpenAI tokens: `{live_snapshot['total_openai_tokens']}`",
+                f"- Min support candidates: `{live_snapshot['min_support_candidate_count']}`",
+                f"- Grounding models: `{', '.join(live_snapshot['grounding_models']) or 'n/a'}`",
+                f"- Embedding models: `{', '.join(live_snapshot['embedding_models']) or 'n/a'}`",
+                "",
+                "| Case | Start | Status | Condition | Warnings | Support | Summary |",
+                "| --- | ---: | --- | --- | ---: | ---: | --- |",
+            ]
+        )
+        for row in live_snapshot["case_rows"]:
+            lines.append(
+                "| "
+                f"{row['case_name']} | "
+                f"{row['expected_start_index']} | "
+                f"{row['overall_status']} | "
+                f"{row['condition_only_validation_status']} | "
+                f"{row['forward_warning_count']} | "
+                f"{row['support_candidate_count']} | "
+                f"`{row['summary_path']}` |"
+            )
+        lines.append("")
+    lines.extend(
+        [
+            "## Warning Semantics",
+            "",
+            (
+                "`pass` means the run is supported and calibrated under current "
+                "gates. `warning` means the run can still be useful, but the UI "
+                "must show support/shift caveats. In the current "
+                "validation, warning rows can still improve CRPS versus persistence, "
+                "so warning is a trust caveat rather than an automatic scenario "
+                "metric failure."
+            ),
+            "",
+            "## Demo Talking Points",
+            "",
+            "- This is not an LLM inventing future paths; the LLM only grounds the narrative into conditioning language.",
+            "- The numerical scenario paths come from the frozen joint39 generator and calibrated rollout.",
+            "- Historical analogues are support/provenance for the recent prefix, not a single nearest-neighbor replay.",
+            "- The risk manager can override the starting level; the prefix mixture is rebuilt after the start is fixed.",
+            "- The demo should show the narrative, extracted implications, warnings, analogue weights, fan charts, selected IV cells, and JSON report.",
+            "",
+            "## Next Validation Step",
+            "",
+            (
+                "Use the live casebook as the boss-demo path, then keep scaling "
+                "narratives and fixed starts while preserving the same "
+                "condition-only warning semantics and support-weight provenance."
+            ),
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -210,6 +300,11 @@ def build_demo_pack(args: argparse.Namespace) -> dict[str, Any]:
             "summary_markdown": str(output_dir / "boss_demo_pack.md"),
         },
     }
+    live_casebook_report = str(getattr(args, "live_casebook_report", "") or "").strip()
+    if live_casebook_report:
+        live_casebook = _load_json(live_casebook_report)
+        summary["live_casebook_report"] = live_casebook_report
+        summary["live_casebook_snapshot"] = live_casebook_snapshot(live_casebook)
     _write_json(summary["artifact_paths"]["summary_json"], summary)
     Path(summary["artifact_paths"]["summary_markdown"]).write_text(
         render_markdown(summary).rstrip() + "\n",
@@ -221,6 +316,7 @@ def build_demo_pack(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--validation-report", default=DEFAULT_VALIDATION_REPORT)
+    parser.add_argument("--live-casebook-report", default=DEFAULT_LIVE_CASEBOOK_REPORT)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     summary = build_demo_pack(args)
