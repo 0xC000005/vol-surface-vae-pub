@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, ".")
@@ -12,10 +13,14 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     fan_chart_figure,
     implications_table,
     prefix_diagnostic_start_table,
+    prefix_condition_implications_table,
+    prefix_condition_warnings_table,
     prefix_latent_status_markdown,
     prefix_selected_start_table,
+    prefix_shift_factor_table,
     prefix_validation_table,
     prefix_variant_table,
+    prefix_warning_component_table,
     refresh_fan_chart,
     run_prefix_latent_for_app,
     run_story_for_app,
@@ -24,6 +29,9 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     validation_gate_markdown,
     validation_gate_table,
     warnings_table,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testflight import (
+    ConditionOnlyGroundingResult,
 )
 
 
@@ -157,6 +165,27 @@ def _prefix_report() -> dict:
             "kind": "revised_market_description",
             "narrative_text": "Risk-on market tape with tighter spreads.",
             "text_memory_dim": 128,
+            "condition_source": "condition_only_openai_story",
+            "grounding": {
+                "market_implications": [
+                    {
+                        "market": "SPX",
+                        "direction": "up",
+                        "magnitude": "small",
+                        "confidence": "high",
+                        "horizon": "current_state",
+                        "evidence": ["equities are recovering"],
+                    }
+                ],
+                "non_conditioning_forward_language": [
+                    {
+                        "phrase": "volatility could reverse",
+                        "reason": "future-looking stress phrase",
+                        "severity": "warning",
+                    }
+                ],
+                "grounding_warnings": [],
+            },
         },
         "variant_rows": [
             {
@@ -201,6 +230,43 @@ def _prefix_report() -> dict:
                     "terminal_mean_abs_delta_z": 0.0,
                     "warnings": [],
                     "failures": [],
+                }
+            ],
+        },
+        "condition_only_product_gate": {
+            "production_decision": {
+                "decision": "warn_and_continue_for_narrative_only",
+                "ui_guidance": "Show the warning and allow explicit start input.",
+            },
+            "decompositions": [
+                {
+                    "start_mode": "balanced_memory_start",
+                    "components": {
+                        "support_prior": {
+                            "status": "pass",
+                            "mismatch_count": 0,
+                        },
+                        "memory_compatibility": {
+                            "status": "pass",
+                            "input_memory_cosine": 0.969,
+                        },
+                        "start_distance": {
+                            "status": "pass",
+                            "start_distance_z": 14.922,
+                        },
+                        "rollout_shift": {
+                            "status": "warning",
+                            "terminal_mean_abs_delta_z": 1.165,
+                        },
+                    },
+                    "top_rollout_shift_factors": [
+                        {
+                            "factor": "SPX",
+                            "terminal_abs_shift_z": 3.249,
+                            "signed_terminal_shift_z": 3.249,
+                            "mean_path_abs_shift_z": 2.714,
+                        }
+                    ],
                 }
             ],
         },
@@ -314,6 +380,26 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert selected.iloc[0]["Start Window"] == "joint39_val_0269"
     assert diagnostic.iloc[0]["Start Window"] == "joint39_val_0370"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
+    assert "warn_and_continue_for_narrative_only" in markdown
+    assert "SPX (3.249z)" in markdown
+
+
+def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
+    report = _prefix_report()
+
+    implications = prefix_condition_implications_table(report)
+    warnings = prefix_condition_warnings_table(report)
+    components = prefix_warning_component_table(report)
+    factors = prefix_shift_factor_table(report)
+
+    assert implications.iloc[0]["Market"] == "SPX"
+    assert implications.iloc[0]["Horizon"] == "current_state"
+    assert warnings.iloc[0]["Code"] == "non_conditioning_forward_language"
+    assert "volatility could reverse" in warnings.iloc[0]["Message"]
+    assert components[components["Component"] == "rollout_shift"].iloc[0][
+        "Status"
+    ] == "warning"
+    assert factors.iloc[0]["Factor"] == "SPX"
 
 
 def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
@@ -336,6 +422,8 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     assert args.samples == 12
     assert args.output_dir == "tmp/prefix"
     assert args.device == "cuda"
+    assert args.memory_prior_mode == "soft_topk_combined"
+    assert args.memory_prior_top_k == 8
 
     default_args = build_prefix_latent_run_args(
         start_mode="nearest_train_start",
@@ -351,6 +439,13 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     )
     assert live_args.live_story is True
     assert live_args.story == "A live risk-manager story."
+
+    condition_args = build_prefix_latent_run_args(
+        start_mode="balanced_memory_start",
+        samples=4,
+        condition_report="tmp/condition_only_report.json",
+    )
+    assert condition_args.condition_report == "tmp/condition_only_report.json"
 
 
 def test_build_run_args_sets_generator_controls() -> None:
@@ -514,3 +609,83 @@ def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
     assert "OpenAI grounding and embedding" in first[1]
     assert calls == [(True, "A live risk-manager story.")]
     assert "live_openai_story" in final[1]
+
+
+def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> None:
+    calls = []
+
+    def fake_grounder(story: str, **kwargs):
+        return (
+            ConditionOnlyGroundingResult.model_validate(
+                {
+                    "prompt_version": "condition_only_grounding_v1",
+                    "narrative_frame": "risk-on recovery",
+                    "current_market_state_summary": "Equities are recovering.",
+                    "recent_regime_summary": (
+                        "No separate recent-regime description stated beyond current conditions."
+                    ),
+                    "cleaned_conditioning_text": "Equities are recovering.",
+                    "current_market_state_implications": [
+                        {
+                            "market": "SPX",
+                            "direction": "up",
+                            "magnitude": "small",
+                            "confidence": "high",
+                            "horizon": "current_state",
+                            "target_use": "support_prior",
+                            "evidence": ["Equities are recovering"],
+                            "inferred": False,
+                            "rationale": "The story states equities are recovering.",
+                        }
+                    ],
+                    "recent_regime_implications": [],
+                    "non_conditioning_forward_language": [
+                        {
+                            "phrase": "volatility could reverse",
+                            "reason": "future-looking phrase",
+                            "handling": "warning_only",
+                            "severity": "warning",
+                        }
+                    ],
+                    "unsupported_claims": [],
+                    "grounding_warnings": [],
+                    "critique": [],
+                }
+            ),
+            {"model": "fixture"},
+        )
+
+    def fake_condition_report_runner(args: SimpleNamespace) -> dict:
+        assert args.case_json.endswith("condition_only_grounding_case.json")
+        assert Path(args.case_json).exists()
+        return {
+            "artifact_paths": {
+                "report": str(tmp_path / "condition_only_report.json"),
+                "arrays": str(tmp_path / "condition_only_report_arrays.npz"),
+            },
+            "cached_query": {"condition_source": "condition_only_openai_story"},
+        }
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.condition_report, args.live_story))
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        live_story=True,
+        story="Equities are recovering. Volatility could reverse.",
+        condition_only_story=True,
+        runner=fake_runner,
+        condition_grounder=fake_grounder,
+        condition_report_runner=fake_condition_report_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "condition-only OpenAI grounding" in first[1]
+    assert calls == [(str(tmp_path / "condition_only_report.json"), False)], final[7]
+    assert final[10].iloc[0]["Market"] == "SPX"

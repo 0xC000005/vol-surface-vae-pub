@@ -100,6 +100,16 @@ def test_production_decision_warns_when_only_rollout_is_sensitive(tmp_path: Path
     assert decision["decision"] == "warn_and_continue_for_narrative_only"
 
 
+def test_production_decision_accepts_clean_viable_policy(tmp_path: Path) -> None:
+    report = write_fake_report(tmp_path)
+    decomposition = decompose_report(report, top_factors=2)
+    decomposition["selected_warnings"] = []
+    decomposition["components"]["rollout_shift"]["status"] = "pass"
+    decomposition["components"]["rollout_shift"]["terminal_mean_abs_delta_z"] = 0.5
+    decision = production_decision([decomposition])
+    assert decision["decision"] == "accept_for_narrative_only"
+
+
 def test_production_decision_ignores_nonviable_start_policy(tmp_path: Path) -> None:
     report = write_fake_report(tmp_path)
     viable = decompose_report(report, top_factors=2)

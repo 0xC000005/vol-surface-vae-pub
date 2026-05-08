@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -33,6 +34,20 @@ from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa
     DEFAULT_BRIDGE_REPORT as DEFAULT_PREFIX_BRIDGE_REPORT,
     run_prefix_latent_story_smoke,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_condition_only_report import (  # noqa: E402
+    run_condition_only_report,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_hard_case_decomposition import (  # noqa: E402
+    decompose_report,
+    production_decision,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testflight import (  # noqa: E402
+    PROMPT_VERSION as CONDITION_ONLY_PROMPT_VERSION,
+    condition_query_text_from_grounding,
+    ground_condition_only_story_with_openai,
+    split_story_for_conditioning,
+    validate_condition_only_grounding_result,
+)
 
 
 DEFAULT_APP_OUTPUT_DIR = (
@@ -57,6 +72,22 @@ IMPLICATION_COLUMNS = [
     "Evidence",
 ]
 WARNING_COLUMNS = ["Severity", "Code", "Message"]
+PREFIX_CONDITION_COLUMNS = [
+    "Market",
+    "Direction",
+    "Magnitude",
+    "Confidence",
+    "Horizon",
+    "Evidence",
+]
+PREFIX_WARNING_COMPONENT_COLUMNS = ["Component", "Status", "Metric", "Value"]
+PREFIX_SHIFT_FACTOR_COLUMNS = [
+    "Start Mode",
+    "Factor",
+    "Terminal Abs Z",
+    "Signed Terminal Z",
+    "Path Abs Z",
+]
 ANALOGUE_COLUMNS = [
     "Rank",
     "Window",
@@ -177,6 +208,61 @@ def warnings_table(report: dict[str, Any]) -> pd.DataFrame:
             {
                 "Severity": str(item.get("severity", "")),
                 "Code": str(item.get("code", "")),
+                "Message": str(item.get("message", "")),
+            }
+        )
+    return _frame(
+        rows or [{"Severity": "none", "Code": "none", "Message": "none"}],
+        WARNING_COLUMNS,
+    )
+
+
+def _prefix_grounding(report: dict[str, Any]) -> dict[str, Any]:
+    return _as_dict(_as_dict(report.get("cached_query")).get("grounding"))
+
+
+def prefix_condition_implications_table(report: dict[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    grounding = _prefix_grounding(report)
+    for item in _as_list(grounding.get("market_implications")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Market": str(item.get("market", "")),
+                "Direction": str(item.get("direction", "")),
+                "Magnitude": str(item.get("magnitude", "")),
+                "Confidence": str(item.get("confidence", "")),
+                "Horizon": str(item.get("horizon", "")),
+                "Evidence": "; ".join(str(x) for x in _as_list(item.get("evidence"))),
+            }
+        )
+    return _frame(rows, PREFIX_CONDITION_COLUMNS)
+
+
+def prefix_condition_warnings_table(report: dict[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    grounding = _prefix_grounding(report)
+    for item in _as_list(grounding.get("non_conditioning_forward_language")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Severity": str(item.get("severity", "warning")),
+                "Code": "non_conditioning_forward_language",
+                "Message": (
+                    f"{item.get('phrase', '')} - "
+                    f"{item.get('reason', item.get('handling', 'warning only'))}"
+                ).strip(" -"),
+            }
+        )
+    for item in _as_list(grounding.get("grounding_warnings")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Severity": str(item.get("severity", "warning")),
+                "Code": str(item.get("code", "grounding_warning")),
                 "Message": str(item.get("message", "")),
             }
         )
@@ -358,6 +444,72 @@ def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
             }
         )
     return _frame(rows, VALIDATION_GATE_COLUMNS)
+
+
+def prefix_warning_component_table(report: dict[str, Any]) -> pd.DataFrame:
+    product_gate = _as_dict(report.get("condition_only_product_gate"))
+    decompositions = _as_list(product_gate.get("decompositions"))
+    selected = {}
+    for item in decompositions:
+        if isinstance(item, dict) and item.get("start_mode") in {
+            "balanced_memory_start",
+            "implication_aligned_start",
+        }:
+            selected = item
+            break
+    if not selected and decompositions and isinstance(decompositions[0], dict):
+        selected = decompositions[0]
+    components = _as_dict(selected.get("components")) if selected else {}
+    rows: list[dict[str, Any]] = []
+    for name, item in components.items():
+        if not isinstance(item, dict):
+            continue
+        metric = ""
+        value: Any = ""
+        for candidate in [
+            "input_memory_cosine",
+            "start_distance_z",
+            "endpoint_max_abs_error",
+            "terminal_mean_abs_delta_z",
+            "mismatch_count",
+        ]:
+            if candidate in item:
+                metric = candidate
+                value = item[candidate]
+                break
+        rows.append(
+            {
+                "Component": str(name),
+                "Status": str(item.get("status", "")),
+                "Metric": metric,
+                "Value": _fmt_float(value, 6 if metric == "endpoint_max_abs_error" else 3),
+            }
+        )
+    return _frame(rows, PREFIX_WARNING_COMPONENT_COLUMNS)
+
+
+def prefix_shift_factor_table(report: dict[str, Any]) -> pd.DataFrame:
+    product_gate = _as_dict(report.get("condition_only_product_gate"))
+    rows: list[dict[str, Any]] = []
+    for item in _as_list(product_gate.get("decompositions")):
+        if not isinstance(item, dict):
+            continue
+        mode = str(item.get("start_mode", ""))
+        for factor in _as_list(item.get("top_rollout_shift_factors"))[:8]:
+            if not isinstance(factor, dict):
+                continue
+            rows.append(
+                {
+                    "Start Mode": mode,
+                    "Factor": str(factor.get("factor", "")),
+                    "Terminal Abs Z": _fmt_float(factor.get("terminal_abs_shift_z")),
+                    "Signed Terminal Z": _fmt_float(
+                        factor.get("signed_terminal_shift_z")
+                    ),
+                    "Path Abs Z": _fmt_float(factor.get("mean_path_abs_shift_z")),
+                }
+            )
+    return _frame(rows, PREFIX_SHIFT_FACTOR_COLUMNS)
 
 
 def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
@@ -604,23 +756,47 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
     gate = _as_dict(report.get("validation_gate"))
     generation = _as_dict(report.get("generation"))
     artifacts = _as_dict(report.get("artifact_paths"))
-    return "\n".join(
+    lines = [
+        "## Prefix-Latent Run Status",
+        "",
+        f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
+        f"- Condition source: `{query.get('condition_source', 'n/a')}`",
+        f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
+        f"- Selected-start: `{gate.get('selected_start_status', gate.get('operational_status', 'n/a'))}`",
+        f"- Diagnostic baseline: `{gate.get('diagnostic_baseline_status', 'n/a')}`",
+        f"- Research overall: `{gate.get('overall_status', 'n/a')}`",
+        f"- Stress: `{gate.get('stress_status', 'n/a')}`",
+        f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
+        f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
+    ]
+    product_gate = _as_dict(report.get("condition_only_product_gate"))
+    decision = _as_dict(product_gate.get("production_decision"))
+    if decision:
+        contributors: list[str] = []
+        for item in _as_list(product_gate.get("decompositions")):
+            if not isinstance(item, dict):
+                continue
+            for factor in _as_list(item.get("top_rollout_shift_factors"))[:3]:
+                if isinstance(factor, dict):
+                    contributors.append(
+                        f"{factor.get('factor')} ({_fmt_float(factor.get('terminal_abs_shift_z'))}z)"
+                    )
+            if contributors:
+                break
+        lines.extend(
+            [
+                f"- Product decision: `{decision.get('decision', 'n/a')}`",
+                f"- Product warning: {decision.get('ui_guidance', decision.get('reason', ''))}",
+                f"- Main warning contributors: `{', '.join(contributors) or 'n/a'}`",
+            ]
+        )
+    lines.extend(
         [
-            "## Prefix-Latent Run Status",
-            "",
-            f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
-            f"- Condition source: `{query.get('condition_source', 'n/a')}`",
-            f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
-            f"- Selected-start: `{gate.get('selected_start_status', gate.get('operational_status', 'n/a'))}`",
-            f"- Diagnostic baseline: `{gate.get('diagnostic_baseline_status', 'n/a')}`",
-            f"- Research overall: `{gate.get('overall_status', 'n/a')}`",
-            f"- Stress: `{gate.get('stress_status', 'n/a')}`",
-            f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
-            f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
             f"- Markdown report: `{artifacts.get('markdown', 'n/a')}`",
             f"- JSON report: `{artifacts.get('report', 'n/a')}`",
         ]
     )
+    return "\n".join(lines)
 
 
 def report_json_text(report: dict[str, Any]) -> str:
@@ -662,12 +838,19 @@ def _prefix_progress_status_markdown(
     start_mode: str,
     samples: int,
     live_story: bool = False,
+    condition_only_story: bool = False,
 ) -> str:
-    condition_step = (
-        "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
-        if bool(live_story)
-        else "cached text memory, start selection, prefix decoding, frozen rollout"
-    )
+    if bool(condition_only_story):
+        condition_step = (
+            "condition-only OpenAI grounding, text embedding, balanced start "
+            "selection, prefix decoding, frozen rollout, warning decomposition"
+        )
+    elif bool(live_story):
+        condition_step = (
+            "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
+        )
+    else:
+        condition_step = "cached text memory, start selection, prefix decoding, frozen rollout"
     return "\n".join(
         [
             "## Prefix-Latent Run Status",
@@ -750,6 +933,10 @@ def _blank_prefix_outputs(
     str,
     dict[str, Any],
     Any,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
 ]:
     return (
         "Prefix-latent run in progress. Results will appear here when complete.",
@@ -762,7 +949,110 @@ def _blank_prefix_outputs(
         "{}",
         {},
         analogue_scope_update({}),
+        _frame([], PREFIX_CONDITION_COLUMNS),
+        _frame([], WARNING_COLUMNS),
+        _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
+        _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
     )
+
+
+def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_condition_only_case_for_app(
+    *,
+    story: str,
+    output_dir: str | Path,
+    model: str = "gpt-5.4-mini",
+    dotenv: str | Path = ".env",
+    max_output_tokens: int = 1800,
+    grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
+) -> dict[str, Any]:
+    grounding, metadata = grounder(
+        str(story or DEFAULT_STORY),
+        model=str(model),
+        dotenv_path=dotenv,
+        max_output_tokens=int(max_output_tokens),
+    )
+    validation = validate_condition_only_grounding_result(grounding)
+    query_text = condition_query_text_from_grounding(str(story or DEFAULT_STORY), grounding)
+    case_dir = Path(output_dir)
+    case_payload = {
+        "case_name": "gradio_live_condition_only_story",
+        "story": str(story or DEFAULT_STORY),
+        "story_split": split_story_for_conditioning(str(story or DEFAULT_STORY)),
+        "condition_only_grounding": grounding.model_dump(),
+        "condition_only_validation": validation,
+        "candidate_query_text": query_text,
+        "metadata": {
+            **_as_dict(metadata),
+            "prompt_version": CONDITION_ONLY_PROMPT_VERSION,
+            "created_at_utc": datetime.now(UTC).isoformat(),
+        },
+        "artifact_paths": {
+            "case_json": str(case_dir / "condition_only_grounding_case.json"),
+            "query_text": str(case_dir / "condition_only_query_text.txt"),
+        },
+    }
+    _write_json(case_dir / "condition_only_grounding_case.json", case_payload)
+    (case_dir / "condition_only_query_text.txt").write_text(
+        query_text.rstrip() + "\n",
+        encoding="utf-8",
+    )
+    return case_payload
+
+
+def build_condition_only_report_for_app(
+    *,
+    story: str,
+    output_dir: str | Path,
+    grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
+    condition_report_runner: Callable[
+        [SimpleNamespace],
+        dict[str, Any],
+    ] = run_condition_only_report,
+) -> dict[str, Any]:
+    output = Path(output_dir)
+    case = build_condition_only_case_for_app(
+        story=story,
+        output_dir=output / "condition_only_grounding",
+        grounder=grounder,
+    )
+    report = condition_report_runner(
+        SimpleNamespace(
+            case_json=case["artifact_paths"]["case_json"],
+            summary_json=None,
+            case_name=None,
+            case_index=0,
+            output_dir=str(output / "condition_only_report"),
+            bridge_arrays=DEFAULT_PREFIX_BRIDGE_ARRAYS,
+            bridge_adapter=DEFAULT_BRIDGE_ADAPTER,
+            embedding_model="text-embedding-3-small",
+            dotenv=".env",
+        )
+    )
+    report["condition_only_case"] = case
+    return report
+
+
+def enrich_prefix_report_with_product_gate(report: dict[str, Any]) -> dict[str, Any]:
+    report_path = Path(_as_dict(report.get("artifact_paths")).get("report", ""))
+    if not report_path.exists():
+        return report
+    decomposition = decompose_report(report_path, top_factors=8)
+    product_gate = {
+        "production_decision": production_decision([decomposition]),
+        "decompositions": [decomposition],
+    }
+    enriched = {**report, "condition_only_product_gate": product_gate}
+    _write_json(report_path, enriched)
+    return enriched
 
 
 def build_run_args(
@@ -804,6 +1094,7 @@ def build_prefix_latent_run_args(
     samples: int,
     live_story: bool = False,
     story: str = DEFAULT_STORY,
+    condition_report: str | None = None,
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -819,6 +1110,7 @@ def build_prefix_latent_run_args(
         query_kind=None,
         query_window_id=None,
         query_index=0,
+        condition_report=condition_report,
         live_story=bool(live_story),
         story=str(story or DEFAULT_STORY),
         grounding_json=None,
@@ -832,6 +1124,11 @@ def build_prefix_latent_run_args(
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
         implication_alignment_weight=0.25,
+        memory_prior_mode="soft_topk_combined",
+        memory_prior_top_k=8,
+        memory_prior_temperature=0.2,
+        memory_prior_diverse_max_pairwise_cosine=0.98,
+        prefix_prior_mode="decoder",
         include_original_baseline=True,
         hidden_dim=256,
         steps=1000,
@@ -940,8 +1237,14 @@ def run_prefix_latent_for_app(
     analogue_scope: str,
     live_story: bool = False,
     story: str = DEFAULT_STORY,
+    condition_only_story: bool = False,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
+    condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
+    condition_report_runner: Callable[
+        [SimpleNamespace],
+        dict[str, Any],
+    ] = run_condition_only_report,
 ) -> Any:
     start_time = time.monotonic()
     running_status = _prefix_progress_status_markdown(
@@ -949,17 +1252,40 @@ def run_prefix_latent_for_app(
         start_mode=str(start_mode),
         samples=int(samples),
         live_story=bool(live_story),
+        condition_only_story=bool(condition_only_story),
     )
     yield _blank_prefix_outputs(status=running_status, fan_market=fan_market)
 
-    args = build_prefix_latent_run_args(
-        start_mode=str(start_mode),
-        samples=int(samples),
-        live_story=bool(live_story),
-        story=str(story or DEFAULT_STORY),
-    )
     try:
+        condition_report_payload: dict[str, Any] | None = None
+        condition_report_path: str | None = None
+        output_dir = DEFAULT_PREFIX_APP_OUTPUT_DIR
+        if bool(condition_only_story):
+            condition_report_payload = build_condition_only_report_for_app(
+                story=str(story or DEFAULT_STORY),
+                output_dir=Path(DEFAULT_PREFIX_APP_OUTPUT_DIR)
+                / "condition_only_live",
+                grounder=condition_grounder,
+                condition_report_runner=condition_report_runner,
+            )
+            condition_report_path = str(
+                _as_dict(condition_report_payload.get("artifact_paths")).get("report")
+            )
+            output_dir = str(Path(DEFAULT_PREFIX_APP_OUTPUT_DIR) / "condition_only_run")
+        args = build_prefix_latent_run_args(
+            start_mode=str(start_mode),
+            samples=int(samples),
+            live_story=bool(live_story) and not bool(condition_only_story),
+            story=str(story or DEFAULT_STORY),
+            condition_report=condition_report_path,
+            output_dir=output_dir,
+        )
         report = runner(args)
+        if condition_report_payload is not None:
+            report["condition_only_case"] = condition_report_payload.get(
+                "condition_only_case"
+            )
+        report = enrich_prefix_report_with_product_gate(report)
     except Exception as error:  # pragma: no cover - defensive UI path
         error_report = {
             "status": "error",
@@ -977,6 +1303,10 @@ def run_prefix_latent_for_app(
             report_json_text(error_report),
             error_report,
             analogue_scope_update({}),
+            _frame([], PREFIX_CONDITION_COLUMNS),
+            _frame([], WARNING_COLUMNS),
+            _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
+            _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
         )
         return
 
@@ -997,6 +1327,10 @@ def run_prefix_latent_for_app(
         report_json_text(report),
         report,
         analogue_scope_update(report),
+        prefix_condition_implications_table(report),
+        prefix_condition_warnings_table(report),
+        prefix_warning_component_table(report),
+        prefix_shift_factor_table(report),
     )
 
 
@@ -1152,6 +1486,14 @@ def build_demo() -> Any:
                 label="Use typed story (OpenAI TestFlight)",
                 info="Unchecked uses cached held-out text memory. Checked grounds and embeds the story above.",
             )
+            prefix_condition_only_story = gr.Checkbox(
+                value=True,
+                label="Condition-only contract",
+                info=(
+                    "Use current/recent market implications only; forward-looking "
+                    "phrases become warnings, not scenario targets."
+                ),
+            )
             prefix_samples = gr.Slider(
                 minimum=2,
                 maximum=64,
@@ -1189,6 +1531,26 @@ def build_demo() -> Any:
         prefix_validation = gr.Dataframe(
             headers=VALIDATION_GATE_COLUMNS,
             label="Prefix-latent current-run validation",
+            interactive=False,
+        )
+        prefix_condition_implications = gr.Dataframe(
+            headers=PREFIX_CONDITION_COLUMNS,
+            label="Condition-only implications used for support",
+            interactive=False,
+        )
+        prefix_condition_warnings = gr.Dataframe(
+            headers=WARNING_COLUMNS,
+            label="Warning-only language excluded from conditioning",
+            interactive=False,
+        )
+        prefix_warning_components = gr.Dataframe(
+            headers=PREFIX_WARNING_COMPONENT_COLUMNS,
+            label="Product warning decomposition",
+            interactive=False,
+        )
+        prefix_shift_factors = gr.Dataframe(
+            headers=PREFIX_SHIFT_FACTOR_COLUMNS,
+            label="Largest rollout-sensitivity contributors",
             interactive=False,
         )
         prefix_scenario = gr.Dataframe(
@@ -1243,6 +1605,7 @@ def build_demo() -> Any:
                 prefix_analogue_scope,
                 prefix_live_story,
                 story,
+                prefix_condition_only_story,
             ],
             outputs=[
                 prefix_report_markdown,
@@ -1255,6 +1618,10 @@ def build_demo() -> Any:
                 prefix_report_json,
                 prefix_report_state,
                 prefix_analogue_scope,
+                prefix_condition_implications,
+                prefix_condition_warnings,
+                prefix_warning_components,
+                prefix_shift_factors,
             ],
             show_progress="full",
             show_progress_on=prefix_status,

@@ -112243,3 +112243,93 @@ This advances the risk-manager UX and validation/trust gates without changing th
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 35 condition-only product demo integration
+
+### Context
+Iteration 34 made the defensive hard-case warning explainable, but the user-facing demo still did not surface the new product contract. The next production gate was risk-manager UX: the app needed to show which language was used for conditioning, which forward-looking language was excluded, and why a run passed or warned.
+
+### Hypothesis
+If the current narrative-conditioned workflow is close to product shape, then the Gradio app should be able to run the condition-only contract end to end and display validation provenance without adding another modeling knob. The falsifier is a live/cached app path that still uses raw story implications as future targets, hides support-prior diagnostics, or cannot distinguish a clean accepted run from an accepted warning.
+
+### Execution
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Updated `test_code/test_785a_nl_risk_manager_story_gradio_app.py`.
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_hard_case_decomposition.py`.
+- Updated `test_code/test_802a_nl_prefix_latent_hard_case_decomposition.py`.
+- Added a condition-only contract path to the prefix-latent Gradio section:
+  - OpenAI condition-only grounding;
+  - condition-only query embedding/report conversion;
+  - balanced start selection;
+  - soft top-k combined memory prior;
+  - frozen joint39 rollout;
+  - hard-case/product-gate decomposition.
+- Added UI outputs for:
+  - condition-only implications used for support;
+  - warning-only future language excluded from conditioning;
+  - product warning component statuses;
+  - top rollout-sensitivity factor contributors.
+- Fixed the app prefix path to use the production soft top-k combined memory prior instead of the story-smoke script's default `query_memory` prior.
+- Tightened `production_decision` so a clean viable run returns `accept_for_narrative_only`, while clean-support rollout sensitivity returns `warn_and_continue_for_narrative_only`.
+
+### Result
+The Gradio app now exposes the production contract in the UI:
+
+```text
+risk-manager story
+-> condition-only current/recent implications
+-> warning-only forward language excluded from conditioning
+-> soft top-k analogue support
+-> balanced start
+-> frozen rollout
+-> product decision + factor contributors
+```
+
+A low-cost live condition-only wrapper smoke was run on the default fragile risk-on story. It populated:
+
+- condition implication rows: `3`;
+- warning-only/excluded language rows: `2`;
+- warning component rows: `5`;
+- rollout-shift factor rows: `8`.
+
+The first live run exposed that the app still used `query_memory` instead of `soft_topk_combined`; that made support alignment empty and the product gate over-warned. After the fix, the same saved condition-only report rerun through the frozen rollout with soft top-k combined support produced:
+
+- selected-start status: `pass`;
+- support prior: pass, `3` checked, `0` mismatches;
+- memory compatibility: pass, cosine `0.951`;
+- start distance: pass, z `14.398`;
+- decoder endpoint: pass, max error `0.0`;
+- rollout shift: pass, terminal mean absolute z `0.981`;
+- product decision: `accept_for_narrative_only`.
+
+### Mechanism Read
+The important product distinction is now visible:
+
+- Future-looking phrases are not scenario targets.
+- The text condition is converted into support-prior implications and a projected condition memory.
+- The selected start is audited separately from the narrative condition.
+- If the generated rollout is sensitive, the UI can say which component triggered the warning and which factors drive it.
+
+The live default story currently passes once the app uses the same soft top-k combined support prior as the research runs. That closes one practical gap between the research scripts and the demo.
+
+### Decision / Next Step
+Keep the condition-only contract path as the default product demo path. Keep the old cached/live prefix smoke controls available as diagnostics, but the risk-manager-facing story should use the condition-only toggle.
+
+The next principled step is to add explicit user-start mode to the product path. The risk manager should be able to keep the same narrative but choose today's market state or a historical start window; the app should then rerun the same condition-only support, prefix decoding, rollout, and product gate against that supplied start.
+
+### Artifacts
+- Gradio app: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Gradio tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- Hard-case decision helper: `experiments/backfill/block_ar/nl_prefix_latent_hard_case_decomposition.py`
+- Hard-case tests: `test_code/test_802a_nl_prefix_latent_hard_case_decomposition.py`
+- Live condition-only report reused for no-extra-OpenAI verification: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json`
+- Soft top-k verification rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_run_softtopk_verify/prefix_latent_story_smoke_report.json`
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 17 passed.
+- `uv run pytest test_code/test_802a_nl_prefix_latent_hard_case_decomposition.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 23 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report ...condition_only_report.json --output-dir ...condition_only_run_softtopk_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode balanced_memory_start --steps 100 --samples 2 --chunk-size 2 --device cuda` -> validation pass.
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_802a_nl_prefix_latent_hard_case_decomposition.py test_code/test_801a_nl_prefix_latent_start_policy_audit.py test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 52 passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- `git diff --check` -> passed.
+
+---

@@ -284,6 +284,20 @@ def production_decision(decompositions: list[dict[str, Any]]) -> dict[str, Any]:
     warning_counts = Counter()
     for item in viable:
         warning_counts.update(item.get("selected_warnings", []))
+    if viable and not warning_counts:
+        return {
+            "decision": "accept_for_narrative_only",
+            "reason": (
+                "At least one audited policy has clean support, memory, start "
+                "distance, and rollout-shift gates."
+            ),
+            "viable_start_modes": [item["start_mode"] for item in viable],
+            "rejected_start_modes": rejected,
+            "ui_guidance": (
+                "The narrative condition is supported by the analogue pool and "
+                "the selected start passes the current validation gates."
+            ),
+        }
     only_rollout_warning = set(warning_counts) <= {"large_rollout_shift"}
     if viable and only_rollout_warning:
         return {
