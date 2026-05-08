@@ -1,21 +1,28 @@
 import sys
+import json
 
 import numpy as np
 import torch
 
 sys.path.insert(0, ".")
 
+from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
+    UnifiedVariableSpec,
+)
 from test_code.test_784a_nl_risk_manager_story_smoke import _grounding
 
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     _render_markdown,
+    build_user_start_variant_row,
     build_live_story_variant_rows,
     build_live_story_condition_memory,
     generated_delta_samples_to_states,
     enrich_memory_prior_candidate_metadata,
+    load_user_start_state,
     narrative_text_for_query,
     resolve_start_window_index,
     select_cached_story_query,
+    user_start_support_summary,
     window_metadata_by_bridge_local_index,
 )
 
@@ -82,6 +89,23 @@ def _pipeline_report() -> dict:
     }
 
 
+def _toy_specs() -> list[UnifiedVariableSpec]:
+    return [
+        UnifiedVariableSpec(
+            name="iv:1m_100",
+            source_column="iv:1m_100",
+            source_index=0,
+            transform="log_level",
+        ),
+        UnifiedVariableSpec(
+            name="factor:spx",
+            source_column="factor:spx",
+            source_index=1,
+            transform="diff_level",
+        ),
+    ]
+
+
 def test_select_cached_story_query_filters_role_kind_and_window_id() -> None:
     row = select_cached_story_query(
         _bridge_report(),
@@ -110,6 +134,60 @@ def test_window_metadata_by_bridge_local_index_uses_bridge_local_rows() -> None:
     assert metadata[1]["window_id"] == "joint39_val_0100"
     assert metadata[1]["window_index"] == 100
     assert metadata[1]["source_index"] == 4100
+
+
+def test_load_user_start_state_accepts_values_by_name(tmp_path) -> None:
+    path = tmp_path / "start.json"
+    path.write_text(
+        json.dumps(
+            {
+                "label": "today",
+                "coordinate": "raw_state",
+                "values_by_name": {"iv:1m_100": 0.25, "factor:spx": 5000.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    start = load_user_start_state(path, _toy_specs())
+
+    assert start["label"] == "today"
+    assert start["source_format"] == "values_by_name"
+    np.testing.assert_allclose(start["raw_state"], [0.25, 5000.0])
+    np.testing.assert_allclose(start["encoded_state"], [np.log(0.25), 5000.0])
+
+
+def test_user_start_variant_row_scores_nearest_train_support() -> None:
+    history_level = np.asarray(
+        [
+            [[0.0, 0.0], [0.0, 0.0]],
+            [[0.0, 0.0], [1.0, 1.0]],
+            [[0.0, 0.0], [4.0, 4.0]],
+        ],
+        dtype=np.float32,
+    )
+    user_start = {
+        "label": "today",
+        "encoded_state": np.asarray([1.1, 1.1], dtype=np.float32),
+    }
+
+    summary = user_start_support_summary(
+        encoded_start=user_start["encoded_state"],
+        history_level=history_level,
+        train_indices=np.asarray([0, 1, 2], dtype=np.int64),
+    )
+    row = build_user_start_variant_row(
+        query_row={"window_index": 0},
+        user_start=user_start,
+        history_level=history_level,
+        train_indices=np.asarray([0, 1, 2], dtype=np.int64),
+    )
+
+    assert summary["nearest_train_start_window_index"] == 1
+    assert row["variant"] == "user_start_state"
+    assert row["start_window_index"] == -1
+    assert row["start_window_id"] == "today"
+    assert row["is_operational"] is True
 
 
 def test_enrich_memory_prior_candidate_metadata_adds_window_labels() -> None:

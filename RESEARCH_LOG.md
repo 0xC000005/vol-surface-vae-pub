@@ -112487,3 +112487,48 @@ Keep the dropdown path. The next bottleneck is moving from historical-start sele
 - Explicit-start smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_dropdown_verify/prefix_latent_story_smoke_arrays.npz`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 39 user supplied joint39 start backend
+
+### Context
+The product direction requires two modes: narrative-only with model-chosen starts and narrative plus a risk-manager-supplied current market state. Until now, the stricter mode only supported choosing a historical start index. That is useful for demos but not enough for production because a risk manager should be able to supply today's joint39 starting state.
+
+### Hypothesis
+A minimal raw joint39 start-state JSON path can support the stricter product contract without changing the narrative bridge or frozen generator. The script should load either a 39-value vector or a `values_by_name` object keyed by generator spec names, encode it with the same state transforms used by the frozen model, pin the decoded prefix to that start, and roll out normally.
+
+### Execution
+- Added `load_user_start_state` to `nl_prefix_latent_story_smoke.py`.
+- Added `--start-mode user_start_state` and `--start-state-json`.
+- The JSON contract currently supports `coordinate="raw_state"` with either:
+  - `state_vector`: length-39 raw vector in generator spec order; or
+  - `values_by_name`: raw values keyed by spec name.
+- Added train-manifold support scoring for supplied starts:
+  - nearest train start index;
+  - nearest train start distance in z units;
+  - mean train-start distance;
+  - max absolute user-start z score.
+- Reworked rollout sampling to use explicit raw starts directly rather than requiring every start to be indexable from historical windows.
+- Realized-future scoring is skipped for user-supplied starts because no realized future exists for an arbitrary current state; validation still checks endpoint pinning, memory compatibility, start support, and rollout shift.
+- Added unit tests for named-value loading and user-start support scoring.
+
+### Result
+- Focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 14 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 33 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Diff hygiene: `git diff --check` -> passed.
+- No-OpenAI user-start smoke:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode user_start_state --start-state-json experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_18.json --steps 100 --samples 2 --chunk-size 2 --device cuda`
+  produced `validation_status=pass`, `operational_status=pass`, generated shape `[2, 2, 30, 39]`.
+- The supplied start had dimension 39, source format `values_by_name`, label `user_supplied_from_joint39_val_0036`, nearest train start index 18, and nearest train-start distance 0.0z because this smoke exported an existing train start as the user JSON.
+
+### Mechanism Read
+This is the first real backend separation between "narrative condition" and "current market level." The text/narrative path supplies the memory prior, while the raw start JSON supplies the level from which the autoregressive rollout begins. Historical data is no longer required as the start source for this mode, only as the support manifold used for diagnostics and mixture conditioning.
+
+### Decision / Next Step
+Keep the user-start JSON path. The next production step is to expose this in the Gradio demo with a safe editable start-state interface. The first UI version should avoid a 39-cell wall: it should support loading/exporting a `values_by_name` JSON, show the selected start label/support diagnostics, and later add a compact editable table for key anchors and selected IV cells.
+
+### Artifacts
+- User-start JSON fixture: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_18.json`
+- User-start smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_verify/prefix_latent_story_smoke_report.json`
+- User-start smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_verify/prefix_latent_story_smoke_arrays.npz`
+
+---

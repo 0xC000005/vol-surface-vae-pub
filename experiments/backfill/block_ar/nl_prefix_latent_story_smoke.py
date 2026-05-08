@@ -33,9 +33,13 @@ from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovati
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
     DEFAULT_CHECKPOINT,
     KEY_FACTOR_NAMES,
+    _reconstruct_states,
     _spec_names,
     compute_memory_targets,
     summarize_retrieval_generated_states,
+)
+from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
+    encode_state,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (  # noqa: E402
     market_implication_alignment,
@@ -54,7 +58,6 @@ from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import ( 
     DEFAULT_BRIDGE_REPORT,
     build_prefix_feature_matrix,
     reconstruct_prefix_from_features,
-    sample_prefix_generator_deltas,
     selected_bridge_window_indices,
     split_indices_from_bridge_report,
 )
@@ -98,6 +101,7 @@ StartMode = Literal[
     "balanced_memory_start",
     "implication_aligned_start",
     "explicit_start_window",
+    "user_start_state",
 ]
 MemoryPriorMode = Literal[
     "query_memory",
@@ -170,6 +174,51 @@ def _external_condition_from_report(report_path: str | Path) -> dict[str, Any]:
         "grounding": grounding,
         "embedding_metadata": query.get("embedding_metadata", {}),
         "arrays_path": str(arrays_path),
+    }
+
+
+def load_user_start_state(
+    start_state_json: str | Path,
+    specs: list[Any],
+) -> dict[str, Any]:
+    """Load a user-supplied raw joint state and encode it for the generator."""
+
+    payload = _load_json(start_state_json)
+    names = _spec_names(specs)
+    coordinate = str(payload.get("coordinate", "raw_state"))
+    if coordinate != "raw_state":
+        raise ValueError("start-state JSON currently supports coordinate='raw_state' only")
+    if "state_vector" in payload:
+        raw = np.asarray(payload["state_vector"], dtype=np.float32)
+        source_format = "state_vector"
+    elif "values_by_name" in payload:
+        values = payload["values_by_name"]
+        if not isinstance(values, dict):
+            raise ValueError("values_by_name must be a JSON object")
+        missing = [name for name in names if name not in values]
+        if missing:
+            preview = ", ".join(missing[:5])
+            raise ValueError(f"values_by_name missing {len(missing)} fields: {preview}")
+        raw = np.asarray([values[name] for name in names], dtype=np.float32)
+        source_format = "values_by_name"
+    else:
+        raise ValueError("start-state JSON must contain state_vector or values_by_name")
+    if raw.shape != (len(specs),):
+        raise ValueError(f"start state must have shape [{len(specs)}], got {raw.shape}")
+    if not np.all(np.isfinite(raw)):
+        raise ValueError("start state contains non-finite values")
+    encoded = encode_state(raw[None, :], specs)[0].astype(np.float32)
+    if not np.all(np.isfinite(encoded)):
+        raise ValueError("encoded start state contains non-finite values")
+    label = str(payload.get("label") or "user_supplied_start")
+    return {
+        "label": label,
+        "source_path": str(start_state_json),
+        "source_format": source_format,
+        "coordinate": coordinate,
+        "raw_state": raw.astype(np.float32),
+        "encoded_state": encoded,
+        "spec_names": names,
     }
 
 
@@ -273,9 +322,83 @@ def _safe_start_z(start_state: np.ndarray, fit_indices: np.ndarray) -> np.ndarra
     fit = np.asarray(fit_indices, dtype=np.int64)
     if fit.size == 0:
         raise ValueError("train_indices must be non-empty")
+    mean, std = _fit_start_stats(start, fit)
+    return ((start - mean) / std).astype(np.float32)
+
+
+def _fit_start_stats(
+    start_state: np.ndarray,
+    fit_indices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    start = np.asarray(start_state, dtype=np.float32)
+    fit = np.asarray(fit_indices, dtype=np.int64)
+    if start.ndim != 2:
+        raise ValueError("start_state must have shape [N,C]")
+    if fit.size == 0:
+        raise ValueError("fit_indices must be non-empty")
     mean = start[fit].mean(axis=0, keepdims=True)
     std = np.maximum(start[fit].std(axis=0, keepdims=True), 1e-6)
-    return ((start - mean) / std).astype(np.float32)
+    return mean.astype(np.float32), std.astype(np.float32)
+
+
+def user_start_support_summary(
+    *,
+    encoded_start: np.ndarray,
+    history_level: np.ndarray,
+    train_indices: np.ndarray,
+) -> dict[str, Any]:
+    """Score a supplied start state against the training start-state manifold."""
+
+    starts = np.asarray(history_level, dtype=np.float32)[:, -1, :]
+    train = np.asarray(train_indices, dtype=np.int64)
+    encoded = np.asarray(encoded_start, dtype=np.float32)
+    if encoded.shape != (starts.shape[1],):
+        raise ValueError(f"encoded_start must have shape [{starts.shape[1]}]")
+    mean, std = _fit_start_stats(starts, train)
+    train_z = (starts[train] - mean) / std
+    user_z = (encoded[None, :] - mean) / std
+    distance = np.linalg.norm(train_z - user_z, axis=1) / np.sqrt(starts.shape[1])
+    best_pos = int(np.argmin(distance))
+    return {
+        "nearest_train_start_window_index": int(train[best_pos]),
+        "nearest_train_start_distance_z": float(distance[best_pos]),
+        "mean_train_start_distance_z": float(np.mean(distance)),
+        "max_abs_user_start_z": float(np.max(np.abs(user_z))),
+    }
+
+
+def build_user_start_variant_row(
+    *,
+    query_row: dict[str, Any],
+    user_start: dict[str, Any],
+    history_level: np.ndarray,
+    train_indices: np.ndarray,
+) -> dict[str, Any]:
+    support = user_start_support_summary(
+        encoded_start=np.asarray(user_start["encoded_state"], dtype=np.float32),
+        history_level=history_level,
+        train_indices=train_indices,
+    )
+    return {
+        "variant": "user_start_state",
+        "query_window_index": int(query_row["window_index"]),
+        "start_window_index": -1,
+        "start_window_id": str(user_start.get("label") or "user_supplied_start"),
+        "start_source_index": None,
+        "start_manifest_split": "user_supplied",
+        "start_selection_method": "user_supplied_joint39_state",
+        "case_role": "operational_selected_start",
+        "is_operational": True,
+        "start_distance_z": float(support["nearest_train_start_distance_z"]),
+        "nearest_train_start_window_index": int(
+            support["nearest_train_start_window_index"]
+        ),
+        "nearest_train_start_distance_z": float(
+            support["nearest_train_start_distance_z"]
+        ),
+        "mean_train_start_distance_z": float(support["mean_train_start_distance_z"]),
+        "max_abs_user_start_z": float(support["max_abs_user_start_z"]),
+    }
 
 
 def _start_distance(
@@ -786,6 +909,46 @@ def generated_delta_samples_to_states(
     return (current[:, None, None, :] + delta).astype(np.float32)
 
 
+def sample_prefix_generator_deltas_from_start_raw(
+    model: Any,
+    *,
+    history_level: np.ndarray,
+    history_norm: np.ndarray,
+    center: np.ndarray,
+    scale: np.ndarray,
+    drift_feature: np.ndarray,
+    start_raw: np.ndarray,
+    specs: list[Any],
+    samples: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    device: torch.device,
+) -> np.ndarray:
+    """Sample future deltas from decoded prefixes pinned to supplied raw starts."""
+
+    sampled_increment = model.sample_batched(
+        torch.from_numpy(np.asarray(history_level, dtype=np.float32)).to(device),
+        torch.from_numpy(np.asarray(history_norm, dtype=np.float32)).to(device),
+        torch.from_numpy(np.asarray(center, dtype=np.float32)).to(device),
+        torch.from_numpy(np.asarray(scale, dtype=np.float32)).to(device),
+        drift_feature=torch.from_numpy(
+            np.asarray(drift_feature, dtype=np.float32)
+        ).to(device),
+        n_samples=int(samples),
+        n_steps=int(n_steps),
+        chunk_size=int(chunk_size),
+        temperature=float(temperature),
+    )
+    current = np.asarray(start_raw, dtype=np.float32)
+    generated_states = _reconstruct_states(
+        current,
+        sampled_increment.detach().cpu().numpy(),
+        specs,
+    )
+    return (generated_states - current[:, None, None, :]).astype(np.float32)
+
+
 def build_live_story_condition_memory(
     *,
     story: str,
@@ -847,6 +1010,19 @@ def _score_live_rollouts(
     rows: list[dict[str, Any]] = []
     for row_no, row in enumerate(variant_rows):
         start_idx = int(row["start_window_index"])
+        if start_idx < 0 or start_idx >= future_delta.shape[0]:
+            rows.append(
+                {
+                    "case_index": int(row_no),
+                    "query_window_index": int(row["query_window_index"]),
+                    "start_window_index": start_idx,
+                    "variant": str(row["variant"]),
+                    "target_available": False,
+                    "target_note": "No realized future is available for a user-supplied start state.",
+                    "methods": {},
+                }
+            )
+            continue
         target = np.asarray(future_delta[start_idx], dtype=np.float32)
         rows.append(
             {
@@ -879,9 +1055,17 @@ def _variant_path_labels(
     for row in variant_rows:
         start_idx = int(row["start_window_index"])
         info = window_metadata.get(start_idx, {})
-        window_id = str(info.get("window_id", f"window_{start_idx}"))
+        window_id = str(
+            row.get("start_window_id") or info.get("window_id", f"window_{start_idx}")
+        )
         is_operational = bool(row.get("is_operational", True))
-        label_prefix = "Selected start" if is_operational else "Diagnostic baseline"
+        label_prefix = (
+            "User supplied start"
+            if start_idx < 0
+            else "Selected start"
+            if is_operational
+            else "Diagnostic baseline"
+        )
         labels.append(
             {
                 "window_id": window_id,
@@ -909,9 +1093,15 @@ def _enrich_variant_rows(
                 "query_window_id": str(
                     query_info.get("window_id", row.get("query_window_id", ""))
                 ),
-                "start_window_id": str(start_info.get("window_id", "")),
-                "start_source_index": start_info.get("source_index"),
-                "start_manifest_split": start_info.get("manifest_split"),
+                "start_window_id": str(
+                    start_info.get("window_id", row.get("start_window_id", ""))
+                ),
+                "start_source_index": start_info.get(
+                    "source_index", row.get("start_source_index")
+                ),
+                "start_manifest_split": start_info.get(
+                    "manifest_split", row.get("start_manifest_split")
+                ),
                 "start_calendar": start_info.get("calendar", {}),
             }
         )
@@ -1088,6 +1278,9 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         scale,
         drift_feature,
     )
+    user_start: dict[str, Any] | None = None
+    if getattr(args, "start_state_json", None):
+        user_start = load_user_start_state(args.start_state_json, specs)
     inputs, input_stats = build_memory_start_input_matrix(
         true_memory_targets,
         history_level[:, -1, :],
@@ -1207,22 +1400,47 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         ),
     )
     conditioning_memory = np.asarray(memory_prior["memory"], dtype=np.float32)
-    variant_rows = build_live_story_variant_rows(
-        query_row=query_row,
-        start_state=history_level[:, -1, :],
-        train_indices=train_indices,
-        start_mode=str(args.start_mode),
-        explicit_start_window_index=args.explicit_start_window_index,
-        include_original_baseline=bool(args.include_original_baseline),
-        query_memory=conditioning_memory,
-        memory_targets=true_memory_targets,
-        grounding=grounding_payload,
-        history_raw=history_raw,
-        spec_names=spec_names,
-        start_distance_threshold_z=float(args.start_distance_threshold_z),
-        start_distance_penalty=float(args.start_distance_penalty),
-        implication_alignment_weight=float(args.implication_alignment_weight),
-    )
+    if str(args.start_mode) == "user_start_state":
+        if user_start is None:
+            raise ValueError("--start-state-json is required for user_start_state")
+        variant_rows = []
+        if bool(args.include_original_baseline):
+            original = resolve_start_window_index(
+                query_window_index=int(query_row["window_index"]),
+                start_state=history_level[:, -1, :],
+                train_indices=train_indices,
+                start_mode="original",
+                query_memory=conditioning_memory,
+                memory_targets=true_memory_targets,
+            )
+            original["case_role"] = "diagnostic_original_start"
+            original["is_operational"] = False
+            variant_rows.append(original)
+        variant_rows.append(
+            build_user_start_variant_row(
+                query_row=query_row,
+                user_start=user_start,
+                history_level=history_level,
+                train_indices=train_indices,
+            )
+        )
+    else:
+        variant_rows = build_live_story_variant_rows(
+            query_row=query_row,
+            start_state=history_level[:, -1, :],
+            train_indices=train_indices,
+            start_mode=str(args.start_mode),
+            explicit_start_window_index=args.explicit_start_window_index,
+            include_original_baseline=bool(args.include_original_baseline),
+            query_memory=conditioning_memory,
+            memory_targets=true_memory_targets,
+            grounding=grounding_payload,
+            history_raw=history_raw,
+            spec_names=spec_names,
+            start_distance_threshold_z=float(args.start_distance_threshold_z),
+            start_distance_penalty=float(args.start_distance_penalty),
+            implication_alignment_weight=float(args.implication_alignment_weight),
+        )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     memory_prior = enrich_memory_prior_candidate_metadata(memory_prior, window_metadata)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
@@ -1235,7 +1453,31 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         [int(row["start_window_index"]) for row in variant_rows],
         dtype=np.int64,
     )
-    requested_start = history_level[start_indices, -1, :]
+    requested_start_rows: list[np.ndarray] = []
+    requested_raw_rows: list[np.ndarray] = []
+    future_state_rows: list[np.ndarray] = []
+    all_future_targets_available = True
+    for row in variant_rows:
+        start_idx = int(row["start_window_index"])
+        if start_idx >= 0:
+            requested_start_rows.append(history_level[start_idx, -1, :])
+            requested_raw_rows.append(history_raw[start_idx, -1, :])
+            future_state_rows.append(future_raw[start_idx])
+        else:
+            if user_start is None:
+                raise ValueError("user start row requires loaded user_start")
+            requested_start_rows.append(
+                np.asarray(user_start["encoded_state"], dtype=np.float32)
+            )
+            requested_raw_rows.append(np.asarray(user_start["raw_state"], dtype=np.float32))
+            all_future_targets_available = False
+    requested_start = np.stack(requested_start_rows, axis=0).astype(np.float32)
+    requested_raw = np.stack(requested_raw_rows, axis=0).astype(np.float32)
+    future_states_for_paths = (
+        np.stack(future_state_rows, axis=0).astype(np.float32)
+        if all_future_targets_available
+        else None
+    )
     variant_inputs = apply_memory_start_stats(text_memory, requested_start, input_stats)
     prefix_prior_mode = str(getattr(args, "prefix_prior_mode", "decoder"))
     if prefix_prior_mode == "feature_mixture":
@@ -1292,15 +1534,14 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     rollout_summary: dict[str, Any] = {}
     generation: dict[str, Any] = {}
     if not bool(args.skip_rollout):
-        samples = sample_prefix_generator_deltas(
+        samples = sample_prefix_generator_deltas_from_start_raw(
             model,
-            indices=np.arange(len(variant_rows), dtype=np.int64),
             history_level=decoded_prefix["history_level"],
             history_norm=decoded_prefix["history_norm"],
             center=decoded_prefix["center"],
             scale=decoded_prefix["scale"],
             drift_feature=decoded_prefix["drift_feature"],
-            history_raw=history_raw[start_indices],
+            start_raw=requested_raw,
             specs=specs,
             samples=int(args.samples),
             n_steps=int(args.n_steps),
@@ -1308,7 +1549,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             temperature=float(args.temperature),
             device=device,
         )
-        current_raw = history_raw[start_indices, -1, :]
+        current_raw = requested_raw
         generated_states = generated_delta_samples_to_states(samples, current_raw)
         window_scores, rollout_summary = _score_live_rollouts(
             samples=samples,
@@ -1326,7 +1567,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             current_raw,
             _spec_names(specs),
             analogues=_variant_path_labels(variant_rows, window_metadata),
-            future_states=future_raw[start_indices],
+            future_states=future_states_for_paths,
             max_paths=int(args.max_paths),
         )
         for item in path_quantiles:
@@ -1401,7 +1642,22 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "bridge_arrays": str(args.bridge_arrays),
             "pipeline_report": str(args.pipeline_report),
             "checkpoint": str(args.checkpoint),
+            "start_state_json": str(args.start_state_json)
+            if getattr(args, "start_state_json", None)
+            else None,
         },
+        "user_start_state": (
+            {
+                "label": str(user_start.get("label", "")),
+                "source_path": str(user_start.get("source_path", "")),
+                "source_format": str(user_start.get("source_format", "")),
+                "coordinate": str(user_start.get("coordinate", "")),
+                "dimension": int(np.asarray(user_start["raw_state"]).shape[0]),
+                "spec_names": list(user_start.get("spec_names", [])),
+            }
+            if user_start is not None
+            else None
+        ),
         "selected_window_count": int(selected_windows.size),
         "train_window_count": int(train_indices.size),
         "test_window_count": int(test_indices.size),
@@ -1439,6 +1695,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         test_indices=test_indices.astype(np.int64),
         start_indices=start_indices.astype(np.int64),
         requested_start=requested_start.astype(np.float32),
+        requested_raw=requested_raw.astype(np.float32),
         text_memory=text_memory.astype(np.float32),
         decoded_memory=decoded_memory.astype(np.float32),
         decoded_history_level=decoded_prefix["history_level"].astype(np.float32),
@@ -1494,10 +1751,19 @@ def main() -> None:
             "balanced_memory_start",
             "implication_aligned_start",
             "explicit_start_window",
+            "user_start_state",
         ],
         default="balanced_memory_start",
     )
     parser.add_argument("--explicit-start-window-index", type=int)
+    parser.add_argument(
+        "--start-state-json",
+        help=(
+            "Path to a raw joint39 start-state JSON object. Use with "
+            "--start-mode user_start_state. The JSON may contain state_vector "
+            "or values_by_name keyed by generator spec names."
+        ),
+    )
     parser.add_argument(
         "--start-distance-threshold-z",
         type=float,
