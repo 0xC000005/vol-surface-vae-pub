@@ -39,6 +39,38 @@ system's recommendations. The system must expose the analogue weights, support
 diagnostics, and post-rollout implication checks so a risk manager can see
 whether the generated distribution is supported, weakly supported, or rejected.
 
+## Workflow Revision: Start Before Mixture
+
+The narrative is a description of the current and recent market condition, not
+an instruction for what the future must look like. Phrases such as "the risk is
+that equities keep falling" or "a volatility reversal could unwind the rally"
+are useful risk-manager language, but they are warnings and scenario concerns,
+not conditioning targets. The grounding layer must therefore separate:
+
+- current or recent market implications that can be used for support retrieval;
+- unsupported causal claims that require warnings;
+- forward-looking or desired-future language that must be excluded from the
+  conditioning text.
+
+The start level is resolved before any prefix mixture is formed. In
+narrative-only mode the system can recommend plausible joint39 start levels,
+but it must then ask the user to accept or choose one. In explicit-start mode
+the user-supplied joint39 level is already the fixed start. Only after this
+point should the model retrieve and weight historical prefix support:
+
+```text
+narrative -> condition-only grounding
+grounding -> candidate start levels, if needed
+accepted/user-supplied s0 + grounding -> analogue pool and mixture weights
+mixture prefix ending at s0 -> frozen SNI rollout -> future distribution
+```
+
+This ordering is now part of the trust contract. The same narrative paired with
+two different starting levels may legitimately produce different analogue
+weights, different recent-prefix mixtures, and different future distributions.
+The product must show the fixed start, the start-support diagnostics, and the
+analogue weights before presenting the generated scenario fan.
+
 ## Production-Readiness Workflow
 
 This protocol now treats research progress and production readiness as separate

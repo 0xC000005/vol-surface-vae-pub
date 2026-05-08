@@ -113268,3 +113268,60 @@ The calibrated fixed-start workflow now has positive expanded validation and cle
 We now have a concise demo story that a boss can follow: narrative input is grounded, the start is fixed before prefix construction, historical analogues provide support rather than replay, the frozen generator produces the paths, and calibrated rollout beats persistence on the expanded cached validation set.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 58 start-fixed narrative expansion
+
+### Context
+The latest workflow clarification is that the start level must be fixed before
+forming any prefix mixture. The narrative describes current or recent market
+conditions, while forward-looking stress language is warning-only. The previous
+iteration packaged the boss demo evidence, but the remaining bottleneck was
+data breadth beyond the three cached narrative families.
+
+### HEAD
+- Hypothesis: adding exact case selection and a small set of new condition-only
+  narrative families will let us pilot one new story with bounded OpenAI use,
+  then scale only if the grounding schema and first fixed-start rollout are
+  usable.
+- Execute: updated the tracked protocol to make "start before mixture" an
+  explicit workflow rule. Added three new condition-only casebook families:
+  commodity-led inflation pressure, dollar liquidity squeeze, and safe-haven
+  gold bid. Added exact `--case-name` selection to the live casebook and
+  condition-only grounding TestFlight so one narrative can be piloted without
+  calling OpenAI on the whole casebook.
+- Analyze: focused tests passed. The one-call commodity inflation OpenAI
+  grounding pilot passed with 4 current-state support implications, 1
+  warning-only forward phrase, 0 role errors, 0 forward leakage, and 0 future
+  targets. The condition report projected the clean condition text into a
+  128-dimensional condition memory. A fixed-start CUDA story smoke with
+  explicit historical start 18 passed the trust gate, generated shape
+  `[2, 4, 30, 39]`, used calibrated rollout temperature 0.50, improved energy
+  score versus persistence by +0.0586, and was slightly worse on ensemble CRPS
+  by -0.0139 at only 4 samples.
+- Decide: the workflow improvement is valid and the new narrative family is not
+  garbage, but the first tiny smoke is not enough to claim scenario-quality
+  improvement. The next step is a no-new-grounding validation for the commodity
+  condition report across a few fixed starts with more samples, then add the
+  other two new narratives only after the same one-case pilot gate passes.
+
+### Evidence
+- `uv run pytest test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py -q`: 14 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py`: passed.
+- `git diff --check`: passed.
+- OpenAI grounding TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_822a_commodity_pilot --case-name commodity_inflation_pressure --model gpt-5.4-mini --dotenv .env --max-output-tokens 1800`: status counts `{"pass": 1}`.
+- Condition report: `uv run python experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_822a_commodity_pilot/condition_only_grounding_summary.json --case-name commodity_inflation_pressure --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity --dotenv .env`: text memory dim `128`.
+- Fixed-start smoke: `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_822a_commodity_explicit18_smoke --start-mode explicit_start_window --explicit-start-window-index 18 --memory-prior-mode soft_topk_combined --prefix-prior-mode decoder --memory-prior-top-k 8 --memory-prior-temperature 0.2 --temperature 0.5 --samples 4 --steps 120 --chunk-size 4 --device cuda`: validation `pass`, device `cuda`.
+
+### Artifacts
+- Grounding pilot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_822a_commodity_pilot/condition_only_grounding_summary.json`
+- Condition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json`
+- Fixed-start smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_822a_commodity_explicit18_smoke/prefix_latent_story_smoke_report.json`
+
+### Production implication
+The autoresearch workflow now enforces the correct production ordering:
+condition-only narrative grounding first, fixed start selection second,
+narrative-and-start-compatible prefix mixture third, and frozen SNI rollout last.
+This keeps the system from treating user-stated future outcomes as scenario
+targets while still allowing a risk manager to provide a story and a starting
+level.
+
+---

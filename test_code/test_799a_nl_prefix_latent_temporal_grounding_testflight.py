@@ -132,19 +132,14 @@ def test_validate_condition_only_grounding_result_accepts_conditioning_only() ->
 
 def test_validate_condition_only_grounding_result_flags_forward_leakage() -> None:
     broken = _condition_grounding().model_copy(deep=True)
-    broken.current_market_state_implications[0].evidence = [
-        "SPX could rise next month"
-    ]
+    broken.current_market_state_implications[0].evidence = ["SPX could rise next month"]
 
     validation = validate_condition_only_grounding_result(broken)
 
     assert validation["status"] == "warning"
     assert "condition_role_errors" in validation["reasons"]
     assert validation["condition_role_error_count"] == 1
-    assert (
-        validation["condition_role_errors"][0]["field"]
-        == "forward_language_leakage"
-    )
+    assert validation["condition_role_errors"][0]["field"] == "forward_language_leakage"
 
 
 def test_validate_condition_only_grounding_result_flags_unsupported_market() -> None:
@@ -173,8 +168,7 @@ def test_validate_condition_only_grounding_result_flags_warning_phrase_reuse() -
     assert "forward_warning_leakage" in validation["reasons"]
     assert validation["forward_warning_leakage_count"] == 1
     assert (
-        validation["forward_warning_leakage"][0]["field"]
-        == "cleaned_conditioning_text"
+        validation["forward_warning_leakage"][0]["field"] == "cleaned_conditioning_text"
     )
 
 
@@ -205,6 +199,7 @@ def test_run_condition_only_grounding_testflight_replays_fixture(tmp_path) -> No
     args = SimpleNamespace(
         output_dir=str(tmp_path / "out"),
         case_count=1,
+        case_name=None,
         model="fixture",
         max_output_tokens=10,
         dotenv=".env",
@@ -224,5 +219,39 @@ def test_run_condition_only_grounding_testflight_replays_fixture(tmp_path) -> No
         tmp_path
         / "out"
         / "01_fragile_risk_on_rebound"
+        / "condition_only_query_text.txt"
+    ).exists()
+
+
+def test_run_condition_only_grounding_testflight_selects_named_case(tmp_path) -> None:
+    fixture = {
+        "cases": [
+            {
+                "case_name": "commodity_inflation_pressure",
+                "condition_only_grounding": _condition_grounding().model_dump(),
+            }
+        ]
+    }
+    fixture_path = tmp_path / "fixture.json"
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+    args = SimpleNamespace(
+        output_dir=str(tmp_path / "out"),
+        case_count=1,
+        case_name=["commodity_inflation_pressure"],
+        model="fixture",
+        max_output_tokens=10,
+        dotenv=".env",
+        grounding_json=str(fixture_path),
+    )
+
+    summary = run_condition_only_grounding_testflight(args)
+
+    assert summary["case_count"] == 1
+    assert summary["selected_case_names"] == ["commodity_inflation_pressure"]
+    assert summary["cases"][0]["case_name"] == "commodity_inflation_pressure"
+    assert (
+        tmp_path
+        / "out"
+        / "01_commodity_inflation_pressure"
         / "condition_only_query_text.txt"
     ).exists()

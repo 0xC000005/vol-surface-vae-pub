@@ -61,7 +61,59 @@ def default_casebook_stories() -> list[dict[str, str]]:
                 "keeps risk appetite fragile."
             ),
         },
+        {
+            "name": "commodity_inflation_pressure",
+            "story": (
+                "This looks like a commodity-led inflation pressure regime: crude "
+                "oil is rallying, Treasury yields are moving higher, equities are "
+                "softening under margin and discount-rate pressure, and volatility "
+                "is firmer. The forward risk is that inflation concern keeps "
+                "tightening financial conditions."
+            ),
+        },
+        {
+            "name": "dollar_liquidity_squeeze",
+            "story": (
+                "This has the feel of a dollar liquidity squeeze: the dollar is "
+                "strengthening, USDJPY is moving higher, equities are under "
+                "pressure, credit spreads are widening, and volatility is elevated. "
+                "The forward risk is that funding stress spills into broader "
+                "de-risking."
+            ),
+        },
+        {
+            "name": "safe_haven_gold_bid",
+            "story": (
+                "This looks like a safe-haven bid with softer risk appetite: gold "
+                "is rallying, Treasury yields are lower, equities are choppy, and "
+                "volatility remains elevated while the dollar is not providing a "
+                "clear offset. The forward risk is that safe-haven demand becomes "
+                "a broader risk-off move."
+            ),
+        },
     ]
+
+
+def select_casebook_stories(
+    *,
+    case_names: list[str] | None = None,
+    case_count: int | None = None,
+) -> list[dict[str, str]]:
+    """Select casebook stories by exact name or by default ordering."""
+
+    stories = default_casebook_stories()
+    if case_names:
+        by_name = {str(item["name"]): item for item in stories}
+        missing = [name for name in case_names if name not in by_name]
+        if missing:
+            available = ", ".join(sorted(by_name))
+            raise ValueError(
+                f"unknown case_name(s): {', '.join(missing)}; available: {available}"
+            )
+        return [by_name[name] for name in case_names]
+    if case_count:
+        return stories[: int(case_count)]
+    return stories
 
 
 def build_case_command(
@@ -129,7 +181,9 @@ def summarize_case_report(
         grounding = {}
     cases = gate.get("cases", []) if isinstance(gate, dict) else []
     operational_cases = [
-        item for item in cases if isinstance(item, dict) and bool(item.get("is_operational"))
+        item
+        for item in cases
+        if isinstance(item, dict) and bool(item.get("is_operational"))
     ]
     selected_case = operational_cases[0] if operational_cases else {}
     memory_cosines = [
@@ -170,7 +224,10 @@ def summarize_case_report(
 def run_casebook(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    stories = default_casebook_stories()[: int(args.case_count)]
+    stories = select_casebook_stories(
+        case_names=getattr(args, "case_name", None),
+        case_count=int(args.case_count),
+    )
     case_rows: list[dict[str, Any]] = []
     commands: list[list[str]] = []
     for case_no, item in enumerate(stories, start=1):
@@ -220,6 +277,11 @@ def main() -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--script", default=DEFAULT_SCRIPT)
     parser.add_argument("--case-count", type=int, default=3)
+    parser.add_argument(
+        "--case-name",
+        action="append",
+        help="Exact default-casebook story name to run. May be repeated.",
+    )
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--chunk-size", type=int, default=2)

@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (  # noqa: E402
-    default_casebook_stories,
+    select_casebook_stories,
 )
 from experiments.backfill.block_ar.nl_scenario_descriptions import (  # noqa: E402
     load_dotenv_key,
@@ -247,8 +247,7 @@ def build_condition_only_grounding_messages(story: str) -> list[dict[str, str]]:
     if not conditioning_text:
         conditioning_text = "- none"
     non_conditioning_text = "\n".join(
-        f"- {sentence}"
-        for sentence in split["non_conditioning_forward_sentences"]
+        f"- {sentence}" for sentence in split["non_conditioning_forward_sentences"]
     )
     if not non_conditioning_text:
         non_conditioning_text = "- none"
@@ -543,9 +542,7 @@ def _load_fixture_results(path: str | Path) -> dict[str, ConditionOnlyGroundingR
         if not isinstance(row, dict):
             continue
         name = str(row.get("case_name", ""))
-        grounding = row.get("condition_only_grounding") or row.get(
-            "temporal_grounding"
-        )
+        grounding = row.get("condition_only_grounding") or row.get("temporal_grounding")
         if name and isinstance(grounding, dict):
             results[name] = ConditionOnlyGroundingResult.model_validate(grounding)
     return results
@@ -556,7 +553,10 @@ def run_condition_only_grounding_testflight(
 ) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    stories = default_casebook_stories()[: int(args.case_count)]
+    stories = select_casebook_stories(
+        case_names=getattr(args, "case_name", None),
+        case_count=int(args.case_count),
+    )
     fixture_results = (
         _load_fixture_results(args.grounding_json) if args.grounding_json else {}
     )
@@ -640,6 +640,7 @@ def run_condition_only_grounding_testflight(
         "created_at_utc": datetime.now(UTC).isoformat(),
         "model": str(args.model),
         "prompt_version": PROMPT_VERSION,
+        "selected_case_names": [str(item["name"]) for item in stories],
         "case_count": len(rows),
         "status_counts": status_counts,
         "totals": totals,
@@ -656,6 +657,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--case-count", type=int, default=1)
+    parser.add_argument(
+        "--case-name",
+        action="append",
+        help="Exact default-casebook story name to run. May be repeated.",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--max-output-tokens", type=int, default=1800)
     parser.add_argument("--dotenv", default=".env")

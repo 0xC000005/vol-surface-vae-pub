@@ -6,6 +6,7 @@ sys.path.insert(0, ".")
 from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (
     build_case_command,
     default_casebook_stories,
+    select_casebook_stories,
     summarize_case_report,
 )
 
@@ -13,9 +14,27 @@ from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (
 def test_default_casebook_stories_are_story_like() -> None:
     stories = default_casebook_stories()
 
-    assert len(stories) >= 3
+    assert len(stories) >= 6
     assert all("story" in item and "name" in item for item in stories)
     assert any("risk-on" in item["story"] for item in stories)
+    assert any(item["name"] == "commodity_inflation_pressure" for item in stories)
+
+
+def test_select_casebook_stories_supports_named_testflight() -> None:
+    stories = select_casebook_stories(case_names=["safe_haven_gold_bid"])
+
+    assert [item["name"] for item in stories] == ["safe_haven_gold_bid"]
+    assert "gold" in stories[0]["story"]
+
+
+def test_select_casebook_stories_rejects_unknown_name() -> None:
+    try:
+        select_casebook_stories(case_names=["not_a_case"])
+    except ValueError as exc:
+        assert "not_a_case" in str(exc)
+        assert "fragile_risk_on_rebound" in str(exc)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("expected ValueError")
 
 
 def test_build_case_command_sets_live_story_and_output_dir() -> None:
