@@ -918,6 +918,55 @@ def _enrich_variant_rows(
     return enriched
 
 
+def enrich_memory_prior_candidate_metadata(
+    memory_prior: dict[str, Any],
+    window_metadata: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    """Attach human-readable window metadata to memory-prior candidates."""
+
+    enriched_prior = dict(memory_prior)
+    weights_by_index = {
+        int(idx): float(weight)
+        for idx, weight in zip(
+            memory_prior.get("window_indices", []),
+            memory_prior.get("weights", []),
+            strict=False,
+        )
+    }
+    candidate_details: list[dict[str, Any]] = []
+    for rank, item in enumerate(memory_prior.get("candidate_details", []), start=1):
+        if not isinstance(item, dict):
+            continue
+        bridge_index = int(item.get("window_index", -1))
+        info = window_metadata.get(bridge_index, {})
+        calendar = info.get("calendar", {}) if isinstance(info, dict) else {}
+        row = {
+            **item,
+            "rank": int(rank),
+            "bridge_local_index": bridge_index,
+            "weight": weights_by_index.get(bridge_index),
+            "window_id": str(info.get("window_id", "")) if info else "",
+            "source_index": info.get("source_index") if info else None,
+            "manifest_split": str(info.get("manifest_split", "")) if info else "",
+            "history_start_date": str(calendar.get("calendar_start_date", ""))
+            if isinstance(calendar, dict)
+            else "",
+            "history_end_date": str(calendar.get("calendar_end_date", ""))
+            if isinstance(calendar, dict)
+            else "",
+            "forecast_start_date": str(calendar.get("forecast_start_date", ""))
+            if isinstance(calendar, dict)
+            else "",
+            "forecast_end_date": str(calendar.get("forecast_end_date", ""))
+            if isinstance(calendar, dict)
+            else "",
+        }
+        candidate_details.append(row)
+    if candidate_details:
+        enriched_prior["candidate_details"] = candidate_details
+    return enriched_prior
+
+
 def _render_markdown(report: dict[str, Any]) -> str:
     query = report.get("cached_query", {})
     gate = report.get("validation_gate", {})
@@ -1175,6 +1224,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         implication_alignment_weight=float(args.implication_alignment_weight),
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
+    memory_prior = enrich_memory_prior_candidate_metadata(memory_prior, window_metadata)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
     text_memory = np.repeat(
         conditioning_memory[None, :],

@@ -112412,3 +112412,41 @@ Keep historical explicit-start as the first user-start implementation. The next 
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 37 historical start candidate table
+
+### Context
+The previous condition-only product path could use `balanced_memory_start` plus a soft top-k memory prior, but the demo still exposed explicit historical start control mainly as a raw bridge-local integer. That is not production-grade: a risk manager needs to see which historical starts and prefix-support windows are being mixed, why they were selected, and whether the support is broad enough to trust.
+
+### Hypothesis
+If the story-smoke report enriches the memory-prior candidate list with source/window metadata and the Gradio demo shows those candidates directly, the product will be more auditable without adding a new modeling knob or making new OpenAI calls.
+
+### Execution
+- Added `enrich_memory_prior_candidate_metadata` to `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- The report now attaches bridge-local index, window id, source index, manifest split, history/forecast dates, and candidate weight to each memory-prior candidate.
+- Added a Gradio `Historical start/support candidates` table with rank, window, source, history end date, mixture weight, memory-support cosine, start-distance z-score, recent-prefix implication alignment, and combined score.
+- Added formatter/unit coverage in:
+  - `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+  - `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- Used the cached condition-only OpenAI report for verification; no new OpenAI calls were made.
+
+### Result
+- Focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 30 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Demo construction: `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- Diff hygiene: `git diff --check` -> passed.
+- Cached condition-only smoke:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_table_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode balanced_memory_start --steps 100 --samples 2 --chunk-size 2 --device cuda`
+  produced `validation_status=pass`, `operational_status=pass`, generated shape `[2, 2, 30, 39]`.
+- The top enriched candidate was `joint39_val_0040`, source index 4050, train split, history end 2016-03-24, weight 0.154, memory cosine 0.881, start distance 14.398z, and 0/3 recent-prefix implication mismatches.
+
+### Mechanism Read
+This improves the core production story: the system is not silently replaying a single neighbor. It forms a visible soft support pool, shows which starts/prefixes are carrying the condition, and exposes whether each candidate agrees with the condition-only implications. The current system is still a mixture-supported prefix system, not a learned residual-refinement system.
+
+### Decision / Next Step
+Keep the candidate table and metadata enrichment. The next production step is to make explicit-start selection usable from that candidate table and then move beyond historical-window indices toward a true joint39 current-state input path. That will support the stricter workflow where a risk manager supplies today's market state and the model uses narrative language only for the recent-regime/prefix condition.
+
+### Artifacts
+- Smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_table_verify/prefix_latent_story_smoke_report.json`
+- Smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_table_verify/prefix_latent_story_smoke_arrays.npz`
+
+---

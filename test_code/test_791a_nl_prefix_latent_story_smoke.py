@@ -12,6 +12,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     build_live_story_variant_rows,
     build_live_story_condition_memory,
     generated_delta_samples_to_states,
+    enrich_memory_prior_candidate_metadata,
     narrative_text_for_query,
     resolve_start_window_index,
     select_cached_story_query,
@@ -109,6 +110,30 @@ def test_window_metadata_by_bridge_local_index_uses_bridge_local_rows() -> None:
     assert metadata[1]["window_id"] == "joint39_val_0100"
     assert metadata[1]["window_index"] == 100
     assert metadata[1]["source_index"] == 4100
+
+
+def test_enrich_memory_prior_candidate_metadata_adds_window_labels() -> None:
+    memory_prior = {
+        "candidate_details": [
+            {
+                "window_index": 1,
+                "memory_support_cosine": 0.9,
+                "start_distance_z": 4.0,
+            }
+        ],
+        "window_indices": [1],
+        "weights": [0.75],
+    }
+    metadata = window_metadata_by_bridge_local_index(_bridge_report())
+
+    enriched = enrich_memory_prior_candidate_metadata(memory_prior, metadata)
+    row = enriched["candidate_details"][0]
+
+    assert row["rank"] == 1
+    assert row["bridge_local_index"] == 1
+    assert row["window_id"] == "joint39_val_0100"
+    assert row["source_index"] == 4100
+    assert row["weight"] == 0.75
 
 
 def test_resolve_start_window_index_supports_nearest_and_explicit_start() -> None:

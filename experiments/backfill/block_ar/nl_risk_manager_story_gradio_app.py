@@ -122,6 +122,19 @@ PREFIX_VARIANT_COLUMNS = [
     "Selection",
     "Start Split",
 ]
+PREFIX_START_CANDIDATE_COLUMNS = [
+    "Rank",
+    "Window",
+    "Bridge Index",
+    "Source",
+    "History End",
+    "Split",
+    "Weight",
+    "Memory Support",
+    "Start Distance",
+    "Alignment",
+    "Score",
+]
 FAN_MARKET_CHOICES = [
     ("SPX", "SPX"),
     ("VIX", "VIX"),
@@ -444,6 +457,41 @@ def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
             }
         )
     return _frame(rows, VALIDATION_GATE_COLUMNS)
+
+
+def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
+    query = _as_dict(report.get("cached_query"))
+    memory_prior = _as_dict(query.get("memory_prior"))
+    rows: list[dict[str, Any]] = []
+    for rank, item in enumerate(_as_list(memory_prior.get("candidate_details")), start=1):
+        if not isinstance(item, dict):
+            continue
+        checked = item.get("recent_prefix_checked")
+        mismatches = item.get("recent_prefix_mismatches")
+        alignment_score = _fmt_float(item.get("recent_prefix_alignment_score"))
+        alignment = (
+            alignment_score
+            if checked is None
+            else f"{alignment_score} ({mismatches}/{checked} mismatches)"
+        )
+        rows.append(
+            {
+                "Rank": int(item.get("rank", rank)),
+                "Window": str(item.get("window_id") or item.get("window_index", "")),
+                "Bridge Index": str(
+                    item.get("bridge_local_index", item.get("window_index", ""))
+                ),
+                "Source": str(item.get("source_index", "")),
+                "History End": str(item.get("history_end_date", "")),
+                "Split": str(item.get("manifest_split", "")),
+                "Weight": _fmt_float(item.get("weight")),
+                "Memory Support": _fmt_float(item.get("memory_support_cosine")),
+                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Alignment": alignment,
+                "Score": _fmt_float(item.get("combined_score")),
+            }
+        )
+    return _frame(rows, PREFIX_START_CANDIDATE_COLUMNS)
 
 
 def prefix_warning_component_table(report: dict[str, Any]) -> pd.DataFrame:
@@ -937,6 +985,7 @@ def _blank_prefix_outputs(
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
 ]:
     return (
         "Prefix-latent run in progress. Results will appear here when complete.",
@@ -953,6 +1002,7 @@ def _blank_prefix_outputs(
         _frame([], WARNING_COLUMNS),
         _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
         _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
+        _frame([], PREFIX_START_CANDIDATE_COLUMNS),
     )
 
 
@@ -1319,6 +1369,7 @@ def run_prefix_latent_for_app(
             _frame([], WARNING_COLUMNS),
             _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
             _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
+            _frame([], PREFIX_START_CANDIDATE_COLUMNS),
         )
         return
 
@@ -1343,6 +1394,7 @@ def run_prefix_latent_for_app(
         prefix_condition_warnings_table(report),
         prefix_warning_component_table(report),
         prefix_shift_factor_table(report),
+        prefix_start_candidates_table(report),
     )
 
 
@@ -1574,6 +1626,11 @@ def build_demo() -> Any:
             label="Product warning decomposition",
             interactive=False,
         )
+        prefix_start_candidates = gr.Dataframe(
+            headers=PREFIX_START_CANDIDATE_COLUMNS,
+            label="Historical start/support candidates",
+            interactive=False,
+        )
         prefix_shift_factors = gr.Dataframe(
             headers=PREFIX_SHIFT_FACTOR_COLUMNS,
             label="Largest rollout-sensitivity contributors",
@@ -1650,6 +1707,7 @@ def build_demo() -> Any:
                 prefix_condition_warnings,
                 prefix_warning_components,
                 prefix_shift_factors,
+                prefix_start_candidates,
             ],
             show_progress="full",
             show_progress_on=prefix_status,

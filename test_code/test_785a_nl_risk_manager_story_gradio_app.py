@@ -18,6 +18,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_latent_status_markdown,
     prefix_selected_start_table,
     prefix_shift_factor_table,
+    prefix_start_candidates_table,
     prefix_validation_table,
     prefix_variant_table,
     prefix_warning_component_table,
@@ -185,6 +186,25 @@ def _prefix_report() -> dict:
                     }
                 ],
                 "grounding_warnings": [],
+            },
+            "memory_prior": {
+                "candidate_details": [
+                    {
+                        "rank": 1,
+                        "window_id": "joint39_val_0269",
+                        "bridge_local_index": 269,
+                        "source_index": 4762,
+                        "history_end_date": "2020-03-12",
+                        "manifest_split": "train",
+                        "weight": 0.42,
+                        "memory_support_cosine": 0.887,
+                        "start_distance_z": 6.94,
+                        "recent_prefix_alignment_score": 0.8,
+                        "recent_prefix_mismatches": 1,
+                        "recent_prefix_checked": 5,
+                        "combined_score": 0.73,
+                    }
+                ]
             },
         },
         "variant_rows": [
@@ -391,6 +411,7 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     warnings = prefix_condition_warnings_table(report)
     components = prefix_warning_component_table(report)
     factors = prefix_shift_factor_table(report)
+    candidates = prefix_start_candidates_table(report)
 
     assert implications.iloc[0]["Market"] == "SPX"
     assert implications.iloc[0]["Horizon"] == "current_state"
@@ -400,6 +421,9 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
         "Status"
     ] == "warning"
     assert factors.iloc[0]["Factor"] == "SPX"
+    assert candidates.iloc[0]["Window"] == "joint39_val_0269"
+    assert candidates.iloc[0]["Weight"] == "0.420"
+    assert candidates.iloc[0]["Alignment"] == "0.800 (1/5 mismatches)"
 
 
 def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
@@ -584,6 +608,7 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert final[3].iloc[0]["Variant"] == "original"
     assert final[4].iloc[0]["Status"] == "pass"
     assert final[6].layout.title.text == "SPX 30-day scenario fan"
+    assert final[14].iloc[0]["Window"] == "joint39_val_0269"
 
 
 def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
