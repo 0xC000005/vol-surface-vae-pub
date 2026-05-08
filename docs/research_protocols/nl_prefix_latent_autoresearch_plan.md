@@ -11,19 +11,33 @@ autoregressive rollout.
 The long-run product contract has two modes:
 
 1. **Model-chosen starting point.** The risk manager supplies only a narrative.
-   The system chooses one or more plausible starting states, then generates
-   30-day scenario distributions conditioned on the narrative.
+   The system recommends one or more plausible starting states. The user accepts
+   or selects one of those levels before the prefix mixture is formed.
 2. **User-specified starting point.** The risk manager supplies a narrative plus
    the current or hypothetical starting level for the joint scenario factors.
-   The system generates 30-day scenario distributions from that explicit state.
+   The system skips start recommendation and treats that supplied level as the
+   fixed initial condition.
+
+After the initial level is fixed, both modes share the same contract:
+
+```text
+narrative + fixed initial joint39 level
+-> start-compatible analogue pool
+-> soft mixture of plausible 30-day recent prefixes
+-> bounded residual/refinement or decoder condition
+-> frozen SNI autoregressive rollout
+-> 30-day future scenario distribution
+```
 
 Historical analogues are now the main support prior, but not as a single
 nearest-neighbor replay engine. The production path should retrieve a set of
-narrative-relevant historical regimes, form a soft mixture in latent or prefix
-space, and learn a residual refinement from the narrative plus starting state.
-The system must expose the analogue weights, support diagnostics, and
-post-rollout implication checks so a risk manager can see whether the generated
-distribution is supported, weakly supported, or rejected.
+narrative-relevant and start-compatible historical regimes, form a soft mixture
+in latent or prefix space, and learn a residual refinement from the narrative
+plus fixed starting state. The mixture is therefore not upstream of the initial
+level. It is conditioned on the level the user supplied or accepted from the
+system's recommendations. The system must expose the analogue weights, support
+diagnostics, and post-rollout implication checks so a risk manager can see
+whether the generated distribution is supported, weakly supported, or rejected.
 
 ## Production-Readiness Workflow
 
@@ -34,9 +48,10 @@ should move at least one of these product gates:
 1. **Grounded narrative input.** The risk-manager story is converted into
    explicit market implications, unsupported-claim warnings, model metadata,
    and cached text conditions.
-2. **Text-memory plus start contract.** The model accepts either a proposed
-   historical start or an explicit user-specified joint39 start, then decodes a
-   recent-prefix object that ends exactly at that start.
+2. **Fixed-start mixture contract.** The model first accepts either a proposed
+   historical start or an explicit user-specified joint39 start. Only after that
+   level is fixed does it build the narrative-conditioned analogue mixture, then
+   decode a recent-prefix object that ends exactly at that start.
 3. **Native frozen rollout.** The decoded prefix is fed through the frozen SNI
    generator's native encoder and autoregressive rollout, not a stale fixed
    condition vector.
@@ -89,8 +104,9 @@ The direct-memory and residual-memory ablations confirm the mechanics:
 The central object is a **mixture-supported prefix latent**:
 
 ```text
-narrative + optional starting state -> analogue pool -> soft mixture prior
-soft mixture prior + narrative + starting state -> residual-refined prefix latent
+narrative -> recommended or user-specified starting state s0
+narrative + fixed s0 -> start-compatible analogue pool -> soft mixture prior
+soft mixture prior + narrative + fixed s0 -> residual-refined prefix latent
 residual-refined prefix latent -> synthetic recent-prefix state
 synthetic recent-prefix state -> frozen SNI encoder/rollout -> future scenarios
 ```
@@ -148,11 +164,11 @@ future, and narrative/text condition when available.
 
 ### Stage C: Narrative to Analogue-Mixture Prior
 
-Retrieve a pool of candidate prefixes by combining:
+After `s0` is fixed, retrieve a pool of candidate prefixes by combining:
 
 - text-memory similarity to the grounded narrative;
 - explicit market-implication alignment in the recent prefix;
-- starting-state compatibility when the user provides `s0`;
+- starting-state compatibility with the fixed selected/supplied `s0`;
 - support diversity so the pool does not collapse to nearly identical windows.
 
 Convert the pool into a soft prior:
@@ -201,13 +217,15 @@ For model-chosen starts, use retrieval only at the start-state layer:
 - retrieve or sample plausible `s0` states consistent with the narrative and
   analogue-mixture support;
 - generate several start candidates and display them to the risk manager;
-- run the mixture-supported residual generator from each start.
+- once a start is accepted, build the analogue mixture conditioned on both the
+  narrative and that selected `s0`;
+- run the mixture-supported residual generator from that fixed start.
 
 For user-specified starts:
 
 - accept the provided joint39 starting state;
-- predict prefix latent conditional on the same narrative and that explicit
-  start;
+- build the analogue mixture and predict the prefix latent conditional on the
+  same narrative and that explicit start;
 - decode a compatible recent-prefix state;
 - run the frozen generator normally.
 

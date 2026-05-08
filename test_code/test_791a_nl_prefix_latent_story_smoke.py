@@ -13,6 +13,7 @@ from test_code.test_784a_nl_risk_manager_story_smoke import _grounding
 
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     _render_markdown,
+    annotate_variant_with_memory_prior,
     build_user_start_variant_row,
     build_live_story_variant_rows,
     build_live_story_condition_memory,
@@ -20,6 +21,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     enrich_memory_prior_candidate_metadata,
     load_user_start_state,
     narrative_text_for_query,
+    query_start_state_for_variant,
     resolve_start_window_index,
     select_cached_story_query,
     user_start_support_summary,
@@ -366,6 +368,49 @@ def test_build_live_story_variant_rows_adds_original_baseline_for_changed_start(
     assert rows[1]["case_role"] == "operational_selected_start"
     assert rows[1]["is_operational"] is True
     assert rows[1]["memory_support_cosine"] > rows[0]["memory_support_cosine"]
+
+
+def test_query_start_state_for_variant_uses_selected_or_user_level() -> None:
+    history_level = np.asarray(
+        [
+            [[0.0, 0.0], [1.0, 1.0]],
+            [[0.0, 0.0], [2.0, 3.0]],
+        ],
+        dtype=np.float32,
+    )
+    selected = query_start_state_for_variant(
+        row={"start_window_index": 1},
+        history_level=history_level,
+    )
+    supplied = query_start_state_for_variant(
+        row={"start_window_index": -1},
+        history_level=history_level,
+        user_start={"encoded_state": np.asarray([4.0, 5.0], dtype=np.float32)},
+    )
+
+    np.testing.assert_allclose(selected, [2.0, 3.0])
+    np.testing.assert_allclose(supplied, [4.0, 5.0])
+
+
+def test_annotate_variant_with_memory_prior_records_start_conditioned_mixture() -> None:
+    row = annotate_variant_with_memory_prior(
+        {"variant": "user_start_state", "start_window_index": -1},
+        {
+            "mode": "soft_topk_combined",
+            "query_start_source": "provided_start_state",
+            "analogue_count": 2,
+            "weights": [0.75, 0.25],
+            "candidate_details": [
+                {"window_index": 10, "start_distance_z": 2.0},
+                {"window_index": 11, "start_distance_z": 4.0},
+            ],
+        },
+    )
+
+    assert row["memory_prior_query_start_source"] == "provided_start_state"
+    assert row["memory_prior_analogue_count"] == 2
+    assert row["memory_prior_top_window_index"] == 10
+    assert row["memory_prior_weighted_start_distance_z"] == 2.5
 
 
 def test_generated_delta_samples_to_states_adds_current_state_per_variant() -> None:

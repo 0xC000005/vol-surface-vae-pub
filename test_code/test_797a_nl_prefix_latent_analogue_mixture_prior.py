@@ -11,6 +11,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_analogue_mixture_prior impor
     build_mixture_memory_prior,
     candidate_support_table,
     run_analogue_mixture_prior,
+    start_distances_to_query_start,
     weighted_prefix_terminal_rows,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (
@@ -84,6 +85,40 @@ def test_candidate_support_table_combines_memory_and_implication_alignment() -> 
     assert by_idx[0]["combined_score"] > by_idx[1]["combined_score"]
 
 
+def test_candidate_support_table_can_condition_on_supplied_start_state() -> None:
+    query_start = _history()[2, -1, :]
+
+    distances = start_distances_to_query_start(
+        start_state=_history()[:, -1, :],
+        train_indices=np.asarray([0, 1, 2], dtype=np.int64),
+        query_window_index=0,
+        query_start_state=query_start,
+    )
+    rows = candidate_support_table(
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=np.asarray(
+            [[0.7, 0.3], [1.0, 0.0], [0.2, 0.8]],
+            dtype=np.float32,
+        ),
+        history_level=_history(),
+        train_indices=np.asarray([0, 1, 2]),
+        query_window_index=0,
+        query_start_state=query_start,
+        grounding=_grounding(),
+        spec_names=_spec_names(),
+        start_distance_threshold_z=0.0,
+        start_distance_penalty=10.0,
+        implication_alignment_weight=0.0,
+    )
+
+    by_idx = {row["window_index"]: row for row in rows}
+
+    assert distances[2] == 0.0
+    assert by_idx[2]["start_distance_z"] == 0.0
+    assert by_idx[0]["start_distance_cost"] > 0.0
+    assert by_idx[2]["combined_score"] > by_idx[0]["combined_score"]
+
+
 def test_build_mixture_memory_prior_returns_weighted_memory_and_support() -> None:
     result = build_mixture_memory_prior(
         query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
@@ -110,6 +145,7 @@ def test_build_mixture_memory_prior_returns_weighted_memory_and_support() -> Non
     assert result["analogue_count"] == 2
     assert abs(sum(result["weights"]) - 1.0) < 1e-6
     assert result["support_alignment"]["checked_count"] == 2
+    assert result["query_start_source"] == "query_window_index"
 
 
 def test_weighted_rows_are_compatible_with_alignment_helper() -> None:

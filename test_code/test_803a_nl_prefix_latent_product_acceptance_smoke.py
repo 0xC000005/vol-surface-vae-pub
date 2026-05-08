@@ -12,16 +12,18 @@ from experiments.backfill.block_ar.nl_prefix_latent_product_acceptance_smoke imp
 def _report() -> dict:
     return {
         "cached_query": {
+            "memory_prior_contract": "per_variant_narrative_and_fixed_start",
             "memory_prior": {
-                "candidate_details": [
-                    {"window_id": "joint39_val_0036", "weight": 0.5}
-                ]
-            }
+                "query_start_source": "provided_start_state",
+                "candidate_details": [{"window_id": "joint39_val_0036", "weight": 0.5}],
+            },
         },
         "variant_rows": [
             {
                 "variant": "user_start_state",
                 "start_window_id": "today",
+                "memory_prior_analogue_count": 8,
+                "memory_prior_query_start_source": "provided_start_state",
             }
         ],
         "validation_gate": {
@@ -48,6 +50,8 @@ def test_acceptance_checks_pass_for_complete_product_report() -> None:
         "validation_gate_not_fail",
         "user_start_variant_present",
         "support_candidates_present",
+        "fixed_start_memory_prior_contract",
+        "user_start_mixture_diagnostics_present",
         "start_preview_present",
         "spx_fan_available",
         "selected_iv_cell_fan_available",

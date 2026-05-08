@@ -187,7 +187,9 @@ def load_user_start_state(
     names = _spec_names(specs)
     coordinate = str(payload.get("coordinate", "raw_state"))
     if coordinate != "raw_state":
-        raise ValueError("start-state JSON currently supports coordinate='raw_state' only")
+        raise ValueError(
+            "start-state JSON currently supports coordinate='raw_state' only"
+        )
     if "state_vector" in payload:
         raw = np.asarray(payload["state_vector"], dtype=np.float32)
         source_format = "state_vector"
@@ -894,6 +896,65 @@ def build_live_story_variant_rows(
     return [original, selected]
 
 
+def query_start_state_for_variant(
+    *,
+    row: dict[str, Any],
+    history_level: np.ndarray,
+    user_start: dict[str, Any] | None = None,
+) -> np.ndarray:
+    """Return the fixed initial level that conditions one variant's mixture."""
+
+    start_idx = int(row["start_window_index"])
+    if start_idx >= 0:
+        return np.asarray(history_level[start_idx, -1, :], dtype=np.float32)
+    if user_start is None:
+        raise ValueError("user start row requires loaded user_start")
+    return np.asarray(user_start["encoded_state"], dtype=np.float32)
+
+
+def annotate_variant_with_memory_prior(
+    row: dict[str, Any],
+    memory_prior: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach compact start-conditioned mixture diagnostics to a variant row."""
+
+    annotated = dict(row)
+    candidate_details = memory_prior.get("candidate_details", [])
+    if not isinstance(candidate_details, list):
+        candidate_details = []
+    weighted_start_distance = 0.0
+    for candidate, weight in zip(
+        candidate_details,
+        memory_prior.get("weights", []),
+        strict=False,
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        weighted_start_distance += float(weight) * float(
+            candidate.get("start_distance_z", 0.0) or 0.0
+        )
+    annotated.update(
+        {
+            "memory_prior_mode": str(memory_prior.get("mode", "")),
+            "memory_prior_query_start_source": str(
+                memory_prior.get("query_start_source", "")
+            ),
+            "memory_prior_analogue_count": int(
+                memory_prior.get("analogue_count", 0) or 0
+            ),
+            "memory_prior_weighted_start_distance_z": float(weighted_start_distance),
+            "memory_prior_top_window_index": (
+                int(candidate_details[0]["window_index"])
+                if candidate_details
+                and isinstance(candidate_details[0], dict)
+                and "window_index" in candidate_details[0]
+                else None
+            ),
+        }
+    )
+    return annotated
+
+
 def generated_delta_samples_to_states(
     samples: np.ndarray,
     current_states: np.ndarray,
@@ -932,9 +993,9 @@ def sample_prefix_generator_deltas_from_start_raw(
         torch.from_numpy(np.asarray(history_norm, dtype=np.float32)).to(device),
         torch.from_numpy(np.asarray(center, dtype=np.float32)).to(device),
         torch.from_numpy(np.asarray(scale, dtype=np.float32)).to(device),
-        drift_feature=torch.from_numpy(
-            np.asarray(drift_feature, dtype=np.float32)
-        ).to(device),
+        drift_feature=torch.from_numpy(np.asarray(drift_feature, dtype=np.float32)).to(
+            device
+        ),
         n_samples=int(samples),
         n_steps=int(n_steps),
         chunk_size=int(chunk_size),
@@ -1062,9 +1123,7 @@ def _variant_path_labels(
         label_prefix = (
             "User supplied start"
             if start_idx < 0
-            else "Selected start"
-            if is_operational
-            else "Diagnostic baseline"
+            else "Selected start" if is_operational else "Diagnostic baseline"
         )
         labels.append(
             {
@@ -1138,18 +1197,26 @@ def enrich_memory_prior_candidate_metadata(
             "window_id": str(info.get("window_id", "")) if info else "",
             "source_index": info.get("source_index") if info else None,
             "manifest_split": str(info.get("manifest_split", "")) if info else "",
-            "history_start_date": str(calendar.get("calendar_start_date", ""))
-            if isinstance(calendar, dict)
-            else "",
-            "history_end_date": str(calendar.get("calendar_end_date", ""))
-            if isinstance(calendar, dict)
-            else "",
-            "forecast_start_date": str(calendar.get("forecast_start_date", ""))
-            if isinstance(calendar, dict)
-            else "",
-            "forecast_end_date": str(calendar.get("forecast_end_date", ""))
-            if isinstance(calendar, dict)
-            else "",
+            "history_start_date": (
+                str(calendar.get("calendar_start_date", ""))
+                if isinstance(calendar, dict)
+                else ""
+            ),
+            "history_end_date": (
+                str(calendar.get("calendar_end_date", ""))
+                if isinstance(calendar, dict)
+                else ""
+            ),
+            "forecast_start_date": (
+                str(calendar.get("forecast_start_date", ""))
+                if isinstance(calendar, dict)
+                else ""
+            ),
+            "forecast_end_date": (
+                str(calendar.get("forecast_end_date", ""))
+                if isinstance(calendar, dict)
+                else ""
+            ),
         }
         candidate_details.append(row)
     if candidate_details:
@@ -1326,7 +1393,9 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         if external_query.get("narrative_text") is not None:
             condition_report_narrative_text = str(external_query["narrative_text"])
         raw_metadata = external_condition.get("embedding_metadata", {})
-        embedding_metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        embedding_metadata = (
+            dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        )
         embedding_metadata["condition_report"] = str(args.condition_report)
         embedding_metadata["condition_arrays"] = str(external_condition["arrays_path"])
         condition_source = "external_condition_report"
@@ -1381,25 +1450,6 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         }
     spec_names = _spec_names(specs)
     memory_prior_mode = str(getattr(args, "memory_prior_mode", "query_memory"))
-    memory_prior = build_mixture_memory_prior(
-        query_memory=query_memory,
-        memory_targets=true_memory_targets,
-        history_level=history_level,
-        train_indices=train_indices,
-        query_window_index=int(query_row["window_index"]),
-        grounding=grounding_payload if isinstance(grounding_payload, dict) else {},
-        spec_names=spec_names,
-        mode=memory_prior_mode,
-        top_k=int(getattr(args, "memory_prior_top_k", 8)),
-        temperature=float(getattr(args, "memory_prior_temperature", 0.2)),
-        start_distance_threshold_z=float(args.start_distance_threshold_z),
-        start_distance_penalty=float(args.start_distance_penalty),
-        implication_alignment_weight=float(args.implication_alignment_weight),
-        diverse_max_pairwise_cosine=float(
-            getattr(args, "memory_prior_diverse_max_pairwise_cosine", 0.98)
-        ),
-    )
-    conditioning_memory = np.asarray(memory_prior["memory"], dtype=np.float32)
     if str(args.start_mode) == "user_start_state":
         if user_start is None:
             raise ValueError("--start-state-json is required for user_start_state")
@@ -1410,7 +1460,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 start_state=history_level[:, -1, :],
                 train_indices=train_indices,
                 start_mode="original",
-                query_memory=conditioning_memory,
+                query_memory=query_memory,
                 memory_targets=true_memory_targets,
             )
             original["case_role"] = "diagnostic_original_start"
@@ -1441,14 +1491,58 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             start_distance_penalty=float(args.start_distance_penalty),
             implication_alignment_weight=float(args.implication_alignment_weight),
         )
-    window_metadata = window_metadata_by_bridge_local_index(bridge_report)
-    memory_prior = enrich_memory_prior_candidate_metadata(memory_prior, window_metadata)
-    variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
-    text_memory = np.repeat(
-        conditioning_memory[None, :],
-        repeats=len(variant_rows),
-        axis=0,
+    memory_priors = []
+    conditioning_rows = []
+    for row in variant_rows:
+        query_start_state = query_start_state_for_variant(
+            row=row,
+            history_level=history_level,
+            user_start=user_start,
+        )
+        prior = build_mixture_memory_prior(
+            query_memory=query_memory,
+            memory_targets=true_memory_targets,
+            history_level=history_level,
+            train_indices=train_indices,
+            query_window_index=int(query_row["window_index"]),
+            query_start_state=query_start_state,
+            grounding=grounding_payload if isinstance(grounding_payload, dict) else {},
+            spec_names=spec_names,
+            mode=memory_prior_mode,
+            top_k=int(getattr(args, "memory_prior_top_k", 8)),
+            temperature=float(getattr(args, "memory_prior_temperature", 0.2)),
+            start_distance_threshold_z=float(args.start_distance_threshold_z),
+            start_distance_penalty=float(args.start_distance_penalty),
+            implication_alignment_weight=float(args.implication_alignment_weight),
+            diverse_max_pairwise_cosine=float(
+                getattr(args, "memory_prior_diverse_max_pairwise_cosine", 0.98)
+            ),
+        )
+        memory_priors.append(prior)
+        conditioning_rows.append(np.asarray(prior["memory"], dtype=np.float32))
+    operational_prior_pos = next(
+        (
+            pos
+            for pos, row in enumerate(variant_rows)
+            if bool(row.get("is_operational"))
+        ),
+        max(len(variant_rows) - 1, 0),
     )
+    conditioning_memory = np.asarray(
+        conditioning_rows[operational_prior_pos],
+        dtype=np.float32,
+    )
+    window_metadata = window_metadata_by_bridge_local_index(bridge_report)
+    memory_prior = enrich_memory_prior_candidate_metadata(
+        memory_priors[operational_prior_pos],
+        window_metadata,
+    )
+    variant_rows = [
+        annotate_variant_with_memory_prior(row, prior)
+        for row, prior in zip(variant_rows, memory_priors, strict=True)
+    ]
+    variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
+    text_memory = np.stack(conditioning_rows, axis=0).astype(np.float32)
     start_indices = np.asarray(
         [int(row["start_window_index"]) for row in variant_rows],
         dtype=np.int64,
@@ -1469,7 +1563,9 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             requested_start_rows.append(
                 np.asarray(user_start["encoded_state"], dtype=np.float32)
             )
-            requested_raw_rows.append(np.asarray(user_start["raw_state"], dtype=np.float32))
+            requested_raw_rows.append(
+                np.asarray(user_start["raw_state"], dtype=np.float32)
+            )
             all_future_targets_available = False
     requested_start = np.stack(requested_start_rows, axis=0).astype(np.float32)
     requested_raw = np.stack(requested_raw_rows, axis=0).astype(np.float32)
@@ -1481,20 +1577,20 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     variant_inputs = apply_memory_start_stats(text_memory, requested_start, input_stats)
     prefix_prior_mode = str(getattr(args, "prefix_prior_mode", "decoder"))
     if prefix_prior_mode == "feature_mixture":
-        prior_indices = np.asarray(memory_prior.get("window_indices", []), dtype=np.int64)
-        prior_weights = np.asarray(memory_prior.get("weights", []), dtype=np.float32)
-        if prior_indices.size == 0 or prior_weights.size != prior_indices.size:
-            raise ValueError(
-                "feature_mixture prefix prior requires an analogue mixture "
-                "memory prior with non-empty window_indices and weights"
+        mixed_feature_rows = []
+        for prior in memory_priors:
+            prior_indices = np.asarray(prior.get("window_indices", []), dtype=np.int64)
+            prior_weights = np.asarray(prior.get("weights", []), dtype=np.float32)
+            if prior_indices.size == 0 or prior_weights.size != prior_indices.size:
+                raise ValueError(
+                    "feature_mixture prefix prior requires an analogue mixture "
+                    "memory prior with non-empty window_indices and weights"
+                )
+            prior_weights = prior_weights / max(float(np.sum(prior_weights)), 1e-8)
+            mixed_feature_rows.append(
+                np.sum(features[prior_indices] * prior_weights[:, None], axis=0)
             )
-        prior_weights = prior_weights / max(float(np.sum(prior_weights)), 1e-8)
-        mixed_feature = np.sum(features[prior_indices] * prior_weights[:, None], axis=0)
-        mixed_features = np.repeat(
-            mixed_feature[None, :].astype(np.float32),
-            repeats=len(variant_rows),
-            axis=0,
-        )
+        mixed_features = np.stack(mixed_feature_rows, axis=0).astype(np.float32)
         decoded_prefix = reconstruct_prefix_from_features(
             mixed_features,
             start_state=requested_start,
@@ -1606,18 +1702,20 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "and rolled out through the frozen joint39 SNI generator."
             if live_story_mode
             else (
-                "Replayed live prefix-latent story smoke. No OpenAI API calls are made. "
-                "A saved live-story text memory and grounding report are reused, "
-                "optionally converted into an analogue-mixture memory prior, then "
-                "decoded with an explicit start state and rolled out through the "
-                "frozen joint39 SNI generator."
-            )
-            if condition_report_mode
-            else (
-                "Cached live prefix-latent story smoke. No OpenAI API calls are made. "
-                "A cached text-predicted generator memory is combined with an explicit "
-                "start state, decoded into a recent prefix, and rolled out through the "
-                "frozen joint39 SNI generator."
+                (
+                    "Replayed live prefix-latent story smoke. No OpenAI API calls are made. "
+                    "A saved live-story text memory and grounding report are reused, "
+                    "optionally converted into an analogue-mixture memory prior, then "
+                    "decoded with an explicit start state and rolled out through the "
+                    "frozen joint39 SNI generator."
+                )
+                if condition_report_mode
+                else (
+                    "Cached live prefix-latent story smoke. No OpenAI API calls are made. "
+                    "A cached text-predicted generator memory is combined with an explicit "
+                    "start state, decoded into a recent prefix, and rolled out through the "
+                    "frozen joint39 SNI generator."
+                )
             )
         ),
         "cached_query": {
@@ -1631,10 +1729,10 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "query_memory_norm": float(np.linalg.norm(query_memory)),
             "conditioning_memory_norm": float(np.linalg.norm(conditioning_memory)),
             "memory_prior_mode": memory_prior_mode,
+            "memory_prior_contract": "per_variant_narrative_and_fixed_start",
+            "operational_memory_prior_variant_index": int(operational_prior_pos),
             "memory_prior": {
-                key: value
-                for key, value in memory_prior.items()
-                if key != "memory"
+                key: value for key, value in memory_prior.items() if key != "memory"
             },
         },
         "artifact_inputs": {
@@ -1642,9 +1740,11 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "bridge_arrays": str(args.bridge_arrays),
             "pipeline_report": str(args.pipeline_report),
             "checkpoint": str(args.checkpoint),
-            "start_state_json": str(args.start_state_json)
-            if getattr(args, "start_state_json", None)
-            else None,
+            "start_state_json": (
+                str(args.start_state_json)
+                if getattr(args, "start_state_json", None)
+                else None
+            ),
         },
         "user_start_state": (
             {

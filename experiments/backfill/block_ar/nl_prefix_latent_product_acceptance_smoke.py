@@ -57,6 +57,7 @@ def acceptance_checks(
     gate = _as_dict(report.get("validation_gate"))
     query = _as_dict(report.get("cached_query"))
     memory_prior = _as_dict(query.get("memory_prior"))
+    memory_prior_contract = str(query.get("memory_prior_contract", ""))
     generation = _as_dict(report.get("generation"))
     path_quantiles = _as_list(generation.get("path_quantiles"))
     variant_rows = _as_list(report.get("variant_rows"))
@@ -78,12 +79,34 @@ def acceptance_checks(
         {
             "name": "user_start_variant_present",
             "passed": bool(user_start_rows),
-            "detail": user_start_rows[0].get("start_window_id", "") if user_start_rows else "",
+            "detail": (
+                user_start_rows[0].get("start_window_id", "") if user_start_rows else ""
+            ),
         },
         {
             "name": "support_candidates_present",
             "passed": bool(_as_list(memory_prior.get("candidate_details"))),
             "detail": str(len(_as_list(memory_prior.get("candidate_details")))),
+        },
+        {
+            "name": "fixed_start_memory_prior_contract",
+            "passed": memory_prior_contract == "per_variant_narrative_and_fixed_start"
+            and str(memory_prior.get("query_start_source")) == "provided_start_state",
+            "detail": (
+                f"contract={memory_prior_contract}, "
+                f"query_start_source={memory_prior.get('query_start_source')}"
+            ),
+        },
+        {
+            "name": "user_start_mixture_diagnostics_present",
+            "passed": bool(user_start_rows)
+            and int(user_start_rows[0].get("memory_prior_analogue_count", 0) or 0) > 0
+            and str(user_start_rows[0].get("memory_prior_query_start_source"))
+            == "provided_start_state",
+            "detail": (
+                f"analogue_count="
+                f"{user_start_rows[0].get('memory_prior_analogue_count', '') if user_start_rows else ''}"
+            ),
         },
         {
             "name": "start_preview_present",

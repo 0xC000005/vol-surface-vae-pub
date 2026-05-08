@@ -86,7 +86,9 @@ def _cosine_to_query(query: np.ndarray, targets: np.ndarray) -> np.ndarray:
     q = np.asarray(query, dtype=np.float32).reshape(1, -1)
     t = _as_float_array(targets, name="targets", ndim=2)
     if q.shape[1] != t.shape[1]:
-        raise ValueError(f"query dim {q.shape[1]} does not match target dim {t.shape[1]}")
+        raise ValueError(
+            f"query dim {q.shape[1]} does not match target dim {t.shape[1]}"
+        )
     denom = np.maximum(np.linalg.norm(t, axis=1) * np.linalg.norm(q), 1e-8)
     return (np.sum(t * q, axis=1) / denom).astype(np.float32)
 
@@ -97,6 +99,35 @@ def _safe_start_z(start_state: np.ndarray, fit_indices: np.ndarray) -> np.ndarra
     mean = start[fit].mean(axis=0, keepdims=True)
     std = np.maximum(start[fit].std(axis=0, keepdims=True), 1e-6)
     return ((start - mean) / std).astype(np.float32)
+
+
+def start_distances_to_query_start(
+    *,
+    start_state: np.ndarray,
+    train_indices: np.ndarray,
+    query_window_index: int,
+    query_start_state: np.ndarray | None = None,
+) -> np.ndarray:
+    """Measure train-start distances to the fixed level used for conditioning."""
+
+    start = _as_float_array(start_state, name="start_state", ndim=2)
+    train = np.asarray(train_indices, dtype=np.int64)
+    if train.size == 0:
+        raise ValueError("train_indices must be non-empty")
+    mean = start[train].mean(axis=0, keepdims=True)
+    std = np.maximum(start[train].std(axis=0, keepdims=True), 1e-6)
+    train_z = (start[train] - mean) / std
+    if query_start_state is None:
+        query_idx = int(query_window_index)
+        if query_idx < 0 or query_idx >= start.shape[0]:
+            raise IndexError(f"query_window_index {query_idx} outside {start.shape[0]}")
+        query = start[query_idx]
+    else:
+        query = np.asarray(query_start_state, dtype=np.float32).reshape(-1)
+        if query.shape != (start.shape[1],):
+            raise ValueError(f"query_start_state must have shape [{start.shape[1]}]")
+    query_z = (query[None, :] - mean) / std
+    return np.linalg.norm(train_z - query_z, axis=1).astype(np.float32)
 
 
 def load_state_spec_names(checkpoint: str | Path = DEFAULT_CHECKPOINT) -> list[str]:
@@ -192,6 +223,7 @@ def candidate_support_table(
     history_level: np.ndarray,
     train_indices: np.ndarray,
     query_window_index: int,
+    query_start_state: np.ndarray | None = None,
     grounding: dict[str, Any],
     spec_names: list[str],
     start_distance_threshold_z: float,
@@ -203,9 +235,13 @@ def candidate_support_table(
         raise ValueError("train_indices must be non-empty")
     memory = _as_float_array(memory_targets, name="memory_targets", ndim=2)
     start_state = _as_float_array(history_level, name="history_level", ndim=3)[:, -1, :]
-    start_z = _safe_start_z(start_state, train)
     cosines = _cosine_to_query(query_memory, memory)[train]
-    distances = np.linalg.norm(start_z[train] - start_z[int(query_window_index)], axis=1)
+    distances = start_distances_to_query_start(
+        start_state=start_state,
+        train_indices=train,
+        query_window_index=int(query_window_index),
+        query_start_state=query_start_state,
+    )
     rows: list[dict[str, Any]] = []
     for pos, window_idx in enumerate(train):
         terminal_rows = prefix_terminal_rows(
@@ -222,16 +258,21 @@ def candidate_support_table(
             float(distances[pos]) - float(start_distance_threshold_z),
             0.0,
         )
+        start_distance_cost = float(start_distance_penalty) * float(distances[pos])
+        excess_distance_cost = float(start_distance_penalty) * excess_distance
         combined_score = (
             float(cosines[pos])
             + float(implication_alignment_weight) * recent_score
-            - float(start_distance_penalty) * excess_distance
+            - start_distance_cost
+            - excess_distance_cost
         )
         rows.append(
             {
                 "window_index": int(window_idx),
                 "memory_support_cosine": float(cosines[pos]),
                 "start_distance_z": float(distances[pos]),
+                "start_distance_cost": float(start_distance_cost),
+                "excess_start_distance_cost": float(excess_distance_cost),
                 "recent_prefix_alignment_score": float(recent_score),
                 "recent_prefix_checked": int(alignment.get("checked_count", 0) or 0),
                 "recent_prefix_mismatches": int(
@@ -349,6 +390,7 @@ def build_mixture_memory_prior(
     history_level: np.ndarray,
     train_indices: np.ndarray,
     query_window_index: int,
+    query_start_state: np.ndarray | None = None,
     grounding: dict[str, Any],
     spec_names: list[str],
     mode: str,
@@ -373,6 +415,11 @@ def build_mixture_memory_prior(
             "weights": [],
             "support_alignment": {},
             "candidate_details": [],
+            "query_start_source": (
+                "provided_start_state"
+                if query_start_state is not None
+                else "query_window_index"
+            ),
         }
     candidates = candidate_support_table(
         query_memory=query,
@@ -380,6 +427,7 @@ def build_mixture_memory_prior(
         history_level=history_level,
         train_indices=train_indices,
         query_window_index=int(query_window_index),
+        query_start_state=query_start_state,
         grounding=grounding,
         spec_names=spec_names,
         start_distance_threshold_z=float(start_distance_threshold_z),
@@ -427,6 +475,11 @@ def build_mixture_memory_prior(
         "support_alignment": support_alignment,
         "terminal_rows": terminal_rows,
         "candidate_details": [by_idx[int(idx)] for idx in indices],
+        "query_start_source": (
+            "provided_start_state"
+            if query_start_state is not None
+            else "query_window_index"
+        ),
     }
 
 
@@ -444,7 +497,9 @@ def _case_inputs_from_casebook(casebook_summary: str | Path) -> list[dict[str, A
             artifact_paths = {}
         prefix_report = Path(str(artifact_paths.get("prefix_report", "")))
         if not prefix_report.exists():
-            raise FileNotFoundError(f"missing prefix report for {case.get('case_name')}")
+            raise FileNotFoundError(
+                f"missing prefix report for {case.get('case_name')}"
+            )
         rows.append(
             {
                 "case_name": str(case.get("case_name", "")),
@@ -509,7 +564,9 @@ def evaluate_case(
             name="top1_memory",
             history_level=history_level,
             window_indices=memory_top[:1],
-            scores=_scores_for_indices(candidates, memory_top[:1], "memory_support_cosine"),
+            scores=_scores_for_indices(
+                candidates, memory_top[:1], "memory_support_cosine"
+            ),
             grounding=grounding,
             spec_names=spec_names,
             temperature=temperature,
@@ -555,7 +612,9 @@ def evaluate_case(
     for variant in variants:
         weighted_support = 0.0
         weighted_distance = 0.0
-        for idx, weight in zip(variant["window_indices"], variant["weights"], strict=True):
+        for idx, weight in zip(
+            variant["window_indices"], variant["weights"], strict=True
+        ):
             row = candidate_by_idx[int(idx)]
             weighted_support += float(weight) * float(row["memory_support_cosine"])
             weighted_distance += float(weight) * float(row["start_distance_z"])

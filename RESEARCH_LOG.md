@@ -112867,3 +112867,70 @@ acceptance suite: include OOD/stress narratives and multiple user-start template
 with explicit expected `pass`, `warning`, or `fail` outcomes.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 47 fixed-start mixture contract
+
+### Context
+The workflow needed a correction: the analogue mixture should not be formed
+from the narrative alone and then have a starting level attached afterward.
+The risk manager either accepts a recommended starting level or supplies one,
+and the 30-day recent-prefix mixture must be conditioned on both the narrative
+and that fixed initial joint39 level.
+
+### Hypothesis
+If the story-smoke path resolves the starting level before building the
+analogue mixture, and if candidate scores continuously penalize start distance,
+then the product path will better match the intended contract:
+`narrative + fixed initial level -> start-aware prefix mixture -> rollout`.
+
+### Execution
+- Updated the tracked prefix-latent research protocol to make the fixed initial
+  level upstream of the mixture.
+- Added `query_start_state` support to the analogue-mixture prior so candidate
+  start distances can be measured against an explicit supplied/selected level,
+  not only the original query window.
+- Changed mixture scoring so start distance contributes continuously to the
+  combined score rather than only beyond a large warning threshold.
+- Refactored story smoke to resolve start variants first, then build a
+  per-variant narrative-and-fixed-start memory prior.
+- Added compact mixture diagnostics to each variant row and a report-level
+  `memory_prior_contract=per_variant_narrative_and_fixed_start`.
+- Strengthened the product acceptance smoke so it fails if the fixed-start
+  memory-prior contract or user-start mixture diagnostics are missing.
+
+### Result
+The focused tests and CUDA product checks passed:
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py -q` -> `29 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_814d_start_contract_checks --candidate-index 18 --samples 2 --steps 100 --chunk-size 2 --device cuda` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_814d_start_contract_checks --case-count 3 --samples 2 --steps 100 --chunk-size 2 --device cuda` passed.
+- `git diff --check` passed.
+
+The smoke report now explicitly shows:
+
+- `memory_prior_contract`: `per_variant_narrative_and_fixed_start`;
+- operational memory-prior query start source: `provided_start_state`;
+- user-start mixture analogue count: `8`;
+- top operational candidates include start distance and start-distance cost.
+
+The three-case casebook remained stable:
+
+- fragile risk-on: `pass/pass`, expected `pass`;
+- defensive risk-off: `warning/warning`, expected `warning`;
+- rates selloff: `pass/pass`, expected `pass`.
+
+### Mechanism Read
+This is a production-contract fix. The system is now closer to the risk-manager
+mental model: first fix the current market level, then ask which recent 30-day
+prefix histories are plausible support for the narrative at that level. The
+analogue mixture is still a support prior rather than the generator itself, but
+it is no longer detached from the selected starting state.
+
+### Decision
+Continue by turning this fixed-start contract into a harder acceptance suite:
+use multiple starting levels per narrative, including deliberately incompatible
+starts, and assign expected `pass`, `warning`, or `fail` outcomes. The main
+bottleneck is now start-conditioned robustness coverage, not basic workflow
+plumbing.
+
+---
