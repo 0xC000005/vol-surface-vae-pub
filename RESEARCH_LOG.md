@@ -112450,3 +112450,40 @@ Keep the candidate table and metadata enrichment. The next production step is to
 - Smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_table_verify/prefix_latent_story_smoke_arrays.npz`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 38 selectable historical start candidate
+
+### Context
+Iteration 37 made the soft historical support pool visible in the demo, but a user still had to type a raw bridge-local integer to use one of those starts. That is too brittle for a risk-manager demo and too easy to misuse.
+
+### Hypothesis
+A selectable historical-start candidate control can make explicit-start mode operational without changing the model path. The dropdown should be populated from the audited memory-prior candidate list, then write the selected bridge-local index into the existing reproducible explicit-start field.
+
+### Execution
+- Added `historical_start_candidate_choices`, `historical_start_candidate_update`, and `historical_start_candidate_to_index` to the Gradio app.
+- Added a `Historical start candidate` dropdown beside the existing `Use historical start` and `Historical start window index` controls.
+- The dropdown is populated after a prefix-latent run from the same enriched support-candidate metadata shown in the table.
+- Selecting a candidate writes its bridge-local index into the explicit-start number field; the model runner still receives `--start-mode explicit_start_window --explicit-start-window-index ...`.
+- Added unit coverage for dropdown-choice formatting and explicit index conversion.
+
+### Result
+- Focused tests: `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 31 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Demo construction: `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- Diff hygiene: `git diff --check` -> passed.
+- Cached support dropdown example from the previous condition-only report begins with:
+  `joint39_val_0040 | idx 22 | w 0.154 | start 14.398z`.
+- Explicit-start cached smoke using dropdown candidate index 18:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_dropdown_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode explicit_start_window --explicit-start-window-index 18 --steps 100 --samples 2 --chunk-size 2 --device cuda`
+  produced `validation_status=pass`, `operational_status=pass`, generated shape `[2, 2, 30, 39]`, and selected `joint39_val_0036`.
+
+### Mechanism Read
+This is a product-readiness improvement rather than a modeling improvement. It reduces operator error and makes the historical-start support path legible: the user sees a candidate with its support weight and start-distance diagnostic, selects it, then reruns explicit-start mode through the unchanged frozen-generator rollout contract.
+
+### Decision / Next Step
+Keep the dropdown path. The next bottleneck is moving from historical-start selection to a true joint39 current-state input. That requires defining a minimal, safe current-state specification format and validating that it can be normalized into the same 39-factor start vector used by the frozen generator.
+
+### Artifacts
+- Explicit-start smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_dropdown_verify/prefix_latent_story_smoke_report.json`
+- Explicit-start smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_candidate_dropdown_verify/prefix_latent_story_smoke_arrays.npz`
+
+---

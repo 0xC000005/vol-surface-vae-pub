@@ -11,6 +11,8 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     build_prefix_latent_run_args,
     build_run_args,
     fan_chart_figure,
+    historical_start_candidate_choices,
+    historical_start_candidate_to_index,
     implications_table,
     prefix_diagnostic_start_table,
     prefix_condition_implications_table,
@@ -426,6 +428,17 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     assert candidates.iloc[0]["Alignment"] == "0.800 (1/5 mismatches)"
 
 
+def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:
+    choices = historical_start_candidate_choices(_prefix_report())
+
+    assert choices == [
+        ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
+    ]
+    assert historical_start_candidate_to_index("269") == 269
+    assert historical_start_candidate_to_index("269.0") == 269
+    assert historical_start_candidate_to_index("") is None
+
+
 def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
     choices = analogue_scope_choices(_prefix_report())
 
@@ -609,6 +622,9 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert final[4].iloc[0]["Status"] == "pass"
     assert final[6].layout.title.text == "SPX 30-day scenario fan"
     assert final[14].iloc[0]["Window"] == "joint39_val_0269"
+    assert final[15]["choices"] == [
+        ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
+    ]
 
 
 def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:

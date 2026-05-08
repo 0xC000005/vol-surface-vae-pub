@@ -494,6 +494,43 @@ def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
     return _frame(rows, PREFIX_START_CANDIDATE_COLUMNS)
 
 
+def historical_start_candidate_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
+    query = _as_dict(report.get("cached_query"))
+    memory_prior = _as_dict(query.get("memory_prior"))
+    choices: list[tuple[str, str]] = []
+    for item in _as_list(memory_prior.get("candidate_details")):
+        if not isinstance(item, dict):
+            continue
+        bridge_index = item.get("bridge_local_index", item.get("window_index"))
+        if bridge_index is None:
+            continue
+        window = str(item.get("window_id") or f"window_{bridge_index}")
+        label = (
+            f"{window} | idx {bridge_index} | "
+            f"w {_fmt_float(item.get('weight'))} | "
+            f"start {_fmt_float(item.get('start_distance_z'))}z"
+        )
+        choices.append((label, str(int(bridge_index))))
+    return choices
+
+
+def historical_start_candidate_update(report: dict[str, Any]) -> Any:
+    import gradio as gr
+
+    choices = historical_start_candidate_choices(report)
+    value = choices[0][1] if choices else None
+    return gr.update(choices=choices, value=value)
+
+
+def historical_start_candidate_to_index(choice: str | int | float | None) -> int | None:
+    if choice in (None, ""):
+        return None
+    try:
+        return int(float(choice))
+    except (TypeError, ValueError):
+        return None
+
+
 def prefix_warning_component_table(report: dict[str, Any]) -> pd.DataFrame:
     product_gate = _as_dict(report.get("condition_only_product_gate"))
     decompositions = _as_list(product_gate.get("decompositions"))
@@ -986,6 +1023,7 @@ def _blank_prefix_outputs(
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    Any,
 ]:
     return (
         "Prefix-latent run in progress. Results will appear here when complete.",
@@ -1003,6 +1041,7 @@ def _blank_prefix_outputs(
         _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
         _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
         _frame([], PREFIX_START_CANDIDATE_COLUMNS),
+        historical_start_candidate_update({}),
     )
 
 
@@ -1370,6 +1409,7 @@ def run_prefix_latent_for_app(
             _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
             _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
             _frame([], PREFIX_START_CANDIDATE_COLUMNS),
+            historical_start_candidate_update({}),
         )
         return
 
@@ -1395,6 +1435,7 @@ def run_prefix_latent_for_app(
         prefix_warning_component_table(report),
         prefix_shift_factor_table(report),
         prefix_start_candidates_table(report),
+        historical_start_candidate_update(report),
     )
 
 
@@ -1566,6 +1607,15 @@ def build_demo() -> Any:
                     "window index. Use this as the first user-specified start mode."
                 ),
             )
+            prefix_explicit_start_candidate = gr.Dropdown(
+                choices=[],
+                value=None,
+                label="Historical start candidate",
+                info=(
+                    "Populated after a run. Selecting a candidate writes its "
+                    "index into Historical start window index."
+                ),
+            )
             prefix_explicit_start_index = gr.Number(
                 value=22,
                 precision=0,
@@ -1708,9 +1758,16 @@ def build_demo() -> Any:
                 prefix_warning_components,
                 prefix_shift_factors,
                 prefix_start_candidates,
+                prefix_explicit_start_candidate,
             ],
             show_progress="full",
             show_progress_on=prefix_status,
+        )
+        prefix_explicit_start_candidate.change(
+            fn=historical_start_candidate_to_index,
+            inputs=prefix_explicit_start_candidate,
+            outputs=prefix_explicit_start_index,
+            show_progress="hidden",
         )
         prefix_fan_market.change(
             fn=refresh_fan_chart,
