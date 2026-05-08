@@ -424,6 +424,29 @@ and readiness evidence into mobile-safe lines. The browser smoke checks page
 load and nonblank rendering; the API smoke remains responsible for exercising
 scenario runs, factor redraws, IV-cell redraws, and report-path outputs.
 
+## Run Registry
+
+The current local evidence packet can be indexed into a small safe run registry
+that stores statuses, file sizes, and hashes without copying raw report payloads
+or raw risk-manager narratives:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry
+```
+
+Latest registry:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry/demo_run_registry.md
+```
+
+Summary: status `pass`, 3/3 evidence entries present, QA packet gate `pass`
+with 8/8 gates, audit manifest gate `pass` with 41 hashed artifacts and zero
+missing references, browser-render gate `pass` with 2/2 screenshots. This is
+still a file-backed local registry; a production prototype should persist the
+same fields in a private durable store.
+
 Before showing the demo externally:
 
 - launch the current HEAD Gradio app from a clean shell;
@@ -450,7 +473,7 @@ The main gaps are:
 - limited cross-browser QA beyond the current Chrome desktop/mobile render
   smoke;
 - no durable audit database for narrative, warnings, support, generated paths,
-  and user decisions beyond local JSON/Markdown manifests;
+  and user decisions beyond the local file-backed run registry;
 - no production monitoring for failed grounding, OOD narratives, slow rollout,
   or degenerate scenario samples.
 
@@ -459,4 +482,5 @@ The main gaps are:
 The next most useful production-readiness iteration is a private hosted
 prototype using the same 25-file bundle, platform-secret contract, auth smoke,
 browser-render smoke, and audit manifest. The durable blocker is now an
-artifact/audit store and run registry, not another local app wiring pass.
+artifact/audit store that can persist the same registry fields, not another
+local app wiring pass.

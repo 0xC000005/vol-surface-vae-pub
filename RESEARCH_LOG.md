@@ -114376,3 +114376,51 @@ The useful finding was not just nonblank rendering. The first screenshot pass ex
 The local demo now has preflight, staged cached smoke, staged live OpenAI TestFlight, auth smoke, QA packet, audit manifest, and desktop/mobile browser-render evidence. The next production blocker is no longer local app wiring; it is standing up a private hosted prototype or hosted-equivalent staging run with platform secrets and a durable run/audit registry for narratives, warnings, support candidates, generated scenarios, and artifact hashes.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 81 demo run registry
+
+### Context
+After the browser QA iteration, the local narrative-conditioned scenario demo had several independent pieces of production-readiness evidence: staged/auth QA packet, audit manifest, and desktop/mobile browser-render QA. The remaining operational problem was that these reports were still scattered local artifacts rather than a single run index suitable for a private hosted prototype.
+
+### Hypothesis
+A safe file-backed run registry can consolidate the demo evidence into one auditable index by recording each evidence file's status, size, and SHA-256 hash without copying raw report payloads or retaining raw risk-manager narrative text.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py`.
+- Added `test_code/test_815a_nl_prefix_latent_demo_run_registry.py` covering evidence spec parsing, browser screenshot summaries, pass/fail registry gates, missing evidence handling, raw-sensitive-text rejection, and Markdown rendering.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the run-registry command and latest evidence path.
+- Ran the registry against the current QA packet, audit manifest, and browser QA report.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_812a_nl_prefix_latent_demo_qa_packet.py test_code/test_813a_nl_prefix_latent_demo_audit_manifest.py test_code/test_814a_nl_prefix_latent_browser_qa.py test_code/test_815a_nl_prefix_latent_demo_run_registry.py -q
+```
+
+Result: `24 passed`.
+
+The real registry run passed:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry
+```
+
+Result: status `pass`, 3 evidence entries, 3 existing, 0 missing.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry/demo_run_registry.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry/demo_run_registry.md`
+
+Registry gates:
+- `qa_packet_pass`: pass, 8/8 QA gates.
+- `audit_manifest_pass`: pass, 41 hashed artifacts, zero missing references, no raw sensitive text retained.
+- `browser_render_pass`: pass, 2/2 screenshots.
+
+### Mechanism Read
+The run registry is not a new model component. It is the operational control plane needed for a risk-manager-convincing demo: one place to answer which code commit, which evidence files, which hashes, which gates, and whether any raw narrative text was retained. This moves the project closer to a private hosted prototype without adding another research knob.
+
+### Decision / Next Step
+The production bottleneck has moved from local evidence collection to persistence and serving: a private hosted prototype should now persist the same registry fields in a durable store, serve the Gradio UI with platform secrets and auth, and attach each user-visible run to a registry record containing narrative warnings, support candidates, scenario artifacts, and hashes.
+
+---
