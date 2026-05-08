@@ -113134,3 +113134,33 @@ The previous oracle selector showed that variant selection helped but could not 
 The fixed-start narrative-conditioned workflow now has a concrete production lever: calibrate rollout temperature under the fixed-start mixture contract. The next step is to validate temperature 0.50 with more samples and a broader start/narrative set, then decide whether to make calibrated temperature the demo default.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 53 calibrated temperature validation
+
+### Context
+The previous temperature smoke showed generator temperature 0.50 as a promising calibration lever under the narrative-plus-fixed-start mixture contract. This iteration validated that result with more samples and solver steps.
+
+### HEAD
+- Hypothesis: if temperature 0.50 is a robust calibration fix rather than a 2-sample artifact, it should remain positive with more generated samples and a slightly longer solver run on the same fixed-start historical rows.
+- Execute: ran a 2-case TestFlight with temperature 0.50 at 8 samples and 250 steps, then a 4-case validation with 16 samples and 250 steps. No OpenAI calls were made; all runs reused cached condition reports and fixed historical starts.
+- Analyze: the 2-case TestFlight stayed positive, with mean CRPS improvement versus persistence +0.116. The 4-case validation was stronger: temperature 0.50 achieved mean energy z 0.673, mean CRPS z 0.534, mean energy improvement +0.169, and mean CRPS improvement +0.145, with statuses 3 pass / 1 warning.
+- Decide: temperature 0.50 is now the best current production default candidate for the fixed-start narrative-conditioned path. The next step should promote it into the demo/backend defaults while preserving the metric report and making calibration visible in the output.
+
+### Evidence
+- TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_818a_temp050_testflight_s8 --variant-set temperature --case-count 2 --variant-count 1 --samples 8 --steps 250 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.116.
+- Validation: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_818b_temp050_s16 --variant-set temperature --case-count 4 --variant-count 1 --samples 16 --steps 250 --chunk-size 4 --device cuda`: status `pass`, mean CRPS improvement +0.145.
+
+### Artifacts
+- TestFlight report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_818a_temp050_testflight_s8/start_conditioned_bakeoff.json`
+- Validation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_818b_temp050_s16/start_conditioned_bakeoff.json`
+- Validation Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_818b_temp050_s16/start_conditioned_bakeoff.md`
+
+### Key result
+- Fragile recommended start 18: pass, energy improvement +0.112, CRPS improvement +0.047.
+- Fragile alternate start 0: warning, energy improvement +0.173, CRPS improvement +0.199.
+- Defensive risk-off start 22: pass, energy improvement +0.189, CRPS improvement +0.159.
+- Rates selloff start 18: pass, energy improvement +0.202, CRPS improvement +0.173.
+
+### Production implication
+The narrative-conditioned fixed-start workflow is no longer merely auditable; it now has a calibrated setting that beats persistence on this representative smoke set. This is not yet production proof, but it is strong enough to update the demo default and continue scaling the validation set.
+
+---
