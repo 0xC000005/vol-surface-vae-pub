@@ -1482,7 +1482,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             start_mode=str(args.start_mode),
             explicit_start_window_index=args.explicit_start_window_index,
             include_original_baseline=bool(args.include_original_baseline),
-            query_memory=conditioning_memory,
+            query_memory=query_memory,
             memory_targets=true_memory_targets,
             grounding=grounding_payload,
             history_raw=history_raw,

@@ -113008,3 +113008,32 @@ defined by support/validation policy, and scenario-level distributional metrics
 for each accepted or warning case.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 49 explicit-start backtest metrics
+
+### Context
+This iteration tightened the fixed-start workflow requested in the narrative prefix-latent program: the 30-day prefix mixture is now evaluated after the initial joint39 level has been fixed, either by a historical start choice or by a user-specified level. The production question was whether the start-conditioned acceptance matrix can report not only pass/warn/fail support status, but also scenario-level backtest metrics when the selected start has a realized future.
+
+### HEAD
+- Hypothesis: candidate historical starts should be run through the explicit-start story-smoke path instead of the app-level acceptance wrapper, so the matrix can attach realized-future scenario metrics to accepted and warning rows.
+- Execute: fixed the explicit-start story-smoke bug where the backtest resolver referenced `conditioning_memory` before it was assigned; changed the start-conditioned acceptance matrix to run explicit historical starts directly through `run_prefix_latent_story_smoke`; added target-availability and scenario metric extraction from `generation.window_scores`; added unit coverage for score-row matching and persistence-improvement calculations.
+- Analyze: the five-case CUDA TestFlight passed with zero expectation failures. Historical starts now report target-available metrics; the extreme out-of-support user start fails as expected and is correctly marked target-unavailable.
+- Decide: keep the fixed-start mixture contract as the main production direction. The newly visible bottleneck is scenario quality under that contract: in the tiny 2-sample smoke, accepted/warning rows had negative energy/CRPS improvement versus persistence, so the next step should scale the fixed-start matrix and compare mixture/reranking/refinement variants using scenario-level metrics, not add more narrative knobs.
+
+### Evidence
+- `uv run pytest test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q`: 30 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_acceptance.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py`: passed.
+- `git diff --check`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_acceptance.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815c_metrics --case-count 5 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, 5 cases, expectation fail count 0.
+
+### Artifacts
+- Matrix JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815c_metrics/start_conditioned_acceptance.json`
+- Matrix Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815c_metrics/start_conditioned_acceptance.md`
+
+### Key result
+- Fragile risk-on recommended start 18: expected `pass`, actual `pass`, target available, energy z 0.717, CRPS z 0.539.
+- Fragile risk-on alternate start 0: expected `warning`, actual `warning`, target available, energy z 1.330, CRPS z 1.052.
+- Defensive risk-off recommended start 22: expected `warning`, actual `warning`, target available, energy z 0.865, CRPS z 0.639.
+- Rates selloff recommended start 18: expected `pass`, actual `pass`, target available, energy z 0.745, CRPS z 0.592.
+- Extreme user start: expected `fail`, actual `fail`, target unavailable.
+
+---

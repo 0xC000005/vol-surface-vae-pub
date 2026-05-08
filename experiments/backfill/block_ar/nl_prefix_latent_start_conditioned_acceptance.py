@@ -13,9 +13,6 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.backfill.block_ar.nl_prefix_latent_product_acceptance_smoke import (  # noqa: E402
-    run_product_acceptance_smoke,
-)
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa: E402
     run_prefix_latent_story_smoke,
 )
@@ -157,10 +154,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Case count: `{summary.get('case_count')}`",
         f"- Expectation fail count: `{summary.get('expectation_fail_count')}`",
         "",
-        "| Case | Start | Expected | Actual | Met | Start Type | Start z | Weighted Start z | Run Report |",
-        "|---|---|---:|---:|---:|---|---:|---:|---|",
+        "| Case | Start | Expected | Actual | Met | Start Type | Start z | Weighted Start z | Target | Energy z | CRPS z | Run Report |",
+        "|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in summary.get("cases", []):
+        metrics = row.get("scenario_metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
+        energy = metrics.get("energy_score_z")
+        crps = metrics.get("ensemble_crps_z")
         lines.append(
             f"| `{row.get('case_name')}` | `{row.get('start_name')}` | "
             f"`{row.get('expected_operational_status')}` | "
@@ -169,6 +171,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"`{row.get('start_type')}` | "
             f"`{float(row.get('start_distance_z', 0.0)):.3f}` | "
             f"`{float(row.get('memory_prior_weighted_start_distance_z', 0.0)):.3f}` | "
+            f"`{bool(row.get('target_available'))}` | "
+            f"`{'' if energy is None else f'{float(energy):.3f}'}` | "
+            f"`{'' if crps is None else f'{float(crps):.3f}'}` | "
             f"`{row.get('run_report')}` |"
         )
     return "\n".join(lines)
@@ -181,16 +186,66 @@ def _operational_row(report: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _operational_score_row(
+    report: dict[str, Any], operational: dict[str, Any]
+) -> dict[str, Any]:
+    generation = report.get("generation", {})
+    rows = generation.get("window_scores", []) if isinstance(generation, dict) else []
+    if not isinstance(rows, list):
+        return {}
+    variant = str(operational.get("variant", ""))
+    start_idx = int(operational.get("start_window_index", -999999))
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if (
+            str(row.get("variant", "")) == variant
+            and int(row.get("start_window_index", -999999)) == start_idx
+        ):
+            return row
+    return {}
+
+
+def _score_metrics(score_row: dict[str, Any]) -> dict[str, Any]:
+    methods = score_row.get("methods", {}) if isinstance(score_row, dict) else {}
+    if not isinstance(methods, dict):
+        return {}
+    model = methods.get("text_memory_plus_start_prefix_decoder", {})
+    persistence = methods.get("persistence", {})
+    if not isinstance(model, dict) or not model:
+        return {"target_available": False}
+    metrics: dict[str, Any] = {"target_available": True}
+    for key in [
+        "coverage_80",
+        "energy_score_z",
+        "ensemble_crps_z",
+        "mean_path_mae_z",
+        "terminal_mae_z",
+    ]:
+        if model.get(key) is not None:
+            metrics[key] = float(model[key])
+    if isinstance(persistence, dict):
+        for key in ["energy_score_z", "ensemble_crps_z", "mean_path_mae_z"]:
+            base = persistence.get(key)
+            value = model.get(key)
+            if base is None or value is None or abs(float(base)) < 1e-12:
+                continue
+            metrics[f"{key}_improvement_vs_persistence"] = float(
+                (float(base) - float(value)) / abs(float(base))
+            )
+    return metrics
+
+
 def _row_from_run(
     *,
     case: dict[str, Any],
     start_type: str,
     run_report: str,
     report: dict[str, Any],
-    product_report: str | None = None,
 ) -> dict[str, Any]:
     gate = report.get("validation_gate", {})
     operational = _operational_row(report)
+    metrics = _score_metrics(_operational_score_row(report, operational))
     expected = str(case.get("expected_operational_status", ""))
     actual = str(gate.get("operational_status", ""))
     return {
@@ -211,8 +266,9 @@ def _row_from_run(
         "memory_prior_analogue_count": int(
             operational.get("memory_prior_analogue_count", 0) or 0
         ),
+        "scenario_metrics": metrics,
+        "target_available": bool(metrics.get("target_available")),
         "run_report": str(run_report),
-        "product_report": str(product_report or ""),
     }
 
 
@@ -223,24 +279,23 @@ def run_candidate_start_case(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     case_dir = output_dir / str(case["case_name"]) / str(case["start_name"])
-    smoke_args = argparse.Namespace(
-        condition_report=str(case["condition_report"]),
-        output_dir=str(case_dir),
-        candidate_index=int(case["candidate_index"]),
+    run_args = build_prefix_latent_run_args(
+        start_mode="explicit_start_window",
         samples=int(args.samples),
-        steps=int(args.steps),
-        chunk_size=int(args.chunk_size),
-        device=str(args.device),
+        condition_report=str(case["condition_report"]),
+        explicit_start_window_index=int(case["candidate_index"]),
+        output_dir=str(case_dir / "explicit_start_run"),
     )
-    product = run_product_acceptance_smoke(smoke_args)
-    run_report = str(product["run_report"])
-    report = _load_json(run_report)
+    run_args.steps = int(args.steps)
+    run_args.chunk_size = int(args.chunk_size)
+    run_args.device = str(args.device)
+    report = run_prefix_latent_story_smoke(run_args)
+    run_report = str(report.get("artifact_paths", {}).get("report", ""))
     return _row_from_run(
         case=case,
         start_type="historical_candidate",
         run_report=run_report,
         report=report,
-        product_report=str(product["artifact_paths"]["report"]),
     )
 
 
