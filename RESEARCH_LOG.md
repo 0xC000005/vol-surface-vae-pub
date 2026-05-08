@@ -112765,3 +112765,50 @@ Keep the casebook suite as the demo regression gate. The next production step is
 - Casebook markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813a/product_acceptance_casebook.md`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 45 enriched acceptance casebook
+
+### Context
+The three-case acceptance suite passed, but the first summary was too sparse for risk-manager review. The next step was to surface the per-case diagnostics directly in the casebook table.
+
+### Hypothesis
+If the casebook table includes validation status, support count, start distance, preview field count, fan count, and failed checks, it becomes usable as a product-readiness artifact without opening nested JSON files.
+
+### Execution
+- Added `extract_case_diagnostics` to the casebook harness.
+- Enriched `summarize_casebook` rows with:
+  - validation overall status;
+  - validation operational status;
+  - support candidate count;
+  - user-start distance z-score;
+  - preview field count;
+  - fan-row count;
+  - artifact paths.
+- Updated Markdown rendering to include those diagnostics.
+- Added unit coverage for diagnostic extraction and enriched summary rows.
+
+### Result
+- Casebook tests: `uv run pytest test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py -q` -> 6 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py -q` -> 45 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py` -> passed.
+- Diff hygiene: `git diff --check` -> passed.
+- Actual enriched casebook run:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813b_diagnostics --case-count 3 --samples 2 --steps 100 --chunk-size 2 --device cuda`
+  returned `status=pass`, `case_count=3`, `pass_count=3`.
+- Enriched rows:
+  - fragile risk-on: pass/pass, 8 support candidates, start z 0.000, 39 preview fields, 45 fan rows;
+  - defensive risk-off: warning/warning, 8 support candidates, start z 0.000, 39 preview fields, 45 fan rows;
+  - rates selloff: pass/pass, 8 support candidates, start z 0.000, 39 preview fields, 45 fan rows.
+
+### Mechanism Read
+This makes the acceptance suite suitable as a boss/risk-manager progress artifact. The key caveat is visible: defensive risk-off is accepted but warning-level, not silently labeled clean. That is the right product posture for trust.
+
+### Decision / Next Step
+Keep the enriched casebook report. The next production step is broader quality, not wiring: expand the casebook with more starts and harder OOD/stress narratives, then decide which cases should pass, warn, or fail before calling the system production-ready.
+
+### Artifacts
+- Casebook harness: `experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py`
+- Tests: `test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py`
+- Enriched casebook report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813b_diagnostics/product_acceptance_casebook.json`
+- Enriched casebook markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813b_diagnostics/product_acceptance_casebook.md`
+
+---

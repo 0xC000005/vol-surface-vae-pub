@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_prefix_latent_product_acceptance_casebook import (
+    extract_case_diagnostics,
     render_markdown,
     summarize_casebook,
 )
@@ -16,6 +17,14 @@ def test_summarize_casebook_aggregates_pass_fail_counts() -> None:
                 "status": "pass",
                 "candidate_index": 18,
                 "checks": [{"name": "a", "passed": True}],
+                "diagnostics": {
+                    "validation_overall": "pass",
+                    "validation_operational": "pass",
+                    "support_candidate_count": 8,
+                    "start_distance_z": 0.0,
+                    "preview_field_count": 39,
+                    "fan_count": 45,
+                },
                 "run_report": "fragile/run.json",
                 "exported_start_json": "fragile/start.json",
             },
@@ -24,6 +33,10 @@ def test_summarize_casebook_aggregates_pass_fail_counts() -> None:
                 "status": "fail",
                 "candidate_index": 22,
                 "checks": [{"name": "b", "passed": False}],
+                "diagnostics": {
+                    "validation_overall": "fail",
+                    "validation_operational": "fail",
+                },
                 "run_report": "defensive/run.json",
                 "exported_start_json": "defensive/start.json",
             },
@@ -35,6 +48,8 @@ def test_summarize_casebook_aggregates_pass_fail_counts() -> None:
     assert summary["pass_count"] == 1
     assert summary["fail_count"] == 1
     assert summary["cases"][1]["failed_checks"] == ["b"]
+    assert summary["cases"][0]["support_candidate_count"] == 8
+    assert summary["cases"][0]["preview_field_count"] == 39
 
 
 def test_render_markdown_lists_casebook_rows() -> None:
@@ -49,6 +64,12 @@ def test_render_markdown_lists_casebook_rows() -> None:
                 "status": "pass",
                 "candidate_index": 18,
                 "failed_checks": [],
+                "validation_overall": "pass",
+                "validation_operational": "pass",
+                "support_candidate_count": 8,
+                "start_distance_z": 0.0,
+                "preview_field_count": 39,
+                "fan_count": 45,
             }
         ],
     }
@@ -57,3 +78,29 @@ def test_render_markdown_lists_casebook_rows() -> None:
 
     assert "Product Acceptance Casebook" in text
     assert "`fragile`" in text
+    assert "`pass/pass`" in text
+
+
+def test_extract_case_diagnostics_reads_run_report_payload() -> None:
+    smoke_summary = {
+        "preview_rows": [{"Field": "Field count", "Value": "39"}],
+    }
+    run_report = {
+        "validation_gate": {"overall_status": "pass", "operational_status": "pass"},
+        "cached_query": {"memory_prior": {"candidate_details": [{}, {}]}},
+        "generation": {"path_quantiles": [{}, {}, {}]},
+        "variant_rows": [
+            {"variant": "user_start_state", "start_distance_z": 1.25}
+        ],
+    }
+
+    diagnostics = extract_case_diagnostics(
+        smoke_summary=smoke_summary,
+        run_report=run_report,
+    )
+
+    assert diagnostics["validation_overall"] == "pass"
+    assert diagnostics["support_candidate_count"] == 2
+    assert diagnostics["start_distance_z"] == 1.25
+    assert diagnostics["preview_field_count"] == 39
+    assert diagnostics["fan_count"] == 3

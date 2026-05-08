@@ -59,6 +59,7 @@ def summarize_casebook(case_summaries: list[dict[str, Any]]) -> dict[str, Any]:
     rows = []
     for item in case_summaries:
         checks = item.get("checks", [])
+        diagnostics = item.get("diagnostics", {})
         failed_checks = [
             str(row.get("name"))
             for row in checks
@@ -69,6 +70,16 @@ def summarize_casebook(case_summaries: list[dict[str, Any]]) -> dict[str, Any]:
                 "name": str(item.get("name", "")),
                 "status": str(item.get("status", "")),
                 "candidate_index": int(item.get("candidate_index", -1)),
+                "validation_overall": str(diagnostics.get("validation_overall", "")),
+                "validation_operational": str(
+                    diagnostics.get("validation_operational", "")
+                ),
+                "support_candidate_count": int(
+                    diagnostics.get("support_candidate_count", 0)
+                ),
+                "start_distance_z": diagnostics.get("start_distance_z"),
+                "preview_field_count": int(diagnostics.get("preview_field_count", 0)),
+                "fan_count": int(diagnostics.get("fan_count", 0)),
                 "failed_checks": failed_checks,
                 "run_report": str(item.get("run_report", "")),
                 "exported_start_json": str(item.get("exported_start_json", "")),
@@ -94,16 +105,65 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Pass count: `{summary.get('pass_count')}`",
         f"- Fail count: `{summary.get('fail_count')}`",
         "",
-        "| Case | Status | Candidate | Failed Checks |",
-        "|---|---:|---:|---|",
+        "| Case | Status | Candidate | Validation | Support | Start z | Preview | Fans | Failed Checks |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---|",
     ]
     for row in summary.get("cases", []):
         failed = ", ".join(row.get("failed_checks", []))
+        validation = (
+            f"{row.get('validation_overall', '')}/"
+            f"{row.get('validation_operational', '')}"
+        )
+        start_z = row.get("start_distance_z")
+        start_z_text = "" if start_z is None else f"{float(start_z):.3f}"
         lines.append(
             f"| `{row.get('name')}` | `{row.get('status')}` | "
-            f"`{row.get('candidate_index')}` | {failed} |"
+            f"`{row.get('candidate_index')}` | `{validation}` | "
+            f"`{row.get('support_candidate_count')}` | `{start_z_text}` | "
+            f"`{row.get('preview_field_count')}` | `{row.get('fan_count')}` | "
+            f"{failed} |"
         )
     return "\n".join(lines)
+
+
+def extract_case_diagnostics(
+    *,
+    smoke_summary: dict[str, Any],
+    run_report: dict[str, Any],
+) -> dict[str, Any]:
+    gate = run_report.get("validation_gate", {})
+    query = run_report.get("cached_query", {})
+    memory_prior = query.get("memory_prior", {}) if isinstance(query, dict) else {}
+    generation = run_report.get("generation", {})
+    variant_rows = run_report.get("variant_rows", [])
+    user_start = next(
+        (
+            row
+            for row in variant_rows
+            if isinstance(row, dict) and str(row.get("variant")) == "user_start_state"
+        ),
+        {},
+    )
+    preview_field_count = 0
+    for row in smoke_summary.get("preview_rows", []):
+        if isinstance(row, dict) and row.get("Field") == "Field count":
+            try:
+                preview_field_count = int(row.get("Value", 0))
+            except (TypeError, ValueError):
+                preview_field_count = 0
+            break
+    return {
+        "validation_overall": str(gate.get("overall_status", "")),
+        "validation_operational": str(gate.get("operational_status", "")),
+        "support_candidate_count": len(memory_prior.get("candidate_details", []))
+        if isinstance(memory_prior, dict)
+        else 0,
+        "start_distance_z": user_start.get("start_distance_z"),
+        "preview_field_count": int(preview_field_count),
+        "fan_count": len(generation.get("path_quantiles", []))
+        if isinstance(generation, dict)
+        else 0,
+    }
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
@@ -132,7 +192,17 @@ def run_acceptance_casebook(args: argparse.Namespace) -> dict[str, Any]:
             device=str(args.device),
         )
         result = run_product_acceptance_smoke(smoke_args)
-        case_summaries.append({**result, "name": str(case["name"])})
+        run_report = json.loads(Path(result["run_report"]).read_text(encoding="utf-8"))
+        case_summaries.append(
+            {
+                **result,
+                "name": str(case["name"]),
+                "diagnostics": extract_case_diagnostics(
+                    smoke_summary=result,
+                    run_report=run_report,
+                ),
+            }
+        )
     summary = summarize_casebook(case_summaries)
     output = {
         "status": summary["overall_status"],
