@@ -39,7 +39,8 @@ The following should stay out of Git:
 - `.env`, API keys, and local credential material;
 - generated experiment outputs under `experiments/**/nl_scenario_demo_outputs/`;
 - model checkpoints under `models/`;
-- raw or processed data under `data/`;
+- broad raw or processed data directories under `data/`; specific demo data
+  files must be copied only through the external artifact bundle;
 - under-review paper drafts, paper backups, and private manuscript artifacts.
 
 The under-review paper and backups must not be uploaded to GitHub or a public
@@ -52,6 +53,12 @@ A deployable demo needs code from this repo plus a small external artifact
 bundle. The current local evidence points to these files:
 
 ```text
+data/
+  multi_factor_levels.parquet
+  multi_factor_returns.parquet
+  spx_vol_surface_history_full_data_fixed.parquet
+  vol_surface_with_ret.npz
+
 models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/
   args.json
   best_model.pt
@@ -68,6 +75,15 @@ experiments/backfill/block_ar/nl_scenario_demo_outputs/
     bridge_adapter.pt
     bridge_eval_arrays.npz
     bridge_eval_report.json
+  prefix_latent_condition_only_report_822a_commodity/
+    condition_only_report.json
+    condition_only_report_arrays.npz
+  prefix_latent_condition_only_report_823a_dollar/
+    condition_only_report.json
+    condition_only_report_arrays.npz
+  prefix_latent_condition_only_report_823b_safe_haven/
+    condition_only_report.json
+    condition_only_report_arrays.npz
   prefix_latent_boss_demo_pack_829a_live_casebook/
     boss_demo_pack.json
     boss_demo_pack.md
@@ -76,11 +92,10 @@ experiments/backfill/block_ar/nl_scenario_demo_outputs/
     gradio_live_api_casebook_summary.md
 ```
 
-For the current local demo, the joint39 checkpoint folder is roughly 7.1 MB.
-The representative OpenAI narrative artifacts are roughly 28 MB, and the bridge
-evaluation artifacts are roughly 16 MB. These are small enough for a private
-artifact bundle, but they should remain ignored by Git because the project also
-contains much larger generated trees and the bundle may evolve.
+For the current local demo, the full explicit bundle is roughly 52.8 MB across
+25 files. These are small enough for a private artifact bundle, but they should
+remain ignored by Git because the project also contains much larger generated
+trees and the bundle may evolve.
 
 Recommended bundle policy:
 
@@ -162,7 +177,7 @@ The deployment boundary is now machine-checkable with:
 
 ```bash
 uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_preflight.py \
-  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_834a_complete_bundle \
   --run-cached-smoke \
   --gradio-url http://127.0.0.1:7862 \
   --samples 2 \
@@ -183,10 +198,10 @@ The checker validates:
 Latest verified preflight artifact:
 
 ```text
-experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_831c_with_cached_smoke_fixed/demo_preflight_report.json
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_834a_complete_bundle/demo_preflight_report.json
 ```
 
-Summary: status `pass`, 15/15 artifacts present, 48,818,004 required bytes,
+Summary: status `pass`, 25/25 artifacts present, 52,835,108 required bytes,
 zero unsafe staged paths, `.env` ignored, cached smoke `pass`.
 
 ## Hosted Prototype Boundary
@@ -226,14 +241,14 @@ uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py \
 ```
 
 The staging harness copies tracked source files and then copies only the
-explicit 15-file artifact bundle. It excludes local/runtime/private material
+explicit 25-file artifact bundle. It excludes local/runtime/private material
 from the source copy:
 
 - `.env`;
 - `.venv/`;
 - `.agents/`;
 - `.claude/`;
-- `data/`;
+- `data/`, except files copied through the explicit artifact list;
 - `models/`, except files copied through the explicit artifact list;
 - `paper/`;
 - `results/`;
@@ -247,10 +262,19 @@ Latest verified staging manifest:
 /tmp/nl_prefix_latent_demo_stage_832a/demo_staging_manifest.json
 ```
 
-Summary: status `pass`, staged preflight `pass`, 1,786 source files copied,
-15 required artifacts copied, 48,818,004 artifact bytes, and no `.env`, PDF,
-`.venv`, `.agents`, `.claude`, `paper/`, or `data/` path present in the staged
-tree.
+Latest staged cached API smoke:
+
+```text
+/tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_smoke_833f_complete_bundle/gradio_api_smoke_summary.json
+```
+
+Summary: status `pass`, staged preflight `pass`, staged Gradio page `200`,
+1,786 source files copied, 25 required artifacts copied, 52,835,108 artifact
+bytes, cached API smoke `ok`, selected-start `pass`, 8 support candidates, 8
+fan traces, 8 redraw traces, and no `.env`, PDF, `.venv`, `.agents`, `.claude`,
+or `paper/` path present in the staged tree. A `data/` directory is present
+only because the four explicit base data artifacts are part of the required
+bundle.
 
 ## Manual Visual QA Checklist
 

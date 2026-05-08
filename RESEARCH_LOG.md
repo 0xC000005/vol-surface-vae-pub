@@ -114146,3 +114146,45 @@ This is a useful production-hardening step because it caught exactly the class o
 The next production-readiness step is manual/browser QA from the clean staged tree or a private hosted prototype: launch the staged Gradio app, run one cached casebook, run one live OpenAI TestFlight with a platform secret rather than `.env`, capture screenshots, and archive the audit trail.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 75 staged Gradio smoke
+
+### Context
+Iteration 74 created a clean source-plus-artifact staging harness. The next production-readiness question was whether the staged tree can actually serve the Gradio demo and pass the cached boss-demo API smoke, not merely pass file preflight.
+
+### Hypothesis
+If the external artifact bundle is complete, the staged tree should launch the Gradio app and pass the cached `safe_haven_gold_bid:18` API smoke without `.env`, paper files, local runtime directories, or broad generated/data trees.
+
+### Execution
+- Rebuilt `/tmp/nl_prefix_latent_demo_stage_832a` from current HEAD and launched the staged Gradio app on port 7863.
+- The first staged smoke failed because the bundle lacked cached condition-only reports for the casebook entries.
+- Added the cached condition reports and arrays for commodity, dollar-liquidity, and safe-haven casebook narratives to `DEFAULT_REQUIRED_ARTIFACTS`.
+- The next staged smokes exposed missing base data dependencies one at a time: `data/vol_surface_with_ret.npz`, `data/spx_vol_surface_history_full_data_fixed.parquet`, `data/multi_factor_levels.parquet`, and `data/multi_factor_returns.parquet`.
+- Added those four files as explicit required artifacts. The staging source copy still excludes broad `data/`; only these explicit files are copied as artifacts.
+- Rebuilt the stage, confirmed the staged page returned HTTP 200 with readiness evidence, ran cached Gradio API smoke, and stopped the staged server.
+
+### Result
+The corrected staged Gradio smoke passed. The explicit external bundle now contains 25 required artifacts totaling 52,835,108 bytes. The staged run copied 1,786 source files, copied 25 artifacts, passed staged preflight, served the Gradio page, and passed cached API smoke with selected-start `pass`, overall `pass`, 8 support candidates, 8 fan traces, and 8 redraw traces.
+
+Latest artifacts:
+- source preflight: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_834a_complete_bundle/demo_preflight_report.json`
+- staged smoke: `/tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_smoke_833f_complete_bundle/gradio_api_smoke_summary.json`
+- staging manifest: `/tmp/nl_prefix_latent_demo_stage_832a/demo_staging_manifest.json`
+
+### Mechanism Read
+This found the difference between a file-manifest preflight and a true runnable demo boundary. The app's cached casebook path depends not only on bridge/model outputs, but also on cached condition-only reports and the four base panel data files. The explicit bundle now reflects the actual runtime contract while still keeping broad data/model/output directories, `.env`, PDFs, paper files, and local runtime directories out of source staging.
+
+### Verification
+- `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py -q` passed, 6 tests.
+- `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py test_code/test_811a_nl_prefix_latent_demo_staging.py -q` passed, 11 tests.
+- Source preflight with cached smoke returned status `pass`: `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_preflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_834a_complete_bundle --run-cached-smoke --gradio-url http://127.0.0.1:7862 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`.
+- Staged dry run returned status `pass`: `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py --stage-root /tmp/nl_prefix_latent_demo_stage_832a --run-preflight`.
+- Staged page check returned HTTP `200` and readiness evidence.
+- Staged cached API smoke returned status `ok`: `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7863 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_smoke_833f_complete_bundle --casebook-choice safe_haven_gold_bid:18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`.
+- Absence check found no staged `.env`, `*.pdf`, `.venv`, `.agents`, `.claude`, or `paper/` path.
+- Staged server on port 7863 was stopped after the smoke.
+- `git diff --check` passed.
+
+### Decision / Next Step
+The next production step is either a private hosted prototype using this 25-file artifact bundle and platform secret handling, or a browser/screenshot QA pass from the staged app. The cached path is now deployable as an internal demo boundary; live OpenAI TestFlight from a clean hosted environment still needs platform-secret wiring rather than `.env`.
+
+---

@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_prefix_latent_demo_preflight import (
+    DEFAULT_REQUIRED_ARTIFACTS,
     build_preflight_report,
     render_preflight_markdown,
     write_preflight_outputs,
@@ -99,3 +100,25 @@ def test_write_preflight_outputs_persists_artifact_paths(tmp_path: Path) -> None
 
     assert saved["artifact_paths"] == paths
     assert Path(paths["markdown"]).is_file()
+
+
+def test_default_required_artifacts_include_cached_casebook_condition_reports() -> None:
+    required = set(DEFAULT_REQUIRED_ARTIFACTS)
+
+    for folder in [
+        "prefix_latent_condition_only_report_822a_commodity",
+        "prefix_latent_condition_only_report_823a_dollar",
+        "prefix_latent_condition_only_report_823b_safe_haven",
+    ]:
+        base = f"experiments/backfill/block_ar/nl_scenario_demo_outputs/{folder}"
+        assert f"{base}/condition_only_report.json" in required
+        assert f"{base}/condition_only_report_arrays.npz" in required
+
+
+def test_default_required_artifacts_include_base_data_files() -> None:
+    required = set(DEFAULT_REQUIRED_ARTIFACTS)
+
+    assert "data/vol_surface_with_ret.npz" in required
+    assert "data/spx_vol_surface_history_full_data_fixed.parquet" in required
+    assert "data/multi_factor_levels.parquet" in required
+    assert "data/multi_factor_returns.parquet" in required

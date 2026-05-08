@@ -13,6 +13,10 @@ from typing import Any, Mapping, Sequence
 
 
 DEFAULT_REQUIRED_ARTIFACTS = [
+    "data/multi_factor_levels.parquet",
+    "data/multi_factor_returns.parquet",
+    "data/spx_vol_surface_history_full_data_fixed.parquet",
+    "data/vol_surface_with_ret.npz",
     "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/args.json",
     "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt",
     "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/train_summary.json",
@@ -24,6 +28,12 @@ DEFAULT_REQUIRED_ARTIFACTS = [
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_adapter.pt",
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_arrays.npz",
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report_arrays.npz",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report_arrays.npz",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report_arrays.npz",
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/boss_demo_pack.json",
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/boss_demo_pack.md",
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_828a_three_story/gradio_live_api_casebook_summary.json",
