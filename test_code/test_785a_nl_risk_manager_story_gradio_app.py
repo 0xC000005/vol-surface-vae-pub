@@ -21,6 +21,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_selected_start_table,
     prefix_shift_factor_table,
     prefix_start_candidates_table,
+    prefix_user_start_table,
     prefix_validation_table,
     prefix_variant_table,
     prefix_warning_component_table,
@@ -331,6 +332,29 @@ def _prefix_report() -> dict:
     }
 
 
+def _prefix_user_start_report() -> dict:
+    report = _prefix_report()
+    report["user_start_state"] = {
+        "label": "today",
+        "source_path": "tmp/today_start.json",
+        "source_format": "values_by_name",
+        "coordinate": "raw_state",
+        "dimension": 39,
+        "spec_names": ["iv:00", "factor:vix"],
+    }
+    report["variant_rows"][1] = {
+        **report["variant_rows"][1],
+        "variant": "user_start_state",
+        "start_window_id": "today",
+        "start_window_index": -1,
+        "start_manifest_split": "user_supplied",
+        "start_selection_method": "user_supplied_joint39_state",
+        "nearest_train_start_window_index": 18,
+        "max_abs_user_start_z": 1.817,
+    }
+    return report
+
+
 def test_table_formatters_expose_demo_evidence() -> None:
     report = _report()
 
@@ -428,6 +452,17 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     assert candidates.iloc[0]["Alignment"] == "0.800 (1/5 mismatches)"
 
 
+def test_prefix_user_start_table_shows_supplied_start_diagnostics() -> None:
+    table = prefix_user_start_table(_prefix_user_start_report())
+
+    assert table.iloc[0]["Label"] == "today"
+    assert table.iloc[0]["Format"] == "values_by_name"
+    assert table.iloc[0]["Dimension"] == "39"
+    assert table.iloc[0]["Nearest Train"] == "18"
+    assert table.iloc[0]["Start Distance"] == "6.940"
+    assert table.iloc[0]["Max Abs Z"] == "1.817"
+
+
 def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:
     choices = historical_start_candidate_choices(_prefix_report())
 
@@ -482,9 +517,11 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
         samples=4,
         condition_report="tmp/condition_only_report.json",
         explicit_start_window_index=22,
+        start_state_json="tmp/today_start.json",
     )
     assert condition_args.condition_report == "tmp/condition_only_report.json"
     assert condition_args.explicit_start_window_index == 22
+    assert condition_args.start_state_json == "tmp/today_start.json"
 
 
 def test_build_run_args_sets_generator_controls() -> None:
@@ -622,7 +659,7 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert final[4].iloc[0]["Status"] == "pass"
     assert final[6].layout.title.text == "SPX 30-day scenario fan"
     assert final[14].iloc[0]["Window"] == "joint39_val_0269"
-    assert final[15]["choices"] == [
+    assert final[16]["choices"] == [
         ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
     ]
 
@@ -677,6 +714,31 @@ def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
     assert "explicit_start_window" in first[1]
     assert calls == [("explicit_start_window", 22)]
     assert "Completed in" in final[1]
+
+
+def test_run_prefix_latent_for_app_can_use_user_start_json() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.start_mode, args.start_state_json))
+        return _prefix_user_start_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        use_user_start_state=True,
+        start_state_json="tmp/today_start.json",
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "user_start_state" in first[1]
+    assert calls == [("user_start_state", "tmp/today_start.json")]
+    assert final[15].iloc[0]["Label"] == "today"
 
 
 def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> None:

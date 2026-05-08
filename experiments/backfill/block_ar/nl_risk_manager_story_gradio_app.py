@@ -63,6 +63,11 @@ DEFAULT_PREFIX_APP_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke"
 )
+DEFAULT_USER_START_STATE_JSON = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
+    "user_start_state_18.json"
+)
 IMPLICATION_COLUMNS = [
     "Market",
     "Direction",
@@ -134,6 +139,15 @@ PREFIX_START_CANDIDATE_COLUMNS = [
     "Start Distance",
     "Alignment",
     "Score",
+]
+PREFIX_USER_START_COLUMNS = [
+    "Label",
+    "Source",
+    "Format",
+    "Dimension",
+    "Nearest Train",
+    "Start Distance",
+    "Max Abs Z",
 ]
 FAN_MARKET_CHOICES = [
     ("SPX", "SPX"),
@@ -492,6 +506,34 @@ def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
             }
         )
     return _frame(rows, PREFIX_START_CANDIDATE_COLUMNS)
+
+
+def prefix_user_start_table(report: dict[str, Any]) -> pd.DataFrame:
+    user_start = _as_dict(report.get("user_start_state"))
+    if not user_start:
+        return _frame([], PREFIX_USER_START_COLUMNS)
+    user_row = None
+    for item in _as_list(report.get("variant_rows")):
+        if isinstance(item, dict) and str(item.get("variant")) == "user_start_state":
+            user_row = item
+            break
+    nearest = "" if user_row is None else str(user_row.get("nearest_train_start_window_index", ""))
+    distance = "" if user_row is None else _fmt_float(user_row.get("start_distance_z"))
+    max_abs_z = "" if user_row is None else _fmt_float(user_row.get("max_abs_user_start_z"))
+    return _frame(
+        [
+            {
+                "Label": str(user_start.get("label", "")),
+                "Source": str(user_start.get("source_path", "")),
+                "Format": str(user_start.get("source_format", "")),
+                "Dimension": str(user_start.get("dimension", "")),
+                "Nearest Train": nearest,
+                "Start Distance": distance,
+                "Max Abs Z": max_abs_z,
+            }
+        ],
+        PREFIX_USER_START_COLUMNS,
+    )
 
 
 def historical_start_candidate_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
@@ -1023,6 +1065,7 @@ def _blank_prefix_outputs(
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
     Any,
 ]:
     return (
@@ -1041,6 +1084,7 @@ def _blank_prefix_outputs(
         _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
         _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
         _frame([], PREFIX_START_CANDIDATE_COLUMNS),
+        _frame([], PREFIX_USER_START_COLUMNS),
         historical_start_candidate_update({}),
     )
 
@@ -1185,6 +1229,7 @@ def build_prefix_latent_run_args(
     story: str = DEFAULT_STORY,
     condition_report: str | None = None,
     explicit_start_window_index: int | None = None,
+    start_state_json: str | None = None,
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -1211,6 +1256,7 @@ def build_prefix_latent_run_args(
         dotenv=".env",
         start_mode=str(start_mode),
         explicit_start_window_index=explicit_start_window_index,
+        start_state_json=start_state_json,
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
         implication_alignment_weight=0.25,
@@ -1330,6 +1376,8 @@ def run_prefix_latent_for_app(
     condition_only_story: bool = False,
     use_explicit_start: bool = False,
     explicit_start_window_index: float | int | None = None,
+    use_user_start_state: bool = False,
+    start_state_json: str | None = DEFAULT_USER_START_STATE_JSON,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
     condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
@@ -1340,13 +1388,20 @@ def run_prefix_latent_for_app(
 ) -> Any:
     start_time = time.monotonic()
     effective_start_mode = (
-        "explicit_start_window" if bool(use_explicit_start) else str(start_mode)
+        "user_start_state"
+        if bool(use_user_start_state)
+        else "explicit_start_window"
+        if bool(use_explicit_start)
+        else str(start_mode)
     )
     explicit_start = (
         int(explicit_start_window_index)
-        if bool(use_explicit_start) and explicit_start_window_index is not None
+        if bool(use_explicit_start)
+        and not bool(use_user_start_state)
+        and explicit_start_window_index is not None
         else None
     )
+    user_start_path = str(start_state_json or "").strip() or None
     running_status = _prefix_progress_status_markdown(
         start_time=start_time,
         start_mode=effective_start_mode,
@@ -1379,6 +1434,7 @@ def run_prefix_latent_for_app(
             story=str(story or DEFAULT_STORY),
             condition_report=condition_report_path,
             explicit_start_window_index=explicit_start,
+            start_state_json=user_start_path if bool(use_user_start_state) else None,
             output_dir=output_dir,
         )
         report = runner(args)
@@ -1409,6 +1465,7 @@ def run_prefix_latent_for_app(
             _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
             _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
             _frame([], PREFIX_START_CANDIDATE_COLUMNS),
+            _frame([], PREFIX_USER_START_COLUMNS),
             historical_start_candidate_update({}),
         )
         return
@@ -1435,6 +1492,7 @@ def run_prefix_latent_for_app(
         prefix_warning_component_table(report),
         prefix_shift_factor_table(report),
         prefix_start_candidates_table(report),
+        prefix_user_start_table(report),
         historical_start_candidate_update(report),
     )
 
@@ -1607,6 +1665,14 @@ def build_demo() -> Any:
                     "window index. Use this as the first user-specified start mode."
                 ),
             )
+            prefix_use_user_start_state = gr.Checkbox(
+                value=False,
+                label="Use start JSON",
+                info=(
+                    "Override historical starts with a raw joint39 start-state JSON. "
+                    "This is the stricter user-specified current-state mode."
+                ),
+            )
             prefix_explicit_start_candidate = gr.Dropdown(
                 choices=[],
                 value=None,
@@ -1621,6 +1687,15 @@ def build_demo() -> Any:
                 precision=0,
                 label="Historical start window index",
                 info="Bridge-local window index; ignored unless Use historical start is checked.",
+            )
+            prefix_start_state_json = gr.Textbox(
+                value=DEFAULT_USER_START_STATE_JSON,
+                label="Start-state JSON path",
+                info=(
+                    "Used only when Use start JSON is checked. The file should "
+                    "contain raw joint39 values_by_name or state_vector."
+                ),
+                lines=1,
             )
             prefix_samples = gr.Slider(
                 minimum=2,
@@ -1679,6 +1754,11 @@ def build_demo() -> Any:
         prefix_start_candidates = gr.Dataframe(
             headers=PREFIX_START_CANDIDATE_COLUMNS,
             label="Historical start/support candidates",
+            interactive=False,
+        )
+        prefix_user_start = gr.Dataframe(
+            headers=PREFIX_USER_START_COLUMNS,
+            label="User-supplied start diagnostics",
             interactive=False,
         )
         prefix_shift_factors = gr.Dataframe(
@@ -1741,6 +1821,8 @@ def build_demo() -> Any:
                 prefix_condition_only_story,
                 prefix_use_explicit_start,
                 prefix_explicit_start_index,
+                prefix_use_user_start_state,
+                prefix_start_state_json,
             ],
             outputs=[
                 prefix_report_markdown,
@@ -1758,6 +1840,7 @@ def build_demo() -> Any:
                 prefix_warning_components,
                 prefix_shift_factors,
                 prefix_start_candidates,
+                prefix_user_start,
                 prefix_explicit_start_candidate,
             ],
             show_progress="full",

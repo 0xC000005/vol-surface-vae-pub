@@ -112532,3 +112532,51 @@ Keep the user-start JSON path. The next production step is to expose this in the
 - User-start smoke arrays: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_verify/prefix_latent_story_smoke_arrays.npz`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 40 user start JSON demo path
+
+### Context
+The backend now supports a raw user-supplied joint39 start JSON, but the Gradio demo only exposed historical starts. For production readiness, the risk-manager demo needs to show the stricter contract: narrative supplies the condition, while a user-provided current-state file supplies the starting market level.
+
+### Hypothesis
+Adding a small JSON-path UI path is the safest first product step. It avoids an overwhelming 39-cell editable table while letting the demo exercise the true user-specified start mode end to end.
+
+### Execution
+- Added `DEFAULT_USER_START_STATE_JSON` for the cached no-OpenAI start fixture.
+- Added Gradio controls:
+  - `Use start JSON`;
+  - `Start-state JSON path`.
+- `Use start JSON` takes precedence over historical-start selection and runs `start_mode=user_start_state`.
+- Added `prefix_user_start_table` and a `User-supplied start diagnostics` table showing:
+  - label;
+  - source path;
+  - source format;
+  - dimension;
+  - nearest train start;
+  - start-distance z-score;
+  - max absolute user-start z-score.
+- Added unit coverage for the table, run-argument plumbing, and Gradio wrapper dispatch.
+
+### Result
+- Gradio app tests: `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 21 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 35 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Demo construction: `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- Diff hygiene: `git diff --check` -> passed.
+- No-OpenAI Gradio wrapper smoke with `Use start JSON` enabled produced:
+  - selected variant `user_start_state`;
+  - start window `user_supplied_from_joint39_val_0036`;
+  - start split `user_supplied`;
+  - user-start diagnostics with dimension 39, nearest train 18, start distance 0.000z, max abs z 1.817.
+
+### Mechanism Read
+This closes the first UI gap for the stricter production mode. The system can now be demonstrated as: risk narrative -> condition memory/support prior; start JSON -> current market level; prefix decoder -> frozen generator rollout. It is still not a fully ergonomic current-state editor, but it is no longer limited to historical-start selection.
+
+### Decision / Next Step
+Keep the JSON-path interface. The next production step is to make the start-state input easier and safer: add a template/export path or compact table for key anchors and selected IV cells, plus explicit validation errors for missing/invalid JSON fields. A later step can add a full 39-factor editor.
+
+### Artifacts
+- Gradio app: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- User-start fixture: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_18.json`
+
+---
