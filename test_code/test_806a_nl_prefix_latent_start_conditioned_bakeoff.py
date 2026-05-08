@@ -5,9 +5,11 @@ import numpy as np
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_prefix_latent_start_conditioned_bakeoff import (
+    oracle_select_best_rows,
     render_markdown,
     row_from_report,
     selected_historical_cases,
+    summarize_oracle_selection,
     summarize_by_variant,
 )
 
@@ -113,6 +115,78 @@ def test_summarize_by_variant_sorts_by_crps() -> None:
     assert summary[0]["operational_status_counts"] == {"pass": 1}
 
 
+def test_oracle_select_best_rows_chooses_lowest_crps_per_case_start() -> None:
+    rows = [
+        {
+            "case_name": "fragile",
+            "start_name": "recommended",
+            "candidate_index": 18,
+            "variant_name": "a",
+            "target_available": True,
+            "scenario_metrics": {"ensemble_crps_z": 2.0},
+        },
+        {
+            "case_name": "fragile",
+            "start_name": "recommended",
+            "candidate_index": 18,
+            "variant_name": "b",
+            "target_available": True,
+            "scenario_metrics": {"ensemble_crps_z": 1.0},
+        },
+        {
+            "case_name": "fragile",
+            "start_name": "user",
+            "candidate_index": 19,
+            "variant_name": "c",
+            "target_available": False,
+            "scenario_metrics": {},
+        },
+    ]
+
+    selected = oracle_select_best_rows(rows)
+
+    assert len(selected) == 1
+    assert selected[0]["variant_name"] == "b"
+
+
+def test_summarize_oracle_selection_reports_upper_bound_metrics() -> None:
+    summary = summarize_oracle_selection(
+        [
+            {
+                "case_name": "fragile",
+                "start_name": "recommended",
+                "candidate_index": 18,
+                "variant_name": "a",
+                "target_available": True,
+                "scenario_metrics": {
+                    "energy_score_z": 3.0,
+                    "ensemble_crps_z": 2.0,
+                    "energy_score_z_improvement_vs_persistence": -0.5,
+                    "ensemble_crps_z_improvement_vs_persistence": -0.25,
+                },
+            },
+            {
+                "case_name": "fragile",
+                "start_name": "recommended",
+                "candidate_index": 18,
+                "variant_name": "b",
+                "target_available": True,
+                "scenario_metrics": {
+                    "energy_score_z": 1.0,
+                    "ensemble_crps_z": 0.5,
+                    "energy_score_z_improvement_vs_persistence": 0.1,
+                    "ensemble_crps_z_improvement_vs_persistence": 0.2,
+                },
+            },
+        ]
+    )
+
+    assert summary["selector"] == "realized_future_best_crps_upper_bound"
+    assert summary["chosen_variant_counts"] == {"b": 1}
+    assert np.isclose(summary["mean_ensemble_crps_z"], 0.5)
+    assert np.isclose(summary["mean_crps_improvement_vs_persistence"], 0.2)
+
+
 def test_render_markdown_lists_variant_and_case_rows() -> None:
     text = render_markdown(
         {
@@ -133,6 +207,16 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
                     "mean_weighted_start_distance_z": 2.0,
                 }
             ],
+            "oracle_selection_summary": {
+                "selector": "realized_future_best_crps_upper_bound",
+                "scope_note": "Diagnostic only.",
+                "selected_count": 1,
+                "chosen_variant_counts": {"decoder_soft_topk_combined": 1},
+                "mean_energy_score_z": 1.0,
+                "mean_ensemble_crps_z": 0.5,
+                "mean_energy_improvement_vs_persistence": 0.1,
+                "mean_crps_improvement_vs_persistence": 0.2,
+            },
             "rows": [
                 {
                     "case_name": "fragile",
@@ -155,4 +239,5 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
 
     assert "Fixed-Start Prefix-Mixture Bakeoff" in text
     assert "`decoder_soft_topk_combined`" in text
+    assert "Realized-Future Oracle Selector" in text
     assert "`fragile`" in text

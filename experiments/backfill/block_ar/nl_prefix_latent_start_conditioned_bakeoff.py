@@ -202,6 +202,122 @@ def summarize_by_variant(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _metric_value(row: dict[str, Any], key: str) -> float | None:
+    metrics = row.get("scenario_metrics", {})
+    if not isinstance(metrics, dict):
+        return None
+    value = metrics.get(key)
+    if value is None:
+        return None
+    return float(value)
+
+
+def oracle_select_best_rows(
+    rows: list[dict[str, Any]],
+    *,
+    metric: str = "ensemble_crps_z",
+) -> list[dict[str, Any]]:
+    """Select the best realized-future variant per case/start pair.
+
+    This is an upper-bound diagnostic only. It uses realized-future metrics and
+    must not be used by the live product path.
+    """
+
+    by_case: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for row in rows:
+        if not bool(row.get("target_available")):
+            continue
+        key = (
+            str(row.get("case_name", "")),
+            str(row.get("start_name", "")),
+            int(row.get("candidate_index", -1)),
+        )
+        by_case.setdefault(key, []).append(row)
+    selected: list[dict[str, Any]] = []
+    for key in sorted(by_case):
+        candidates = by_case[key]
+        valid = [row for row in candidates if _metric_value(row, metric) is not None]
+        if not valid:
+            continue
+        selected.append(
+            min(
+                valid,
+                key=lambda row: (
+                    float(_metric_value(row, metric) or float("inf")),
+                    str(row.get("variant_name", "")),
+                ),
+            )
+        )
+    return selected
+
+
+def summarize_oracle_selection(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    selected = oracle_select_best_rows(rows)
+    metrics = [
+        row.get("scenario_metrics", {})
+        for row in selected
+        if isinstance(row.get("scenario_metrics"), dict)
+    ]
+    chosen_counts: dict[str, int] = {}
+    for row in selected:
+        variant = str(row.get("variant_name", ""))
+        chosen_counts[variant] = chosen_counts.get(variant, 0) + 1
+    return {
+        "selector": "realized_future_best_crps_upper_bound",
+        "scope_note": (
+            "Diagnostic only. This selector uses realized-future CRPS and is not "
+            "available to the live product path."
+        ),
+        "selected_count": int(len(selected)),
+        "chosen_variant_counts": chosen_counts,
+        "mean_energy_score_z": _safe_mean(
+            [
+                metric.get("energy_score_z")
+                for metric in metrics
+                if metric.get("energy_score_z") is not None
+            ]
+        ),
+        "mean_ensemble_crps_z": _safe_mean(
+            [
+                metric.get("ensemble_crps_z")
+                for metric in metrics
+                if metric.get("ensemble_crps_z") is not None
+            ]
+        ),
+        "mean_energy_improvement_vs_persistence": _safe_mean(
+            [
+                metric.get("energy_score_z_improvement_vs_persistence")
+                for metric in metrics
+                if metric.get("energy_score_z_improvement_vs_persistence") is not None
+            ]
+        ),
+        "mean_crps_improvement_vs_persistence": _safe_mean(
+            [
+                metric.get("ensemble_crps_z_improvement_vs_persistence")
+                for metric in metrics
+                if metric.get("ensemble_crps_z_improvement_vs_persistence") is not None
+            ]
+        ),
+        "selected_rows": [
+            {
+                "case_name": row.get("case_name"),
+                "start_name": row.get("start_name"),
+                "candidate_index": row.get("candidate_index"),
+                "chosen_variant": row.get("variant_name"),
+                "energy_score_z": _metric_value(row, "energy_score_z"),
+                "ensemble_crps_z": _metric_value(row, "ensemble_crps_z"),
+                "energy_score_z_improvement_vs_persistence": _metric_value(
+                    row, "energy_score_z_improvement_vs_persistence"
+                ),
+                "ensemble_crps_z_improvement_vs_persistence": _metric_value(
+                    row, "ensemble_crps_z_improvement_vs_persistence"
+                ),
+            }
+            for row in selected
+        ],
+    }
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
     lines = [
         "# Fixed-Start Prefix-Mixture Bakeoff",
@@ -230,6 +346,23 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"`{_format_optional(row.get('mean_energy_improvement_vs_persistence'))}` | "
             f"`{_format_optional(row.get('mean_crps_improvement_vs_persistence'))}` | "
             f"`{_format_optional(row.get('mean_weighted_start_distance_z'))}` |"
+        )
+    oracle = summary.get("oracle_selection_summary", {})
+    if isinstance(oracle, dict) and oracle:
+        lines.extend(
+            [
+                "",
+                "## Realized-Future Oracle Selector",
+                "",
+                f"- Selector: `{oracle.get('selector')}`",
+                f"- Scope: {oracle.get('scope_note')}",
+                f"- Selected rows: `{oracle.get('selected_count')}`",
+                f"- Chosen variant counts: `{json.dumps(oracle.get('chosen_variant_counts', {}), sort_keys=True)}`",
+                f"- Mean energy z: `{_format_optional(oracle.get('mean_energy_score_z'))}`",
+                f"- Mean CRPS z: `{_format_optional(oracle.get('mean_ensemble_crps_z'))}`",
+                f"- Mean energy improvement vs persistence: `{_format_optional(oracle.get('mean_energy_improvement_vs_persistence'))}`",
+                f"- Mean CRPS improvement vs persistence: `{_format_optional(oracle.get('mean_crps_improvement_vs_persistence'))}`",
+            ]
         )
     lines.extend(
         [
@@ -297,6 +430,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
             report = run_prefix_latent_story_smoke(run_args)
             rows.append(row_from_report(case=case, variant=variant, report=report))
     variant_summary = summarize_by_variant(rows)
+    oracle_selection_summary = summarize_oracle_selection(rows)
     status = (
         "pass" if rows and all(row.get("target_available") for row in rows) else "fail"
     )
@@ -311,6 +445,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
         "run_count": int(len(rows)),
         "rows": rows,
         "variant_summary": variant_summary,
+        "oracle_selection_summary": oracle_selection_summary,
         "artifact_paths": {
             "report": str(output_dir / "start_conditioned_bakeoff.json"),
             "markdown": str(output_dir / "start_conditioned_bakeoff.md"),

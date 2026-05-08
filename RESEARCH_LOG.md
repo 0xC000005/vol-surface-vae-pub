@@ -113070,3 +113070,33 @@ This iteration scaled the fixed-start workflow from a support-status matrix into
 The fixed-start contract is now measurable and auditable, but the current smoke results are not production-quality because the generated distributions underperform persistence. The next principled move is to add a stronger scenario-quality selection/refinement stage for candidate mixtures under the fixed start, then rerun the same bakeoff with enough samples to reduce smoke noise.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 51 oracle selector upper bound
+
+### Context
+This iteration added an oracle upper-bound selector to the fixed-start bakeoff. The purpose was to answer whether the poor smoke performance is mainly a variant-selection problem, or whether even the best per-case variant remains below persistence.
+
+### HEAD
+- Hypothesis: if a scenario-quality selector could make the fixed-start mixture approach production-competitive, the realized-future oracle selector should materially improve mean CRPS and possibly close the persistence gap.
+- Execute: added `oracle_select_best_rows` and `summarize_oracle_selection` to the fixed-start bakeoff. The selector chooses the lowest realized-future ensemble CRPS variant for each narrative/start pair and labels itself as a diagnostic upper bound that is not available to the live product path. Added tests for best-row selection, upper-bound aggregation, and Markdown rendering.
+- Analyze: the 4-case by 4-variant CUDA smoke passed. The oracle selector improved mean CRPS from 0.706 for the best fixed variant to 0.682 by choosing `decoder_diverse_topk_combined` twice, `decoder_soft_topk_memory` once, and `feature_soft_topk_combined` once.
+- Decide: variant selection helps, but it is not enough. Even the realized-future oracle selector remains worse than persistence on this smoke run, with mean CRPS improvement vs persistence at -0.095. The next step should target calibration or residual refinement of the decoded prefix/generator distribution under the fixed-start contract.
+
+### Evidence
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q`: 33 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`: passed.
+- `git diff --check`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816c_oracle_selector --case-count 4 --variant-count 4 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, 16 runs.
+
+### Artifacts
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816c_oracle_selector/start_conditioned_bakeoff.json`
+- Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816c_oracle_selector/start_conditioned_bakeoff.md`
+
+### Key result
+- Best fixed variant mean CRPS z: 0.706, mean CRPS improvement vs persistence: -0.124.
+- Realized-future oracle selector mean CRPS z: 0.682, mean CRPS improvement vs persistence: -0.095.
+- Oracle chosen variant counts: `decoder_diverse_topk_combined` 2, `decoder_soft_topk_memory` 1, `feature_soft_topk_combined` 1.
+
+### Production implication
+This is a useful negative result. A smarter selector may improve the path, but the current candidate set does not contain enough scenario-quality upside to reach production quality. The next production move should be a small, controlled calibration/refinement experiment under the same fixed-start bakeoff harness, not another broad narrative or web-search expansion.
+
+---
