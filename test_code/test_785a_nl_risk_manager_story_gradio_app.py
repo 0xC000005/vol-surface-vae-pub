@@ -6,7 +6,9 @@ from types import SimpleNamespace
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+    APP_CSS,
     DEFAULT_STORY,
+    DEMO_TABLE_CLASS,
     analogues_table,
     analogue_scope_choices,
     boss_demo_live_casebook_table,
@@ -439,6 +441,13 @@ def test_resolve_launch_auth_requires_both_values_when_enabled() -> None:
         raise AssertionError("expected missing password to fail")
 
 
+def test_demo_css_keeps_tables_mobile_safe() -> None:
+    assert "overflow-wrap: anywhere" in APP_CSS
+    assert "@media (max-width: 640px)" in APP_CSS
+    assert f".{DEMO_TABLE_CLASS}" in APP_CSS
+    assert "overflow-x: auto" in APP_CSS
+
+
 def test_table_formatters_expose_demo_evidence() -> None:
     report = _report()
 
@@ -456,7 +465,7 @@ def test_boss_demo_pack_formatters_surface_live_readiness() -> None:
     assert "Demo readiness evidence" in markdown
     assert "Live API casebook: `3/3` pass" in markdown
     assert "OpenAI tokens `5609`" in markdown
-    assert "forward-risk language is warning-only" in markdown
+    assert "Forward-risk language is warning-only" in markdown
     assert table.iloc[0]["Case"] == "safe_haven_gold_bid_18"
     assert table.iloc[0]["Support"] == "8"
 

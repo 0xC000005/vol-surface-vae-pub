@@ -114326,3 +114326,53 @@ This is not yet a production audit database, but it closes the immediate handoff
 The next production-readiness blocker is browser/screenshot QA across the real UI. The audit/storage path now has a local manifest layer; the remaining UI risk is whether a browser-rendered boss demo visibly shows readiness, implications/warnings, support candidates, fan redraws, IV-cell redraws, analogue traces, and report paths across realistic view sizes.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 80 browser-render demo QA
+
+### Context
+The previous production-readiness gate produced a staged/auth QA packet and an audit manifest. The remaining local demo risk was that the Gradio UI could pass API smoke while still rendering poorly for a risk-manager presentation, especially on a narrow/mobile viewport.
+
+### Hypothesis
+A lightweight browser-render QA helper using the host Chrome binary can catch blank-page or obvious viewport regressions without adding Playwright/Selenium as a project dependency. The same iteration should also fix any real mobile readability issue discovered by screenshot inspection.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_browser_qa.py` to wait for the Gradio URL, capture desktop/mobile screenshots with headless Chrome, validate PNG nonblank statistics with PIL, and write JSON/Markdown evidence.
+- Added `test_code/test_814a_nl_prefix_latent_browser_qa.py` for viewport parsing, blank/nonblank PNG detection, Markdown rendering, and missing-browser failure handling.
+- Fixed the Gradio app for presentation readiness: moved custom CSS to the Gradio 6 `launch(css=...)` path, added responsive/table containment CSS, shortened readiness artifact paths, and rewrote the top instructions/readiness evidence into short mobile-safe lines.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the browser QA command and latest evidence path.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_814a_nl_prefix_latent_browser_qa.py -q
+```
+
+Result: `39 passed`.
+
+The real browser-render smoke passed against a local app on port 7865:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_browser_qa.py \
+  --url http://127.0.0.1:7865 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean \
+  --viewport desktop:1440x1200 \
+  --viewport mobile:390x900
+```
+
+Result: status `pass`, `screenshot_count=2`.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean/browser_qa_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean/browser_qa_report.md`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean/desktop.png`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean/mobile.png`
+
+Manual screenshot inspection found the final mobile top-of-page render readable: the instructions, readiness evidence, and condition contract fit the narrow viewport, and the wide casebook is contained as a table region. The local Gradio server was stopped after QA.
+
+### Mechanism Read
+The useful finding was not just nonblank rendering. The first screenshot pass exposed a real mobile readability problem: long artifact paths and combined readiness bullets widened the page. Shortening product-facing labels and splitting readiness evidence into short lines made the demo more suitable for a boss/risk-manager review while preserving full artifact paths in JSON/Markdown reports.
+
+### Decision / Next Step
+The local demo now has preflight, staged cached smoke, staged live OpenAI TestFlight, auth smoke, QA packet, audit manifest, and desktop/mobile browser-render evidence. The next production blocker is no longer local app wiring; it is standing up a private hosted prototype or hosted-equivalent staging run with platform secrets and a durable run/audit registry for narratives, warnings, support candidates, generated scenarios, and artifact hashes.
+
+---

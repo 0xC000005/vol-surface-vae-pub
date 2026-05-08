@@ -96,6 +96,89 @@ DEFAULT_BOSS_DEMO_PACK_JSON = (
 )
 DEFAULT_AUTH_USER_ENV = "NARRATIVE_DEMO_AUTH_USER"
 DEFAULT_AUTH_PASSWORD_ENV = "NARRATIVE_DEMO_AUTH_PASSWORD"
+DEMO_TABLE_CLASS = "demo-scroll-table"
+APP_CSS = """
+.gradio-container {
+  width: 100% !important;
+  max-width: 1220px !important;
+  overflow-x: hidden;
+}
+.gradio-container,
+.gradio-container * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.gradio-container code,
+.gradio-container pre,
+.gradio-container .prose,
+.gradio-container .markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.gradio-container p,
+.gradio-container li {
+  max-width: 100%;
+  white-space: normal;
+}
+.gradio-container p code,
+.gradio-container li code {
+  display: inline;
+  white-space: normal !important;
+}
+.demo-scroll-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow-x: auto !important;
+}
+.demo-scroll-table > div {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.demo-scroll-table table {
+  width: max-content;
+  max-width: none;
+}
+@media (max-width: 640px) {
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+  .gradio-container {
+    max-width: 100vw !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+  .gradio-container h1 {
+    font-size: 1.55rem !important;
+    line-height: 1.18 !important;
+  }
+  .gradio-container h2 {
+    font-size: 1.25rem !important;
+    line-height: 1.2 !important;
+  }
+  .gradio-container textarea,
+  .gradio-container input,
+  .gradio-container label {
+    font-size: 0.92rem !important;
+  }
+  .gradio-container .wrap,
+  .gradio-container .contain {
+    min-width: 0 !important;
+  }
+  .gradio-container p,
+  .gradio-container li,
+  .gradio-container .prose p,
+  .gradio-container .markdown p,
+  .gradio-container .prose li,
+  .gradio-container .markdown li {
+    width: 100% !important;
+    max-width: calc(100vw - 64px) !important;
+  }
+}
+"""
 CACHED_PREFIX_CASEBOOK_CONFIG = [
     (
         "commodity_inflation_pressure",
@@ -686,20 +769,25 @@ def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
     embedding_models = (
         ", ".join(_as_list(live_snapshot.get("embedding_models"))) or "n/a"
     )
+    evidence_path = str(artifact_paths.get("summary_markdown", ""))
+    evidence_label = Path(evidence_path).name if evidence_path else "n/a"
     return "\n".join(
         [
             "## Demo readiness evidence",
             "",
-            f"- Evidence pack: `{artifact_paths.get('summary_markdown', '')}`",
-            f"- Offline validation: `{snapshot.get('run_count', 0)}` runs; "
-            f"CRPS improved `{snapshot.get('improved_crps_rows', 0)}/{snapshot.get('run_count', 0)}`; "
-            f"energy improved `{snapshot.get('improved_energy_rows', 0)}/{snapshot.get('run_count', 0)}`.",
+            f"- Evidence pack: `{evidence_label}`",
+            f"- Offline validation: `{snapshot.get('run_count', 0)}` runs.",
+            f"- CRPS improved `{snapshot.get('improved_crps_rows', 0)}/{snapshot.get('run_count', 0)}`.",
+            f"- Energy improved `{snapshot.get('improved_energy_rows', 0)}/{snapshot.get('run_count', 0)}`.",
             f"- Offline mean CRPS improvement: `{_fmt_pct(snapshot.get('mean_crps_improvement_vs_persistence'))}`.",
-            f"- Live API casebook: `{live_snapshot.get('pass_count', 0)}/{live_snapshot.get('case_count', 0)}` pass; "
-            f"OpenAI tokens `{live_snapshot.get('total_openai_tokens', 0)}`; "
-            f"min support candidates `{live_snapshot.get('min_support_candidate_count', 0)}`.",
-            f"- Live models: grounding `{live_models}`; embedding `{embedding_models}`.",
-            "- Contract: current/recent implications condition the generator; forward-risk language is warning-only.",
+            f"- Live API casebook: `{live_snapshot.get('pass_count', 0)}/{live_snapshot.get('case_count', 0)}` pass.",
+            f"- OpenAI tokens `{live_snapshot.get('total_openai_tokens', 0)}`.",
+            f"- Min support candidates `{live_snapshot.get('min_support_candidate_count', 0)}`.",
+            f"- Grounding model: `{live_models}`.",
+            f"- Embedding model: `{embedding_models}`.",
+            "- Contract:",
+            "- Current/recent implications are conditioning inputs.",
+            "- Forward-risk language is warning-only.",
         ]
     )
 
@@ -710,6 +798,7 @@ def boss_demo_live_casebook_table(report: dict[str, Any]) -> pd.DataFrame:
     for item in _as_list(live_snapshot.get("case_rows")):
         if not isinstance(item, dict):
             continue
+        summary_path = str(item.get("summary_path", ""))
         rows.append(
             {
                 "Case": str(item.get("case_name", "")),
@@ -718,7 +807,7 @@ def boss_demo_live_casebook_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Condition": str(item.get("condition_only_validation_status", "")),
                 "Warnings": str(item.get("forward_warning_count", "")),
                 "Support": str(item.get("support_candidate_count", "")),
-                "Summary": str(item.get("summary_path", "")),
+                "Summary": Path(summary_path).name if summary_path else "",
             }
         )
     return _frame(rows, BOSS_DEMO_CASEBOOK_COLUMNS)
@@ -2110,10 +2199,14 @@ def build_demo() -> Any:
         prefix_report_state = gr.State({})
         gr.Markdown(
             "# Narrative Conditioned Scenario Demo\n"
-            "Read this top to bottom: story, grounded market implications, "
-            "nearest historical analogues, then the generated 30-day scenario "
-            "distribution. After a run, change the factor or analogue selector "
-            "to redraw the fan chart without rerunning the generator."
+            "Use this page top to bottom:\n\n"
+            "- Enter or edit the story.\n"
+            "- Check implications and warnings.\n"
+            "- Inspect historical support.\n"
+            "- Review the 30-day scenario fan.\n\n"
+            "After a run:\n\n"
+            "- Change the factor selector to redraw the chart.\n"
+            "- Change the analogue selector to compare support."
         )
         gr.Markdown(boss_demo_pack_markdown(boss_demo_pack))
         gr.Dataframe(
@@ -2121,6 +2214,7 @@ def build_demo() -> Any:
             headers=BOSS_DEMO_CASEBOOK_COLUMNS,
             label="Live API casebook readiness",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown("## 1. Risk-manager story")
         story = gr.Textbox(
@@ -2165,11 +2259,13 @@ def build_demo() -> Any:
             headers=IMPLICATION_COLUMNS,
             label="Extracted explicit market implications",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         warnings = gr.Dataframe(
             headers=WARNING_COLUMNS,
             label="Grounding warnings",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown("## 3. Retrieved historical analogues")
         gr.Markdown(
@@ -2181,6 +2277,7 @@ def build_demo() -> Any:
             headers=ANALOGUE_COLUMNS,
             label="Nearest historical analogues",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown("## 4. Scenario distribution")
         gr.Markdown(
@@ -2208,6 +2305,7 @@ def build_demo() -> Any:
             headers=SCENARIO_COLUMNS,
             label="Generated 30-day terminal delta summary",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown("## 5. Latent-prefix validation")
         gr.Markdown(
@@ -2221,6 +2319,7 @@ def build_demo() -> Any:
             headers=VALIDATION_GATE_COLUMNS,
             label="Top validation hard cases",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown("## 6. Prefix-latent live smoke")
         gr.Markdown(
@@ -2349,41 +2448,49 @@ def build_demo() -> Any:
             headers=PREFIX_VARIANT_COLUMNS,
             label="Proposed selected start",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_diagnostic_start = gr.Dataframe(
             headers=PREFIX_VARIANT_COLUMNS,
             label="Diagnostic original-start comparison",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_validation = gr.Dataframe(
             headers=VALIDATION_GATE_COLUMNS,
             label="Prefix-latent current-run validation",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_condition_implications = gr.Dataframe(
             headers=PREFIX_CONDITION_COLUMNS,
             label="Condition-only implications used for support",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_condition_warnings = gr.Dataframe(
             headers=WARNING_COLUMNS,
             label="Warning-only language excluded from conditioning",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_warning_components = gr.Dataframe(
             headers=PREFIX_WARNING_COMPONENT_COLUMNS,
             label="Product warning decomposition",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_start_candidates = gr.Dataframe(
             headers=PREFIX_START_CANDIDATE_COLUMNS,
             label="Historical start/support candidates",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_user_start = gr.Dataframe(
             headers=PREFIX_USER_START_COLUMNS,
             label="User-supplied start diagnostics",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_start_json_status = gr.Markdown(
             "## Start-State JSON Preview\n\n- Status: `waiting`",
@@ -2393,16 +2500,19 @@ def build_demo() -> Any:
             headers=PREFIX_START_PREVIEW_COLUMNS,
             label="Start-state JSON preview",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_shift_factors = gr.Dataframe(
             headers=PREFIX_SHIFT_FACTOR_COLUMNS,
             label="Largest rollout-sensitivity contributors",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_scenario = gr.Dataframe(
             headers=SCENARIO_COLUMNS,
             label="Prefix-latent terminal delta summary",
             interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         with gr.Accordion("Prefix-latent Markdown report", open=False):
             prefix_report_markdown = gr.Markdown(label="Prefix-latent report")
@@ -2555,6 +2665,7 @@ def main() -> None:
         server_port=int(args.server_port),
         share=bool(args.share),
         auth=auth,
+        css=APP_CSS,
     )
 
 

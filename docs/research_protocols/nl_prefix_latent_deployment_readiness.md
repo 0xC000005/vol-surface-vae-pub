@@ -401,6 +401,29 @@ approved internal audit store.
 
 ## Manual Visual QA Checklist
 
+The browser-render smoke captures nonblank desktop/mobile screenshots without
+adding a heavyweight browser automation dependency:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_browser_qa.py \
+  --url http://127.0.0.1:7865 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean \
+  --viewport desktop:1440x1200 \
+  --viewport mobile:390x900
+```
+
+Latest browser QA:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_browser_qa_839g_mobile_clean/browser_qa_report.md
+```
+
+Summary: status `pass`, desktop and mobile screenshots were captured, and the
+mobile render was manually inspected after shortening the top-of-page demo copy
+and readiness evidence into mobile-safe lines. The browser smoke checks page
+load and nonblank rendering; the API smoke remains responsible for exercising
+scenario runs, factor redraws, IV-cell redraws, and report-path outputs.
+
 Before showing the demo externally:
 
 - launch the current HEAD Gradio app from a clean shell;
@@ -424,7 +447,8 @@ The main gaps are:
 - no centralized artifact registry beyond the local hash manifest;
 - limited validation of arbitrary user-supplied joint39 start-state JSON;
 - no formal rate limiting or budget controls around live OpenAI calls;
-- limited visual QA across browsers, screen sizes, and deployment hardware;
+- limited cross-browser QA beyond the current Chrome desktop/mobile render
+  smoke;
 - no durable audit database for narrative, warnings, support, generated paths,
   and user decisions beyond local JSON/Markdown manifests;
 - no production monitoring for failed grounding, OOD narratives, slow rollout,
@@ -432,8 +456,7 @@ The main gaps are:
 
 ## Next Production Step
 
-The next most useful production-readiness iteration is a manual/browser QA pass
-or private hosted prototype using the same 25-file bundle and platform-secret
-contract. Capture screenshots for the readiness panel, cached casebook,
-condition-only implications, warnings, support candidates, fan chart redraw,
-and final audit report.
+The next most useful production-readiness iteration is a private hosted
+prototype using the same 25-file bundle, platform-secret contract, auth smoke,
+browser-render smoke, and audit manifest. The durable blocker is now an
+artifact/audit store and run registry, not another local app wiring pass.
