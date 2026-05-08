@@ -323,6 +323,15 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     )
     assert "risk_manager_story_gradio_demo" in default_args.output_dir
 
+    live_args = build_prefix_latent_run_args(
+        start_mode="nearest_train_start",
+        samples=12,
+        live_story=True,
+        story="A live risk-manager story.",
+    )
+    assert live_args.live_story is True
+    assert live_args.story == "A live risk-manager story."
+
 
 def test_build_run_args_sets_generator_controls() -> None:
     args = build_run_args(
@@ -457,3 +466,30 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert final[2].iloc[0]["Variant"] == "original"
     assert final[3].iloc[0]["Status"] == "pass"
     assert final[5].layout.title.text == "SPX 30-day scenario fan"
+
+
+def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.live_story, args.story))
+        report = _prefix_report()
+        report["cached_query"]["condition_source"] = "live_openai_story"
+        return report
+
+    stream = run_prefix_latent_for_app(
+        start_mode="nearest_train_start",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        live_story=True,
+        story="A live risk-manager story.",
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "OpenAI grounding and embedding" in first[1]
+    assert calls == [(True, "A live risk-manager story.")]
+    assert "live_openai_story" in final[1]

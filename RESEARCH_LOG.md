@@ -110625,3 +110625,83 @@ is systematic, story-specific, or start-specific.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 12 Gradio live-story TestFlight toggle
+
+### Context
+
+Iteration 11 proved the script-level live OpenAI story path, but Gradio still
+only exposed cached prefix-latent memory. The next UX gate was to let a risk
+manager run the typed story through the prefix-latent workflow while making it
+clear that this is still a TestFlight/experimental path.
+
+### Hypothesis
+
+The app can expose live-story prefix-latent mode with a single checkbox while
+keeping cached mode as the default. The UI should pass the typed story into the
+same script-level live-story path and show the resulting warning/pass state
+instead of hiding the low-memory-compatibility risk.
+
+### Execution
+
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Extended `test_code/test_785a_nl_risk_manager_story_gradio_app.py`.
+- Added live-story arguments to `build_prefix_latent_run_args(...)`.
+- Added live-story arguments to `run_prefix_latent_for_app(...)`.
+- Added a Gradio checkbox:
+  `Use typed story (OpenAI TestFlight)`.
+- The checkbox defaults to off, preserving the cached no-OpenAI prefix-latent
+  mode.
+- When enabled, the prefix-latent runner passes the typed story from the main
+  narrative textbox into `nl_prefix_latent_story_smoke.py --live-story`.
+- The prefix-latent status now displays the condition source, so reports can
+  distinguish `cached_bridge_query` from `live_openai_story`.
+
+### Result
+
+The Gradio prefix-latent section now supports two modes:
+
+1. **Cached mode**: no OpenAI calls, uses cached held-out text memory.
+2. **Live TestFlight mode**: calls OpenAI for grounding and embedding, then
+   projects the story through the bridge into generator-memory space.
+
+No additional OpenAI call was made in this iteration because iteration 11
+already verified the real API path. This iteration verified the app plumbing
+with injected runners and a no-launch `build_demo()` smoke.
+
+### Mechanism Read
+
+This is a UX integration step, not new model evidence. It makes the live
+natural-language path usable in the local demo while preserving the warning
+contract. A risk manager can now run the typed story through the prefix-latent
+path, and the UI will report whether the projected text memory is compatible
+with the decoded prefix and selected start.
+
+### Decision
+
+Keep live-story mode behind an explicit TestFlight checkbox. The next
+principled step is to build a small live narrative casebook with 3-5 stories and
+cached outputs, then inspect whether warnings are driven by:
+
+- broad story wording;
+- insufficient grounding constraints;
+- text-memory bridge limitations;
+- start-state mismatch;
+- prefix decoder limitations.
+
+Do not scale live OpenAI runs beyond that small casebook until the warning
+mechanism is better understood.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+
+### Verification
+
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 15 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: printed `Blocks`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 55 passed.
+- `git diff --check`: passed.
+
+---

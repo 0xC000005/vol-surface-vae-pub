@@ -576,6 +576,7 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
             "## Prefix-Latent Run Status",
             "",
             f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
+            f"- Condition source: `{query.get('condition_source', 'n/a')}`",
             f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
             f"- Overall: `{gate.get('overall_status', 'n/a')}`",
             f"- Operational: `{gate.get('operational_status', 'n/a')}`",
@@ -626,13 +627,19 @@ def _prefix_progress_status_markdown(
     start_time: float,
     start_mode: str,
     samples: int,
+    live_story: bool = False,
 ) -> str:
+    condition_step = (
+        "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
+        if bool(live_story)
+        else "cached text memory, start selection, prefix decoding, frozen rollout"
+    )
     return "\n".join(
         [
             "## Prefix-Latent Run Status",
             "",
             f"- Prefix-latent run started: `{_elapsed_text(start_time)} ago`",
-            "- Current step: `cached text memory, start selection, prefix decoding, frozen rollout`",
+            f"- Current step: `{condition_step}`",
             f"- Start mode: `{start_mode}`",
             f"- Generator samples per variant: `{int(samples)}`",
             "- Outputs will fill in automatically when the run completes.",
@@ -756,6 +763,8 @@ def build_prefix_latent_run_args(
     *,
     start_mode: str,
     samples: int,
+    live_story: bool = False,
+    story: str = DEFAULT_STORY,
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -771,6 +780,14 @@ def build_prefix_latent_run_args(
         query_kind=None,
         query_window_id=None,
         query_index=0,
+        live_story=bool(live_story),
+        story=str(story or DEFAULT_STORY),
+        grounding_json=None,
+        grounding_model="gpt-5.4-mini",
+        grounding_max_output_tokens=1200,
+        embedding_model="text-embedding-3-small",
+        bridge_adapter=DEFAULT_BRIDGE_ADAPTER,
+        dotenv=".env",
         start_mode=str(start_mode),
         explicit_start_window_index=None,
         include_original_baseline=True,
@@ -879,6 +896,8 @@ def run_prefix_latent_for_app(
     samples: int,
     fan_market: str,
     analogue_scope: str,
+    live_story: bool = False,
+    story: str = DEFAULT_STORY,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
 ) -> Any:
@@ -887,12 +906,15 @@ def run_prefix_latent_for_app(
         start_time=start_time,
         start_mode=str(start_mode),
         samples=int(samples),
+        live_story=bool(live_story),
     )
     yield _blank_prefix_outputs(status=running_status, fan_market=fan_market)
 
     args = build_prefix_latent_run_args(
         start_mode=str(start_mode),
         samples=int(samples),
+        live_story=bool(live_story),
+        story=str(story or DEFAULT_STORY),
     )
     try:
         report = runner(args)
@@ -1078,6 +1100,11 @@ def build_demo() -> Any:
                 value="nearest_train_start",
                 label="Start mode",
             )
+            prefix_live_story = gr.Checkbox(
+                value=False,
+                label="Use typed story (OpenAI TestFlight)",
+                info="Unchecked uses cached held-out text memory. Checked grounds and embeds the story above.",
+            )
             prefix_samples = gr.Slider(
                 minimum=2,
                 maximum=64,
@@ -1162,6 +1189,8 @@ def build_demo() -> Any:
                 prefix_samples,
                 prefix_fan_market,
                 prefix_analogue_scope,
+                prefix_live_story,
+                story,
             ],
             outputs=[
                 prefix_report_markdown,
