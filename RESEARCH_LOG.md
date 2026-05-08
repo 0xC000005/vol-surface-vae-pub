@@ -114291,3 +114291,38 @@ This closes a practical hosted-prototype gap: the app can now enforce Gradio bas
 The remaining production-readiness blockers are persistent audit storage and browser/screenshot QA across the real UI. The next step should make live/cached run artifacts durable outside local `/tmp`, then add browser screenshots once a browser dependency is acceptable.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 79 audit manifest
+
+### Context
+After the auth-aware private demo path passed, the remaining operations blocker was durable audit storage. The saved evidence existed as separate preflight, smoke, QA, and staged files, but there was no manifest that could be handed to a reviewer or artifact store with hashes and missing-reference checks.
+
+### Hypothesis
+A deterministic audit manifest builder can provide a practical first audit-storage layer without adding a database. It should hash every referenced artifact, detect missing referenced files, optionally copy artifacts into an archive folder, and avoid retaining user narrative text unless explicitly requested.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_demo_audit_manifest.py`.
+- Added `test_code/test_813a_nl_prefix_latent_demo_audit_manifest.py`.
+- The script accepts one or more `--run-summary` JSON files plus optional artifact roots, resolves referenced JSON/Markdown/arrays/model/data artifacts, records byte counts and SHA-256 hashes, and writes JSON/Markdown manifests.
+- It includes an optional `--copy-artifacts` mode but the real run used hash-only mode to avoid duplicating the 52 MB demo bundle.
+- Sensitive narrative-like text is hashed by default and raw text is included only with `--include-sensitive-text`.
+- Tightened the sensitive-key detector after the first run incorrectly classified `history_start_date` as narrative text because `history` contains the substring `story`.
+
+### Result
+The real audit manifest passed. It consumed 5 input summaries, hashed 41 referenced artifacts, covered 54,239,899 artifact bytes, found zero missing references, and retained no raw narrative-like text. The manifest uses source commit `4d1d897` and records all referenced demo evidence needed to reproduce the staged/auth QA packet boundary.
+
+Latest audit artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_audit_manifest_838a_auth_packet/demo_audit_manifest.json`
+
+### Mechanism Read
+This is not yet a production audit database, but it closes the immediate handoff gap. A reviewer can now see exactly which files support the demo, their hashes, their sizes, and whether any referenced path is missing. This also gives a clear input to a future private artifact store or database migration.
+
+### Verification
+- `uv run pytest test_code/test_813a_nl_prefix_latent_demo_audit_manifest.py -q` passed 6 tests.
+- `python experiments/backfill/block_ar/nl_prefix_latent_demo_audit_manifest.py --help` succeeded.
+- Real audit-manifest command returned status `pass`, 41 artifacts, zero missing references.
+- Re-running after the redaction fix kept status `pass` and reduced false sensitive-text detection from history-date fields.
+
+### Decision / Next Step
+The next production-readiness blocker is browser/screenshot QA across the real UI. The audit/storage path now has a local manifest layer; the remaining UI risk is whether a browser-rendered boss demo visibly shows readiness, implications/warnings, support candidates, fan redraws, IV-cell redraws, analogue traces, and report paths across realistic view sizes.
+
+---

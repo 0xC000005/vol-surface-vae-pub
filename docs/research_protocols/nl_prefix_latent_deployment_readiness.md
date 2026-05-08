@@ -370,6 +370,35 @@ Summary: status `pass` across eight gates, adding
 `authenticated_cached_demo_path` with `auth_used=True`, selected-start `pass`,
 8 support candidates, 8 fan traces, and 8 IV-cell redraw traces.
 
+## Audit Manifest
+
+Saved demo evidence can be turned into a durable hash manifest without copying
+large artifacts:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_audit_manifest.py \
+  --run-summary experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_preflight_834a_complete_bundle/demo_preflight_report.json \
+  --run-summary /tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_smoke_833f_complete_bundle/gradio_api_smoke_summary.json \
+  --run-summary /tmp/nl_prefix_latent_demo_stage_832a/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_api_live_testflight_835a_secret_env/gradio_api_smoke_summary.json \
+  --run-summary /tmp/nl_prefix_latent_demo_stage_837a_auth/experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_staged_gradio_auth_smoke_837a/gradio_api_smoke_summary.json \
+  --run-summary experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_qa_packet_837b_auth_staged/demo_qa_packet.json \
+  --artifact-root /tmp/nl_prefix_latent_demo_stage_832a \
+  --artifact-root /tmp/nl_prefix_latent_demo_stage_837a_auth \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_audit_manifest_838a_auth_packet
+```
+
+Latest audit manifest:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_audit_manifest_838a_auth_packet/demo_audit_manifest.md
+```
+
+Summary: status `pass`, 5 input summaries, 41 referenced artifacts hashed,
+54,239,899 artifact bytes, zero missing references, and no narrative-like text
+retained in the manifest. The script hashes narrative-like text by default and
+only includes raw text when `--include-sensitive-text` is explicitly set for an
+approved internal audit store.
+
 ## Manual Visual QA Checklist
 
 Before showing the demo externally:
@@ -392,12 +421,12 @@ The current system is a strong internal prototype, not a production service.
 The main gaps are:
 
 - no authentication, authorization, or persistent case management;
-- no centralized artifact registry or hash manifest for deployable bundles;
+- no centralized artifact registry beyond the local hash manifest;
 - limited validation of arbitrary user-supplied joint39 start-state JSON;
 - no formal rate limiting or budget controls around live OpenAI calls;
 - limited visual QA across browsers, screen sizes, and deployment hardware;
 - no durable audit database for narrative, warnings, support, generated paths,
-  and user decisions;
+  and user decisions beyond local JSON/Markdown manifests;
 - no production monitoring for failed grounding, OOD narratives, slow rollout,
   or degenerate scenario samples.
 
