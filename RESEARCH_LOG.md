@@ -111911,3 +111911,91 @@ Do not train a residual bridge yet. The next principled step is a small OpenAI T
 - `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py -q` -> 85 passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 31 condition-only grounding contract
+
+### Context
+The previous temporal-role audit showed that our old grounding contract was conceptually wrong for a production risk-manager system: the narrative should describe the current/recent conditioning regime, not a desired future path. The prior one-story temporal TestFlight also showed why this matters: even when the model noticed that no base-case future was stated, the schema still allowed a weak `forward_scenario_implication`.
+
+### Hypothesis
+A stricter condition-only grounding contract can preserve the risk-manager narrative as a conditioning state while refusing to turn future-looking language into scenario targets. The falsifier is any OpenAI casebook output that creates future targets, leaks warning-only future phrases back into conditioning text, or emits unsupported market names that downstream analogue/bridge code cannot consume.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py`.
+- Added `test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py`.
+- The script uses a condition-only schema:
+  - `current_market_state_implications`;
+  - `recent_regime_implications`;
+  - `non_conditioning_forward_language`;
+  - `grounding_warnings`;
+  - no `forward_scenario_implications`.
+- Added a deterministic sentence split before the OpenAI call:
+  - current/recent candidate sentences go to the conditioning section;
+  - future-looking sentences go to a warning-only section.
+- Added validation gates for:
+  - future target count fixed at zero;
+  - forward-warning phrase leakage into summaries or implications;
+  - supported downstream market names only;
+  - clean embedding candidate text that excludes the raw narrative and warning-only future text.
+
+### Result
+The first permissive temporal run passed mechanically but was philosophically wrong because it allowed a future implication. The first strict condition-only run improved this but still exposed two real failure modes:
+
+- future-warning language could leak into free-form summaries;
+- OpenAI could emit unsupported market names such as `credit spreads`.
+
+After adding sentence pre-splitting, leakage validation, supported-market validation, and stricter summary instructions, the final three-story OpenAI casebook passed:
+
+- case count: `3`;
+- status counts: `{"pass": 3}`;
+- condition implication count: `12`;
+- current support count: `12`;
+- recent regime count: `0`;
+- forward warning count: `3`;
+- forward warning leakage count: `0`;
+- future target count: `0`;
+- condition role error count: `0`.
+
+Approximate OpenAI usage for the final successful casebook was `1746 + 1965 + 1808 = 5519` total tokens.
+
+### Mechanism Read
+The key production contract is now clearer:
+
+```text
+narrative -> condition-only market state -> analogue-mixture support -> conditional distribution
+```
+
+not:
+
+```text
+narrative -> requested future path -> generated futures that satisfy the request
+```
+
+The deterministic pre-split is not a market-movement rule. It is a safety guard that prevents future-looking prose from contaminating the condition embedding. This is necessary because prompt-only instructions were not reliable enough: even when the model correctly marked a sentence as warning-only, it sometimes reused pieces of that sentence in summaries.
+
+### Decision / Next Step
+Keep the condition-only contract. The next principled step is to wire the successful condition-only grounding artifact into the existing prefix-latent story-smoke path as a condition-report source:
+
+1. embed only the clean condition query text;
+2. project it into condition memory;
+3. form the analogue-mixture support prior;
+4. run the frozen joint39 SNI rollout;
+5. compare support-prior implication alignment and scenario distribution diagnostics against the previous live-story path.
+
+Do not train residual bridge components until the condition-only path is operational end to end.
+
+### Artifacts
+- Condition-only grounding script: `experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py`
+- Tests: `test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py`
+- Successful final casebook summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_808j_casebook_summary_strict/condition_only_grounding_summary.json`
+- One-story condition-only pilot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_808b_one/condition_only_grounding_summary.json`
+- Leakage replay of earlier output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_808f_replay_808e/condition_only_grounding_summary.json`
+- Market-gate replay: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_808h_replay_808g_market_gate/condition_only_grounding_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py -q` -> 8 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_grounding_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_grounding_testflight_808j_casebook_summary_strict --case-count 3 --model gpt-5.4-mini --max-output-tokens 1800` -> 3 pass, 0 future targets, 0 leakage.
+- `uv run pytest test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py -q` -> 12 passed.
+- `git diff --check` -> passed.
+
+---
