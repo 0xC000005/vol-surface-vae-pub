@@ -66,9 +66,18 @@ def validation_snapshot(report: dict[str, Any]) -> dict[str, Any]:
         best = {}
     rows = [row for row in report.get("rows", []) if isinstance(row, dict)]
     improved_crps = 0
+    improved_energy = 0
     warning_rows = 0
     pass_rows = 0
+    case_names: set[str] = set()
+    start_names: set[str] = set()
     for row in rows:
+        case_name = str(row.get("case_name", ""))
+        start_name = str(row.get("start_name", ""))
+        if case_name:
+            case_names.add(case_name)
+        if start_name:
+            start_names.add(start_name)
         status = str(row.get("validation_operational", ""))
         if status == "pass":
             pass_rows += 1
@@ -76,9 +85,14 @@ def validation_snapshot(report: dict[str, Any]) -> dict[str, Any]:
             warning_rows += 1
         metrics = row.get("scenario_metrics", {})
         if isinstance(metrics, dict):
-            value = metrics.get("ensemble_crps_z_improvement_vs_persistence")
+            crps_value = metrics.get("ensemble_crps_z_improvement_vs_persistence")
             try:
-                improved_crps += int(float(value) > 0.0)
+                improved_crps += int(float(crps_value) > 0.0)
+            except (TypeError, ValueError):
+                pass
+            energy_value = metrics.get("energy_score_z_improvement_vs_persistence")
+            try:
+                improved_energy += int(float(energy_value) > 0.0)
             except (TypeError, ValueError):
                 pass
     return {
@@ -87,10 +101,15 @@ def validation_snapshot(report: dict[str, Any]) -> dict[str, Any]:
         "case_set": str(report.get("case_set", "")),
         "variant_set": str(report.get("variant_set", "")),
         "best_variant": str(best.get("variant_name", "")),
+        "narrative_family_count": len(case_names),
+        "narrative_families": sorted(case_names),
+        "fixed_start_count": len(start_names),
+        "fixed_starts": sorted(start_names),
         "status_counts": best.get("operational_status_counts", {}),
         "pass_rows": int(pass_rows),
         "warning_rows": int(warning_rows),
         "improved_crps_rows": int(improved_crps),
+        "improved_energy_rows": int(improved_energy),
         "mean_energy_score_z": best.get("mean_energy_score_z"),
         "mean_ensemble_crps_z": best.get("mean_ensemble_crps_z"),
         "mean_energy_improvement_vs_persistence": best.get(
@@ -130,10 +149,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Validation report: `{summary['validation_report']}`",
         f"- Case set: `{snapshot['case_set']}`",
+        f"- Narrative families: `{snapshot['narrative_family_count']}` "
+        f"({', '.join(snapshot['narrative_families']) or 'n/a'})",
+        f"- Fixed starts: `{snapshot['fixed_start_count']}` "
+        f"({', '.join(snapshot['fixed_starts']) or 'n/a'})",
         f"- Runs: `{snapshot['run_count']}`",
         f"- Best variant: `{snapshot['best_variant']}`",
         f"- Status counts: `{json.dumps(snapshot['status_counts'], sort_keys=True)}`",
         f"- Rows improving CRPS vs persistence: `{snapshot['improved_crps_rows']}/{snapshot['run_count']}`",
+        f"- Rows improving energy vs persistence: `{snapshot['improved_energy_rows']}/{snapshot['run_count']}`",
         f"- Mean energy z: `{_fmt_float(snapshot['mean_energy_score_z'])}`",
         f"- Mean CRPS z: `{_fmt_float(snapshot['mean_ensemble_crps_z'])}`",
         f"- Mean energy improvement vs persistence: `{_fmt_pct(snapshot['mean_energy_improvement_vs_persistence'])}`",
@@ -144,8 +168,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         (
             "`pass` means the run is supported and calibrated under current "
             "gates. `warning` means the run can still be useful, but the UI "
-            "must show support/shift caveats. In the current expanded "
-            "validation, warning rows still improved CRPS versus persistence, "
+            "must show support/shift caveats. In the current "
+            "validation, warning rows can still improve CRPS versus persistence, "
             "so warning is a trust caveat rather than an automatic scenario "
             "metric failure."
         ),
@@ -161,9 +185,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "## Next Validation Step",
         "",
         (
-            "Scale beyond the cached three narratives by adding more "
-            "condition-only narratives, then rerun the calibrated fixed-start "
-            "validation grid with the same pass/warning semantics."
+            "Turn the broader condition-only validation into a selectable demo "
+            "casebook, then keep scaling narratives and fixed starts while "
+            "preserving the same pass/warning semantics."
         ),
     ]
     return "\n".join(lines)

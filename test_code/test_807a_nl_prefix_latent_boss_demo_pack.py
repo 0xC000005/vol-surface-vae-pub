@@ -29,12 +29,22 @@ def _validation_report() -> dict:
         ],
         "rows": [
             {
+                "case_name": "commodity_inflation_pressure",
+                "start_name": "explicit_start_18",
                 "validation_operational": "pass",
-                "scenario_metrics": {"ensemble_crps_z_improvement_vs_persistence": 0.1},
+                "scenario_metrics": {
+                    "ensemble_crps_z_improvement_vs_persistence": 0.1,
+                    "energy_score_z_improvement_vs_persistence": 0.2,
+                },
             },
             {
+                "case_name": "dollar_liquidity_squeeze",
+                "start_name": "balanced_policy_start_77",
                 "validation_operational": "warning",
-                "scenario_metrics": {"ensemble_crps_z_improvement_vs_persistence": 0.3},
+                "scenario_metrics": {
+                    "ensemble_crps_z_improvement_vs_persistence": 0.3,
+                    "energy_score_z_improvement_vs_persistence": 0.4,
+                },
             },
         ],
     }
@@ -47,7 +57,10 @@ def test_validation_snapshot_extracts_demo_metrics() -> None:
     assert snapshot["run_count"] == 2
     assert snapshot["pass_rows"] == 1
     assert snapshot["warning_rows"] == 1
+    assert snapshot["narrative_family_count"] == 2
+    assert snapshot["fixed_start_count"] == 2
     assert snapshot["improved_crps_rows"] == 2
+    assert snapshot["improved_energy_rows"] == 2
     assert snapshot["mean_crps_improvement_vs_persistence"] == 0.2
 
 
@@ -61,6 +74,8 @@ def test_render_markdown_explains_workflow_and_warning_semantics() -> None:
 
     assert "Narrative-Conditioned Scenario Generator Evidence Pack" in text
     assert "Fix the initial joint39 level" in text
+    assert "Narrative families: `2`" in text
+    assert "Rows improving energy vs persistence: `2/2`" in text
     assert "Rows improving CRPS vs persistence: `2/2`" in text
     assert "warning is a trust caveat" in text
 

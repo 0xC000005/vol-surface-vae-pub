@@ -113437,3 +113437,49 @@ generation, not point forecasting: the broader new-condition grid improved CRPS
 and energy versus persistence across every tested row.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 61 broader evidence pack
+
+### Context
+The broader 9-row condition-only validation is now positive, but the existing
+boss evidence pack was written around the earlier cached validation milestone.
+For production readiness, the boss/demo artifact needs to communicate the
+broader narrative coverage, fixed-start support, warning semantics, and
+distributional quality in one concise report.
+
+### HEAD
+- Hypothesis: the evidence-pack generator can be upgraded without new OpenAI
+  calls or rollouts by extracting narrative family names, fixed-start names,
+  CRPS-improving row counts, and energy-improving row counts from the validation
+  report.
+- Execute: updated `nl_prefix_latent_boss_demo_pack.py` to report narrative
+  family count/list, fixed-start count/list, rows improving energy, and rows
+  improving CRPS. Updated tests to cover the new fields. Regenerated a boss
+  evidence pack from the 9-row condition-only validation artifact.
+- Analyze: tests passed. The generated evidence pack now reports 3 narrative
+  families, 6 fixed starts, 9 runs, 8 pass / 1 warning, 9/9 rows improving CRPS,
+  9/9 rows improving energy, mean CRPS improvement +14.7%, and mean energy
+  improvement +15.8% versus persistence.
+- Decide: the broader validation is ready for boss/demo communication. The next
+  production step is to make this broader casebook selectable in the Gradio
+  demo so a risk manager can inspect narrative family, fixed start, support
+  caveats, and generated fans without reading JSON artifacts.
+
+### Evidence
+- `uv run pytest test_code/test_807a_nl_prefix_latent_boss_demo_pack.py -q`: 3 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py test_code/test_807a_nl_prefix_latent_boss_demo_pack.py`: passed.
+- `git diff --check`: passed.
+- Pack generation: `uv run python experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py --validation-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_823d_new_conditions_temp050_s16/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_823e_new_conditions`: status `ok`, mean CRPS improvement +0.1469.
+
+### Artifacts
+- Evidence pack Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_823e_new_conditions/boss_demo_pack.md`
+- Evidence pack JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_823e_new_conditions/boss_demo_pack.json`
+
+### Production implication
+The current boss story is now coherent: a risk manager narrative is grounded
+into current/recent market implications, a fixed start is selected or supplied,
+the analogue mixture is conditioned on both, and the frozen SNI generator
+produces the distribution. The evidence pack now makes the broader validation
+legible without presenting the system as an LLM that directly invents future
+paths.
+
+---
