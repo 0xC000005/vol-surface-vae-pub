@@ -112670,3 +112670,55 @@ Keep the export/template path. The next production step is not another start-con
 - Exported-template smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/exported_user_start_state_verify/prefix_latent_story_smoke_report.json`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 43 product acceptance smoke
+
+### Context
+After adding user-start JSON export, preview, and rollout, the next production-readiness need was a single reproducible acceptance harness that verifies the complete risk-manager path without manual Gradio clicks.
+
+### Hypothesis
+A no-OpenAI product acceptance smoke can act as a regression gate for the demo contract. It should fail if the system cannot export a start template, preview it, run `user_start_state`, expose support diagnostics, produce fan-chart data, and pass/warn rather than fail validation.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py`.
+- Added `test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py`.
+- The harness:
+  1. exports a `values_by_name` start JSON from candidate 18;
+  2. previews the exported JSON;
+  3. runs the saved condition-only report through `user_start_state`;
+  4. checks validation/operational status;
+  5. checks that the user-start variant is present;
+  6. checks support candidates are present;
+  7. checks start preview rows are present;
+  8. checks SPX fan data and selected IV-cell fan data are available;
+  9. writes JSON and Markdown summaries.
+
+### Result
+- Harness/unit tests: `uv run pytest test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 28 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py -q` -> 42 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py` -> passed.
+- Diff hygiene: `git diff --check` -> passed.
+- Product acceptance smoke:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_812a --candidate-index 18 --samples 2 --steps 100 --chunk-size 2 --device cuda`
+  returned `status=pass`.
+- Checks:
+  - validation gate: pass (`overall=pass`, `operational=pass`);
+  - user-start variant: present (`user_template_from_joint39_val_0036`);
+  - support candidates: 8;
+  - start preview rows: 17;
+  - SPX fan data: present;
+  - selected IV-cell fan data: present.
+
+### Mechanism Read
+This is the first compact product acceptance gate for the narrative-conditioned scenario generator. It does not prove statistical production quality across many narratives, but it proves that the demo contract works end to end and that the current-state separation is functional: narrative condition is reused from the condition-only report, the start is supplied as raw JSON, and the frozen generator produces pathwise scenario distributions with audit artifacts.
+
+### Decision / Next Step
+Keep the acceptance harness. The next production step is to scale this from one candidate/story to a small casebook acceptance suite: multiple narratives, multiple start candidates, expected pass/warn/fail behavior, and saved summaries that can be shown to a risk manager or boss.
+
+### Artifacts
+- Harness: `experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_smoke.py`
+- Tests: `test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py`
+- Acceptance report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_812a/product_acceptance_smoke.json`
+- Acceptance markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_812a/product_acceptance_smoke.md`
+- Run report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_smoke_812a/user_start_run/prefix_latent_story_smoke_report.json`
+
+---
