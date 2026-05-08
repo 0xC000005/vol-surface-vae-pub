@@ -1,10 +1,12 @@
 #!/usr/bin/env python
-"""Live cached story smoke for the narrative prefix-latent workflow.
+"""Story smoke for the narrative prefix-latent workflow.
 
-This script makes no OpenAI calls. It uses a cached held-out narrative/text
-memory from the representative OpenAI bridge run, combines it with an original
-or selected explicit starting state, decodes a synthetic recent prefix, and
-runs the frozen joint39 SNI generator through its native rollout.
+By default this script makes no OpenAI calls: it uses a cached held-out
+narrative/text memory from the representative bridge run, combines it with an
+original or selected explicit starting state, decodes a synthetic recent prefix,
+and runs the frozen joint39 SNI generator through its native rollout. With
+``--live-story`` it grounds and embeds the typed story before the same
+prefix-decoder and frozen-rollout path.
 """
 
 from __future__ import annotations
@@ -83,6 +85,7 @@ StartMode = Literal[
     "original",
     "nearest_train_start",
     "farthest_train_start",
+    "memory_nearest_start",
     "explicit_start_window",
 ]
 
@@ -229,6 +232,53 @@ def _start_distance(
     )
 
 
+def _memory_support_cosine(
+    *,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    window_index: int,
+) -> float:
+    query = np.asarray(query_memory, dtype=np.float32).reshape(-1)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    idx = int(window_index)
+    if targets.ndim != 2:
+        raise ValueError("memory_targets must have shape [N,D]")
+    if query.shape[0] != targets.shape[1]:
+        raise ValueError("query_memory dim must match memory_targets")
+    if idx < 0 or idx >= targets.shape[0]:
+        raise IndexError(f"window_index {idx} outside {targets.shape[0]}")
+    target = targets[idx]
+    denom = max(float(np.linalg.norm(query) * np.linalg.norm(target)), 1e-8)
+    return float(np.dot(query, target) / denom)
+
+
+def _nearest_memory_support_index(
+    *,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    candidate_indices: np.ndarray,
+) -> tuple[int, float]:
+    query = np.asarray(query_memory, dtype=np.float32).reshape(1, -1)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    candidates = np.asarray(candidate_indices, dtype=np.int64)
+    if candidates.size == 0:
+        raise ValueError("candidate_indices must be non-empty")
+    if targets.ndim != 2:
+        raise ValueError("memory_targets must have shape [N,D]")
+    if query.shape[1] != targets.shape[1]:
+        raise ValueError("query_memory dim must match memory_targets")
+    if np.any(candidates < 0) or np.any(candidates >= targets.shape[0]):
+        raise IndexError("candidate_indices outside memory_targets")
+    candidate_targets = targets[candidates]
+    denom = np.maximum(
+        np.linalg.norm(candidate_targets, axis=1) * np.linalg.norm(query, axis=1)[0],
+        1e-8,
+    )
+    cosine = np.sum(candidate_targets * query, axis=1) / denom
+    best_pos = int(np.argmax(cosine))
+    return int(candidates[best_pos]), float(cosine[best_pos])
+
+
 def resolve_start_window_index(
     *,
     query_window_index: int,
@@ -236,6 +286,8 @@ def resolve_start_window_index(
     train_indices: np.ndarray,
     start_mode: StartMode | str,
     explicit_start_window_index: int | None = None,
+    query_memory: np.ndarray | None = None,
+    memory_targets: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Resolve a product start-selection mode to one bridge-local window index."""
 
@@ -247,10 +299,22 @@ def resolve_start_window_index(
         raise IndexError(f"query_window_index {query_idx} outside {starts.shape[0]}")
     if mode == "original":
         start_idx = query_idx
+        support_cosine = None
     elif mode == "explicit_start_window":
         if explicit_start_window_index is None:
             raise ValueError("explicit_start_window_index is required")
         start_idx = int(explicit_start_window_index)
+        support_cosine = None
+    elif mode == "memory_nearest_start":
+        if query_memory is None or memory_targets is None:
+            raise ValueError(
+                "query_memory and memory_targets are required for memory_nearest_start"
+            )
+        start_idx, support_cosine = _nearest_memory_support_index(
+            query_memory=query_memory,
+            memory_targets=memory_targets,
+            candidate_indices=train,
+        )
     else:
         start_z = _safe_start_z(starts, train)
         distances = np.linalg.norm(start_z[train] - start_z[query_idx], axis=1)
@@ -260,9 +324,16 @@ def resolve_start_window_index(
             start_idx = int(train[int(np.argmax(distances))])
         else:
             raise ValueError(f"unknown start_mode: {start_mode!r}")
+        support_cosine = None
     if start_idx < 0 or start_idx >= starts.shape[0]:
         raise IndexError(f"start_window_index {start_idx} outside {starts.shape[0]}")
-    return {
+    if support_cosine is None and query_memory is not None and memory_targets is not None:
+        support_cosine = _memory_support_cosine(
+            query_memory=query_memory,
+            memory_targets=memory_targets,
+            window_index=int(start_idx),
+        )
+    result = {
         "query_window_index": query_idx,
         "start_window_index": int(start_idx),
         "variant": mode,
@@ -273,6 +344,9 @@ def resolve_start_window_index(
             train_indices=train,
         ),
     }
+    if support_cosine is not None:
+        result["memory_support_cosine"] = float(support_cosine)
+    return result
 
 
 def build_live_story_variant_rows(
@@ -283,6 +357,8 @@ def build_live_story_variant_rows(
     start_mode: StartMode | str,
     explicit_start_window_index: int | None = None,
     include_original_baseline: bool = True,
+    query_memory: np.ndarray | None = None,
+    memory_targets: np.ndarray | None = None,
 ) -> list[dict[str, Any]]:
     """Build original and selected-start rows for one live cached story query."""
 
@@ -292,6 +368,8 @@ def build_live_story_variant_rows(
         start_state=start_state,
         train_indices=train_indices,
         start_mode="original",
+        query_memory=query_memory,
+        memory_targets=memory_targets,
     )
     selected = resolve_start_window_index(
         query_window_index=query_idx,
@@ -299,6 +377,8 @@ def build_live_story_variant_rows(
         train_indices=train_indices,
         start_mode=start_mode,
         explicit_start_window_index=explicit_start_window_index,
+        query_memory=query_memory,
+        memory_targets=memory_targets,
     )
     original.update(
             {
@@ -490,8 +570,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
         "",
         "## Start Selection",
         "",
-        "| Variant | Query Window | Start Window | Start Distance z |",
-        "| --- | --- | --- | ---: |",
+        "| Variant | Query Window | Start Window | Start Distance z | Memory Support Cosine |",
+        "| --- | --- | --- | ---: | ---: |",
     ]
     for row in report.get("variant_rows", []):
         lines.append(
@@ -502,6 +582,11 @@ def _render_markdown(report: dict[str, Any]) -> str:
                     str(row.get("query_window_id", "")),
                     str(row.get("start_window_id", "")),
                     f"{float(row.get('start_distance_z', 0.0)):.3f}",
+                    (
+                        f"{float(row['memory_support_cosine']):.3f}"
+                        if row.get("memory_support_cosine") is not None
+                        else "n/a"
+                    ),
                 ]
             )
             + " |"
@@ -649,6 +734,8 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         start_mode=str(args.start_mode),
         explicit_start_window_index=args.explicit_start_window_index,
         include_original_baseline=bool(args.include_original_baseline),
+        query_memory=query_memory,
+        memory_targets=true_memory_targets,
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
@@ -850,9 +937,10 @@ def main() -> None:
             "original",
             "nearest_train_start",
             "farthest_train_start",
+            "memory_nearest_start",
             "explicit_start_window",
         ],
-        default="original",
+        default="memory_nearest_start",
     )
     parser.add_argument("--explicit-start-window-index", type=int)
     parser.add_argument("--include-original-baseline", action="store_true", default=True)

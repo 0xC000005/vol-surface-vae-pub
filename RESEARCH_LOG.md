@@ -110811,3 +110811,108 @@ support warning.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 14 memory-supported start proposal
+
+### Context
+
+Iteration 13 showed that live OpenAI narratives were not failing because the
+story schema was unusable. All three live stories produced finite rollouts, but
+the fixed cached query start warned on low memory compatibility. The next
+falsifier was whether the system should propose a starting state from projected
+generator-memory support rather than inheriting one fixed cached start.
+
+### Hypothesis
+
+If the bottleneck is only a bad fixed start, selecting a train start whose true
+generator memory is nearest to the projected live text memory should remove the
+low-memory warning for the selected start. If this creates new warnings, the
+warnings should identify the missing production constraint.
+
+### Execution
+
+- Added `memory_nearest_start` to
+  `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- The new mode computes cosine support between the projected text memory and
+  train-window generator memories, then uses only the selected window's final
+  state as the starting level.
+- The prefix dynamics still come from the learned text-memory-plus-start prefix
+  decoder, not from copying the historical analogue prefix.
+- Added memory-support diagnostics to the report, markdown table, and Gradio
+  prefix-latent variant table.
+- Updated the live casebook default start mode to `memory_nearest_start`.
+- Ran a cached mechanical smoke and a bounded 3-story live OpenAI casebook.
+
+### Result
+
+Cached smoke:
+
+- output shape: `[2, 2, 30, 39]`;
+- selected memory-nearest train start support cosine: `0.9599`;
+- decoded memory cosine for selected start: `0.9464`;
+- overall status: `warning`;
+- warning mechanism: selected start was far from the query start
+  (`start_distance_z=15.34`) and shifted the rollout enough to trip the rollout
+  warning (`terminal_mean_abs_delta_z=1.05`).
+
+Live 3-story casebook:
+
+| Case | Status | Original Support | Selected Support | Selected Decoded Cosine | Selected Start | Warnings |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| fragile_risk_on_rebound | warning | 0.6959 | 0.8945 | 0.8815 | joint39_val_0031 | large_start_distance, large_rollout_shift |
+| defensive_risk_off_shock | warning | 0.7056 | 0.9084 | 0.8834 | joint39_val_0007 | large_start_distance, large_rollout_shift |
+| rates_selloff_tightening_fear | warning | 0.6469 | 0.8664 | 0.7858 | joint39_val_0013 | low_memory_compatibility, large_start_distance, large_rollout_shift |
+
+All three live stories again produced finite `[2, 2, 30, 39]` outputs. The
+warning mechanism changed in the intended direction: selected starts are much
+more compatible with the projected story memory, but pure memory-nearest search
+can pick starts that are too far from the query/current state. That is not a
+catastrophic failure; it is a useful product warning showing the start proposal
+needs a support-distance tradeoff.
+
+### Mechanism Read
+
+Pure memory-nearest start proposal is too aggressive for production. It solves
+part of the problem by finding a starting level that is semantically compatible
+with the story memory, but it ignores the market-level plausibility of the
+start. The next production contract should not ask for "nearest memory at any
+cost." It should propose starts with a constrained or scored tradeoff:
+
+```text
+maximize text-memory support
+subject to start-distance/support thresholds,
+or penalize large start distance in the proposal score.
+```
+
+This keeps historical windows in their permitted role: choosing or auditing a
+starting point, not supplying the 30-day prefix dynamics.
+
+### Decision
+
+Do not scale the live casebook yet. The next HEAD iteration should implement a
+balanced start selector that reports both memory support and start-distance
+support, then rerun the same 3-story casebook. The expected improvement is not
+necessarily all-pass; it is a cleaner warning taxonomy where a narrative-only
+run can explain whether it chose a nearby but weaker start, a strong but distant
+start, or requires the risk manager to provide a start explicitly.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py`
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `test_code/test_792a_nl_prefix_latent_live_casebook.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_793a_memory_start_cached/prefix_latent_story_smoke_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_793a_memory_start/live_prefix_casebook_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 27 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_793a_memory_start_cached --steps 100 --samples 2 --chunk-size 2 --start-mode memory_nearest_start --device cuda`: cached smoke completed with validation warning.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_793a_memory_start --case-count 3 --steps 100 --samples 2 --chunk-size 2 --start-mode memory_nearest_start --device cuda`: 3 live OpenAI cases, all warning.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 59 passed.
+
+---

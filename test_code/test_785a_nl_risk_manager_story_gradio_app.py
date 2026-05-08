@@ -162,12 +162,14 @@ def _prefix_report() -> dict:
                 "query_window_id": "joint39_val_0370",
                 "start_window_id": "joint39_val_0370",
                 "start_distance_z": 0.0,
+                "memory_support_cosine": 0.812,
             },
             {
                 "variant": "nearest_train_start",
                 "query_window_id": "joint39_val_0370",
                 "start_window_id": "joint39_val_0269",
                 "start_distance_z": 6.94,
+                "memory_support_cosine": 0.887,
             },
         ],
         "validation_gate": {
@@ -293,6 +295,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert "Overall: `pass`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
+    assert variants.iloc[1]["Memory Support"] == "0.887"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
 
 
