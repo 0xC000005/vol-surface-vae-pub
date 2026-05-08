@@ -24,6 +24,7 @@ DEFAULT_CASES = [
     {
         "name": "fragile_risk_on",
         "candidate_index": 18,
+        "expected_operational_status": "pass",
         "condition_report": (
             "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
             "prefix_latent_condition_only_report_809a_fragile/"
@@ -33,6 +34,7 @@ DEFAULT_CASES = [
     {
         "name": "defensive_risk_off",
         "candidate_index": 22,
+        "expected_operational_status": "warning",
         "condition_report": (
             "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
             "prefix_latent_condition_only_report_809b_defensive/"
@@ -42,6 +44,7 @@ DEFAULT_CASES = [
     {
         "name": "rates_selloff",
         "candidate_index": 18,
+        "expected_operational_status": "pass",
         "condition_report": (
             "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
             "prefix_latent_condition_only_report_809c_rates/"
@@ -60,6 +63,13 @@ def summarize_casebook(case_summaries: list[dict[str, Any]]) -> dict[str, Any]:
     for item in case_summaries:
         checks = item.get("checks", [])
         diagnostics = item.get("diagnostics", {})
+        expected_operational = str(item.get("expected_operational_status", ""))
+        actual_operational = str(diagnostics.get("validation_operational", ""))
+        expectation_met = (
+            True
+            if not expected_operational
+            else actual_operational == expected_operational
+        )
         failed_checks = [
             str(row.get("name"))
             for row in checks
@@ -71,9 +81,9 @@ def summarize_casebook(case_summaries: list[dict[str, Any]]) -> dict[str, Any]:
                 "status": str(item.get("status", "")),
                 "candidate_index": int(item.get("candidate_index", -1)),
                 "validation_overall": str(diagnostics.get("validation_overall", "")),
-                "validation_operational": str(
-                    diagnostics.get("validation_operational", "")
-                ),
+                "validation_operational": actual_operational,
+                "expected_operational_status": expected_operational,
+                "expectation_met": bool(expectation_met),
                 "support_candidate_count": int(
                     diagnostics.get("support_candidate_count", 0)
                 ),
@@ -89,9 +99,15 @@ def summarize_casebook(case_summaries: list[dict[str, Any]]) -> dict[str, Any]:
         "case_count": int(len(rows)),
         "pass_count": int(sum(row["status"] == "pass" for row in rows)),
         "fail_count": int(sum(row["status"] != "pass" for row in rows)),
-        "overall_status": "pass"
-        if rows and all(row["status"] == "pass" for row in rows)
-        else "fail",
+        "expectation_fail_count": int(
+            sum(not bool(row["expectation_met"]) for row in rows)
+        ),
+        "overall_status": (
+            "pass"
+            if rows
+            and all(row["status"] == "pass" and row["expectation_met"] for row in rows)
+            else "fail"
+        ),
         "cases": rows,
     }
 
@@ -104,9 +120,10 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Case count: `{summary.get('case_count')}`",
         f"- Pass count: `{summary.get('pass_count')}`",
         f"- Fail count: `{summary.get('fail_count')}`",
+        f"- Expectation fail count: `{summary.get('expectation_fail_count')}`",
         "",
-        "| Case | Status | Candidate | Validation | Support | Start z | Preview | Fans | Failed Checks |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---|",
+        "| Case | Status | Expected | Validation | Candidate | Support | Start z | Preview | Fans | Failed Checks |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in summary.get("cases", []):
         failed = ", ".join(row.get("failed_checks", []))
@@ -114,11 +131,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"{row.get('validation_overall', '')}/"
             f"{row.get('validation_operational', '')}"
         )
+        expected = row.get("expected_operational_status", "")
+        expected_text = (
+            f"{expected}/ok" if row.get("expectation_met") else f"{expected}/miss"
+        )
         start_z = row.get("start_distance_z")
         start_z_text = "" if start_z is None else f"{float(start_z):.3f}"
         lines.append(
             f"| `{row.get('name')}` | `{row.get('status')}` | "
-            f"`{row.get('candidate_index')}` | `{validation}` | "
+            f"`{expected_text}` | `{validation}` | "
+            f"`{row.get('candidate_index')}` | "
             f"`{row.get('support_candidate_count')}` | `{start_z_text}` | "
             f"`{row.get('preview_field_count')}` | `{row.get('fan_count')}` | "
             f"{failed} |"
@@ -155,14 +177,18 @@ def extract_case_diagnostics(
     return {
         "validation_overall": str(gate.get("overall_status", "")),
         "validation_operational": str(gate.get("operational_status", "")),
-        "support_candidate_count": len(memory_prior.get("candidate_details", []))
-        if isinstance(memory_prior, dict)
-        else 0,
+        "support_candidate_count": (
+            len(memory_prior.get("candidate_details", []))
+            if isinstance(memory_prior, dict)
+            else 0
+        ),
         "start_distance_z": user_start.get("start_distance_z"),
         "preview_field_count": int(preview_field_count),
-        "fan_count": len(generation.get("path_quantiles", []))
-        if isinstance(generation, dict)
-        else 0,
+        "fan_count": (
+            len(generation.get("path_quantiles", []))
+            if isinstance(generation, dict)
+            else 0
+        ),
     }
 
 
@@ -178,7 +204,9 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> None:
 def run_acceptance_casebook(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    selected_cases = DEFAULT_CASES[: int(args.case_count)] if args.case_count else DEFAULT_CASES
+    selected_cases = (
+        DEFAULT_CASES[: int(args.case_count)] if args.case_count else DEFAULT_CASES
+    )
     case_summaries = []
     for case in selected_cases:
         case_output_dir = output_dir / str(case["name"])
@@ -197,6 +225,9 @@ def run_acceptance_casebook(args: argparse.Namespace) -> dict[str, Any]:
             {
                 **result,
                 "name": str(case["name"]),
+                "expected_operational_status": str(
+                    case.get("expected_operational_status", "")
+                ),
                 "diagnostics": extract_case_diagnostics(
                     smoke_summary=result,
                     run_report=run_report,

@@ -112812,3 +112812,58 @@ Keep the enriched casebook report. The next production step is broader quality, 
 - Enriched casebook markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813b_diagnostics/product_acceptance_casebook.md`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 46 expected-status acceptance casebook
+
+### Context
+The acceptance casebook had started to behave like a useful product-regression
+artifact, but it only reported validation statuses. For production trust, some
+narratives should warn rather than pass silently. The defensive risk-off case is
+one such case because it remains viable for narrative-only generation but carries
+rollout/start-support caution.
+
+### Hypothesis
+Adding expected operational statuses to the casebook will make pass/warn/fail
+semantics auditable: a casebook should fail if a warning case unexpectedly passes
+or if a pass case degrades into a warning/fail.
+
+### Execution
+- Added `expected_operational_status` to the three default casebook narratives:
+  fragile risk-on expects `pass`, defensive risk-off expects `warning`, and rates
+  selloff expects `pass`.
+- Added case-level `expectation_met` and suite-level `expectation_fail_count`.
+- Updated the markdown report to show the expected status beside the observed
+  validation status.
+- Added a regression test proving that a missing expected warning fails the
+  casebook even when the smoke run itself reports `pass`.
+
+### Result
+The CUDA casebook run passed with zero expectation failures:
+
+- fragile risk-on: `pass/pass`, expected `pass`.
+- defensive risk-off: `warning/warning`, expected `warning`.
+- rates selloff: `pass/pass`, expected `pass`.
+
+The generated report is:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813c_expectations/product_acceptance_casebook.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813c_expectations/product_acceptance_casebook.md`
+
+### Mechanism Read
+This improves the production contract rather than the model itself. It prevents
+the demo/evaluation layer from treating all non-fail outcomes as equivalent. For
+a risk-manager-facing narrative generator, preserving an intended warning is a
+trust feature because it tells the user the system is still conditionally usable
+but should not be read as a cleanly grounded state.
+
+### Verification
+- `uv run pytest test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py test_code/test_804a_nl_prefix_latent_product_acceptance_casebook.py`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_product_acceptance_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_product_acceptance_casebook_813c_expectations --case-count 3 --samples 2 --steps 100 --chunk-size 2 --device cuda`
+- `git diff --check`
+
+### Decision
+Continue toward production readiness by expanding the casebook into a harder
+acceptance suite: include OOD/stress narratives and multiple user-start templates
+with explicit expected `pass`, `warning`, or `fail` outcomes.
+
+---
