@@ -1,0 +1,173 @@
+import json
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+import torch
+
+sys.path.insert(0, ".")
+
+from experiments.backfill.block_ar.nl_prefix_latent_analogue_mixture_prior import (
+    candidate_support_table,
+    run_analogue_mixture_prior,
+    weighted_prefix_terminal_rows,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (
+    market_implication_alignment,
+)
+
+
+def _spec_names() -> list[str]:
+    return [f"iv:{idx}" for idx in range(25)] + ["factor:spx", "factor:vix"]
+
+
+def _history() -> np.ndarray:
+    history = np.zeros((3, 30, 27), dtype=np.float32)
+    history[:, :, :25] = 0.2
+    # Candidate 0 matches risk-on: SPX up, VIX down.
+    history[0, -1, 25] = 2.0
+    history[0, -1, 26] = -1.0
+    # Candidate 1 is opposite.
+    history[1, -1, 25] = -2.0
+    history[1, -1, 26] = 1.0
+    # Candidate 2 is partly aligned.
+    history[2, -1, 25] = 1.0
+    history[2, -1, 26] = 1.0
+    return history
+
+
+def _grounding() -> dict:
+    return {
+        "market_implications": [
+            {"market": "SPX", "direction": "up", "confidence": "high"},
+            {"market": "VIX", "direction": "down", "confidence": "high"},
+        ]
+    }
+
+
+def test_weighted_prefix_terminal_rows_blends_selected_analogues() -> None:
+    rows = weighted_prefix_terminal_rows(
+        history_level=_history(),
+        window_indices=np.asarray([0, 1]),
+        weights=np.asarray([0.75, 0.25], dtype=np.float32),
+        spec_names=_spec_names(),
+    )
+
+    by_market = {row["Market"]: row["Mean Terminal Delta"] for row in rows}
+
+    assert by_market["SPX"] > 0.0
+    assert by_market["VIX"] < 0.0
+
+
+def test_candidate_support_table_combines_memory_and_implication_alignment() -> None:
+    rows = candidate_support_table(
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=np.asarray(
+            [[0.7, 0.3], [1.0, 0.0], [0.2, 0.8]],
+            dtype=np.float32,
+        ),
+        history_level=_history(),
+        train_indices=np.asarray([0, 1, 2]),
+        query_window_index=0,
+        grounding=_grounding(),
+        spec_names=_spec_names(),
+        start_distance_threshold_z=100.0,
+        start_distance_penalty=0.0,
+        implication_alignment_weight=1.0,
+    )
+
+    by_idx = {row["window_index"]: row for row in rows}
+
+    assert by_idx[0]["recent_prefix_alignment_score"] == 1.0
+    assert by_idx[1]["recent_prefix_alignment_score"] == -1.0
+    assert by_idx[0]["combined_score"] > by_idx[1]["combined_score"]
+
+
+def test_weighted_rows_are_compatible_with_alignment_helper() -> None:
+    rows = weighted_prefix_terminal_rows(
+        history_level=_history(),
+        window_indices=np.asarray([0, 2]),
+        weights=np.asarray([0.8, 0.2], dtype=np.float32),
+        spec_names=_spec_names(),
+    )
+
+    alignment = market_implication_alignment(
+        grounding=_grounding(),
+        scenario_rows=rows,
+    )
+
+    assert alignment["status"] == "pass"
+    assert alignment["mismatch_count"] == 0
+
+
+def test_run_analogue_mixture_prior_writes_summary(tmp_path) -> None:
+    report_path = tmp_path / "case" / "prefix_latent_story_smoke_report.json"
+    arrays_path = tmp_path / "case" / "prefix_latent_story_smoke_arrays.npz"
+    report_path.parent.mkdir(parents=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "cached_query": {
+                    "window_index": 0,
+                    "grounding": _grounding(),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    np.savez(arrays_path, text_memory=np.asarray([[1.0, 0.0]], dtype=np.float32))
+    casebook_path = tmp_path / "casebook.json"
+    casebook_path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "case_name": "risk_on",
+                        "story": "risk-on",
+                        "selected_start_status": "warning",
+                        "market_alignment": {
+                            "checked_count": 2,
+                            "mismatch_count": 1,
+                        },
+                        "artifact_paths": {"prefix_report": str(report_path)},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    oracle_path = tmp_path / "oracle.npz"
+    np.savez(
+        oracle_path,
+        history_level=_history(),
+        true_memory=np.asarray(
+            [[0.7, 0.3], [1.0, 0.0], [0.2, 0.8]],
+            dtype=np.float32,
+        ),
+        train_indices=np.asarray([0, 1, 2], dtype=np.int64),
+    )
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {"state_specs": [{"name": name} for name in _spec_names()]},
+        checkpoint_path,
+    )
+
+    summary = run_analogue_mixture_prior(
+        SimpleNamespace(
+            casebook_summary=str(casebook_path),
+            oracle_arrays=str(oracle_path),
+            checkpoint=str(checkpoint_path),
+            output_dir=str(tmp_path / "out"),
+            top_k=2,
+            temperature=0.2,
+            start_distance_threshold_z=100.0,
+            start_distance_penalty=0.0,
+            implication_alignment_weight=1.0,
+            diverse_max_pairwise_cosine=0.99,
+        )
+    )
+
+    assert summary["status"] == "ok"
+    assert summary["case_count"] == 1
+    assert "soft_topk_combined" in summary["variant_totals"]
+    assert (tmp_path / "out" / "analogue_mixture_prior_summary.json").exists()

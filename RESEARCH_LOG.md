@@ -111667,3 +111667,64 @@ Resume autoresearch under the new family: `analogue_mixture_latent_refinement`. 
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 27 analogue-mixture prior evaluator
+
+### Context
+Iteration 26 made analogue-mixture latent refinement the main direction. The first local falsifier was whether a soft analogue pool actually contains story-consistent support before any residual bridge is trained.
+
+### Hypothesis
+If historical analogue mixtures are a useful support prior, then soft top-k analogue mixtures should reduce explicit market-implication mismatch versus both the generated-rollout baseline (`0.50`) and the single-neighbor top-1 memory baseline.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py`.
+- Added `test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py`.
+- The evaluator makes no OpenAI calls. It reads existing live casebook prefix reports, saved text-memory vectors, oracle prefix/latent-bank arrays, and checkpoint state-spec metadata.
+- It evaluates:
+  - `top1_memory`;
+  - `top1_combined`;
+  - `soft_topk_memory`;
+  - `soft_topk_combined`;
+  - `diverse_topk_combined`.
+- Each variant is scored by comparing weighted historical recent-prefix terminal directions against the LLM-grounded market implications.
+
+### Result
+Default `top_k=8`, temperature `0.2`, implication-alignment weight `0.25`:
+
+- generated-rollout baseline: 8 mismatches / 16 checked, mismatch rate `0.50`;
+- `top1_memory`: 4 / 16, mismatch rate `0.25`;
+- `top1_combined`: 1 / 16, mismatch rate `0.0625`;
+- `soft_topk_memory`: 0 / 16, mismatch rate `0.0`;
+- `soft_topk_combined`: 0 / 16, mismatch rate `0.0`;
+- `diverse_topk_combined`: 0 / 16, mismatch rate `0.0`.
+
+Sensitivity:
+
+- `top_k=3`: mixtures were weaker (`0.125` to `0.1875` mismatch rate), so too few analogues can be brittle.
+- `top_k=16`: combined-score mixtures stayed clean (`0.0`), while pure memory mixtures weakened to `0.125`.
+- implication-alignment weight `0.0`: pure memory top-k still passed for `top_k=8`, but combined-score variants weakened to `0.3125`, showing that the scoring recipe matters.
+
+### Mechanism Read
+The analogue pool contains the right directional support even when the generated rollout violates the story. This moves the bottleneck downstream: we should not ask text to synthesize the whole hidden prefix, and we should not trust top-1 analogue replay. The promising contract is to expose a moderate top-k support set, score it by memory plus implication alignment plus start support, and then train a bounded residual bridge that preserves the mixture's directional support through the frozen rollout.
+
+This result is not yet a production win because the evaluator scores the historical support prior, not a generated future rollout. It is a strong green light for the next step: integrate the mixture prior into the decoded-prefix / memory-conditioning path and test whether the frozen generator can preserve the mixture-aligned direction.
+
+### Decision / Next Step
+Continue with an OpenAI-free model-side experiment: add a mixture-conditioned story smoke variant that forms a weighted text-memory / prefix-memory prior from top-k analogues, feeds that support into the existing memory+start decoder, and runs the frozen generator. Compare generated rollout implication mismatch against the current `0.50` generated baseline and the `0.4706` reranker baseline.
+
+### Artifacts
+- Evaluator: `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py`
+- Tests: `test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py`
+- Main output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_analogue_mixture_prior_804b/analogue_mixture_prior_summary.json`
+- Sensitivity outputs:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_analogue_mixture_prior_804c_top3/analogue_mixture_prior_summary.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_analogue_mixture_prior_804d_top16/analogue_mixture_prior_summary.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_analogue_mixture_prior_804e_memory_only_top8/analogue_mixture_prior_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 4 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_analogue_mixture_prior_804b --top-k 8 --temperature 0.2 --implication-alignment-weight 0.25` -> `soft_topk_combined` mismatch rate `0.0`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 80 passed.
+- `git diff --check` -> passed.
+
+---
