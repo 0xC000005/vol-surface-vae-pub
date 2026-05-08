@@ -113640,3 +113640,64 @@ is the safer next step before spending additional API calls, because it checks
 the actual boss-facing interaction rather than backend artifacts only.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 65 live Gradio API QA
+
+### Context
+
+The cached boss-demo workflow was documented and backend-smoked, but the actual
+Gradio app had not been tested through its served API from current HEAD. The
+remaining risk was that the documented controls worked in Python helpers but
+not through the running Gradio endpoint.
+
+### Hypothesis
+
+A Gradio API-level smoke can verify the boss-facing interaction without a full
+browser automation stack: select the cached casebook row, run the prefix-latent
+endpoint with the populated controls, inspect returned tables/status/fan chart,
+and call the fan-chart refresh endpoint for a selected IV cell.
+
+### Execute
+
+- Started the current Gradio app on `http://127.0.0.1:7861` because port 7860
+  was already occupied by an older process.
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py`.
+- Added focused tests in
+  `test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py`.
+- Ran the API smoke against the live app with casebook choice
+  `safe_haven_gold_bid:18`, samples 2, initial fan market `SPX`, and redraw
+  market `IV_ATM_3M`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7861 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_825a_safe_haven --casebook-choice safe_haven_gold_bid:18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, fan trace count 8, redraw trace count
+  8.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py -q`
+  -> 2 passed.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 34 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py`
+  -> passed.
+- `git diff --check` -> passed.
+
+Saved artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_825a_safe_haven/gradio_api_smoke_summary.json`
+
+The API summary reports condition source `external_condition_report`, 5
+condition rows, 2 warning rows, 8 candidate rows, 11 scenario rows,
+selected-start `pass`, diagnostic baseline `pass`, overall status `pass`, 8
+initial fan traces, and 8 IV-cell redraw traces.
+
+### Decide
+
+The cached boss-demo path is now verified through the live Gradio API. The next
+production step is a small live OpenAI TestFlight through the same API or app
+path, with strict checks that current/recent implications become conditioning
+support and forward-looking language remains warning-only. This should be run
+with one narrative first before scaling.
+
+---
