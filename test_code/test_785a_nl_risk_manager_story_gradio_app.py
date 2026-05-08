@@ -11,7 +11,9 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     build_run_args,
     fan_chart_figure,
     implications_table,
+    prefix_diagnostic_start_table,
     prefix_latent_status_markdown,
+    prefix_selected_start_table,
     prefix_validation_table,
     prefix_variant_table,
     refresh_fan_chart,
@@ -164,6 +166,8 @@ def _prefix_report() -> dict:
                 "start_distance_z": 0.0,
                 "memory_support_cosine": 0.812,
                 "start_selection_method": "",
+                "case_role": "diagnostic_original_start",
+                "is_operational": False,
             },
             {
                 "variant": "nearest_train_start",
@@ -172,6 +176,8 @@ def _prefix_report() -> dict:
                 "start_distance_z": 6.94,
                 "memory_support_cosine": 0.887,
                 "start_selection_method": "max_memory_inside_start_threshold",
+                "case_role": "operational_selected_start",
+                "is_operational": True,
             },
         ],
         "validation_gate": {
@@ -295,6 +301,8 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
 
     markdown = prefix_latent_status_markdown(report)
     variants = prefix_variant_table(report)
+    selected = prefix_selected_start_table(report)
+    diagnostic = prefix_diagnostic_start_table(report)
     validation = prefix_validation_table(report)
 
     assert "Selected-start: `pass`" in markdown
@@ -303,6 +311,8 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
     assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
+    assert selected.iloc[0]["Start Window"] == "joint39_val_0269"
+    assert diagnostic.iloc[0]["Start Window"] == "joint39_val_0370"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
 
 
@@ -473,9 +483,10 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert "Prefix-latent run started" in first[1]
     assert calls == [("nearest_train_start", 8)]
     assert "Completed in" in final[1]
-    assert final[2].iloc[0]["Variant"] == "original"
-    assert final[3].iloc[0]["Status"] == "pass"
-    assert final[5].layout.title.text == "SPX 30-day scenario fan"
+    assert final[2].iloc[0]["Variant"] == "nearest_train_start"
+    assert final[3].iloc[0]["Variant"] == "original"
+    assert final[4].iloc[0]["Status"] == "pass"
+    assert final[6].layout.title.text == "SPX 30-day scenario fan"
 
 
 def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:

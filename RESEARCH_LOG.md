@@ -111145,3 +111145,69 @@ comparison table, and make the status wording match the risk-manager workflow.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 17 product-first Gradio prefix UX
+
+### Context
+
+Iteration 16 separated selected-start status from diagnostic-baseline status in
+the report JSON, but the Gradio prefix-latent section still showed the rows in
+one research-style table. That forced the user to infer which row drives the
+product scenario. For a risk-manager demo, the proposed selected start should be
+the primary object, and the original-start row should be clearly diagnostic.
+
+### Hypothesis
+
+If the UI separates proposed selected-start details from diagnostic baseline
+details, the demo will better match the product workflow without changing the
+model or adding research knobs.
+
+### Execution
+
+- Added table helpers:
+  - `prefix_selected_start_table`;
+  - `prefix_diagnostic_start_table`;
+  - role-filtered variant table rendering.
+- Changed the Gradio prefix-latent section from one "start variants" table to:
+  - `Proposed selected start`;
+  - `Diagnostic original-start comparison`.
+- Kept the existing validation table visible below those product-oriented
+  tables.
+- Updated tests so the streamed prefix-latent run returns selected-start output
+  first and diagnostic-baseline output second.
+
+### Result
+
+The app now presents the product story in the intended order:
+
+```text
+status: selected-start / diagnostic baseline / research overall
+table 1: proposed selected start
+table 2: diagnostic original-start comparison
+table 3: per-row validation details
+fan chart and scenario summary
+```
+
+This makes it clear which start is used for the generated product scenario and
+which row is only a diagnostic comparison.
+
+### Decision
+
+Commit the UX split. The next principled step is to add a lightweight cached
+demo fixture or smoke command that exercises the Gradio wrapper's prefix-latent
+path end to end without OpenAI calls, so future UI changes can be checked
+without manually running the app.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+
+### Verification
+
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 32 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 61 passed.
+- `git diff --check`: passed.
+
+---

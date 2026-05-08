@@ -293,9 +293,35 @@ def validation_gate_table(report: dict[str, Any]) -> pd.DataFrame:
 
 
 def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
+    return _prefix_variant_table_for_role(report, role=None)
+
+
+def prefix_selected_start_table(report: dict[str, Any]) -> pd.DataFrame:
+    return _prefix_variant_table_for_role(report, role="operational")
+
+
+def prefix_diagnostic_start_table(report: dict[str, Any]) -> pd.DataFrame:
+    return _prefix_variant_table_for_role(report, role="diagnostic")
+
+
+def _prefix_variant_table_for_role(
+    report: dict[str, Any],
+    *,
+    role: str | None,
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for item in _as_list(report.get("variant_rows")):
         if not isinstance(item, dict):
+            continue
+        is_operational = bool(
+            item.get(
+                "is_operational",
+                str(item.get("variant", "")) != "original",
+            )
+        )
+        if role == "operational" and not is_operational:
+            continue
+        if role == "diagnostic" and is_operational:
             continue
         rows.append(
             {
@@ -716,6 +742,7 @@ def _blank_prefix_outputs(
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
     go.Figure,
     str,
     dict[str, Any],
@@ -724,6 +751,7 @@ def _blank_prefix_outputs(
     return (
         "Prefix-latent run in progress. Results will appear here when complete.",
         status,
+        _frame([], PREFIX_VARIANT_COLUMNS),
         _frame([], PREFIX_VARIANT_COLUMNS),
         _frame([], VALIDATION_GATE_COLUMNS),
         _frame([], SCENARIO_COLUMNS),
@@ -938,6 +966,7 @@ def run_prefix_latent_for_app(
             "The prefix-latent run failed before a report could be produced.",
             _error_status_markdown(error, start_time),
             _frame([], PREFIX_VARIANT_COLUMNS),
+            _frame([], PREFIX_VARIANT_COLUMNS),
             _frame([], VALIDATION_GATE_COLUMNS),
             _frame([], SCENARIO_COLUMNS),
             fan_chart_figure({}, fan_market, "ALL"),
@@ -956,7 +985,8 @@ def run_prefix_latent_for_app(
     yield (
         markdown,
         _completed_prefix_status_markdown(report, start_time),
-        prefix_variant_table(report),
+        prefix_selected_start_table(report),
+        prefix_diagnostic_start_table(report),
         prefix_validation_table(report),
         scenario_table(report),
         fan_chart_figure(report, fan_market, "ALL"),
@@ -1141,9 +1171,14 @@ def build_demo() -> Any:
                 label="Prefix-latent start variant",
             )
         prefix_fan_plot = gr.Plot(label="Prefix-latent 30-day fan chart")
-        prefix_variants = gr.Dataframe(
+        prefix_selected_start = gr.Dataframe(
             headers=PREFIX_VARIANT_COLUMNS,
-            label="Prefix-latent start variants",
+            label="Proposed selected start",
+            interactive=False,
+        )
+        prefix_diagnostic_start = gr.Dataframe(
+            headers=PREFIX_VARIANT_COLUMNS,
+            label="Diagnostic original-start comparison",
             interactive=False,
         )
         prefix_validation = gr.Dataframe(
@@ -1207,7 +1242,8 @@ def build_demo() -> Any:
             outputs=[
                 prefix_report_markdown,
                 prefix_status,
-                prefix_variants,
+                prefix_selected_start,
+                prefix_diagnostic_start,
                 prefix_validation,
                 prefix_scenario,
                 prefix_fan_plot,
