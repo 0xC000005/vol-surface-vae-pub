@@ -113100,3 +113100,37 @@ This iteration added an oracle upper-bound selector to the fixed-start bakeoff. 
 This is a useful negative result. A smarter selector may improve the path, but the current candidate set does not contain enough scenario-quality upside to reach production quality. The next production move should be a small, controlled calibration/refinement experiment under the same fixed-start bakeoff harness, not another broad narrative or web-search expansion.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 52 rollout temperature calibration
+
+### Context
+The previous oracle selector showed that variant selection helped but could not close the persistence gap. This iteration tested whether the gap was mainly caused by rollout distribution-scale calibration under the fixed-start contract.
+
+### HEAD
+- Hypothesis: the default generator rollout temperature may be too diffuse for the narrative-plus-fixed-start prefix prior; lowering the rollout temperature should improve energy/CRPS if the prefix is directionally useful but distributionally overdispersed.
+- Execute: extended the fixed-start bakeoff with a `temperature` variant set that keeps the narrative, fixed start, memory-prior mode, prefix-prior mode, and top-k constant while varying generator rollout temperature at 0.50, 0.75, 1.00, and 1.25. Added tests for variant-set selection and generator-temperature propagation.
+- Analyze: the 2-case TestFlight was positive. The 4-case by 4-temperature CUDA smoke was also positive: generator temperature 0.50 produced mean energy z 0.762, mean CRPS z 0.590, mean energy improvement vs persistence +0.062, and mean CRPS improvement +0.062. Temperature 0.75 remained modestly positive; temperature 1.00 reproduced the negative baseline; temperature 1.25 failed on two rows.
+- Decide: distribution-scale calibration is a real lever and should become the next production refinement path. Keep the fixed-start combined decoder mixture as the default prefix contract, but calibrate generator temperature before claiming production quality.
+
+### Evidence
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q`: 34 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`: passed.
+- `git diff --check`: passed.
+- TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_817a_temp_testflight --variant-set temperature --case-count 2 --variant-count 2 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, best variant temperature 0.50.
+- Scaled smoke: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_817b_temp_fullsmoke --variant-set temperature --case-count 4 --variant-count 4 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, 16 runs.
+
+### Artifacts
+- TestFlight report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_817a_temp_testflight/start_conditioned_bakeoff.json`
+- Scaled smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_817b_temp_fullsmoke/start_conditioned_bakeoff.json`
+- Scaled smoke Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_817b_temp_fullsmoke/start_conditioned_bakeoff.md`
+
+### Key result
+- Temperature 0.50: mean energy z 0.762, mean CRPS z 0.590, energy improvement vs persistence +0.062, CRPS improvement +0.062, statuses 3 pass / 1 warning.
+- Temperature 0.75: mean CRPS z 0.617, CRPS improvement +0.023, statuses 3 pass / 1 warning.
+- Temperature 1.00: mean CRPS z 0.706, CRPS improvement -0.124, statuses 2 pass / 2 warning.
+- Temperature 1.25: mean CRPS z 0.911, CRPS improvement -0.487, statuses 2 fail / 2 warning.
+- Realized-future oracle over temperatures selected 0.50 for three rows and 0.75 for one row, with mean CRPS improvement +0.065.
+
+### Production implication
+The fixed-start narrative-conditioned workflow now has a concrete production lever: calibrate rollout temperature under the fixed-start mixture contract. The next step is to validate temperature 0.50 with more samples and a broader start/narrative set, then decide whether to make calibrated temperature the demo default.
+
+---

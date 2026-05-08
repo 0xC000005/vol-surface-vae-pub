@@ -44,6 +44,7 @@ DEFAULT_VARIANTS = [
         "prefix_prior_mode": "decoder",
         "top_k": 8,
         "temperature": 0.2,
+        "generator_temperature": 1.0,
     },
     {
         "variant_name": "decoder_soft_topk_memory",
@@ -51,6 +52,7 @@ DEFAULT_VARIANTS = [
         "prefix_prior_mode": "decoder",
         "top_k": 8,
         "temperature": 0.2,
+        "generator_temperature": 1.0,
     },
     {
         "variant_name": "decoder_diverse_topk_combined",
@@ -58,6 +60,7 @@ DEFAULT_VARIANTS = [
         "prefix_prior_mode": "decoder",
         "top_k": 8,
         "temperature": 0.2,
+        "generator_temperature": 1.0,
     },
     {
         "variant_name": "feature_soft_topk_combined",
@@ -65,8 +68,50 @@ DEFAULT_VARIANTS = [
         "prefix_prior_mode": "feature_mixture",
         "top_k": 8,
         "temperature": 0.2,
+        "generator_temperature": 1.0,
     },
 ]
+
+TEMPERATURE_CALIBRATION_VARIANTS = [
+    {
+        "variant_name": "decoder_soft_topk_combined_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_combined",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+    {
+        "variant_name": "decoder_soft_topk_combined_gen_temp_0p75",
+        "memory_prior_mode": "soft_topk_combined",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.75,
+    },
+    {
+        "variant_name": "decoder_soft_topk_combined_gen_temp_1p00",
+        "memory_prior_mode": "soft_topk_combined",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 1.0,
+    },
+    {
+        "variant_name": "decoder_soft_topk_combined_gen_temp_1p25",
+        "memory_prior_mode": "soft_topk_combined",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 1.25,
+    },
+]
+
+
+VARIANT_SETS = {
+    "prior": DEFAULT_VARIANTS,
+    "temperature": TEMPERATURE_CALIBRATION_VARIANTS,
+}
 
 
 def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
@@ -85,10 +130,17 @@ def selected_historical_cases(case_count: int | None = None) -> list[dict[str, A
     return rows
 
 
-def selected_variants(variant_count: int | None = None) -> list[dict[str, Any]]:
+def selected_variants(
+    variant_count: int | None = None,
+    *,
+    variant_set: str = "prior",
+) -> list[dict[str, Any]]:
+    variants = VARIANT_SETS.get(str(variant_set))
+    if variants is None:
+        raise ValueError(f"unknown variant set: {variant_set!r}")
     if variant_count:
-        return DEFAULT_VARIANTS[: int(variant_count)]
-    return list(DEFAULT_VARIANTS)
+        return variants[: int(variant_count)]
+    return list(variants)
 
 
 def _safe_mean(values: list[float]) -> float | None:
@@ -117,6 +169,7 @@ def row_from_report(
         "prefix_prior_mode": str(variant["prefix_prior_mode"]),
         "top_k": int(variant["top_k"]),
         "temperature": float(variant["temperature"]),
+        "generator_temperature": float(variant.get("generator_temperature", 1.0)),
         "validation_operational": str(gate.get("operational_status", "")),
         "validation_overall": str(gate.get("overall_status", "")),
         "target_available": bool(metrics.get("target_available")),
@@ -323,6 +376,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "# Fixed-Start Prefix-Mixture Bakeoff",
         "",
         f"- Status: `{summary.get('status')}`",
+        f"- Variant set: `{summary.get('variant_set', 'prior')}`",
         f"- Case count: `{summary.get('case_count')}`",
         f"- Variant count: `{summary.get('variant_count')}`",
         f"- Run count: `{summary.get('run_count')}`",
@@ -403,7 +457,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     cases = selected_historical_cases(args.case_count)
-    variants = selected_variants(args.variant_count)
+    variants = selected_variants(args.variant_count, variant_set=args.variant_set)
     rows: list[dict[str, Any]] = []
     for case in cases:
         for variant in variants:
@@ -427,6 +481,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
             run_args.memory_prior_top_k = int(variant["top_k"])
             run_args.memory_prior_temperature = float(variant["temperature"])
             run_args.prefix_prior_mode = str(variant["prefix_prior_mode"])
+            run_args.temperature = float(variant.get("generator_temperature", 1.0))
             report = run_prefix_latent_story_smoke(run_args)
             rows.append(row_from_report(case=case, variant=variant, report=report))
     variant_summary = summarize_by_variant(rows)
@@ -442,6 +497,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "case_count": int(len(cases)),
         "variant_count": int(len(variants)),
+        "variant_set": str(args.variant_set),
         "run_count": int(len(rows)),
         "rows": rows,
         "variant_summary": variant_summary,
@@ -464,6 +520,7 @@ def main() -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--case-count", type=int, default=4)
     parser.add_argument("--variant-count", type=int, default=4)
+    parser.add_argument("--variant-set", choices=sorted(VARIANT_SETS), default="prior")
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--chunk-size", type=int, default=2)

@@ -9,6 +9,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_start_conditioned_bakeoff im
     render_markdown,
     row_from_report,
     selected_historical_cases,
+    selected_variants,
     summarize_oracle_selection,
     summarize_by_variant,
 )
@@ -20,6 +21,14 @@ def test_selected_historical_cases_excludes_modified_user_start() -> None:
     assert rows
     assert all("candidate_index" in row for row in rows)
     assert all(row["start_name"] != "extreme_user_start" for row in rows)
+
+
+def test_selected_variants_supports_temperature_calibration_set() -> None:
+    rows = selected_variants(2, variant_set="temperature")
+
+    assert len(rows) == 2
+    assert rows[0]["generator_temperature"] == 0.5
+    assert rows[1]["generator_temperature"] == 0.75
 
 
 def test_row_from_report_extracts_operational_metrics() -> None:
@@ -35,6 +44,7 @@ def test_row_from_report_extracts_operational_metrics() -> None:
             "prefix_prior_mode": "decoder",
             "top_k": 8,
             "temperature": 0.2,
+            "generator_temperature": 0.75,
         },
         report={
             "artifact_paths": {"report": "run.json"},
@@ -75,6 +85,7 @@ def test_row_from_report_extracts_operational_metrics() -> None:
 
     assert row["target_available"] is True
     assert row["run_report"] == "run.json"
+    assert row["generator_temperature"] == 0.75
     assert np.isclose(row["scenario_metrics"]["energy_score_z"], 4.0)
     assert np.isclose(
         row["scenario_metrics"]["ensemble_crps_z_improvement_vs_persistence"], 0.5
@@ -191,6 +202,7 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
     text = render_markdown(
         {
             "status": "pass",
+            "variant_set": "prior",
             "case_count": 1,
             "variant_count": 1,
             "run_count": 1,
