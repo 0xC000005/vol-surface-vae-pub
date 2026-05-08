@@ -111455,3 +111455,46 @@ The next bottleneck is live breadth, not single-story plumbing. Run a small live
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 22 live Gradio casebook alignment
+
+### Context
+Iteration 21 proved that a single live OpenAI narrative can flow through the Gradio product wrapper. The next production-readiness gap was breadth: multiple risk-manager narratives should exercise the same wrapper path, and the casebook should not merely check that tables render; it should also flag whether generated scenario directions agree with the grounded market implications.
+
+### Hypothesis
+A small live Gradio casebook can verify product-level behavior across several narrative archetypes and expose whether the current prefix-latent generator is faithful to direct market implications. The expected falsifier was a clean wrapper run whose generated scenario summaries contradict the grounded story without being surfaced as a warning.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py`.
+- The harness calls `run_prefix_latent_for_app` for each story, so it tests the same progress/status, selected-start table, diagnostic table, validation table, scenario table, fan labels, and report JSON that the Gradio demo uses.
+- Added a market-implication alignment diagnostic comparing grounded direction labels against generated mean terminal deltas for directly represented markets.
+- Added `test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py` covering bounded live-run controls, wrapper aggregation, product contract checks, and direction-mismatch detection.
+- Ran a bounded 3-story live OpenAI casebook using `balanced_memory_start`, 100 training steps, 2 generated samples, chunk size 2, and SPX fan output.
+
+### Result
+- Harness status was `ok`: all cases produced live OpenAI condition source, nonempty product tables, nonempty fan charts, selected/diagnostic labels, and finite generated shape `[2, 2, 30, 39]`.
+- Overall validation status was `warning` for all 3 cases. Selected-start status was `pass` for 1 case and `warning` for 2 cases.
+- Market-alignment status was `warning` for all 3 cases.
+- Fragile risk-on rebound: selected start passed, but alignment found SPX expected up with mean terminal delta about `-84.007`, and VIX expected down with mean terminal delta about `+0.898`.
+- Defensive risk-off shock: selected start warned, and alignment mismatches included BBB-OAS expected wider but generated tighter, gold expected up but generated down, and IV surface expected up but generated down.
+- Rates-led tightening fear: selected start warned, and alignment mismatches included US10Y expected up but generated down and IV surface expected up but generated down.
+
+### Mechanism Read
+The product wrapper is now live and auditable, but the current text-memory-plus-start prefix decoder is not yet reliably controlling scenario direction in the generated distribution. The new alignment diagnostic is a necessary trust gate: it distinguishes "the system ran" from "the generated scenario respects the risk-manager story." This suggests the next model-side bottleneck is not OpenAI grounding quality; it is the learned mapping from grounded narrative memory plus start state into prefix dynamics that the frozen generator will honor directionally.
+
+### Decision / Next Step
+Move from product plumbing to model alignment. The next principled experiment should train or evaluate an implication-aware bridge objective that explicitly penalizes direction mismatches between grounded implications and generated scenario summaries, while keeping the frozen SNI generator and prefix-latent contract unchanged. A bounded first step is to add an offline alignment evaluator over cached/labeled narratives and then compare current prefix-latent outputs against a simple implication-consistent start/prefix selection or loss term.
+
+### Artifacts
+- Product casebook harness: `experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py`
+- Tests: `test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py`
+- Primary live alignment casebook: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment/gradio_live_casebook_summary.json`
+- Earlier mechanical live casebook: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800a/gradio_live_casebook_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py -q` -> 4 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_800b_alignment --case-count 3 --steps 100 --samples 2 --chunk-size 2 --start-mode balanced_memory_start --fan-market SPX` -> passed with harness `ok`, 3 validation warnings, and 3 market-alignment warnings.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py -q` -> 68 passed.
+- `git diff --check` -> passed.
+
+---
