@@ -113826,3 +113826,63 @@ API key continues to work. Keep samples low and treat any schema or warning
 leakage failure as a stop condition rather than scaling further.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 68 three-story live API casebook
+
+### Context
+
+The one-story live typed-story path had compact provenance. The next question
+was whether the same Gradio API workflow remains stable across multiple
+narrative families without scaling into an expensive batch run.
+
+### Hypothesis
+
+A bounded three-story live casebook should pass if the condition-only contract
+is stable: each story should produce current/recent support implications, at
+least one warning-only forward-risk item, finite support candidates, selected
+start `pass`, and fan-chart redraws.
+
+### Execute
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_gradio_live_api_casebook.py`.
+- Added tests in
+  `test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py`.
+- Ran the served Gradio API on `http://127.0.0.1:7861` for three live
+  condition-only narratives:
+  - `commodity_inflation_pressure:18`
+  - `dollar_liquidity_squeeze:22`
+  - `safe_haven_gold_bid:18`
+- Kept generation small with samples 2, fan market `SPX`, and redraw market
+  `IV_ATM_3M`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_live_api_casebook.py --url http://127.0.0.1:7861 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_828a_three_story --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, case count 3, pass count 3, total OpenAI tokens 5609.
+- `uv run pytest test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py -q`
+  -> 2 passed.
+- `uv run pytest test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 37 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_live_api_casebook.py test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py`
+  -> passed.
+- `git diff --check` -> passed.
+
+Saved artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_828a_three_story/gradio_live_api_casebook_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_828a_three_story/gradio_live_api_casebook_summary.md`
+
+All three cases passed condition-only validation, selected-start validation, and
+overall status. Each had one forward-warning item, eight support candidates,
+support mode `soft_topk_combined`, and successful `SPX` to `IV_ATM_3M` redraws.
+
+### Decide
+
+The live story path is stable enough for a small boss-facing demonstration. The
+next production bottleneck is presentation quality rather than core plumbing:
+the UI and evidence pack should make the live casebook summary, support weights,
+OpenAI usage, and condition-only warning contract easy to inspect without
+opening nested JSON files.
+
+---
