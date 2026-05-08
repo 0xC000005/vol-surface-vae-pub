@@ -8,6 +8,7 @@ import torch
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_prefix_latent_analogue_mixture_prior import (
+    build_mixture_memory_prior,
     candidate_support_table,
     run_analogue_mixture_prior,
     weighted_prefix_terminal_rows,
@@ -81,6 +82,34 @@ def test_candidate_support_table_combines_memory_and_implication_alignment() -> 
     assert by_idx[0]["recent_prefix_alignment_score"] == 1.0
     assert by_idx[1]["recent_prefix_alignment_score"] == -1.0
     assert by_idx[0]["combined_score"] > by_idx[1]["combined_score"]
+
+
+def test_build_mixture_memory_prior_returns_weighted_memory_and_support() -> None:
+    result = build_mixture_memory_prior(
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=np.asarray(
+            [[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]],
+            dtype=np.float32,
+        ),
+        history_level=_history(),
+        train_indices=np.asarray([0, 1, 2]),
+        query_window_index=0,
+        grounding=_grounding(),
+        spec_names=_spec_names(),
+        mode="soft_topk_combined",
+        top_k=2,
+        temperature=0.2,
+        start_distance_threshold_z=100.0,
+        start_distance_penalty=0.0,
+        implication_alignment_weight=1.0,
+        diverse_max_pairwise_cosine=0.99,
+    )
+
+    assert result["mode"] == "soft_topk_combined"
+    assert result["memory"].shape == (2,)
+    assert result["analogue_count"] == 2
+    assert abs(sum(result["weights"]) - 1.0) < 1e-6
+    assert result["support_alignment"]["checked_count"] == 2
 
 
 def test_weighted_rows_are_compatible_with_alignment_helper() -> None:

@@ -111728,3 +111728,64 @@ Continue with an OpenAI-free model-side experiment: add a mixture-conditioned st
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 28 mixture-memory rollout replay
+
+### Context
+Iteration 27 showed that moderate top-k analogue mixtures have clean recent-prefix implication support, but that result did not test the frozen generator rollout. The next falsifier was whether replacing raw text memory with a soft analogue-mixture memory prior inside the existing story-smoke decoder path improves generated scenario alignment.
+
+### Hypothesis
+If the current memory+start decoder can preserve mixture-supported narrative direction, then replaying saved live-story conditions with `soft_topk_combined` memory priors should reduce generated rollout implication mismatch below the original generated baseline (`0.50`) and the rollout-reranker baseline (`0.4706`).
+
+### Execution
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py` with `build_mixture_memory_prior`.
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` with:
+  - `--condition-report` to replay saved live-story report/array artifacts without new OpenAI calls;
+  - `--memory-prior-mode` with `query_memory`, `soft_topk_memory`, `soft_topk_combined`, and `diverse_topk_combined`;
+  - memory-prior metadata in the generated report.
+- Added test coverage for mixture-prior memory construction.
+- Ran a one-story TestFlight, then replayed the three existing live casebook stories using `soft_topk_combined`, `top_k=8`, temperature `0.2`, and short frozen-generator rollout settings.
+
+### Result
+The operational plumbing worked:
+
+- all three replayed mixture runs completed on CUDA;
+- each report used `condition_source=external_condition_report`;
+- each selected-start validation status was `pass`;
+- each support-prior alignment was `pass`.
+
+However, generated rollout alignment did **not** improve:
+
+- support-prior alignment: `0/16` mismatches across the three stories;
+- generated rollout alignment after mixture-memory conditioning: `8/16` mismatches, mismatch rate `0.50`;
+- this equals the original generated-rollout baseline and is worse than the weak reranker upper-bound `0.4706`.
+
+### Mechanism Read
+This is an important negative result. The analogue mixture contains story-consistent recent-regime support, and the validation gate says the replayed runs are operationally valid, but simply averaging analogue memory targets and passing the average through the current memory+start decoder does not make the frozen generator honor the story. The generator outputs remain dominated by a common bearish-equity / higher-VIX pattern across all three narratives.
+
+This means the next bridge cannot be a naive weighted memory average. The system needs either:
+
+- a mixture-prefix decoder that reconstructs a full prefix object from weighted analogue prefix features rather than averaged final memory alone;
+- a residual bridge trained to preserve implication direction after decoded-prefix rollout;
+- or a candidate-generation/reranking layer that samples multiple mixture-conditioned starts/prefixes and selects by post-rollout implication alignment.
+
+### Decision / Next Step
+Stay with the analogue-mixture main direction, but move from **memory mixture** to **prefix-feature mixture**. The next local experiment should mix full historical prefix feature vectors or encoded prefix latents, reconstruct a start-pinned synthetic prefix, run the frozen generator, and compare generated implication mismatch against `0.50` and `0.4706`.
+
+### Artifacts
+- Updated story smoke: `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- Updated mixture prior helper: `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py`
+- Updated tests: `test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py`
+- Mixture-conditioned story-smoke outputs:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_805a_mixture_one/prefix_latent_story_smoke_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_805b_mixture_defensive/prefix_latent_story_smoke_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_805c_mixture_rates/prefix_latent_story_smoke_report.json`
+- Alignment summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_805b_mixture_story_smoke/implication_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 16 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report .../01_fragile_risk_on_rebound/prefix_run/prefix_latent_story_smoke_report.json --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode balanced_memory_start --steps 100 --samples 2 --chunk-size 2 --device cuda` -> validation `pass`, support-prior `pass`, generated mismatch `2/3`.
+- Three-story replay alignment: `uv run python experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_805b_mixture_story_smoke --input ...805a... --input ...805b... --input ...805c...` -> 8 mismatches / 16 checked, mismatch rate `0.50`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 81 passed.
+
+---

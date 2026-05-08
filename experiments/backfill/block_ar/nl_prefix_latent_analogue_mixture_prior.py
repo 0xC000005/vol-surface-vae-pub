@@ -342,6 +342,94 @@ def evaluate_mixture_variant(
     }
 
 
+def build_mixture_memory_prior(
+    *,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    history_level: np.ndarray,
+    train_indices: np.ndarray,
+    query_window_index: int,
+    grounding: dict[str, Any],
+    spec_names: list[str],
+    mode: str,
+    top_k: int,
+    temperature: float,
+    start_distance_threshold_z: float,
+    start_distance_penalty: float,
+    implication_alignment_weight: float,
+    diverse_max_pairwise_cosine: float,
+) -> dict[str, Any]:
+    """Build a query memory or analogue-mixture memory prior."""
+
+    prior_mode = str(mode)
+    query = np.asarray(query_memory, dtype=np.float32).reshape(-1)
+    memory = _as_float_array(memory_targets, name="memory_targets", ndim=2)
+    if prior_mode == "query_memory":
+        return {
+            "mode": prior_mode,
+            "memory": query.astype(np.float32),
+            "analogue_count": 0,
+            "window_indices": [],
+            "weights": [],
+            "support_alignment": {},
+            "candidate_details": [],
+        }
+    candidates = candidate_support_table(
+        query_memory=query,
+        memory_targets=memory,
+        history_level=history_level,
+        train_indices=train_indices,
+        query_window_index=int(query_window_index),
+        grounding=grounding,
+        spec_names=spec_names,
+        start_distance_threshold_z=float(start_distance_threshold_z),
+        start_distance_penalty=float(start_distance_penalty),
+        implication_alignment_weight=float(implication_alignment_weight),
+    )
+    if prior_mode == "soft_topk_memory":
+        indices = _top_indices(candidates, "memory_support_cosine", top_k)
+        scores = _scores_for_indices(candidates, indices, "memory_support_cosine")
+    elif prior_mode == "soft_topk_combined":
+        indices = _top_indices(candidates, "combined_score", top_k)
+        scores = _scores_for_indices(candidates, indices, "combined_score")
+    elif prior_mode == "diverse_topk_combined":
+        indices = diverse_top_indices(
+            candidates,
+            memory_targets=memory,
+            key="combined_score",
+            k=top_k,
+            max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+        )
+        scores = _scores_for_indices(candidates, indices, "combined_score")
+    else:
+        raise ValueError(f"unknown memory prior mode: {mode!r}")
+    weights = _softmax(scores, temperature=temperature)
+    mixture_memory = np.sum(memory[indices] * weights[:, None], axis=0).astype(
+        np.float32
+    )
+    terminal_rows = weighted_prefix_terminal_rows(
+        history_level=history_level,
+        window_indices=indices,
+        weights=weights,
+        spec_names=spec_names,
+    )
+    support_alignment = market_implication_alignment(
+        grounding=grounding,
+        scenario_rows=terminal_rows,
+    )
+    by_idx = {int(row["window_index"]): row for row in candidates}
+    return {
+        "mode": prior_mode,
+        "memory": mixture_memory,
+        "analogue_count": int(indices.size),
+        "window_indices": [int(idx) for idx in indices],
+        "weights": [float(weight) for weight in weights],
+        "support_alignment": support_alignment,
+        "terminal_rows": terminal_rows,
+        "candidate_details": [by_idx[int(idx)] for idx in indices],
+    }
+
+
 def _case_inputs_from_casebook(casebook_summary: str | Path) -> list[dict[str, Any]]:
     payload = _load_json(casebook_summary)
     cases = payload.get("cases", [])

@@ -40,6 +40,9 @@ from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline impor
 from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (  # noqa: E402
     market_implication_alignment,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_analogue_mixture_prior import (  # noqa: E402
+    build_mixture_memory_prior,
+)
 from experiments.backfill.block_ar.nl_prefix_latent_memory_decoder import (  # noqa: E402
     _decode_features,
     _future_raw_from_block,
@@ -95,6 +98,12 @@ StartMode = Literal[
     "implication_aligned_start",
     "explicit_start_window",
 ]
+MemoryPriorMode = Literal[
+    "query_memory",
+    "soft_topk_memory",
+    "soft_topk_combined",
+    "diverse_topk_combined",
+]
 
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
@@ -122,6 +131,41 @@ def _write_text(path: str | Path, text: str) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def _condition_arrays_path_from_report(
+    report_path: str | Path,
+    report: dict[str, Any],
+) -> Path:
+    artifact_paths = report.get("artifact_paths", {})
+    if isinstance(artifact_paths, dict) and artifact_paths.get("arrays"):
+        return Path(str(artifact_paths["arrays"]))
+    return Path(report_path).with_name("prefix_latent_story_smoke_arrays.npz")
+
+
+def _external_condition_from_report(report_path: str | Path) -> dict[str, Any]:
+    report = _load_json(report_path)
+    query = report.get("cached_query", {})
+    if not isinstance(query, dict):
+        raise ValueError(f"{report_path}: missing cached_query")
+    arrays_path = _condition_arrays_path_from_report(report_path, report)
+    arrays = np.load(arrays_path)
+    if "text_memory" not in arrays:
+        raise ValueError(f"{arrays_path}: missing text_memory")
+    text_memory = np.asarray(arrays["text_memory"], dtype=np.float32)
+    if text_memory.ndim != 2 or text_memory.shape[0] < 1:
+        raise ValueError(f"{arrays_path}: text_memory must have shape [N,D]")
+    grounding = query.get("grounding")
+    if not isinstance(grounding, dict):
+        grounding = {}
+    return {
+        "query": query,
+        "query_memory": text_memory[0].astype(np.float32),
+        "query_text": query.get("query_text"),
+        "grounding": grounding,
+        "embedding_metadata": query.get("embedding_metadata", {}),
+        "arrays_path": str(arrays_path),
+    }
 
 
 def select_cached_story_query(
@@ -1016,9 +1060,42 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     )
     grounding_payload: dict[str, Any] | None = None
     query_text: str | None = None
+    condition_report_narrative_text: str | None = None
     embedding_metadata: dict[str, Any] = {}
     condition_source = "cached_bridge_query"
-    if bool(getattr(args, "live_story", False)):
+    if getattr(args, "condition_report", None):
+        external_condition = _external_condition_from_report(args.condition_report)
+        external_query = external_condition["query"]
+        query_memory = np.asarray(
+            external_condition["query_memory"],
+            dtype=np.float32,
+        )
+        grounding_payload = dict(external_condition["grounding"])
+        query_text = (
+            str(external_condition["query_text"])
+            if external_condition.get("query_text") is not None
+            else None
+        )
+        if external_query.get("narrative_text") is not None:
+            condition_report_narrative_text = str(external_query["narrative_text"])
+        raw_metadata = external_condition.get("embedding_metadata", {})
+        embedding_metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        embedding_metadata["condition_report"] = str(args.condition_report)
+        embedding_metadata["condition_arrays"] = str(external_condition["arrays_path"])
+        condition_source = "external_condition_report"
+        query_row = {
+            **query_row,
+            "role": str(external_query.get("role", "external_condition")),
+            "kind": str(external_query.get("kind", "external_condition")),
+            "window_id": str(
+                external_query.get("window_id", query_row.get("window_id", ""))
+            ),
+            "window_index": int(
+                external_query.get("window_index", query_row["window_index"])
+            ),
+            "embedding_index": int(external_query.get("embedding_index", -1)),
+        }
+    elif bool(getattr(args, "live_story", False)):
         grounding = _load_story_grounding(
             story=str(args.story),
             grounding_json=args.grounding_json,
@@ -1055,6 +1132,27 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "condition_dim": int(query_memory.shape[0]),
             "embedding_index": int(query_row["embedding_index"]),
         }
+    spec_names = _spec_names(specs)
+    memory_prior_mode = str(getattr(args, "memory_prior_mode", "query_memory"))
+    memory_prior = build_mixture_memory_prior(
+        query_memory=query_memory,
+        memory_targets=true_memory_targets,
+        history_level=history_level,
+        train_indices=train_indices,
+        query_window_index=int(query_row["window_index"]),
+        grounding=grounding_payload if isinstance(grounding_payload, dict) else {},
+        spec_names=spec_names,
+        mode=memory_prior_mode,
+        top_k=int(getattr(args, "memory_prior_top_k", 8)),
+        temperature=float(getattr(args, "memory_prior_temperature", 0.2)),
+        start_distance_threshold_z=float(args.start_distance_threshold_z),
+        start_distance_penalty=float(args.start_distance_penalty),
+        implication_alignment_weight=float(args.implication_alignment_weight),
+        diverse_max_pairwise_cosine=float(
+            getattr(args, "memory_prior_diverse_max_pairwise_cosine", 0.98)
+        ),
+    )
+    conditioning_memory = np.asarray(memory_prior["memory"], dtype=np.float32)
     variant_rows = build_live_story_variant_rows(
         query_row=query_row,
         start_state=history_level[:, -1, :],
@@ -1062,18 +1160,22 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         start_mode=str(args.start_mode),
         explicit_start_window_index=args.explicit_start_window_index,
         include_original_baseline=bool(args.include_original_baseline),
-        query_memory=query_memory,
+        query_memory=conditioning_memory,
         memory_targets=true_memory_targets,
         grounding=grounding_payload,
         history_raw=history_raw,
-        spec_names=_spec_names(specs),
+        spec_names=spec_names,
         start_distance_threshold_z=float(args.start_distance_threshold_z),
         start_distance_penalty=float(args.start_distance_penalty),
         implication_alignment_weight=float(args.implication_alignment_weight),
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
-    text_memory = np.repeat(query_memory[None, :], repeats=len(variant_rows), axis=0)
+    text_memory = np.repeat(
+        conditioning_memory[None, :],
+        repeats=len(variant_rows),
+        axis=0,
+    )
     start_indices = np.asarray(
         [int(row["start_window_index"]) for row in variant_rows],
         dtype=np.int64,
@@ -1167,12 +1269,14 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         endpoint_max_abs_error=float(endpoint["max_abs_error"]),
         hard_case_count=int(args.hard_case_count),
     )
-    narrative_text = (
-        str(args.story)
-        if bool(getattr(args, "live_story", False))
-        else narrative_text_for_query(pipeline_report, query_row)
-    )
+    if condition_report_narrative_text is not None:
+        narrative_text = condition_report_narrative_text
+    elif bool(getattr(args, "live_story", False)):
+        narrative_text = str(args.story)
+    else:
+        narrative_text = narrative_text_for_query(pipeline_report, query_row)
     live_story_mode = bool(getattr(args, "live_story", False))
+    condition_report_mode = bool(getattr(args, "condition_report", None))
     report = {
         "status": "ok",
         "scope_note": (
@@ -1181,6 +1285,14 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "combined with an explicit start state, decoded into a recent prefix, "
             "and rolled out through the frozen joint39 SNI generator."
             if live_story_mode
+            else (
+                "Replayed live prefix-latent story smoke. No OpenAI API calls are made. "
+                "A saved live-story text memory and grounding report are reused, "
+                "optionally converted into an analogue-mixture memory prior, then "
+                "decoded with an explicit start state and rolled out through the "
+                "frozen joint39 SNI generator."
+            )
+            if condition_report_mode
             else (
                 "Cached live prefix-latent story smoke. No OpenAI API calls are made. "
                 "A cached text-predicted generator memory is combined with an explicit "
@@ -1197,6 +1309,13 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "embedding_metadata": embedding_metadata,
             "text_memory_dim": int(query_memory.shape[0]),
             "query_memory_norm": float(np.linalg.norm(query_memory)),
+            "conditioning_memory_norm": float(np.linalg.norm(conditioning_memory)),
+            "memory_prior_mode": memory_prior_mode,
+            "memory_prior": {
+                key: value
+                for key, value in memory_prior.items()
+                if key != "memory"
+            },
         },
         "artifact_inputs": {
             "bridge_report": str(args.bridge_report),
@@ -1269,6 +1388,14 @@ def main() -> None:
     parser.add_argument("--query-kind")
     parser.add_argument("--query-window-id")
     parser.add_argument("--query-index", type=int, default=0)
+    parser.add_argument(
+        "--condition-report",
+        help=(
+            "Replay a saved prefix story-smoke report and its arrays as the "
+            "condition source. This avoids new OpenAI calls while preserving a "
+            "live-story text memory and grounding payload."
+        ),
+    )
     parser.add_argument("--live-story", action="store_true")
     parser.add_argument("--story", default=DEFAULT_STORY)
     parser.add_argument("--grounding-json")
@@ -1298,6 +1425,23 @@ def main() -> None:
     )
     parser.add_argument("--start-distance-penalty", type=float, default=0.02)
     parser.add_argument("--implication-alignment-weight", type=float, default=0.25)
+    parser.add_argument(
+        "--memory-prior-mode",
+        choices=[
+            "query_memory",
+            "soft_topk_memory",
+            "soft_topk_combined",
+            "diverse_topk_combined",
+        ],
+        default="query_memory",
+    )
+    parser.add_argument("--memory-prior-top-k", type=int, default=8)
+    parser.add_argument("--memory-prior-temperature", type=float, default=0.2)
+    parser.add_argument(
+        "--memory-prior-diverse-max-pairwise-cosine",
+        type=float,
+        default=0.98,
+    )
     parser.add_argument(
         "--include-original-baseline", action="store_true", default=True
     )
