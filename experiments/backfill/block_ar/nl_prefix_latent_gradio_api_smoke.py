@@ -24,6 +24,12 @@ DEFAULT_OUTPUT_DIR = (
 )
 DEFAULT_URL = "http://127.0.0.1:7861"
 DEFAULT_CASEBOOK_CHOICE = "safe_haven_gold_bid:18"
+DEFAULT_LIVE_STORY = (
+    "This looks like a safe-haven bid with softer risk appetite: gold is "
+    "rallying, Treasury yields are lower, equities are choppy, volatility "
+    "remains elevated, and the dollar is not providing a clear offset. The "
+    "forward risk is that safe-haven demand becomes a broader risk-off move."
+)
 
 
 def _table_rows(value: Any) -> int:
@@ -74,21 +80,33 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    casebook = client.predict(
-        str(args.casebook_choice),
-        api_name="/cached_prefix_casebook_update",
-    )
-    if len(casebook) != 7:
-        raise RuntimeError(f"unexpected casebook output length: {len(casebook)}")
-    (
-        story,
-        use_explicit_start,
-        explicit_start_index,
-        condition_only_story,
-        live_story,
-        cached_condition_report,
-        casebook_status,
-    ) = casebook
+    mode = str(getattr(args, "mode", "cached_casebook"))
+    if mode == "cached_casebook":
+        casebook = client.predict(
+            str(args.casebook_choice),
+            api_name="/cached_prefix_casebook_update",
+        )
+        if len(casebook) != 7:
+            raise RuntimeError(f"unexpected casebook output length: {len(casebook)}")
+        (
+            story,
+            use_explicit_start,
+            explicit_start_index,
+            condition_only_story,
+            live_story,
+            cached_condition_report,
+            casebook_status,
+        ) = casebook
+    elif mode == "live_condition_only":
+        story = str(args.story)
+        use_explicit_start = True
+        explicit_start_index = int(args.expected_start_index)
+        condition_only_story = True
+        live_story = True
+        cached_condition_report = ""
+        casebook_status = "live condition-only OpenAI TestFlight"
+    else:
+        raise ValueError(f"unknown mode: {mode!r}")
 
     run_outputs = client.predict(
         "balanced_memory_start",
@@ -136,17 +154,33 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
 
     query = report.get("cached_query", {}) if isinstance(report, dict) else {}
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
+    condition_only_case = (
+        report.get("condition_only_case", {}) if isinstance(report, dict) else {}
+    )
+    condition_only_validation = (
+        condition_only_case.get("condition_only_validation", {})
+        if isinstance(condition_only_case, dict)
+        else {}
+    )
     errors: list[str] = []
-    if "OpenAI calls: `none" not in str(casebook_status):
+    if mode == "cached_casebook" and "OpenAI calls: `none" not in str(casebook_status):
         errors.append("casebook_no_openai_status_missing")
-    if bool(live_story):
+    if mode == "cached_casebook" and bool(live_story):
         errors.append("casebook_live_story_true")
     if not bool(use_explicit_start):
-        errors.append("casebook_explicit_start_false")
+        errors.append("explicit_start_false")
     if int(explicit_start_index) != int(args.expected_start_index):
-        errors.append("casebook_start_index_mismatch")
+        errors.append("start_index_mismatch")
     if str(query.get("condition_source", "")) != "external_condition_report":
         errors.append("condition_source_mismatch")
+    if mode == "live_condition_only":
+        if not isinstance(condition_only_validation, dict):
+            errors.append("condition_only_validation_missing")
+        elif str(condition_only_validation.get("status", "")) != "pass":
+            errors.append("condition_only_validation_not_pass")
+        forward_warnings = condition_only_validation.get("forward_warning_count", 0)
+        if int(forward_warnings or 0) < 1:
+            errors.append("forward_warning_count_missing")
     if report.get("status") != "ok":
         errors.append("report_not_ok")
     if str(gate.get("selected_start_status", "")) != "pass":
@@ -174,10 +208,21 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "status": "ok" if not errors else "fail",
         "errors": errors,
         "url": str(args.url),
+        "mode": mode,
         "casebook_choice": str(args.casebook_choice),
         "casebook_start_index": int(explicit_start_index),
         "casebook_status_length": len(str(casebook_status)),
         "condition_source": str(query.get("condition_source", "")),
+        "condition_only_validation_status": str(
+            condition_only_validation.get("status", "")
+            if isinstance(condition_only_validation, dict)
+            else ""
+        ),
+        "condition_only_forward_warning_count": int(
+            condition_only_validation.get("forward_warning_count", 0)
+            if isinstance(condition_only_validation, dict)
+            else 0
+        ),
         "selected_start_status": str(gate.get("selected_start_status", "")),
         "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "overall_status": str(gate.get("overall_status", "")),
@@ -213,7 +258,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--mode",
+        choices=["cached_casebook", "live_condition_only"],
+        default="cached_casebook",
+    )
     parser.add_argument("--casebook-choice", default=DEFAULT_CASEBOOK_CHOICE)
+    parser.add_argument("--story", default=DEFAULT_LIVE_STORY)
     parser.add_argument("--expected-start-index", type=int, default=18)
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--fan-market", default="SPX")

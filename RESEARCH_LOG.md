@@ -113701,3 +113701,67 @@ support and forward-looking language remains warning-only. This should be run
 with one narrative first before scaling.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 66 live OpenAI Gradio TestFlight
+
+### Context
+
+The cached Gradio API smoke proved the no-OpenAI boss-demo path. The next
+production question was whether the same served app path works when the risk
+manager types a fresh story and the app performs live condition-only OpenAI
+grounding before fixed-start prefix generation.
+
+### Hypothesis
+
+A one-narrative live TestFlight should pass if the app can turn a story into
+current/recent market implications, route forward-looking language to warnings,
+embed only the cleaned condition text, use the fixed historical start, and still
+return finite scenario tables and fan charts through the Gradio API.
+
+### Execute
+
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py`
+  with `--mode live_condition_only`.
+- Added live-mode unit coverage to
+  `test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py`.
+- Ran the live API TestFlight against `http://127.0.0.1:7861` using the
+  safe-haven story, fixed start 18, samples 2, fan market `SPX`, and redraw
+  market `IV_ATM_3M`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7861 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_826a_safe_haven --mode live_condition_only --expected-start-index 18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, fan trace count 8, redraw trace count
+  8.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py -q`
+  -> 3 passed.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 35 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py`
+  -> passed.
+- `git diff --check` -> passed.
+
+Saved artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_826a_safe_haven/gradio_api_smoke_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_run/prefix_latent_story_smoke_report.json`
+
+The live condition-only report used `gpt-5.4-mini` for grounding and
+`text-embedding-3-small` for the text embedding. It extracted five current
+support implications (`GOLD` up, `US10Y` down, `SPX` flat/choppy, `VIX` up,
+`DXY` flat/unclear), produced one forward-warning item, reported no forward
+warning leakage, and passed condition-only validation. The prefix run then used
+the generated condition report as `external_condition_report` and passed the
+selected-start and overall gates.
+
+### Decide
+
+The live typed-story path is functional for a small TestFlight. The next
+production step is not to scale OpenAI calls immediately; it is to improve the
+product evidence shown for live runs: persist or surface the live condition
+report path in the API smoke summary/UI, expose mixture weights more plainly,
+and then run a small 3-story live casebook only if those artifacts remain clean.
+
+---
