@@ -55,6 +55,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_start_sensitivity import (  
     endpoint_alignment_summary,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_validation_gate import (  # noqa: E402
+    DEFAULT_GATE_THRESHOLDS,
     case_rollout_shift_rows,
     evaluate_start_case_gates,
 )
@@ -86,6 +87,7 @@ StartMode = Literal[
     "nearest_train_start",
     "farthest_train_start",
     "memory_nearest_start",
+    "balanced_memory_start",
     "explicit_start_window",
 ]
 
@@ -279,6 +281,91 @@ def _nearest_memory_support_index(
     return int(candidates[best_pos]), float(cosine[best_pos])
 
 
+def _start_distances_to_query(
+    *,
+    query_window_index: int,
+    start_state: np.ndarray,
+    train_indices: np.ndarray,
+) -> np.ndarray:
+    starts = np.asarray(start_state, dtype=np.float32)
+    train = np.asarray(train_indices, dtype=np.int64)
+    start_z = _safe_start_z(starts, train)
+    return np.linalg.norm(start_z[train] - start_z[int(query_window_index)], axis=1)
+
+
+def _candidate_memory_support_cosines(
+    *,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    candidate_indices: np.ndarray,
+) -> np.ndarray:
+    query = np.asarray(query_memory, dtype=np.float32).reshape(1, -1)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    candidates = np.asarray(candidate_indices, dtype=np.int64)
+    if candidates.size == 0:
+        raise ValueError("candidate_indices must be non-empty")
+    if targets.ndim != 2:
+        raise ValueError("memory_targets must have shape [N,D]")
+    if query.shape[1] != targets.shape[1]:
+        raise ValueError("query_memory dim must match memory_targets")
+    if np.any(candidates < 0) or np.any(candidates >= targets.shape[0]):
+        raise IndexError("candidate_indices outside memory_targets")
+    candidate_targets = targets[candidates]
+    denom = np.maximum(
+        np.linalg.norm(candidate_targets, axis=1) * np.linalg.norm(query, axis=1)[0],
+        1e-8,
+    )
+    return (np.sum(candidate_targets * query, axis=1) / denom).astype(np.float32)
+
+
+def _balanced_memory_support_start(
+    *,
+    query_window_index: int,
+    start_state: np.ndarray,
+    train_indices: np.ndarray,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    start_distance_threshold_z: float,
+    start_distance_penalty: float,
+) -> dict[str, Any]:
+    train = np.asarray(train_indices, dtype=np.int64)
+    cosines = _candidate_memory_support_cosines(
+        query_memory=query_memory,
+        memory_targets=memory_targets,
+        candidate_indices=train,
+    )
+    distances = _start_distances_to_query(
+        query_window_index=int(query_window_index),
+        start_state=start_state,
+        train_indices=train,
+    )
+    threshold = float(start_distance_threshold_z)
+    penalty = float(start_distance_penalty)
+    inside = distances <= threshold
+    score = cosines - penalty * np.maximum(distances - threshold, 0.0)
+    if bool(np.any(inside)):
+        candidate_positions = np.flatnonzero(inside)
+        best_pos = int(candidate_positions[int(np.argmax(cosines[inside]))])
+        method = "max_memory_inside_start_threshold"
+    else:
+        best_pos = int(np.argmax(score))
+        method = "penalized_memory_no_candidate_inside_threshold"
+    chosen_cosine = float(cosines[best_pos])
+    chosen_distance = float(distances[best_pos])
+    return {
+        "start_window_index": int(train[best_pos]),
+        "memory_support_cosine": chosen_cosine,
+        "start_selection_score": float(score[best_pos]),
+        "start_selection_method": method,
+        "start_distance_threshold_z": threshold,
+        "start_distance_penalty": penalty,
+        "memory_support_rank": int(1 + np.sum(cosines > chosen_cosine + 1e-8)),
+        "start_distance_rank": int(1 + np.sum(distances < chosen_distance - 1e-8)),
+        "candidate_count": int(train.size),
+        "candidate_count_inside_distance": int(np.sum(inside)),
+    }
+
+
 def resolve_start_window_index(
     *,
     query_window_index: int,
@@ -288,6 +375,10 @@ def resolve_start_window_index(
     explicit_start_window_index: int | None = None,
     query_memory: np.ndarray | None = None,
     memory_targets: np.ndarray | None = None,
+    start_distance_threshold_z: float = float(
+        DEFAULT_GATE_THRESHOLDS["start_distance_warn"]
+    ),
+    start_distance_penalty: float = 0.02,
 ) -> dict[str, Any]:
     """Resolve a product start-selection mode to one bridge-local window index."""
 
@@ -300,11 +391,13 @@ def resolve_start_window_index(
     if mode == "original":
         start_idx = query_idx
         support_cosine = None
+        proposal: dict[str, Any] = {}
     elif mode == "explicit_start_window":
         if explicit_start_window_index is None:
             raise ValueError("explicit_start_window_index is required")
         start_idx = int(explicit_start_window_index)
         support_cosine = None
+        proposal = {}
     elif mode == "memory_nearest_start":
         if query_memory is None or memory_targets is None:
             raise ValueError(
@@ -315,6 +408,28 @@ def resolve_start_window_index(
             memory_targets=memory_targets,
             candidate_indices=train,
         )
+        proposal = {
+            "start_selection_score": float(support_cosine),
+            "start_selection_method": "max_memory_support",
+            "memory_support_rank": 1,
+            "candidate_count": int(train.size),
+        }
+    elif mode == "balanced_memory_start":
+        if query_memory is None or memory_targets is None:
+            raise ValueError(
+                "query_memory and memory_targets are required for balanced_memory_start"
+            )
+        proposal = _balanced_memory_support_start(
+            query_window_index=query_idx,
+            start_state=starts,
+            train_indices=train,
+            query_memory=query_memory,
+            memory_targets=memory_targets,
+            start_distance_threshold_z=float(start_distance_threshold_z),
+            start_distance_penalty=float(start_distance_penalty),
+        )
+        start_idx = int(proposal["start_window_index"])
+        support_cosine = float(proposal["memory_support_cosine"])
     else:
         start_z = _safe_start_z(starts, train)
         distances = np.linalg.norm(start_z[train] - start_z[query_idx], axis=1)
@@ -325,6 +440,7 @@ def resolve_start_window_index(
         else:
             raise ValueError(f"unknown start_mode: {start_mode!r}")
         support_cosine = None
+        proposal = {}
     if start_idx < 0 or start_idx >= starts.shape[0]:
         raise IndexError(f"start_window_index {start_idx} outside {starts.shape[0]}")
     if support_cosine is None and query_memory is not None and memory_targets is not None:
@@ -346,6 +462,7 @@ def resolve_start_window_index(
     }
     if support_cosine is not None:
         result["memory_support_cosine"] = float(support_cosine)
+    result.update(proposal)
     return result
 
 
@@ -359,6 +476,10 @@ def build_live_story_variant_rows(
     include_original_baseline: bool = True,
     query_memory: np.ndarray | None = None,
     memory_targets: np.ndarray | None = None,
+    start_distance_threshold_z: float = float(
+        DEFAULT_GATE_THRESHOLDS["start_distance_warn"]
+    ),
+    start_distance_penalty: float = 0.02,
 ) -> list[dict[str, Any]]:
     """Build original and selected-start rows for one live cached story query."""
 
@@ -370,6 +491,8 @@ def build_live_story_variant_rows(
         start_mode="original",
         query_memory=query_memory,
         memory_targets=memory_targets,
+        start_distance_threshold_z=float(start_distance_threshold_z),
+        start_distance_penalty=float(start_distance_penalty),
     )
     selected = resolve_start_window_index(
         query_window_index=query_idx,
@@ -379,6 +502,8 @@ def build_live_story_variant_rows(
         explicit_start_window_index=explicit_start_window_index,
         query_memory=query_memory,
         memory_targets=memory_targets,
+        start_distance_threshold_z=float(start_distance_threshold_z),
+        start_distance_penalty=float(start_distance_penalty),
     )
     original.update(
             {
@@ -736,6 +861,8 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         include_original_baseline=bool(args.include_original_baseline),
         query_memory=query_memory,
         memory_targets=true_memory_targets,
+        start_distance_threshold_z=float(args.start_distance_threshold_z),
+        start_distance_penalty=float(args.start_distance_penalty),
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
@@ -938,11 +1065,18 @@ def main() -> None:
             "nearest_train_start",
             "farthest_train_start",
             "memory_nearest_start",
+            "balanced_memory_start",
             "explicit_start_window",
         ],
-        default="memory_nearest_start",
+        default="balanced_memory_start",
     )
     parser.add_argument("--explicit-start-window-index", type=int)
+    parser.add_argument(
+        "--start-distance-threshold-z",
+        type=float,
+        default=float(DEFAULT_GATE_THRESHOLDS["start_distance_warn"]),
+    )
+    parser.add_argument("--start-distance-penalty", type=float, default=0.02)
     parser.add_argument("--include-original-baseline", action="store_true", default=True)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--steps", type=int, default=1000)

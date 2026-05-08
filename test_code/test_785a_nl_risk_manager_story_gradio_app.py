@@ -163,6 +163,7 @@ def _prefix_report() -> dict:
                 "start_window_id": "joint39_val_0370",
                 "start_distance_z": 0.0,
                 "memory_support_cosine": 0.812,
+                "start_selection_method": "",
             },
             {
                 "variant": "nearest_train_start",
@@ -170,6 +171,7 @@ def _prefix_report() -> dict:
                 "start_window_id": "joint39_val_0269",
                 "start_distance_z": 6.94,
                 "memory_support_cosine": 0.887,
+                "start_selection_method": "max_memory_inside_start_threshold",
             },
         ],
         "validation_gate": {
@@ -296,6 +298,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
+    assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
 
 

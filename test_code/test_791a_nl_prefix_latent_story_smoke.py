@@ -175,6 +175,35 @@ def test_resolve_start_window_index_supports_memory_nearest_start() -> None:
     assert selected["memory_support_cosine"] > 0.99
 
 
+def test_resolve_start_window_index_supports_balanced_memory_start() -> None:
+    start = np.asarray([[0.0], [1.0], [10.0]], dtype=np.float32)
+    memory_targets = np.asarray(
+        [
+            [1.0, 0.0],
+            [0.4, 0.8],
+            [0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    selected = resolve_start_window_index(
+        query_window_index=0,
+        start_state=start,
+        train_indices=np.asarray([1, 2], dtype=np.int64),
+        start_mode="balanced_memory_start",
+        query_memory=np.asarray([0.0, 1.0], dtype=np.float32),
+        memory_targets=memory_targets,
+        start_distance_threshold_z=0.5,
+        start_distance_penalty=0.02,
+    )
+
+    assert selected["variant"] == "balanced_memory_start"
+    assert selected["start_window_index"] == 1
+    assert selected["start_selection_method"] == "max_memory_inside_start_threshold"
+    assert selected["memory_support_rank"] == 2
+    assert selected["candidate_count_inside_distance"] == 1
+
+
 def test_build_live_story_variant_rows_adds_original_baseline_for_changed_start() -> None:
     start = np.asarray([[0.0], [1.0], [4.0]], dtype=np.float32)
     memory_targets = np.asarray([[1.0, 0.0], [0.4, 0.8], [0.0, 1.0]], dtype=np.float32)

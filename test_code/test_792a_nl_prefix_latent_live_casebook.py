@@ -24,7 +24,7 @@ def test_build_case_command_sets_live_story_and_output_dir() -> None:
         steps=50,
         samples=2,
         chunk_size=2,
-        start_mode="memory_nearest_start",
+        start_mode="balanced_memory_start",
         device="cuda",
         grounding_model="gpt-5.4-mini",
         embedding_model="text-embedding-3-small",
@@ -40,7 +40,7 @@ def test_build_case_command_sets_live_story_and_output_dir() -> None:
     assert command[command.index("--story") + 1] == "A live casebook story."
     assert command[command.index("--output-dir") + 1] == "outputs/case_01"
     assert command[command.index("--steps") + 1] == "50"
-    assert command[command.index("--start-mode") + 1] == "memory_nearest_start"
+    assert command[command.index("--start-mode") + 1] == "balanced_memory_start"
 
 
 def test_summarize_case_report_extracts_gate_and_grounding() -> None:

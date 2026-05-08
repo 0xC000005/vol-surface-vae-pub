@@ -87,6 +87,7 @@ PREFIX_VARIANT_COLUMNS = [
     "Start Window",
     "Start Distance",
     "Memory Support",
+    "Selection",
     "Start Split",
 ]
 FAN_MARKET_CHOICES = [
@@ -301,6 +302,7 @@ def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Start Window": str(item.get("start_window_id", "")),
                 "Start Distance": _fmt_float(item.get("start_distance_z")),
                 "Memory Support": _fmt_float(item.get("memory_support_cosine")),
+                "Selection": str(item.get("start_selection_method", "")),
                 "Start Split": str(item.get("start_manifest_split", "")),
             }
         )
@@ -792,6 +794,8 @@ def build_prefix_latent_run_args(
         dotenv=".env",
         start_mode=str(start_mode),
         explicit_start_window_index=None,
+        start_distance_threshold_z=15.0,
+        start_distance_penalty=0.02,
         include_original_baseline=True,
         hidden_dim=256,
         steps=1000,
@@ -1095,12 +1099,13 @@ def build_demo() -> Any:
         with gr.Row():
             prefix_start_mode = gr.Dropdown(
                 choices=[
+                    ("Balanced memory/start support", "balanced_memory_start"),
                     ("Memory-nearest train start", "memory_nearest_start"),
                     ("Original start", "original"),
                     ("Nearest train start", "nearest_train_start"),
                     ("Farthest train start", "farthest_train_start"),
                 ],
-                value="memory_nearest_start",
+                value="balanced_memory_start",
                 label="Start mode",
             )
             prefix_live_story = gr.Checkbox(

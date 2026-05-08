@@ -210,7 +210,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--chunk-size", type=int, default=2)
-    parser.add_argument("--start-mode", default="memory_nearest_start")
+    parser.add_argument("--start-mode", default="balanced_memory_start")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--grounding-model", default="gpt-5.4-mini")
     parser.add_argument("--embedding-model", default="text-embedding-3-small")

@@ -110916,3 +110916,129 @@ start, or requires the risk manager to provide a start explicitly.
 - `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 59 passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 15 balanced start proposal
+
+### Context
+
+Iteration 14 proved that pure memory-nearest starting-state proposal was too
+aggressive. It improved projected-memory support, but often selected training
+starts that were far from the current/query state and therefore triggered
+large-start-distance and rollout-shift warnings. The next production step was
+to make start proposal auditable as a two-constraint decision: story-memory
+support and start-level plausibility.
+
+### Hypothesis
+
+If start proposal should balance story compatibility with market-level
+plausibility, then filtering candidate starts by the existing start-distance
+warning threshold before maximizing memory support should keep the selected
+start inside the validation gate while retaining most of the memory-support
+benefit.
+
+### Execution
+
+- Added `balanced_memory_start` to
+  `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- The selector:
+  - computes projected-memory support cosine for train-window candidates;
+  - computes z-distance from the query/current start;
+  - chooses the highest-memory-support candidate inside the configured
+    start-distance threshold;
+  - falls back to a penalized support score only if no candidates are inside the
+    distance threshold.
+- Added candidate diagnostics:
+  - support score;
+  - selection method;
+  - support rank;
+  - start-distance rank;
+  - threshold and penalty;
+  - candidate counts inside the threshold.
+- Updated the Gradio prefix-latent table to show the selection method.
+- Updated the live casebook default to the balanced selector.
+
+### Result
+
+Cached smoke improved from warning to pass:
+
+- selected balanced start: `joint39_val_0063`;
+- selected support cosine: `0.9505`;
+- support rank: `3`;
+- selected start distance: `12.05`, inside the `15.0` warning threshold;
+- selected decoded memory cosine: `0.9459`;
+- selected terminal rollout shift: `0.912`, under the warning threshold;
+- validation status: `pass`.
+
+Live 3-story casebook stayed overall `warning`, but the selected-start failure
+mode improved sharply:
+
+| Case | Original Support | Balanced Support | Balanced Decoded Cosine | Balanced Distance | Balanced Terminal Shift | Balanced Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| fragile_risk_on_rebound | 0.6685 | 0.8725 | 0.8848 | 13.211 | 0.960 | pass |
+| defensive_risk_off_shock | 0.6755 | 0.8910 | 0.8746 | 14.720 | 1.184 | warning |
+| rates_selloff_tightening_fear | 0.6269 | 0.8440 | 0.8353 | 14.486 | 1.032 | warning |
+
+Compared with pure memory-nearest selection:
+
+- selected starts no longer trigger `large_start_distance`;
+- selected support remains high enough to clear the low-memory warning in all
+  three selected-start rows;
+- two selected starts still trigger `large_rollout_shift`, but only slightly
+  over the threshold;
+- the original fixed diagnostic baseline still warns on low memory
+  compatibility in all cases.
+
+### Mechanism Read
+
+The balanced selector is the first version that looks like a production
+starting-state proposal policy. It does not make the system a KNN prefix model:
+the historical window supplies only the final starting level. Prefix dynamics
+still come from the learned text-memory-plus-start decoder and the frozen SNI
+rollout.
+
+The remaining issue is reporting and product semantics. The validation gate now
+mixes two roles:
+
+- diagnostic original-start baseline;
+- operational selected-start proposal.
+
+That is useful for research, but confusing for a risk-manager product. A
+narrative-only run should report the proposed-start status separately from the
+diagnostic baseline status. The baseline can remain visible, but it should not
+make the proposed scenario look worse than it is.
+
+### Decision
+
+Commit the balanced selector. The next HEAD iteration should improve
+product-facing validation semantics:
+
+```text
+overall research status: all rows including diagnostics
+operational selected-start status: rows that would drive the product scenario
+diagnostic baseline status: original fixed/current start comparison
+```
+
+This is now more important than adding more OpenAI calls, because the current
+numerical behavior is interpretable but the UI/report status is too blunt.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py`
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `test_code/test_792a_nl_prefix_latent_live_casebook.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_794a_balanced_cached/prefix_latent_story_smoke_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_794a_balanced/live_prefix_casebook_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 28 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_794a_balanced_cached --steps 100 --samples 2 --chunk-size 2 --start-mode balanced_memory_start --device cuda`: cached smoke pass.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_live_casebook_794a_balanced --case-count 3 --steps 100 --samples 2 --chunk-size 2 --start-mode balanced_memory_start --device cuda`: 3 live OpenAI cases, all warning overall, selected-start rows improved as above.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 60 passed.
+- `git diff --check`: passed.
+
+---
