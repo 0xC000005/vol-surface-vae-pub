@@ -113243,3 +113243,28 @@ The expanded calibrated validation showed that warning rows can still improve sc
 The demo is now more risk-manager-legible: it can say "this scenario is calibrated and beats persistence on distributional metrics" while still warning that the start/support/shift diagnostics require care. The next step is larger-scale validation and, if stable, packaging a boss-ready demo script around these trust semantics.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 57 boss demo evidence pack
+
+### Context
+The calibrated fixed-start workflow now has positive expanded validation and clearer demo warning semantics. This iteration packaged that evidence into a concise, reproducible boss-facing report.
+
+### HEAD
+- Hypothesis: a production-facing demo needs a short evidence pack that explains the workflow, the current metrics, and why this is not an LLM inventing paths. This should be generated from validation artifacts, not hand-written from memory.
+- Execute: added `nl_prefix_latent_boss_demo_pack.py`, which reads the expanded calibrated validation report and writes Markdown/JSON with the product claim, workflow, current evidence, warning semantics, demo talking points, and next validation step. Added tests for metric extraction, Markdown content, and artifact writing.
+- Analyze: tests passed, the script generated a boss-facing Markdown pack, and the pack correctly reports 8/8 CRPS-improving rows, 6 pass / 2 warning, +15.9% mean energy improvement, and +14.5% mean CRPS improvement versus persistence.
+- Decide: keep this evidence pack as the product-facing snapshot for the current milestone. The next step is to add more condition-only narratives and rerun the calibrated fixed-start validation grid.
+
+### Evidence
+- `uv run pytest test_code/test_807a_nl_prefix_latent_boss_demo_pack.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q`: 37 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py test_code/test_807a_nl_prefix_latent_boss_demo_pack.py`: passed.
+- `git diff --check`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py --validation-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_820b_expanded_temp050_s16/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_821a`: status `ok`, mean CRPS improvement +0.145.
+
+### Artifacts
+- Evidence pack Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_821a/boss_demo_pack.md`
+- Evidence pack JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_821a/boss_demo_pack.json`
+
+### Production implication
+We now have a concise demo story that a boss can follow: narrative input is grounded, the start is fixed before prefix construction, historical analogues provide support rather than replay, the frozen generator produces the paths, and calibrated rollout beats persistence on the expanded cached validation set.
+
+---
