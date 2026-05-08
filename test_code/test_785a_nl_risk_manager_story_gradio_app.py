@@ -12,6 +12,8 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     build_start_state_payload,
     build_prefix_latent_run_args,
     build_run_args,
+    cached_prefix_casebook_choices,
+    cached_prefix_casebook_update,
     export_historical_start_json_for_app,
     fan_chart_figure,
     historical_start_candidate_choices,
@@ -581,6 +583,32 @@ def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:
     assert historical_start_candidate_to_index("") is None
 
 
+def test_cached_prefix_casebook_controls_fill_story_start_and_report() -> None:
+    choices = cached_prefix_casebook_choices()
+
+    assert choices[0] == ("Typed story / current controls", "")
+    dollar_value = [
+        value for label, value in choices if "Dollar liquidity squeeze" in label
+    ][0]
+    (
+        story,
+        use_explicit_start,
+        start_index,
+        condition_only_story,
+        live_story,
+        condition_report,
+        status,
+    ) = cached_prefix_casebook_update(dollar_value)
+
+    assert "dollar liquidity squeeze" in story.lower()
+    assert use_explicit_start is True
+    assert start_index in {0, 22, 77}
+    assert condition_only_story is False
+    assert live_story is False
+    assert "condition_only_report_823a_dollar" in condition_report
+    assert "OpenAI calls: `none" in status
+
+
 def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
     choices = analogue_scope_choices(_prefix_report())
 
@@ -848,6 +876,44 @@ def test_run_prefix_latent_for_app_can_use_user_start_json() -> None:
     assert "user_start_state" in first[1]
     assert calls == [("user_start_state", "tmp/today_start.json")]
     assert final[15].iloc[0]["Label"] == "today"
+
+
+def test_run_prefix_latent_for_app_can_use_cached_condition_report(tmp_path) -> None:
+    calls = []
+    report_path = tmp_path / "condition_report.json"
+    report_path.write_text("{}", encoding="utf-8")
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(
+            (
+                args.condition_report,
+                args.live_story,
+                args.start_mode,
+                args.explicit_start_window_index,
+            )
+        )
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        live_story=True,
+        story="Cached condition story.",
+        cached_condition_report=str(report_path),
+        condition_only_story=True,
+        use_explicit_start=True,
+        explicit_start_window_index=77,
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "cached condition-only report" in first[1]
+    assert calls == [(str(report_path), False, "explicit_start_window", 77)], final[7]
+    assert "Completed in" in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> None:

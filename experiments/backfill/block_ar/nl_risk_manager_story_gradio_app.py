@@ -53,6 +53,9 @@ from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import ( 
 from experiments.backfill.block_ar.nl_prefix_latent_condition_only_report import (  # noqa: E402
     run_condition_only_report,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (  # noqa: E402
+    default_casebook_stories,
+)
 from experiments.backfill.block_ar.nl_prefix_latent_hard_case_decomposition import (  # noqa: E402
     decompose_report,
     production_decision,
@@ -85,6 +88,71 @@ DEFAULT_USER_START_STATE_JSON = (
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
     "user_start_state_18.json"
 )
+CACHED_PREFIX_CASEBOOK_CONFIG = [
+    (
+        "commodity_inflation_pressure",
+        "Commodity inflation pressure / start 18",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+        18,
+    ),
+    (
+        "commodity_inflation_pressure",
+        "Commodity inflation pressure / balanced start 40",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+        40,
+    ),
+    (
+        "commodity_inflation_pressure",
+        "Commodity inflation pressure / rates start 178",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+        178,
+    ),
+    (
+        "dollar_liquidity_squeeze",
+        "Dollar liquidity squeeze / defensive start 22",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+        22,
+    ),
+    (
+        "dollar_liquidity_squeeze",
+        "Dollar liquidity squeeze / balanced start 77",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+        77,
+    ),
+    (
+        "dollar_liquidity_squeeze",
+        "Dollar liquidity squeeze / memory-nearest start 0",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+        0,
+    ),
+    (
+        "safe_haven_gold_bid",
+        "Safe-haven gold bid / start 18",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+        18,
+    ),
+    (
+        "safe_haven_gold_bid",
+        "Safe-haven gold bid / balanced start 77",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+        77,
+    ),
+    (
+        "safe_haven_gold_bid",
+        "Safe-haven gold bid / rates start 178",
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+        178,
+    ),
+]
 IMPLICATION_COLUMNS = [
     "Market",
     "Direction",
@@ -233,8 +301,107 @@ def _short(text: Any, limit: int = 160) -> str:
     return compact[: int(limit) - 3].rstrip() + "..."
 
 
+def _slug(text: str) -> str:
+    keep: list[str] = []
+    for char in str(text).lower():
+        if char.isalnum():
+            keep.append(char)
+        elif keep and keep[-1] != "_":
+            keep.append("_")
+    return "".join(keep).strip("_") or "case"
+
+
 def _frame(rows: list[dict[str, Any]], columns: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
+
+
+def cached_prefix_casebook_rows() -> list[dict[str, Any]]:
+    """Return cached condition-only demo rows for the prefix-latent UI."""
+
+    story_by_name = {
+        str(item["name"]): str(item["story"]) for item in default_casebook_stories()
+    }
+    rows: list[dict[str, Any]] = []
+    for (
+        case_name,
+        label,
+        condition_report,
+        start_index,
+    ) in CACHED_PREFIX_CASEBOOK_CONFIG:
+        rows.append(
+            {
+                "label": str(label),
+                "value": f"{case_name}:{int(start_index)}",
+                "case_name": str(case_name),
+                "story": story_by_name.get(str(case_name), DEFAULT_STORY),
+                "condition_report": str(condition_report),
+                "start_index": int(start_index),
+            }
+        )
+    return rows
+
+
+def cached_prefix_casebook_choices() -> list[tuple[str, str]]:
+    return [("Typed story / current controls", "")] + [
+        (str(row["label"]), str(row["value"])) for row in cached_prefix_casebook_rows()
+    ]
+
+
+def cached_prefix_casebook_update(choice: str | None) -> tuple[
+    str,
+    bool,
+    int,
+    bool,
+    bool,
+    str,
+    str,
+]:
+    """Populate story/start/report controls from a cached casebook selection."""
+
+    value = str(choice or "")
+    if not value:
+        return (
+            DEFAULT_STORY,
+            False,
+            22,
+            True,
+            False,
+            "",
+            "## Cached Casebook\n\n- Selection: `typed story / current controls`",
+        )
+    for row in cached_prefix_casebook_rows():
+        if str(row["value"]) != value:
+            continue
+        report_path = str(row["condition_report"])
+        exists_text = "available" if Path(report_path).exists() else "missing"
+        return (
+            str(row["story"]),
+            True,
+            int(row["start_index"]),
+            False,
+            False,
+            report_path,
+            "\n".join(
+                [
+                    "## Cached Casebook",
+                    "",
+                    f"- Selection: `{row['label']}`",
+                    f"- Narrative family: `{row['case_name']}`",
+                    f"- Fixed start index: `{row['start_index']}`",
+                    f"- Cached condition report: `{exists_text}`",
+                    "- OpenAI calls: `none for this cached run`",
+                ]
+            ),
+        )
+    return (
+        DEFAULT_STORY,
+        False,
+        22,
+        True,
+        False,
+        "",
+        f"## Cached Casebook\n\n- Selection: `unknown ({value})`",
+    )
 
 
 def _operational_variant_row(report: dict[str, Any]) -> dict[str, Any]:
@@ -1256,8 +1423,13 @@ def _prefix_progress_status_markdown(
     temperature: float = DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
     live_story: bool = False,
     condition_only_story: bool = False,
+    cached_condition_report: bool = False,
 ) -> str:
-    if bool(condition_only_story):
+    if bool(cached_condition_report):
+        condition_step = (
+            "cached condition-only report, fixed start, prefix decoding, frozen rollout"
+        )
+    elif bool(condition_only_story):
         condition_step = (
             "condition-only OpenAI grounding, text embedding, balanced start "
             "selection, prefix decoding, frozen rollout, warning decomposition"
@@ -1666,6 +1838,7 @@ def run_prefix_latent_for_app(
     analogue_scope: str,
     live_story: bool = False,
     story: str = DEFAULT_STORY,
+    cached_condition_report: str | None = None,
     condition_only_story: bool = False,
     use_explicit_start: bool = False,
     explicit_start_window_index: float | int | None = None,
@@ -1693,6 +1866,7 @@ def run_prefix_latent_for_app(
         else None
     )
     user_start_path = str(start_state_json or "").strip() or None
+    cached_report_path = str(cached_condition_report or "").strip()
     running_status = _prefix_progress_status_markdown(
         start_time=start_time,
         start_mode=effective_start_mode,
@@ -1700,6 +1874,7 @@ def run_prefix_latent_for_app(
         temperature=DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
         live_story=bool(live_story),
         condition_only_story=bool(condition_only_story),
+        cached_condition_report=bool(cached_report_path),
     )
     yield _blank_prefix_outputs(status=running_status, fan_market=fan_market)
 
@@ -1707,7 +1882,18 @@ def run_prefix_latent_for_app(
         condition_report_payload: dict[str, Any] | None = None
         condition_report_path: str | None = None
         output_dir = DEFAULT_PREFIX_APP_OUTPUT_DIR
-        if bool(condition_only_story):
+        if cached_report_path:
+            condition_report_path = cached_report_path
+            if not Path(condition_report_path).exists():
+                raise FileNotFoundError(
+                    f"cached condition report not found: {condition_report_path}"
+                )
+            output_dir = str(
+                Path(DEFAULT_PREFIX_APP_OUTPUT_DIR)
+                / "cached_casebook_run"
+                / _slug(Path(condition_report_path).parent.name)
+            )
+        elif bool(condition_only_story):
             condition_report_payload = build_condition_only_report_for_app(
                 story=str(story or DEFAULT_STORY),
                 output_dir=Path(DEFAULT_PREFIX_APP_OUTPUT_DIR) / "condition_only_live",
@@ -1721,7 +1907,11 @@ def run_prefix_latent_for_app(
         args = build_prefix_latent_run_args(
             start_mode=effective_start_mode,
             samples=int(samples),
-            live_story=bool(live_story) and not bool(condition_only_story),
+            live_story=(
+                bool(live_story)
+                and not bool(condition_only_story)
+                and not bool(cached_report_path)
+            ),
             story=str(story or DEFAULT_STORY),
             condition_report=condition_report_path,
             explicit_start_window_index=explicit_start,
@@ -1921,6 +2111,25 @@ def build_demo() -> Any:
             "This cached smoke path uses a held-out narrative text memory plus "
             "a selected start state, decodes a recent prefix, and runs the "
             "frozen joint39 generator. It makes no OpenAI calls."
+        )
+        with gr.Row():
+            prefix_casebook_choice = gr.Dropdown(
+                choices=cached_prefix_casebook_choices(),
+                value="",
+                label="Cached validated casebook",
+                info=(
+                    "Choose a previously grounded narrative/start pair. This "
+                    "fills the story, fixed start, and cached condition report."
+                ),
+            )
+            prefix_cached_condition_report = gr.Textbox(
+                value="",
+                label="Cached condition report path",
+                visible=False,
+            )
+        prefix_casebook_status = gr.Markdown(
+            "## Cached Casebook\n\n- Selection: `typed story / current controls`",
+            label="Cached casebook selection",
         )
         with gr.Row():
             prefix_start_mode = gr.Dropdown(
@@ -2126,6 +2335,7 @@ def build_demo() -> Any:
                 prefix_analogue_scope,
                 prefix_live_story,
                 story,
+                prefix_cached_condition_report,
                 prefix_condition_only_story,
                 prefix_use_explicit_start,
                 prefix_explicit_start_index,
@@ -2153,6 +2363,20 @@ def build_demo() -> Any:
             ],
             show_progress="full",
             show_progress_on=prefix_status,
+        )
+        prefix_casebook_choice.change(
+            fn=cached_prefix_casebook_update,
+            inputs=prefix_casebook_choice,
+            outputs=[
+                story,
+                prefix_use_explicit_start,
+                prefix_explicit_start_index,
+                prefix_condition_only_story,
+                prefix_live_story,
+                prefix_cached_condition_report,
+                prefix_casebook_status,
+            ],
+            show_progress="hidden",
         )
         prefix_explicit_start_candidate.change(
             fn=historical_start_candidate_to_index,

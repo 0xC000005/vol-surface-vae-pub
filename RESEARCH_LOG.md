@@ -113483,3 +113483,45 @@ legible without presenting the system as an LLM that directly invents future
 paths.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 62 cached casebook demo selector
+
+### Context
+The broader condition-only validation is now packaged for boss/demo
+communication, but a risk manager still had to read generated Markdown/JSON to
+see it. The next production bottleneck was UI exposure: the Gradio app needed a
+simple way to choose a validated narrative/start row and run the prefix-latent
+workflow without a fresh OpenAI call.
+
+### HEAD
+- Hypothesis: adding a cached casebook selector to the Gradio prefix-latent
+  section will make the broader validation inspectable in the actual demo while
+  preserving the strict ordering: cached condition report, fixed start, mixture,
+  frozen rollout.
+- Execute: added a cached validated casebook dropdown covering the 9-row
+  condition-only grid. Selecting a row fills the story text, enables historical
+  fixed-start mode, sets the start index, disables live OpenAI grounding, and
+  stores the cached condition report path. Updated the prefix-latent run path to
+  accept a cached condition report and use it ahead of live grounding. Added
+  tests for casebook controls and cached-report execution.
+- Analyze: focused Gradio tests passed, the app module compiled, `build_demo()`
+  returned a `Blocks` object, and the cached-report path is explicitly marked
+  as no-OpenAI in progress/status text. The UI now lets a risk manager inspect
+  the broader narrative/start validation without reading artifacts manually.
+- Decide: keep the cached casebook path as the boss-demo mode. The next step is
+  a live app smoke on one cached casebook row with screenshots or manual QA, and
+  then, if stable, update the evidence pack or README with exact demo steps.
+
+### Evidence
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`: 28 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `git diff --check`: passed.
+
+### Production implication
+The demo now has a safer boss-facing path: choose a previously grounded
+narrative/start case, confirm the fixed start, run the frozen generator, and
+inspect implications, warning-only language, start support, and scenario fans.
+This avoids hidden OpenAI calls during a demo while preserving the same
+condition-only contract used in validation.
+
+---
