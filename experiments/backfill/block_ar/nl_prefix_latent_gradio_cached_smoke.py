@@ -111,6 +111,21 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("gate_selected_status_missing")
     if not str(report_json).strip().startswith("{"):
         errors.append("json_report_missing")
+    generation = report.get("generation", {}) if isinstance(report, dict) else {}
+    path_quantiles = (
+        generation.get("path_quantiles", []) if isinstance(generation, dict) else []
+    )
+    path_labels = [
+        str(row.get("analogue_label", ""))
+        for row in path_quantiles
+        if isinstance(row, dict)
+    ]
+    has_selected_label = any("Selected start:" in label for label in path_labels)
+    has_diagnostic_label = any("Diagnostic baseline:" in label for label in path_labels)
+    if not has_selected_label:
+        errors.append("selected_start_label_missing")
+    if not has_diagnostic_label:
+        errors.append("diagnostic_baseline_label_missing")
 
     summary = {
         "status": "ok" if not errors else "fail",
@@ -128,6 +143,9 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "selected_start_status": str(gate.get("selected_start_status", "")),
         "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "research_overall_status": str(gate.get("overall_status", "")),
+        "path_labels": sorted(set(path_labels)),
+        "has_selected_start_label": bool(has_selected_label),
+        "has_diagnostic_baseline_label": bool(has_diagnostic_label),
         "analogue_update": str(analogue_update),
         "markdown_length": int(len(str(markdown))),
         "status_markdown_length": int(len(str(status_markdown))),

@@ -47,6 +47,12 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(tmp_path, monkeypatch
                     "diagnostic_baseline_status": "warning",
                     "overall_status": "warning",
                 },
+                "generation": {
+                    "path_quantiles": [
+                        {"analogue_label": "Diagnostic baseline: joint39_val_0370"},
+                        {"analogue_label": "Selected start: joint39_val_0063"},
+                    ]
+                },
             },
             {"choices": [("All", "ALL")]},
         )
@@ -70,4 +76,6 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(tmp_path, monkeypatch
     assert summary["selected_table_rows"] == 1
     assert summary["diagnostic_table_rows"] == 1
     assert summary["selected_start_status"] == "pass"
+    assert summary["has_selected_start_label"] is True
+    assert summary["has_diagnostic_baseline_label"] is True
     assert (tmp_path / "gradio_cached_smoke_summary.json").exists()

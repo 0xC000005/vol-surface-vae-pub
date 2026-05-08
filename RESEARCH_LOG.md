@@ -111353,3 +111353,63 @@ so regressions in demo wording are caught automatically.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 20 strict Gradio label smoke
+
+### Context
+
+Iteration 19 added product-role fan-chart labels, but the cached wrapper smoke
+did not yet assert that those labels were present. A wording regression could
+therefore slip through even if the smoke still produced non-empty tables and a
+non-empty fan chart.
+
+### Hypothesis
+
+If the cached wrapper smoke asserts selected-start and diagnostic-baseline path
+labels directly, it becomes a stronger pre-demo guard for the risk-manager UX.
+
+### Execution
+
+- Updated `nl_prefix_latent_gradio_cached_smoke.py` to inspect generated
+  `path_quantiles`.
+- The smoke now fails if:
+  - no `Selected start:` label is present;
+  - no `Diagnostic baseline:` label is present.
+- Added the discovered path labels and boolean label checks to the smoke
+  summary JSON.
+- Updated the smoke unit test.
+
+### Result
+
+The strict cached wrapper smoke passed:
+
+- status: `ok`;
+- selected-start label present: `true`;
+- diagnostic-baseline label present: `true`;
+- path labels:
+  - `All start variants`;
+  - `Diagnostic baseline: joint39_val_0370`;
+  - `Selected start: joint39_val_0063`;
+- fan trace count: `8`.
+
+### Decision
+
+Commit the stricter smoke. The next principled step is a small live one-story
+UX TestFlight using the production-like balanced start mode and product-role
+labels. This should be bounded to one OpenAI-grounded story before any larger
+casebook rerun.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`
+- `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_798a_strict_labels/gradio_cached_smoke_summary.json`
+
+### Verification
+
+- `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`: 2 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_798a_strict_labels --start-mode balanced_memory_start --samples 2 --fan-market SPX`: strict smoke passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`: 63 passed.
+- `git diff --check`: passed.
+
+---
