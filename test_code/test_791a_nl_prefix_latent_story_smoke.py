@@ -1,11 +1,16 @@
 import sys
 
 import numpy as np
+import torch
 
 sys.path.insert(0, ".")
 
+from test_code.test_784a_nl_risk_manager_story_smoke import _grounding
+
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
+    _render_markdown,
     build_live_story_variant_rows,
+    build_live_story_condition_memory,
     generated_delta_samples_to_states,
     narrative_text_for_query,
     resolve_start_window_index,
@@ -166,3 +171,62 @@ def test_generated_delta_samples_to_states_adds_current_state_per_variant() -> N
     assert states.shape == (2, 3, 4, 5)
     assert np.allclose(states[0, 0, 0], current[0] + 1.0)
     assert np.allclose(states[1, 2, 3], current[1] + 1.0)
+
+
+def test_build_live_story_condition_memory_uses_embedder_and_adapter() -> None:
+    calls = {}
+
+    def fake_embedder(texts, *, model, dotenv_path, batch_size):
+        calls["texts"] = texts
+        calls["model"] = model
+        calls["dotenv_path"] = dotenv_path
+        calls["batch_size"] = batch_size
+        return np.asarray([[3.0, 4.0]], dtype=np.float32)
+
+    class FakeAdapter:
+        def __call__(self, value: torch.Tensor) -> torch.Tensor:
+            calls["adapter_input_norm"] = float(torch.linalg.norm(value).item())
+            return torch.asarray([[1.0, 2.0, 3.0]], dtype=torch.float32)
+
+    def fake_loader(path, *, embedding_dim, condition_dim):
+        calls["adapter_path"] = path
+        calls["embedding_dim"] = embedding_dim
+        calls["condition_dim"] = condition_dim
+        return FakeAdapter()
+
+    result = build_live_story_condition_memory(
+        story="A fragile risk-on rebound.",
+        grounding=_grounding(),
+        embedding_model="fake-embedding-model",
+        bridge_adapter="fake_adapter.pt",
+        condition_dim=3,
+        dotenv_path=".env.test",
+        embedder=fake_embedder,
+        adapter_loader=fake_loader,
+    )
+
+    assert result["query_condition"].shape == (3,)
+    assert result["embedding_metadata"]["embedding_dim"] == 2
+    assert result["embedding_metadata"]["condition_dim"] == 3
+    assert calls["model"] == "fake-embedding-model"
+    assert calls["adapter_path"] == "fake_adapter.pt"
+    assert abs(calls["adapter_input_norm"] - 1.0) < 1e-6
+    assert "A fragile risk-on rebound." in calls["texts"][0]
+
+
+def test_render_markdown_labels_live_story_condition() -> None:
+    markdown = _render_markdown(
+        {
+            "cached_query": {
+                "condition_source": "live_openai_story",
+                "narrative_text": "A live risk-manager story.",
+            },
+            "variant_rows": [],
+            "validation_gate": {},
+            "decoder": {},
+            "generation": {},
+        }
+    )
+
+    assert "## Live Narrative" in markdown
+    assert "A live risk-manager story." in markdown

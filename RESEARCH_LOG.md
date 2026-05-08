@@ -110497,3 +110497,131 @@ cache behavior, and non-garbage text-memory outputs.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 11 OpenAI live-story prefix TestFlight
+
+### Context
+
+Iteration 10 exposed the cached prefix-latent smoke in the Gradio demo, but the
+prefix-latent path still depended on a preselected cached held-out text-memory
+vector. The next production gate was to prove a live risk-manager narrative can
+be grounded, embedded, projected into generator-memory space, and passed through
+the same text-memory-plus-start prefix decoder.
+
+### Hypothesis
+
+A one-narrative OpenAI TestFlight should be enough to verify the live story
+plumbing without scaling calls:
+
+```text
+risk-manager narrative
+-> OpenAI structured grounding
+-> OpenAI text embedding
+-> bridge adapter projection to 128-dim generator memory
+-> selected start
+-> decoded prefix
+-> frozen joint39 SNI rollout
+-> validation gate
+```
+
+### Execution
+
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- Extended `test_code/test_791a_nl_prefix_latent_story_smoke.py`.
+- Added `build_live_story_condition_memory(...)`, with dependency injection for
+  unit tests so tests do not call OpenAI.
+- Added CLI live-story controls:
+  - `--live-story`;
+  - `--story`;
+  - `--grounding-json`;
+  - `--grounding-model`;
+  - `--embedding-model`;
+  - `--bridge-adapter`;
+  - `--dotenv`.
+- Kept cached mode as the default.
+- Ran a no-OpenAI cached regression smoke.
+- Ran a one-narrative OpenAI live-story TestFlight twice: once to verify the
+  path, once after fixing report wording so saved Markdown/JSON correctly label
+  the condition as live OpenAI-grounded.
+
+### Result
+
+The live TestFlight used the default risk-manager story:
+
+> This has the shape of a fragile risk-on rebound: equities are recovering,
+> volatility is compressing, spreads are stabilizing, and investors appear to
+> be rotating back into carry. The forward risk is that a volatility reversal
+> quickly unwinds the move.
+
+OpenAI grounding returned a usable schema:
+
+- narrative frame: fragile risk-on rebound;
+- SPX up small, inferred;
+- VIX down small, inferred;
+- BBB OAS flat, inferred from stabilizing spreads;
+- IV surface down small;
+- IV skew down small with low confidence;
+- warnings for interpretive regime phrase, generic carry language, and forward
+  risk wording.
+
+The live prefix-latent rollout produced:
+
+- condition source `live_openai_story`;
+- text embedding dimension `1536`;
+- condition dimension `128`;
+- generated shape `[2, 2, 30, 39]`;
+- endpoint max error `0.0`;
+- finite generated arrays;
+- validation status `warning`;
+- operational status `warning`;
+- stress status `pass`;
+- warning count `low_memory_compatibility=1`.
+
+Validation case details:
+
+- original start memory cosine: about `0.7706`, triggering
+  `low_memory_compatibility`;
+- nearest-train start memory cosine: about `0.8512`, passing;
+- nearest-start rollout shift: about `0.6878` mean z / `0.7514` terminal z.
+
+Rollout scoring for this small 2-sample TestFlight was worse than persistence
+on distributional metrics, so the workflow correctly stops at TestFlight scale
+instead of scaling OpenAI calls.
+
+### Mechanism Read
+
+The plumbing works: live natural language can now produce a generator-memory
+condition and drive the decoded-prefix frozen rollout. The warning is not a
+schema failure; it is a model-compatibility signal. The projected live-story
+memory is not close enough to the decoded-prefix memory for the original start
+under the current validation thresholds.
+
+This is useful because it validates the production safety contract: live
+narratives can run, but the system can say "warning" instead of pretending the
+condition is well supported.
+
+### Decision
+
+Do not scale live OpenAI narrative runs yet. The next principled step is to
+surface live-story mode in the Gradio prefix-latent section as a clearly marked
+TestFlight/experimental option, with warning status visible. Then add a small
+casebook of 3-5 live narratives to understand whether low memory compatibility
+is systematic, story-specific, or start-specific.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_792a_cached_regression/prefix_latent_story_smoke_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_792a_live_testflight/prefix_latent_story_smoke_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_792a_live_testflight/prefix_latent_story_smoke_report.md`
+
+### Verification
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 8 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_792a_cached_regression --steps 100 --samples 2 --chunk-size 2 --start-mode nearest_train_start --device cuda`: cached condition source, validation pass.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --live-story --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_792a_live_testflight --steps 100 --samples 2 --chunk-size 2 --start-mode nearest_train_start --device cuda`: live condition source, validation warning.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 54 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `git diff --check`: passed.
+
+---

@@ -57,7 +57,13 @@ from experiments.backfill.block_ar.nl_prefix_latent_validation_gate import (  # 
     evaluate_start_case_gates,
 )
 from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (  # noqa: E402
+    DEFAULT_BRIDGE_ADAPTER,
     DEFAULT_PIPELINE_REPORT,
+    DEFAULT_STORY,
+    StoryGroundingResult,
+    _load_bridge_adapter,
+    _load_story_grounding,
+    build_story_query_text,
     path_quantiles_for_generated_states,
 )
 from experiments.backfill.block_ar.nl_scenario_level_evaluation import (  # noqa: E402
@@ -66,6 +72,10 @@ from experiments.backfill.block_ar.nl_scenario_level_evaluation import (  # noqa
     load_bridge_arrays,
     score_sample_distribution,
     summarize_method_scores,
+)
+from experiments.backfill.block_ar.nl_text_conditioning import (  # noqa: E402
+    embed_texts_with_openai,
+    normalize_rows,
 )
 
 
@@ -326,6 +336,57 @@ def generated_delta_samples_to_states(
     return (current[:, None, None, :] + delta).astype(np.float32)
 
 
+def build_live_story_condition_memory(
+    *,
+    story: str,
+    grounding: StoryGroundingResult,
+    embedding_model: str,
+    bridge_adapter: str | Path,
+    condition_dim: int,
+    dotenv_path: str | Path,
+    embedder: Any = embed_texts_with_openai,
+    adapter_loader: Any = _load_bridge_adapter,
+) -> dict[str, Any]:
+    """Project a grounded live story into generator condition-memory space."""
+
+    query_text = build_story_query_text(story, grounding)
+    query_embedding = np.asarray(
+        embedder(
+            [query_text],
+            model=str(embedding_model),
+            dotenv_path=dotenv_path,
+            batch_size=1,
+        ),
+        dtype=np.float32,
+    )
+    if query_embedding.ndim != 2 or query_embedding.shape[0] != 1:
+        raise ValueError("embedder must return one 2-D embedding row")
+    adapter = adapter_loader(
+        bridge_adapter,
+        embedding_dim=int(query_embedding.shape[1]),
+        condition_dim=int(condition_dim),
+    )
+    with torch.no_grad():
+        query_condition = (
+            adapter(torch.from_numpy(normalize_rows(query_embedding)).float())
+            .detach()
+            .cpu()
+            .numpy()[0]
+            .astype(np.float32)
+        )
+    return {
+        "query_text": query_text,
+        "query_condition": query_condition,
+        "embedding_metadata": {
+            "embedding_model": str(embedding_model),
+            "embedding_dim": int(query_embedding.shape[1]),
+            "condition_dim": int(condition_dim),
+            "query_text_length": int(len(query_text)),
+            "query_text_line_count": int(query_text.count("\n") + 1),
+        },
+    }
+
+
 def _score_live_rollouts(
     *,
     samples: np.ndarray,
@@ -406,16 +467,23 @@ def _render_markdown(report: dict[str, Any]) -> str:
     gate = report.get("validation_gate", {})
     generation = report.get("generation", {})
     decoder = report.get("decoder", {})
+    live_story = str(query.get("condition_source", "")) == "live_openai_story"
+    narrative_heading = "Live Narrative" if live_story else "Cached Narrative"
+    condition_line = (
+        "Live OpenAI-grounded text memory is used as the narrative condition."
+        if live_story
+        else "Cached text memory is used as the narrative condition."
+    )
     lines = [
         "# Prefix-Latent Story Smoke",
         "",
-        "## Cached Narrative",
+        f"## {narrative_heading}",
         "",
         str(query.get("narrative_text", "")),
         "",
         "## Product Contract",
         "",
-        "- Cached text memory is used as the narrative condition.",
+        f"- {condition_line}",
         "- The requested start state is pinned as the final prefix level.",
         "- A learned memory+start decoder reconstructs a recent prefix object.",
         "- The frozen joint39 SNI generator performs the 30-day rollout.",
@@ -533,6 +601,47 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         window_id=args.query_window_id,
         query_index=int(args.query_index),
     )
+    grounding_payload: dict[str, Any] | None = None
+    query_text: str | None = None
+    embedding_metadata: dict[str, Any] = {}
+    condition_source = "cached_bridge_query"
+    if bool(getattr(args, "live_story", False)):
+        grounding = _load_story_grounding(
+            story=str(args.story),
+            grounding_json=args.grounding_json,
+            model=str(args.grounding_model),
+            dotenv_path=args.dotenv,
+            max_output_tokens=int(args.grounding_max_output_tokens),
+        )
+        live_condition = build_live_story_condition_memory(
+            story=str(args.story),
+            grounding=grounding,
+            embedding_model=str(args.embedding_model),
+            bridge_adapter=args.bridge_adapter,
+            condition_dim=int(true_memory_targets.shape[1]),
+            dotenv_path=args.dotenv,
+        )
+        query_memory = np.asarray(live_condition["query_condition"], dtype=np.float32)
+        query_text = str(live_condition["query_text"])
+        embedding_metadata = dict(live_condition["embedding_metadata"])
+        embedding_metadata["grounding_model"] = str(args.grounding_model)
+        grounding_payload = grounding.model_dump()
+        condition_source = "live_openai_story"
+        query_row = {
+            **query_row,
+            "role": "live_story",
+            "kind": "live_story",
+            "embedding_index": -1,
+        }
+    else:
+        query_memory = np.asarray(
+            bridge_arrays["condition_vectors"][int(query_row["embedding_index"])],
+            dtype=np.float32,
+        )
+        embedding_metadata = {
+            "condition_dim": int(query_memory.shape[0]),
+            "embedding_index": int(query_row["embedding_index"]),
+        }
     variant_rows = build_live_story_variant_rows(
         query_row=query_row,
         start_state=history_level[:, -1, :],
@@ -543,10 +652,6 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
-    query_memory = np.asarray(
-        bridge_arrays["condition_vectors"][int(query_row["embedding_index"])],
-        dtype=np.float32,
-    )
     text_memory = np.repeat(query_memory[None, :], repeats=len(variant_rows), axis=0)
     start_indices = np.asarray(
         [int(row["start_window_index"]) for row in variant_rows],
@@ -637,18 +742,34 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         endpoint_max_abs_error=float(endpoint["max_abs_error"]),
         hard_case_count=int(args.hard_case_count),
     )
-    narrative_text = narrative_text_for_query(pipeline_report, query_row)
+    narrative_text = (
+        str(args.story)
+        if bool(getattr(args, "live_story", False))
+        else narrative_text_for_query(pipeline_report, query_row)
+    )
+    live_story_mode = bool(getattr(args, "live_story", False))
     report = {
         "status": "ok",
         "scope_note": (
-            "Cached live prefix-latent story smoke. No OpenAI API calls are made. "
-            "A cached text-predicted generator memory is combined with an explicit "
-            "start state, decoded into a recent prefix, and rolled out through the "
-            "frozen joint39 SNI generator."
+            "Live OpenAI-grounded prefix-latent story smoke. OpenAI is called for "
+            "story grounding and text embedding, then the projected memory is "
+            "combined with an explicit start state, decoded into a recent prefix, "
+            "and rolled out through the frozen joint39 SNI generator."
+            if live_story_mode
+            else (
+                "Cached live prefix-latent story smoke. No OpenAI API calls are made. "
+                "A cached text-predicted generator memory is combined with an explicit "
+                "start state, decoded into a recent prefix, and rolled out through the "
+                "frozen joint39 SNI generator."
+            )
         ),
         "cached_query": {
             **query_row,
+            "condition_source": condition_source,
             "narrative_text": narrative_text,
+            "query_text": query_text,
+            "grounding": grounding_payload,
+            "embedding_metadata": embedding_metadata,
             "text_memory_dim": int(query_memory.shape[0]),
             "query_memory_norm": float(np.linalg.norm(query_memory)),
         },
@@ -715,6 +836,14 @@ def main() -> None:
     parser.add_argument("--query-kind")
     parser.add_argument("--query-window-id")
     parser.add_argument("--query-index", type=int, default=0)
+    parser.add_argument("--live-story", action="store_true")
+    parser.add_argument("--story", default=DEFAULT_STORY)
+    parser.add_argument("--grounding-json")
+    parser.add_argument("--grounding-model", default="gpt-5.4-mini")
+    parser.add_argument("--grounding-max-output-tokens", type=int, default=1200)
+    parser.add_argument("--embedding-model", default="text-embedding-3-small")
+    parser.add_argument("--bridge-adapter", default=DEFAULT_BRIDGE_ADAPTER)
+    parser.add_argument("--dotenv", default=".env")
     parser.add_argument(
         "--start-mode",
         choices=[
@@ -771,6 +900,7 @@ def main() -> None:
                 "arrays": report["artifact_paths"]["arrays"],
                 "device": report["device"],
                 "query_window": report["cached_query"]["window_id"],
+                "condition_source": report["cached_query"]["condition_source"],
                 "start_mode": args.start_mode,
                 "variant_count": len(report["variant_rows"]),
                 "validation_status": report["validation_gate"]["overall_status"],
