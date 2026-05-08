@@ -113037,3 +113037,36 @@ This iteration tightened the fixed-start workflow requested in the narrative pre
 - Extreme user start: expected `fail`, actual `fail`, target unavailable.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 50 fixed-start mixture bakeoff
+
+### Context
+This iteration scaled the fixed-start workflow from a support-status matrix into a scenario-quality bakeoff. The goal was to compare prefix-mixture variants after the initial joint39 level is fixed, without making new OpenAI calls or changing the frozen generator.
+
+### HEAD
+- Hypothesis: if the narrative-plus-fixed-start contract is sound, mixture variants should be comparable under one common realized-future scoring harness, and the best next research direction should be chosen by scenario-level metrics rather than by analogue similarity alone.
+- Execute: added `nl_prefix_latent_start_conditioned_bakeoff.py`, which reuses cached condition reports, fixes historical starts via `explicit_start_window`, runs selected memory-prior and prefix-prior variants through `run_prefix_latent_story_smoke`, extracts operational target-available metrics, and aggregates by variant. Added tests for case selection, metric extraction, variant aggregation, and Markdown rendering.
+- Analyze: the 2-case by 2-variant TestFlight passed. The 4-case by 4-variant CUDA smoke also passed with all 16 historical-start rows target-available. The best variants by mean CRPS were `decoder_soft_topk_combined` and `decoder_diverse_topk_combined`, tied in this run. `feature_mixture` was worse and warned on all four rows.
+- Decide: keep decoder-based fixed-start combined mixtures as the current default. Do not switch to feature-mixture reconstruction as the production path. The next production bottleneck is not support validity but distributional quality versus persistence under the fixed-start contract.
+
+### Evidence
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q`: 31 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`: passed.
+- `git diff --check`: passed.
+- TestFlight: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816a_testflight --case-count 2 --variant-count 2 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, 4 runs.
+- Scaled smoke: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816b_fullsmoke --case-count 4 --variant-count 4 --samples 2 --steps 100 --chunk-size 2 --device cuda`: status `pass`, 16 runs.
+
+### Artifacts
+- TestFlight report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816a_testflight/start_conditioned_bakeoff.json`
+- Scaled smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816b_fullsmoke/start_conditioned_bakeoff.json`
+- Scaled smoke Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_bakeoff_816b_fullsmoke/start_conditioned_bakeoff.md`
+
+### Key result
+- `decoder_soft_topk_combined`: mean energy z 0.914, mean CRPS z 0.706, mean energy improvement vs persistence -0.131, mean CRPS improvement -0.124, statuses 2 pass / 2 warning.
+- `decoder_diverse_topk_combined`: tied with combined in this run, implying the diversity constraint did not materially alter the selected support at current settings.
+- `decoder_soft_topk_memory`: slightly worse than combined, mean CRPS z 0.708, statuses 1 pass / 3 warning.
+- `feature_soft_topk_combined`: worse, mean CRPS z 0.755, statuses 4 warning.
+
+### Production implication
+The fixed-start contract is now measurable and auditable, but the current smoke results are not production-quality because the generated distributions underperform persistence. The next principled move is to add a stronger scenario-quality selection/refinement stage for candidate mixtures under the fixed start, then rerun the same bakeoff with enough samples to reduce smoke noise.
+
+---
