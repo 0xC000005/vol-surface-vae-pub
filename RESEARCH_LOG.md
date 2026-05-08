@@ -112580,3 +112580,46 @@ Keep the JSON-path interface. The next production step is to make the start-stat
 - User-start fixture: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_state_18.json`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 41 start JSON preview guard
+
+### Context
+The demo can now run with a user-supplied start JSON, but file-path based input is risky unless the user can preview and validate the file before launching the generator. The next production-readiness need is operator safety around current-state input.
+
+### Hypothesis
+A lightweight JSON preview panel can catch obvious file/format errors and make the supplied current state legible without adding a full 39-factor editor yet.
+
+### Execution
+- Added `START_PREVIEW_FIELDS` for key anchors and selected IV cells.
+- Added `preview_start_state_json`.
+- Added Gradio controls:
+  - `Preview Start JSON` button;
+  - `Start-State JSON Preview` status markdown;
+  - `Start-state JSON preview` table.
+- The preview supports both `values_by_name` and `state_vector` JSON formats.
+- For `values_by_name`, it shows path, label, coordinate, format, field count, key anchors, selected IV cells, and missing preview fields.
+- For invalid/missing files, it returns an error status and an empty table before any model run.
+- Added unit tests for successful key-value preview and missing-file errors.
+
+### Result
+- Gradio app tests: `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 23 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 37 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Demo construction: `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- Diff hygiene: `git diff --check` -> passed.
+- Default fixture preview:
+  - status `ok`;
+  - format `values_by_name`;
+  - field count 39;
+  - preview showed key anchors including SPX 2049.580, VIX 14.020, BBB OAS 2.410.
+
+### Mechanism Read
+This does not change the model. It improves the reliability of the risk-manager workflow by separating "inspect the current-state file" from "run the scenario generator." That is important because the model should not silently run from a malformed or unintended current state.
+
+### Decision / Next Step
+Keep the preview panel. The next production step is to add a true export/template function so a user can produce a valid `values_by_name` start JSON from a selected historical candidate, then edit it externally or later in a compact UI table.
+
+### Artifacts
+- Gradio app: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+
+---

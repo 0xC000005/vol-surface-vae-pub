@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_condition_implications_table,
     prefix_condition_warnings_table,
     prefix_latent_status_markdown,
+    preview_start_state_json,
     prefix_selected_start_table,
     prefix_shift_factor_table,
     prefix_start_candidates_table,
@@ -461,6 +463,41 @@ def test_prefix_user_start_table_shows_supplied_start_diagnostics() -> None:
     assert table.iloc[0]["Nearest Train"] == "18"
     assert table.iloc[0]["Start Distance"] == "6.940"
     assert table.iloc[0]["Max Abs Z"] == "1.817"
+
+
+def test_preview_start_state_json_shows_key_values(tmp_path) -> None:
+    path = tmp_path / "start.json"
+    path.write_text(
+        json.dumps(
+            {
+                "label": "today",
+                "coordinate": "raw_state",
+                "values_by_name": {
+                    "factor:spx": 5000.0,
+                    "factor:vix": 18.5,
+                    "iv:07": 0.22,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status, table = preview_start_state_json(str(path))
+
+    assert "Status: `ok`" in status
+    rows = {row["Field"]: row["Value"] for row in table.to_dict("records")}
+    assert rows["Label"] == "today"
+    assert rows["Format"] == "values_by_name"
+    assert rows["SPX"] == "5000.000"
+    assert rows["VIX"] == "18.500"
+    assert rows["IV ATM 3M"] == "0.220"
+
+
+def test_preview_start_state_json_reports_errors() -> None:
+    status, table = preview_start_state_json("/missing/start.json")
+
+    assert "Status: `error`" in status
+    assert table.empty
 
 
 def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:

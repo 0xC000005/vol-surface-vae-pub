@@ -149,6 +149,21 @@ PREFIX_USER_START_COLUMNS = [
     "Start Distance",
     "Max Abs Z",
 ]
+PREFIX_START_PREVIEW_COLUMNS = ["Field", "Value"]
+START_PREVIEW_FIELDS = [
+    ("SPX", "factor:spx"),
+    ("VIX", "factor:vix"),
+    ("BBB OAS", "factor:bbb_oas"),
+    ("AAA OAS", "factor:aaa_oas"),
+    ("US 2Y", "factor:us2y"),
+    ("US 10Y", "factor:us10y"),
+    ("USD/JPY", "factor:usdjpy"),
+    ("DXY", "factor:dxy"),
+    ("Gold", "factor:gold"),
+    ("Crude oil", "factor:crude_oil"),
+    ("IV ATM 3M", "iv:07"),
+    ("IV ATM 1Y", "iv:17"),
+]
 FAN_MARKET_CHOICES = [
     ("SPX", "SPX"),
     ("VIX", "VIX"),
@@ -533,6 +548,65 @@ def prefix_user_start_table(report: dict[str, Any]) -> pd.DataFrame:
             }
         ],
         PREFIX_USER_START_COLUMNS,
+    )
+
+
+def preview_start_state_json(path: str | None) -> tuple[str, pd.DataFrame]:
+    candidate = str(path or "").strip()
+    if not candidate:
+        return (
+            "## Start-State JSON Preview\n\n- Status: `waiting`\n- Enter a JSON path.",
+            _frame([], PREFIX_START_PREVIEW_COLUMNS),
+        )
+    try:
+        payload = json.loads(Path(candidate).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("start-state JSON must contain an object")
+        label = str(payload.get("label", ""))
+        coordinate = str(payload.get("coordinate", "raw_state"))
+        rows = [
+            {"Field": "Path", "Value": candidate},
+            {"Field": "Label", "Value": label},
+            {"Field": "Coordinate", "Value": coordinate},
+        ]
+        values = payload.get("values_by_name")
+        vector = payload.get("state_vector")
+        if isinstance(values, dict):
+            rows.append({"Field": "Format", "Value": "values_by_name"})
+            rows.append({"Field": "Field count", "Value": str(len(values))})
+            for label_name, key in START_PREVIEW_FIELDS:
+                if key in values:
+                    rows.append({"Field": label_name, "Value": _fmt_float(values[key])})
+            missing_preview = [
+                label_name for label_name, key in START_PREVIEW_FIELDS if key not in values
+            ]
+            if missing_preview:
+                rows.append(
+                    {
+                        "Field": "Missing preview fields",
+                        "Value": ", ".join(missing_preview),
+                    }
+                )
+        elif isinstance(vector, list):
+            rows.append({"Field": "Format", "Value": "state_vector"})
+            rows.append({"Field": "Vector length", "Value": str(len(vector))})
+            if vector:
+                rows.append({"Field": "First value", "Value": _fmt_float(vector[0])})
+        else:
+            raise ValueError("JSON must contain values_by_name or state_vector")
+    except Exception as error:
+        return (
+            "## Start-State JSON Preview\n\n"
+            f"- Status: `error`\n"
+            f"- Error type: `{type(error).__name__}`\n"
+            f"- Message: `{str(error)}`",
+            _frame([], PREFIX_START_PREVIEW_COLUMNS),
+        )
+    return (
+        "## Start-State JSON Preview\n\n"
+        f"- Status: `ok`\n"
+        f"- Format: `{rows[3]['Value'] if len(rows) > 3 else 'unknown'}`",
+        _frame(rows, PREFIX_START_PREVIEW_COLUMNS),
     )
 
 
@@ -1697,6 +1771,10 @@ def build_demo() -> Any:
                 ),
                 lines=1,
             )
+            prefix_preview_start_json = gr.Button(
+                "Preview Start JSON",
+                variant="secondary",
+            )
             prefix_samples = gr.Slider(
                 minimum=2,
                 maximum=64,
@@ -1759,6 +1837,15 @@ def build_demo() -> Any:
         prefix_user_start = gr.Dataframe(
             headers=PREFIX_USER_START_COLUMNS,
             label="User-supplied start diagnostics",
+            interactive=False,
+        )
+        prefix_start_json_status = gr.Markdown(
+            "## Start-State JSON Preview\n\n- Status: `waiting`",
+            label="Start-state JSON preview status",
+        )
+        prefix_start_json_preview = gr.Dataframe(
+            headers=PREFIX_START_PREVIEW_COLUMNS,
+            label="Start-state JSON preview",
             interactive=False,
         )
         prefix_shift_factors = gr.Dataframe(
@@ -1851,6 +1938,12 @@ def build_demo() -> Any:
             inputs=prefix_explicit_start_candidate,
             outputs=prefix_explicit_start_index,
             show_progress="hidden",
+        )
+        prefix_preview_start_json.click(
+            fn=preview_start_state_json,
+            inputs=prefix_start_state_json,
+            outputs=[prefix_start_json_status, prefix_start_json_preview],
+            show_progress="minimal",
         )
         prefix_fan_market.change(
             fn=refresh_fan_chart,
