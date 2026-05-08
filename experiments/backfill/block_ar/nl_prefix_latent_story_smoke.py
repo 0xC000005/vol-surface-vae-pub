@@ -506,23 +506,30 @@ def build_live_story_variant_rows(
         start_distance_penalty=float(start_distance_penalty),
     )
     original.update(
-            {
-                "query_window_id": str(query_row.get("window_id", "")),
-                "embedding_index": int(query_row.get("embedding_index", -1)),
-                "kind": str(query_row.get("kind", "")),
-                "role": str(query_row.get("role", "")),
-            }
+        {
+            "query_window_id": str(query_row.get("window_id", "")),
+            "embedding_index": int(query_row.get("embedding_index", -1)),
+            "kind": str(query_row.get("kind", "")),
+            "role": str(query_row.get("role", "")),
+        }
     )
     selected.update(
-            {
-                "query_window_id": str(query_row.get("window_id", "")),
-                "embedding_index": int(query_row.get("embedding_index", -1)),
-                "kind": str(query_row.get("kind", "")),
-                "role": str(query_row.get("role", "")),
-            }
+        {
+            "query_window_id": str(query_row.get("window_id", "")),
+            "embedding_index": int(query_row.get("embedding_index", -1)),
+            "kind": str(query_row.get("kind", "")),
+            "role": str(query_row.get("role", "")),
+            "case_role": "operational_selected_start",
+            "is_operational": True,
+        }
     )
     if not include_original_baseline or selected["start_window_index"] == query_idx:
-        return [selected if not include_original_baseline else original]
+        row = selected if not include_original_baseline else original
+        row["case_role"] = "operational_selected_start"
+        row["is_operational"] = True
+        return [row]
+    original["case_role"] = "diagnostic_original_start"
+    original["is_operational"] = False
     return [original, selected]
 
 
@@ -721,8 +728,9 @@ def _render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Validation",
             "",
-            f"- Overall: `{gate.get('overall_status')}`",
-            f"- Operational: `{gate.get('operational_status')}`",
+            f"- Research overall: `{gate.get('overall_status')}`",
+            f"- Selected-start: `{gate.get('selected_start_status', gate.get('operational_status'))}`",
+            f"- Diagnostic baseline: `{gate.get('diagnostic_baseline_status')}`",
             f"- Stress: `{gate.get('stress_status')}`",
             f"- Endpoint max error: {gate.get('endpoint_max_abs_error')}",
             f"- Warning counts: {gate.get('warning_counts')}",

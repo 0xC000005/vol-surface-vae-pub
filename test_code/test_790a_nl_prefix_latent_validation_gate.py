@@ -91,6 +91,57 @@ def test_evaluate_start_case_gates_flags_low_memory_and_far_start() -> None:
     assert report["hard_cases"][0]["variant"] == "farthest_train_start"
 
 
+def test_evaluate_start_case_gates_separates_diagnostic_and_selected_rows() -> None:
+    decoded_memory = np.asarray(
+        [
+            [0.7, 0.71414286],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    text_memory = np.asarray([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
+    rows = [
+        {
+            "query_window_index": 10,
+            "start_window_index": 10,
+            "variant": "original",
+            "case_role": "diagnostic_original_start",
+            "is_operational": False,
+            "start_distance_z": 0.0,
+        },
+        {
+            "query_window_index": 10,
+            "start_window_index": 12,
+            "variant": "balanced_memory_start",
+            "case_role": "operational_selected_start",
+            "is_operational": True,
+            "start_distance_z": 8.0,
+        },
+    ]
+    shifts = [
+        {"mean_abs_delta_z": 0.0, "terminal_mean_abs_delta_z": 0.0},
+        {"mean_abs_delta_z": 0.2, "terminal_mean_abs_delta_z": 0.3},
+    ]
+
+    report = evaluate_start_case_gates(
+        variant_rows=rows,
+        decoded_memory=decoded_memory,
+        text_memory=text_memory,
+        rollout_shifts=shifts,
+        endpoint_max_abs_error=0.0,
+        thresholds=DEFAULT_GATE_THRESHOLDS,
+    )
+
+    assert report["overall_status"] == "warning"
+    assert report["selected_start_status"] == "pass"
+    assert report["operational_status"] == "pass"
+    assert report["diagnostic_baseline_status"] == "warning"
+    assert report["operational_case_count"] == 1
+    assert report["diagnostic_case_count"] == 1
+    assert report["cases"][0]["case_role"] == "diagnostic_original_start"
+    assert report["cases"][1]["is_operational"] is True
+
+
 def test_evaluate_start_case_gates_fails_on_endpoint_error() -> None:
     rows = [{"query_window_index": 1, "start_window_index": 1, "variant": "original"}]
     memory = np.ones((1, 2), dtype=np.float32)

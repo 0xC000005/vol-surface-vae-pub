@@ -128,6 +128,10 @@ def summarize_case_report(
     if not isinstance(grounding, dict):
         grounding = {}
     cases = gate.get("cases", []) if isinstance(gate, dict) else []
+    operational_cases = [
+        item for item in cases if isinstance(item, dict) and bool(item.get("is_operational"))
+    ]
+    selected_case = operational_cases[0] if operational_cases else {}
     memory_cosines = [
         float(item["input_memory_cosine"])
         for item in cases
@@ -141,9 +145,18 @@ def summarize_case_report(
         "condition_source": str(query.get("condition_source", "")),
         "overall_status": str(gate.get("overall_status", "")),
         "operational_status": str(gate.get("operational_status", "")),
+        "selected_start_status": str(
+            gate.get("selected_start_status", gate.get("operational_status", ""))
+        ),
+        "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "stress_status": str(gate.get("stress_status", "")),
         "warning_counts": warning_counts if isinstance(warning_counts, dict) else {},
         "fail_counts": fail_counts if isinstance(fail_counts, dict) else {},
+        "selected_start_memory_cosine": selected_case.get("input_memory_cosine"),
+        "selected_start_terminal_shift_z": selected_case.get(
+            "terminal_mean_abs_delta_z"
+        ),
+        "selected_start_warnings": selected_case.get("warnings", []),
         "min_memory_cosine": min(memory_cosines) if memory_cosines else None,
         "mean_memory_cosine": (
             sum(memory_cosines) / len(memory_cosines) if memory_cosines else None

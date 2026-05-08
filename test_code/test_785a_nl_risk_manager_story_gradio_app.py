@@ -177,6 +177,8 @@ def _prefix_report() -> dict:
         "validation_gate": {
             "overall_status": "pass",
             "operational_status": "pass",
+            "selected_start_status": "pass",
+            "diagnostic_baseline_status": "pass",
             "stress_status": "pass",
             "endpoint_max_abs_error": 0.0,
             "warning_counts": {},
@@ -184,6 +186,7 @@ def _prefix_report() -> dict:
             "cases": [
                 {
                     "variant": "original",
+                    "case_role": "operational_selected_start",
                     "query_window_index": 153,
                     "start_window_index": 153,
                     "status": "pass",
@@ -294,7 +297,8 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     variants = prefix_variant_table(report)
     validation = prefix_validation_table(report)
 
-    assert "Overall: `pass`" in markdown
+    assert "Selected-start: `pass`" in markdown
+    assert "Research overall: `pass`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"

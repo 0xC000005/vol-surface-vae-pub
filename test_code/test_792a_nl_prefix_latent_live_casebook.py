@@ -58,10 +58,21 @@ def test_summarize_case_report_extracts_gate_and_grounding() -> None:
             "validation_gate": {
                 "overall_status": "warning",
                 "operational_status": "warning",
+                "selected_start_status": "pass",
+                "diagnostic_baseline_status": "warning",
                 "warning_counts": {"low_memory_compatibility": 1},
                 "cases": [
-                    {"input_memory_cosine": 0.77},
-                    {"input_memory_cosine": 0.85},
+                    {
+                        "input_memory_cosine": 0.77,
+                        "is_operational": False,
+                        "warnings": ["low_memory_compatibility"],
+                    },
+                    {
+                        "input_memory_cosine": 0.85,
+                        "is_operational": True,
+                        "terminal_mean_abs_delta_z": 0.4,
+                        "warnings": [],
+                    },
                 ],
             },
             "generation": {"generated_state_shape": [2, 2, 30, 39]},
@@ -70,5 +81,9 @@ def test_summarize_case_report_extracts_gate_and_grounding() -> None:
 
     assert summary["case_name"] == "risk_on"
     assert summary["overall_status"] == "warning"
+    assert summary["selected_start_status"] == "pass"
+    assert summary["diagnostic_baseline_status"] == "warning"
+    assert summary["selected_start_memory_cosine"] == 0.85
+    assert summary["selected_start_warnings"] == []
     assert summary["min_memory_cosine"] == 0.77
     assert summary["grounding_warning_count"] == 1

@@ -72,6 +72,7 @@ ANALOGUE_COLUMNS = [
 SCENARIO_COLUMNS = ["Market", "Mean Terminal Delta", "P10", "P90"]
 VALIDATION_GATE_COLUMNS = [
     "Variant",
+    "Role",
     "Query",
     "Start",
     "Status",
@@ -277,6 +278,7 @@ def validation_gate_table(report: dict[str, Any]) -> pd.DataFrame:
         rows.append(
             {
                 "Variant": str(item.get("variant", "")),
+                "Role": str(item.get("case_role", "")),
                 "Query": str(item.get("query_window_index", "")),
                 "Start": str(item.get("start_window_index", "")),
                 "Status": str(item.get("status", "")),
@@ -318,6 +320,7 @@ def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
         rows.append(
             {
                 "Variant": str(item.get("variant", "")),
+                "Role": str(item.get("case_role", "")),
                 "Query": str(item.get("query_window_index", "")),
                 "Start": str(item.get("start_window_index", "")),
                 "Status": str(item.get("status", "")),
@@ -582,8 +585,9 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
             f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
             f"- Condition source: `{query.get('condition_source', 'n/a')}`",
             f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
-            f"- Overall: `{gate.get('overall_status', 'n/a')}`",
-            f"- Operational: `{gate.get('operational_status', 'n/a')}`",
+            f"- Selected-start: `{gate.get('selected_start_status', gate.get('operational_status', 'n/a'))}`",
+            f"- Diagnostic baseline: `{gate.get('diagnostic_baseline_status', 'n/a')}`",
+            f"- Research overall: `{gate.get('overall_status', 'n/a')}`",
             f"- Stress: `{gate.get('stress_status', 'n/a')}`",
             f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
             f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",

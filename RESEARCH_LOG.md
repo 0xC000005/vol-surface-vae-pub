@@ -111042,3 +111042,106 @@ numerical behavior is interpretable but the UI/report status is too blunt.
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 16 selected-start validation semantics
+
+### Context
+
+Iteration 15 made start proposal production-plausible with
+`balanced_memory_start`, but the validation gate still mixed diagnostic rows and
+operational rows. In live balanced casebook runs, the original fixed start was
+kept for comparison and often warned on low memory compatibility, while the
+selected balanced start could pass or only warn mildly on rollout shift. A risk
+manager needs the proposed scenario status separated from the diagnostic
+baseline.
+
+### Hypothesis
+
+If we tag case rows by product role, then the report can expose:
+
+- research overall status over all rows;
+- selected-start operational status over the row that drives the scenario;
+- diagnostic-baseline status over the original fixed/current start comparison.
+
+This should improve trust and UX without changing model behavior or requiring
+new OpenAI calls.
+
+### Execution
+
+- Tagged prefix-story variant rows with:
+  - `case_role="diagnostic_original_start"` and `is_operational=false` for the
+    original baseline row;
+  - `case_role="operational_selected_start"` and `is_operational=true` for the
+    selected proposal row.
+- Updated `evaluate_start_case_gates` to preserve backward compatibility:
+  callers without `is_operational` keep the old non-farthest operational rule.
+- Added new gate fields:
+  - `selected_start_status`;
+  - `diagnostic_baseline_status`;
+  - `operational_case_count`;
+  - `diagnostic_case_count`.
+- Updated prefix-story markdown and the Gradio status panel to show selected
+  start, diagnostic baseline, and research overall statuses separately.
+- Updated the casebook summary to record selected-start status, selected-start
+  memory cosine, selected-start terminal shift, and selected-start warnings.
+
+### Result
+
+Cached balanced smoke after the reporting change:
+
+- research overall status: `pass`;
+- selected-start status: `pass`;
+- diagnostic-baseline status: `pass`;
+- operational case count: `1`;
+- diagnostic case count: `1`;
+- selected balanced start decoded memory cosine: `0.9459`;
+- selected terminal rollout shift: `0.912`.
+
+No live OpenAI rerun was needed for this iteration because the model path did
+not change. The previous live balanced casebook already established the numeric
+behavior; this iteration changes only how those rows are classified and
+reported.
+
+### Mechanism Read
+
+This is a production-readiness improvement, not a modeling improvement. It
+turns the gate into a product contract:
+
+```text
+Does the proposed scenario pass?
+What did the diagnostic baseline say?
+What does the research all-row status say?
+```
+
+That makes the system easier to trust. A warning from the fixed original start
+can now be shown as a diagnostic signal rather than making the selected
+scenario look invalid.
+
+### Decision
+
+Commit this reporting contract. The next principled step is to make the Gradio
+prefix-latent demo consume this distinction more directly: show the selected
+start as the primary product result, put the diagnostic baseline in a separate
+comparison table, and make the status wording match the risk-manager workflow.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py`
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py`
+- `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- `test_code/test_790a_nl_prefix_latent_validation_gate.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `test_code/test_792a_nl_prefix_latent_live_casebook.py`
+- `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_795a_status_cached/prefix_latent_story_smoke_report.json`
+
+### Verification
+
+- `uv run pytest test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 32 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_795a_status_cached --steps 100 --samples 2 --chunk-size 2 --start-mode balanced_memory_start --device cuda`: cached smoke pass with separated selected/diagnostic statuses.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py -q`: 61 passed.
+- `git diff --check`: passed.
+
+---

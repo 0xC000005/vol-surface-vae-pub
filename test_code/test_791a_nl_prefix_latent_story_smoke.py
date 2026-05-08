@@ -219,8 +219,12 @@ def test_build_live_story_variant_rows_adds_original_baseline_for_changed_start(
 
     assert [row["variant"] for row in rows] == ["original", "memory_nearest_start"]
     assert rows[0]["start_window_index"] == 0
+    assert rows[0]["case_role"] == "diagnostic_original_start"
+    assert rows[0]["is_operational"] is False
     assert rows[1]["query_window_index"] == 0
     assert rows[1]["start_window_index"] == 2
+    assert rows[1]["case_role"] == "operational_selected_start"
+    assert rows[1]["is_operational"] is True
     assert rows[1]["memory_support_cosine"] > rows[0]["memory_support_cosine"]
 
 

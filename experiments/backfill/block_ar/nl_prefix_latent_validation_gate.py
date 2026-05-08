@@ -146,6 +146,13 @@ def evaluate_start_case_gates(
                 "query_window_index": int(row.get("query_window_index", -1)),
                 "start_window_index": int(row.get("start_window_index", -1)),
                 "variant": str(row.get("variant", "")),
+                "case_role": str(row.get("case_role", "")),
+                "is_operational": bool(
+                    row.get(
+                        "is_operational",
+                        str(row.get("variant", "")) != "farthest_train_start",
+                    )
+                ),
                 "start_distance_z": start_distance,
                 "input_memory_cosine": memory_cosine,
                 "mean_abs_delta_z": mean_shift,
@@ -157,9 +164,8 @@ def evaluate_start_case_gates(
             }
         )
     overall_status = _status_for_cases(cases, hard_fail_reasons)
-    operational_cases = [
-        case for case in cases if str(case.get("variant")) != "farthest_train_start"
-    ]
+    operational_cases = [case for case in cases if bool(case.get("is_operational"))]
+    diagnostic_cases = [case for case in cases if not bool(case.get("is_operational"))]
     stress_cases = [
         case for case in cases if str(case.get("variant")) == "farthest_train_start"
     ]
@@ -169,6 +175,11 @@ def evaluate_start_case_gates(
     return {
         "overall_status": overall_status,
         "operational_status": _status_for_cases(operational_cases, hard_fail_reasons),
+        "selected_start_status": _status_for_cases(
+            operational_cases,
+            hard_fail_reasons,
+        ),
+        "diagnostic_baseline_status": _status_for_cases(diagnostic_cases, []),
         "stress_status": _status_for_cases(stress_cases, []),
         "thresholds": th,
         "endpoint_max_abs_error": float(endpoint_max_abs_error),
@@ -176,6 +187,8 @@ def evaluate_start_case_gates(
         "warning_counts": dict(warning_counts),
         "fail_counts": dict(fail_counts),
         "case_count": int(len(cases)),
+        "operational_case_count": int(len(operational_cases)),
+        "diagnostic_case_count": int(len(diagnostic_cases)),
         "status_counts": dict(Counter(case["status"] for case in cases)),
         "hard_cases": hard_cases,
         "cases": cases,
