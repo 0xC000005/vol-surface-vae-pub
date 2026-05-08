@@ -21,6 +21,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_condition_implications_table,
     prefix_condition_warnings_table,
     prefix_latent_status_markdown,
+    prefix_trust_interpretation,
     preview_start_state_json,
     prefix_selected_start_table,
     prefix_shift_factor_table,
@@ -229,6 +230,7 @@ def _prefix_report() -> dict:
                 "variant": "nearest_train_start",
                 "query_window_id": "joint39_val_0370",
                 "start_window_id": "joint39_val_0269",
+                "start_window_index": 269,
                 "start_distance_z": 6.94,
                 "memory_support_cosine": 0.887,
                 "start_selection_method": "max_memory_inside_start_threshold",
@@ -302,6 +304,18 @@ def _prefix_report() -> dict:
             "finite_rate": 1.0,
             "rollout_temperature": 0.5,
             "sample_count": 16,
+            "window_scores": [
+                {
+                    "variant": "nearest_train_start",
+                    "start_window_index": 269,
+                    "methods": {
+                        "text_memory_plus_start_prefix_decoder": {
+                            "ensemble_crps_z_improvement_vs_persistence": 0.145,
+                            "energy_score_z_improvement_vs_persistence": 0.159,
+                        }
+                    },
+                }
+            ],
             "path_quantiles": [
                 {
                     "market": "SPX",
@@ -426,6 +440,8 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert "Selected-start: `pass`" in markdown
     assert "Research overall: `pass`" in markdown
     assert "Rollout temperature: `0.500`" in markdown
+    assert "Scenario CRPS vs persistence: `+14.5%`" in markdown
+    assert "Operational interpretation: `supported calibrated scenario`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
@@ -435,6 +451,16 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
     assert "warn_and_continue_for_narrative_only" in markdown
     assert "SPX (3.249z)" in markdown
+
+
+def test_prefix_trust_interpretation_separates_warning_from_metric_failure() -> None:
+    report = _prefix_report()
+    report["validation_gate"]["selected_start_status"] = "warning"
+
+    assert (
+        prefix_trust_interpretation(report)
+        == "usable with support/shift caveats; scenario CRPS improved vs persistence"
+    )
 
 
 def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:

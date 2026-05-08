@@ -217,6 +217,15 @@ def _fmt_float(value: Any, digits: int = 3) -> str:
         return "n/a"
 
 
+def _fmt_pct(value: Any, digits: int = 1) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{100.0 * float(value):+.{digits}f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def _short(text: Any, limit: int = 160) -> str:
     compact = " ".join(str(text or "").split())
     if len(compact) <= int(limit):
@@ -226,6 +235,63 @@ def _short(text: Any, limit: int = 160) -> str:
 
 def _frame(rows: list[dict[str, Any]], columns: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
+
+
+def _operational_variant_row(report: dict[str, Any]) -> dict[str, Any]:
+    for row in _as_list(report.get("variant_rows")):
+        if isinstance(row, dict) and bool(row.get("is_operational")):
+            return row
+    for row in _as_list(report.get("variant_rows")):
+        if isinstance(row, dict) and str(row.get("variant", "")) != "original":
+            return row
+    return {}
+
+
+def _operational_score_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    generation = _as_dict(report.get("generation"))
+    operational = _operational_variant_row(report)
+    variant = str(operational.get("variant", ""))
+    start_index = operational.get("start_window_index")
+    for row in _as_list(generation.get("window_scores")):
+        if not isinstance(row, dict):
+            continue
+        if variant and str(row.get("variant", "")) != variant:
+            continue
+        if start_index is not None and row.get("start_window_index") is not None:
+            try:
+                if int(row.get("start_window_index")) != int(start_index):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        methods = _as_dict(row.get("methods"))
+        model = _as_dict(methods.get("text_memory_plus_start_prefix_decoder"))
+        if model:
+            return model
+    return {}
+
+
+def prefix_trust_interpretation(report: dict[str, Any]) -> str:
+    gate = _as_dict(report.get("validation_gate"))
+    status = str(
+        gate.get("selected_start_status", gate.get("operational_status", "unknown"))
+    )
+    metrics = _operational_score_metrics(report)
+    crps_improvement = metrics.get("ensemble_crps_z_improvement_vs_persistence")
+    try:
+        crps_value = float(crps_improvement)
+    except (TypeError, ValueError):
+        crps_value = None
+    if status == "pass":
+        return "supported calibrated scenario"
+    if status == "warning" and crps_value is not None and crps_value > 0.0:
+        return (
+            "usable with support/shift caveats; scenario CRPS improved vs persistence"
+        )
+    if status == "warning":
+        return "usable only with caveats; inspect support and rollout-shift warnings"
+    if status == "fail":
+        return "do not use without changing the narrative or starting state"
+    return "status unavailable"
 
 
 def _float_series(value: Any) -> list[float]:
@@ -1100,6 +1166,7 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
     query = _as_dict(report.get("cached_query"))
     gate = _as_dict(report.get("validation_gate"))
     generation = _as_dict(report.get("generation"))
+    metrics = _operational_score_metrics(report)
     artifacts = _as_dict(report.get("artifact_paths"))
     lines = [
         "## Prefix-Latent Run Status",
@@ -1113,6 +1180,9 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         f"- Stress: `{gate.get('stress_status', 'n/a')}`",
         f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
         f"- Rollout temperature: `{_fmt_float(generation.get('rollout_temperature'))}`",
+        f"- Scenario CRPS vs persistence: `{_fmt_pct(metrics.get('ensemble_crps_z_improvement_vs_persistence'))}`",
+        f"- Scenario energy vs persistence: `{_fmt_pct(metrics.get('energy_score_z_improvement_vs_persistence'))}`",
+        f"- Operational interpretation: `{prefix_trust_interpretation(report)}`",
         f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
     ]
     product_gate = _as_dict(report.get("condition_only_product_gate"))

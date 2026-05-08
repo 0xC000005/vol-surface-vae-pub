@@ -113222,3 +113222,24 @@ After productizing calibrated rollout temperature 0.50, the next production risk
 The current story-to-scenario workflow is now credible as a calibrated, fixed-start, analogue-mixture-supported generator on the cached narrative set. The next production step is to scale the validation grid further and make warning semantics explicit in the demo: pass means supported and calibrated; warning means usable with caveats, not necessarily poor scenario metrics.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 56 demo warning semantics
+
+### Context
+The expanded calibrated validation showed that warning rows can still improve scenario metrics versus persistence. This creates a product risk: a risk manager may read `warning` as "bad scenario" instead of "supported enough to inspect, but with support/shift caveats."
+
+### HEAD
+- Hypothesis: the demo should separate scenario-quality evidence from trust/validation caveats so warnings are interpretable. A warning should not obscure positive CRPS/energy evidence, and a pass should be framed as a supported calibrated scenario.
+- Execute: added operational score extraction in the Gradio app, surfaced scenario CRPS and energy improvement versus persistence in the prefix-latent status, and added an operational interpretation line. Added trust interpretation logic that treats warning plus positive CRPS improvement as "usable with support/shift caveats." Updated tests and fixtures to cover the behavior.
+- Analyze: focused Gradio/story-smoke/bakeoff tests passed, the Gradio Blocks object still builds, and the status Markdown now exposes both calibrated rollout temperature and scenario metric improvement.
+- Decide: keep warning semantics explicit in the product UI. This is now part of the production-readiness contract: pass/warn/fail is a trust gate, while CRPS/energy improvement is scenario-quality evidence.
+
+### Evidence
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q`: 50 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- `git diff --check`: passed.
+
+### Production implication
+The demo is now more risk-manager-legible: it can say "this scenario is calibrated and beats persistence on distributional metrics" while still warning that the start/support/shift diagnostics require care. The next step is larger-scale validation and, if stable, packaging a boss-ready demo script around these trust semantics.
+
+---
