@@ -110257,3 +110257,131 @@ Start with cached text-memory examples, then add live OpenAI-backed narrative mo
 - `git diff --check`: passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 9 live cached story smoke
+
+### Context
+
+The previous production gate showed that the prefix-latent decoder can be
+validated in aggregate, but the demo still lacked a live per-story path where a
+cached narrative/text condition and an explicit start state produce a decoded
+prefix and a frozen joint39 SNI rollout.
+
+### Hypothesis
+
+A cached held-out text-predicted generator memory can be combined with either
+the original start or a selected historical start, decoded into a recent prefix,
+and passed through the frozen autoregressive generator while emitting the same
+trust fields used by the validation gate.
+
+### Execution
+
+- Added `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- Added `test_code/test_791a_nl_prefix_latent_story_smoke.py`.
+- The script makes no OpenAI calls. It uses the representative cached bridge
+  artifacts, trains the existing memory+start prefix decoder, selects one cached
+  held-out query, resolves the requested start mode, decodes the prefix, runs
+  the frozen generator, scores the rollout, and writes JSON/Markdown/NPZ
+  artifacts.
+- Ran a small TestFlight with nearest-train start:
+  - 100 decoder steps;
+  - 2 rollout samples per variant;
+  - output directory `prefix_latent_story_smoke_791a_testflight`.
+- Ran the full cached smoke:
+  - 1000 decoder steps;
+  - 16 rollout samples per variant;
+  - output directory `prefix_latent_story_smoke_791a`.
+- Ran a farthest-start stress TestFlight:
+  - output directory `prefix_latent_story_smoke_791a_farthest_testflight`.
+
+### Result
+
+The full cached smoke used the held-out query `joint39_val_0370` with the cached
+narrative:
+
+> Risk-on market tape with SPX up large, credit spreads tighter, VIX down
+> medium, and the dollar weaker. US10Y is up small while US2Y is flat, implying
+> a calm front end. Gold and crude oil are both lower, consistent with a broad
+> shift away from defensive assets.
+
+The live path produced:
+
+- generated shape `[2, 16, 30, 39]`;
+- CUDA execution;
+- endpoint max error `0.0`;
+- validation status `pass`;
+- operational status `pass`;
+- original-start input-memory cosine `0.8990`;
+- nearest-train-start input-memory cosine `0.9363`;
+- nearest-train-start distance `6.9424` z-units;
+- nearest-start rollout shift `0.3091` mean z / `0.4259` terminal z;
+- 45 fan-chart rows covering pooled and variant-specific factor and selected
+  IV-cell views.
+
+Rollout scoring on the two diagnostic variants showed distributional benefit
+but not point-forecast benefit:
+
+- energy score improvement versus persistence: `+18.7%`;
+- ensemble CRPS improvement versus persistence: `+10.9%`;
+- 80% coverage: `0.5868`;
+- mean-path MAE improvement versus persistence: `-15.9%`.
+
+The farthest-start stress TestFlight returned validation `warning`, with
+warnings for `large_start_distance` and `large_rollout_shift`. That is the
+desired production behavior: easy operational starts can pass, while stress/OOD
+starts are not silently accepted.
+
+### Mechanism Read
+
+This is the first per-run demonstration of the intended long-term product
+contract:
+
+```text
+cached narrative/text memory + selected explicit start
+-> decoded recent prefix object
+-> frozen joint39 SNI encoder/autoregressive rollout
+-> validation gate + fan-chart artifact
+```
+
+Historical data are still used to provide cached text memories and selected
+starting states, but the hidden 30-day prefix dynamics for the run come from the
+learned memory+start prefix decoder rather than k-nearest-neighbor prefix
+copying.
+
+The result also confirms the current limitation: the decoder can pass memory and
+distributional gates for this smoke, but its held-out feature MSE remains high
+and point-path scores remain worse than persistence. This should be framed as a
+scenario-distribution interface, not a point forecast.
+
+### Decision
+
+Keep this harness as the cached local production smoke path. The next
+principled step is to integrate it into the Gradio demo as an optional
+"Prefix-latent live smoke" mode, so the risk-manager UI can show:
+
+1. cached narrative or live narrative condition;
+2. start-mode selection;
+3. validation status and warnings;
+4. scenario fan charts from the decoded-prefix frozen rollout;
+5. artifact paths for audit.
+
+Only after that UI path works should we add the OpenAI-backed live narrative
+mode with a small cached TestFlight.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_791a/prefix_latent_story_smoke_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_791a/prefix_latent_story_smoke_report.md`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_791a/prefix_latent_story_smoke_arrays.npz`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_791a_farthest_testflight/prefix_latent_story_smoke_report.json`
+
+### Verification
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 6 passed.
+- `uv run pytest test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 11 passed.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q`: 48 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_memory_decoder.py experiments/backfill/block_ar/nl_prefix_latent_start_sensitivity.py experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py experiments/backfill/block_ar/nl_risk_manager_story_smoke.py`: passed.
+- `git diff --check`: passed.
+
+---
