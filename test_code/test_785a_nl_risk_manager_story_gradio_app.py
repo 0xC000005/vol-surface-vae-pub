@@ -444,8 +444,10 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
         start_mode="balanced_memory_start",
         samples=4,
         condition_report="tmp/condition_only_report.json",
+        explicit_start_window_index=22,
     )
     assert condition_args.condition_report == "tmp/condition_only_report.json"
+    assert condition_args.explicit_start_window_index == 22
 
 
 def test_build_run_args_sets_generator_controls() -> None:
@@ -609,6 +611,31 @@ def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
     assert "OpenAI grounding and embedding" in first[1]
     assert calls == [(True, "A live risk-manager story.")]
     assert "live_openai_story" in final[1]
+
+
+def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.start_mode, args.explicit_start_window_index))
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        use_explicit_start=True,
+        explicit_start_window_index=22,
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "explicit_start_window" in first[1]
+    assert calls == [("explicit_start_window", 22)]
+    assert "Completed in" in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> None:

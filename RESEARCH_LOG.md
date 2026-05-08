@@ -112333,3 +112333,82 @@ The next principled step is to add explicit user-start mode to the product path.
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 36 explicit historical start mode
+
+### Context
+Iteration 35 wired the condition-only product path into the Gradio demo. The next production requirement was user-specified starting state. The strict long-term target is 39-factor numeric current-state input, but the lowest-risk first product slice is explicit historical start-window selection, because the frozen rollout already supports it through `explicit_start_window`.
+
+### Hypothesis
+If user-specified starts are compatible with the current contract, then the Gradio product path should be able to keep the same condition-only narrative and replace the model-chosen start with a user-selected historical start window. The falsifier is failure in start resolution, product-gate rejection, or loss of support-prior diagnostics.
+
+### Execution
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Updated `test_code/test_785a_nl_risk_manager_story_gradio_app.py`.
+- Added Gradio controls:
+  - `Use historical start`;
+  - `Historical start window index`.
+- Added app wiring so `Use historical start` switches the prefix-latent run to:
+
+```text
+--start-mode explicit_start_window
+--explicit-start-window-index <user value>
+```
+
+- Kept the condition-only narrative path, soft top-k combined support prior, prefix decoder, frozen rollout, and product gate unchanged.
+
+### Result
+The first user-specified start mode works.
+
+No-OpenAI verification reused the saved live condition-only report and ran:
+
+```text
+condition-only report
+-> soft top-k combined support prior
+-> explicit historical start window 22
+-> frozen joint39 rollout
+-> product gate
+```
+
+Result:
+
+- start mode: `explicit_start_window`;
+- explicit start window: `22`;
+- selected-start status: `pass`;
+- support prior: pass, `3` checked, `0` mismatches;
+- memory compatibility: pass, cosine `0.951`;
+- start distance: pass, z `14.398`;
+- decoder endpoint: pass, max error `0.0`;
+- rollout shift: pass, terminal mean absolute z `0.981`;
+- product decision: `accept_for_narrative_only`.
+
+### Mechanism Read
+This confirms the separation we wanted:
+
+- the narrative defines current/recent market conditions;
+- the start state can be supplied independently;
+- the prefix decoder and frozen generator can run with that explicit start;
+- the validation gate remains auditable.
+
+This is not yet true 39-factor current-state input, but it is the right first production slice because it exercises the same code path the full numeric start state will need.
+
+### Decision / Next Step
+Keep historical explicit-start as the first user-start implementation. The next principled step is to make explicit start selection usable rather than requiring a raw bridge-local integer:
+
+1. expose a searchable table of candidate historical starts with window id, date, split, and start-support diagnostics;
+2. let the risk manager select one from the table;
+3. later add a true current-state form for the 39 joint factors.
+
+### Artifacts
+- Gradio app: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Gradio tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- Explicit-start verification report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_explicit_start_verify/prefix_latent_story_smoke_report.json`
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 18 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report ...condition_only_report.json --output-dir ...condition_only_explicit_start_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode explicit_start_window --explicit-start-window-index 22 --steps 100 --samples 2 --chunk-size 2 --device cuda` -> validation pass.
+- `uv run python - <<'PY' ... decompose_report(...condition_only_explicit_start_verify...) ... PY` -> product decision `accept_for_narrative_only`.
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_802a_nl_prefix_latent_hard_case_decomposition.py test_code/test_801a_nl_prefix_latent_start_policy_audit.py test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_799a_nl_prefix_latent_temporal_grounding_testflight.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> 53 passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- `git diff --check` -> passed.
+
+---

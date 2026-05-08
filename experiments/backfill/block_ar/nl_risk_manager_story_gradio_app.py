@@ -1095,6 +1095,7 @@ def build_prefix_latent_run_args(
     live_story: bool = False,
     story: str = DEFAULT_STORY,
     condition_report: str | None = None,
+    explicit_start_window_index: int | None = None,
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -1120,7 +1121,7 @@ def build_prefix_latent_run_args(
         bridge_adapter=DEFAULT_BRIDGE_ADAPTER,
         dotenv=".env",
         start_mode=str(start_mode),
-        explicit_start_window_index=None,
+        explicit_start_window_index=explicit_start_window_index,
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
         implication_alignment_weight=0.25,
@@ -1238,6 +1239,8 @@ def run_prefix_latent_for_app(
     live_story: bool = False,
     story: str = DEFAULT_STORY,
     condition_only_story: bool = False,
+    use_explicit_start: bool = False,
+    explicit_start_window_index: float | int | None = None,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
     condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
@@ -1247,9 +1250,17 @@ def run_prefix_latent_for_app(
     ] = run_condition_only_report,
 ) -> Any:
     start_time = time.monotonic()
+    effective_start_mode = (
+        "explicit_start_window" if bool(use_explicit_start) else str(start_mode)
+    )
+    explicit_start = (
+        int(explicit_start_window_index)
+        if bool(use_explicit_start) and explicit_start_window_index is not None
+        else None
+    )
     running_status = _prefix_progress_status_markdown(
         start_time=start_time,
-        start_mode=str(start_mode),
+        start_mode=effective_start_mode,
         samples=int(samples),
         live_story=bool(live_story),
         condition_only_story=bool(condition_only_story),
@@ -1273,11 +1284,12 @@ def run_prefix_latent_for_app(
             )
             output_dir = str(Path(DEFAULT_PREFIX_APP_OUTPUT_DIR) / "condition_only_run")
         args = build_prefix_latent_run_args(
-            start_mode=str(start_mode),
+            start_mode=effective_start_mode,
             samples=int(samples),
             live_story=bool(live_story) and not bool(condition_only_story),
             story=str(story or DEFAULT_STORY),
             condition_report=condition_report_path,
+            explicit_start_window_index=explicit_start,
             output_dir=output_dir,
         )
         report = runner(args)
@@ -1494,6 +1506,20 @@ def build_demo() -> Any:
                     "phrases become warnings, not scenario targets."
                 ),
             )
+            prefix_use_explicit_start = gr.Checkbox(
+                value=False,
+                label="Use historical start",
+                info=(
+                    "Override model-chosen start with a bridge-local historical "
+                    "window index. Use this as the first user-specified start mode."
+                ),
+            )
+            prefix_explicit_start_index = gr.Number(
+                value=22,
+                precision=0,
+                label="Historical start window index",
+                info="Bridge-local window index; ignored unless Use historical start is checked.",
+            )
             prefix_samples = gr.Slider(
                 minimum=2,
                 maximum=64,
@@ -1606,6 +1632,8 @@ def build_demo() -> Any:
                 prefix_live_story,
                 story,
                 prefix_condition_only_story,
+                prefix_use_explicit_start,
+                prefix_explicit_start_index,
             ],
             outputs=[
                 prefix_report_markdown,
