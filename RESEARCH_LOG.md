@@ -111848,3 +111848,66 @@ The next iteration should add a local temporal-role alignment evaluator over exi
 - `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> 81 passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 30 temporal-role alignment audit
+
+### Context
+Iteration 29 showed that feature-mixture prefix replay worsened the fragile-risk-on legacy alignment score, but the mechanism read suggested the score itself might be wrong: current/regime implications were being compared to future generated paths, even though narratives often contain separate forward-risk language.
+
+### Hypothesis
+If the alignment metric is conflating temporal roles, then a temporal-role-aware evaluator should show that support priors align with current/regime implications while the current grounding schema provides few or no clean forward-risk targets for generated futures.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_temporal_role_alignment.py`.
+- Added `test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py`.
+- The evaluator makes no OpenAI calls. It classifies existing `market_implications` into:
+  - `current_regime`;
+  - `forward_risk`;
+  - `ambiguous_mixed`.
+- It scores:
+  - current/regime implications against support-prior terminal rows;
+  - forward-risk implications against generated future terminal rows;
+  - the legacy all-implications-against-future score for comparison.
+
+### Result
+On the three mixture-memory story replays:
+
+- current/regime support checked: 9;
+- current/regime support mismatches: 0;
+- current/regime mismatch rate: `0.0`;
+- clean forward-risk checked: 0;
+- ambiguous/mixed implications: 7;
+- legacy all-implications future mismatch rate: `0.50`.
+
+On the failed feature-mixture fragile-risk-on TestFlight:
+
+- current checked: 0;
+- clean forward checked: 0;
+- ambiguous/mixed implications: 3;
+- legacy future mismatch rate: `1.0`.
+
+### Mechanism Read
+The previous generated "mismatch" result was not a clean production-quality failure signal. The support prior can satisfy current/regime implications, but the current grounding schema does not expose explicit forward scenario targets. Instead, many implications mix current observations with forward risk language. This means the system cannot yet answer the product question "did the generated next-30-day scenario honor the story?" in a disciplined way.
+
+The current alignment evaluator is still useful as a hard sanity check, but not as the main production gate for story-conditioned generation. We need a schema where the LLM separates:
+
+- observed/current market state;
+- forward risk or forecast expectation;
+- unsupported causal story;
+- optional stress alternatives.
+
+### Decision / Next Step
+Do not train a residual bridge yet. The next principled step is a small OpenAI TestFlight for a revised temporal grounding schema on the same three casebook stories. The output should explicitly separate current support implications from forward scenario implications. Only then should generated future paths be judged against narrative targets.
+
+### Artifacts
+- Evaluator: `experiments/backfill/block_ar/nl_prefix_latent_temporal_role_alignment.py`
+- Tests: `test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py`
+- Mixture-memory temporal summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_temporal_role_alignment_807a_mixture_memory/temporal_role_alignment_summary.json`
+- Feature-mixture temporal summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_temporal_role_alignment_807b_feature_mixture_one/temporal_role_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py -q` -> 4 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_temporal_role_alignment.py test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_temporal_role_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_temporal_role_alignment_807a_mixture_memory --input ...805a... --input ...805b... --input ...805c...` -> current mismatch rate `0.0`, legacy mismatch rate `0.50`, clean future checked `0`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py test_code/test_796a_nl_prefix_latent_rollout_reranker.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_798a_nl_prefix_latent_temporal_role_alignment.py -q` -> 85 passed.
+
+---
