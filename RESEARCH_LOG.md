@@ -113994,3 +113994,53 @@ smokes against the restarted instance to make sure the served app reflects the
 new panel and still preserves scenario-generation behavior.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 71 restarted Gradio served verification
+
+### Context
+
+After adding the in-app readiness panel, the app needed to be restarted from
+current HEAD and verified as a served Gradio app, not only through import-time
+tests. The older app process was left on a previous port, so a fresh instance
+was started on port 7862.
+
+### Hypothesis
+
+If the served page includes the readiness evidence and both cached and live
+prefix-latent API smokes still pass, then the new UI panel did not break the
+boss-demo workflow.
+
+### Execute
+
+- Started current HEAD Gradio app at `http://127.0.0.1:7862`.
+- Checked the served page with `requests`.
+- Loaded the Gradio API schema with `gradio_client.Client.view_api()`.
+- Ran cached safe-haven API smoke.
+- Ran one-story live condition-only OpenAI API smoke.
+
+### Analyze
+
+Verification passed:
+
+- `uv run python -c "import requests; r=requests.get('http://127.0.0.1:7862', timeout=5); print(r.status_code, 'Narrative Conditioned Scenario Demo' in r.text, 'Demo readiness evidence' in r.text)"`
+  -> `200 True True`.
+- `uv run python -c "from gradio_client import Client; c=Client('http://127.0.0.1:7862'); c.view_api()"`
+  -> loaded 10 named API endpoints.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7862 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_830a_restarted_cached --casebook-choice safe_haven_gold_bid:18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, fan/redraw traces 8/8.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py --url http://127.0.0.1:7862 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_830a_restarted --mode live_condition_only --expected-start-index 18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, condition-only validation `pass`,
+  one forward-warning item, fan/redraw traces 8/8.
+
+Saved artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_830a_restarted_cached/gradio_api_smoke_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_live_testflight_830a_restarted/gradio_api_smoke_summary.json`
+
+### Decide
+
+The restarted current-HEAD app is demo-ready for the cached path and one-story
+live TestFlight path. The next production step is either manual visual QA with
+screenshots or moving from local Gradio toward a deployable demo package with
+clear data/artifact boundaries and secret handling.
+
+---
