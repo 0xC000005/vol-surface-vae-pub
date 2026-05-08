@@ -2,10 +2,11 @@
 
 ## Objective
 
-Build a risk-manager-facing narrative-conditioned scenario generator that stays
-inside the learned latent geometry as much as possible while reusing the frozen
-state-aware normalized-innovation (SNI) conditional scenario generator and its
-native autoregressive rollout.
+Build a risk-manager-facing narrative-conditioned scenario generator that uses
+historical analogue mixtures as an auditable latent support prior, then learns a
+narrative-and-start residual refinement before reusing the frozen state-aware
+normalized-innovation (SNI) conditional scenario generator and its native
+autoregressive rollout.
 
 The long-run product contract has two modes:
 
@@ -16,9 +17,13 @@ The long-run product contract has two modes:
    the current or hypothetical starting level for the joint scenario factors.
    The system generates 30-day scenario distributions from that explicit state.
 
-Historical analogues are allowed as audit evidence, support diagnostics, or a
-starting-point proposal mechanism. They should not be the hidden engine that
-defines the 30-day prefix dynamics.
+Historical analogues are now the main support prior, but not as a single
+nearest-neighbor replay engine. The production path should retrieve a set of
+narrative-relevant historical regimes, form a soft mixture in latent or prefix
+space, and learn a residual refinement from the narrative plus starting state.
+The system must expose the analogue weights, support diagnostics, and
+post-rollout implication checks so a risk manager can see whether the generated
+distribution is supported, weakly supported, or rejected.
 
 ## Production-Readiness Workflow
 
@@ -45,9 +50,11 @@ should move at least one of these product gates:
    validation status, scenario fans, selected IV-cell views, and artifacts in a
    form a non-ML risk manager can inspect.
 
-The next production milestone is a **live prefix-latent story smoke path**. It
-should use cached text-memory examples first, then add carefully bounded OpenAI
-calls only after the cached path works end to end.
+The next production milestone is a **mixture-supported live story path**. It
+should retrieve several narrative-consistent analogue prefixes, blend them into
+a support prior, apply a bounded latent residual or candidate refinement, and
+verify that the generated rollout honors explicit market implications better
+than single-neighbor or simple reranking baselines.
 
 ## Current Problem
 
@@ -56,34 +63,45 @@ last 128-dimensional prefix memory. That is useful for analogue retrieval and
 diagnostics, but it is not a native prompt-conditioned rollout contract. The
 SNI generator recomputes memory at each autoregressive step from the evolving
 prefix. Reusing one fixed memory vector turns the model into repeated
-one-step sampling under a stale condition, while retrieving a historical prefix
-makes the product look like K-nearest-neighbor generation.
+one-step sampling under a stale condition.
+
+The other extreme, directly generating the full 30-day hidden prefix from text,
+is too ambitious as the main production path at the current data scale. It asks
+language to invent a detailed latent trajectory that the user usually did not
+specify. A more defensible contract is to use historical neighbors as a
+manifold-supported prior, mix multiple analogues rather than copying one, then
+learn the smallest residual adjustment needed to satisfy the story and starting
+state.
 
 The direct-memory and residual-memory ablations confirm the mechanics:
 
 - fixed text-predicted memory can drive the decoder mechanically, but it is not
   equivalent to native autoregressive generation;
 - residual prompt conditioning is safer because it keeps the evolving-prefix
-  encoder alive, but the retrieved prefix still carries too much of the
+  encoder alive, but a single retrieved prefix still carries too much of the
   scenario identity;
-- the next clean formulation is to infer a **latent representation of the
-  recent prefix** from text plus starting state, then let the frozen SNI
-  generator roll forward normally.
+- implication-aligned start selection and simple rollout reranking did not fix
+  directional mismatch, so the next clean formulation is a **mixture-supported
+  prefix prior plus learned residual refinement**.
 
-## Proposed Model Family
+## Main Model Family: Analogue-Mixture Latent Refinement
 
-The central object is a **prefix latent**:
+The central object is a **mixture-supported prefix latent**:
 
 ```text
-narrative + starting state -> prefix latent z -> synthetic recent-prefix state
+narrative + optional starting state -> analogue pool -> soft mixture prior
+soft mixture prior + narrative + starting state -> residual-refined prefix latent
+residual-refined prefix latent -> synthetic recent-prefix state
 synthetic recent-prefix state -> frozen SNI encoder/rollout -> future scenarios
 ```
 
-The prefix latent should represent the 30-day recent regime in the generator's
-native coordinate system without requiring the final product to copy a historical
-window. The decoded prefix must provide the fields needed by the frozen SNI
-encoder, including level history, normalized innovation or flow-coordinate
-history, and the history-derived center/scale/drift conditioning features.
+The analogue mixture should represent the historically supported region of the
+30-day recent-regime manifold. The learned residual should adapt that support
+prior to the user's narrative and starting state without pretending that text
+alone determines every hidden-state token. The decoded prefix must provide the
+fields needed by the frozen SNI encoder, including level history, normalized
+innovation or flow-coordinate history, and the history-derived
+center/scale/drift conditioning features.
 
 ### Stage A: Prefix Dataset
 
@@ -99,7 +117,7 @@ Create a training table from the existing joint39 windows:
 
 The dataset should preserve manifest train/validation/test splits.
 
-### Stage B: Prefix Autoencoder
+### Stage B: Prefix Autoencoder / Latent Bank
 
 Train a compact prefix autoencoder over the generator-input prefix object:
 
@@ -124,36 +142,66 @@ First acceptance gate:
 
 If this fails, text conditioning is premature.
 
-### Stage C: Text-and-Start to Prefix Latent
+The encoder also defines the latent bank used for analogue mixtures: each
+historical prefix has a latent `z`, a starting state `s0`, metadata, realized
+future, and narrative/text condition when available.
 
-Train a supervised bridge:
+### Stage C: Narrative to Analogue-Mixture Prior
+
+Retrieve a pool of candidate prefixes by combining:
+
+- text-memory similarity to the grounded narrative;
+- explicit market-implication alignment in the recent prefix;
+- starting-state compatibility when the user provides `s0`;
+- support diversity so the pool does not collapse to nearly identical windows.
+
+Convert the pool into a soft prior:
 
 ```text
-text embedding + starting state -> predicted prefix latent z_hat
+{z_i, prefix_i, support_i}_{i=1..k} -> weights w_i -> z_mix or prefix_mix
+```
+
+The system should report the analogue weights and why each analogue was used.
+The mixture may be formed in prefix-latent space first; direct prefix-space
+mixing is allowed only as a baseline because it may average away regime shape.
+
+### Stage D: Residual Latent Refinement
+
+Train or evaluate a supervised residual bridge:
+
+```text
+text embedding + starting state + z_mix + support diagnostics -> delta_z
+z_refined = z_mix + delta_z
 ```
 
 Positive pairs are multiple narratives for the same historical window. Hard
 negatives include opposite-direction narratives, nearby but directionally
 different windows, and windows with similar starting levels but different recent
-regime paths.
+regime paths. The residual should be bounded or regularized so it stays near
+the support prior unless the validation gate clearly marks the case as
+out-of-distribution.
 
 The loss should begin simple:
 
-- latent regression or cosine loss to the prefix autoencoder latent;
-- CLIP-style / InfoNCE contrastive alignment between text-start embeddings and
-  prefix latents;
+- latent regression or cosine loss to the target prefix-autoencoder latent;
+- residual-size penalty or trust-region constraint around `z_mix`;
+- CLIP-style / InfoNCE contrastive alignment between text-start-mixture
+  embeddings and prefix latents;
+- implication-alignment loss or post-rollout selection metric using explicit
+  market implications;
 - optional hard-negative margin only if the simple bridge collapses.
 
-The bridge output is decoded to a synthetic prefix and passed through the
+The refined latent is decoded to a synthetic prefix and passed through the
 unchanged SNI autoregressive sampler.
 
-### Stage D: Product Modes
+### Stage E: Product Modes
 
 For model-chosen starts, use retrieval only at the start-state layer:
 
-- retrieve or sample plausible `s0` states consistent with the narrative;
+- retrieve or sample plausible `s0` states consistent with the narrative and
+  analogue-mixture support;
 - generate several start candidates and display them to the risk manager;
-- run the prefix-latent generator from each start.
+- run the mixture-supported residual generator from each start.
 
 For user-specified starts:
 
@@ -163,8 +211,9 @@ For user-specified starts:
 - decode a compatible recent-prefix state;
 - run the frozen generator normally.
 
-This makes the analogue optional. The latent bridge is the scenario condition;
-the analogue is provenance and plausibility support.
+This makes the analogue mixture a transparent prior rather than a hidden
+nearest-neighbor generator. The refined latent is the scenario condition; the
+analogue pool is provenance, plausibility support, and a guardrail.
 
 ## Evaluation Plan
 
@@ -174,13 +223,18 @@ then add prefix-latent baselines in this order:
 1. **Oracle decoded prefix.** Encode true historical prefix to `z`, decode it,
    and run the frozen generator. This tests whether the prefix autoencoder
    preserves generator-relevant information.
-2. **Text-start predicted prefix.** Predict `z_hat` from narrative plus true
-   held-out starting state, decode, and roll out.
-3. **Text-only start-selected prefix.** Let the model choose plausible starts,
-   then predict prefix latents and roll out.
-4. **Ablations.** Compare against historical replay, persistence, current
+2. **Single-neighbor analogue.** Use the best retrieved analogue prefix to
+   measure the KNN-style baseline explicitly.
+3. **Analogue-mixture prior.** Blend top-k analogue latents/prefixes without a
+   learned residual and roll out.
+4. **Mixture plus residual.** Predict a residual from narrative, starting
+   state, and mixture diagnostics, then decode and roll out.
+5. **Text-only start-selected prefix.** Let the model choose plausible starts,
+   then produce mixture-supported refined latents and roll out.
+6. **Ablations.** Compare against historical replay, persistence, current
    analogue-top-k generation, direct memory, residual memory, raw text embedding
-   retrieval, no-contrastive bridge, and contrastive bridge.
+   retrieval, no-contrastive bridge, contrastive bridge, mixture without
+   residual, and residual without mixture support.
 
 Primary metrics:
 
@@ -194,10 +248,11 @@ Primary metrics:
 
 Promotion criterion:
 
-The prefix-latent system must beat or match the analogue-conditioned narrative
-generator on distributional scenario metrics while reducing dependence on
-retrieved historical prefixes. Exact historical-window retrieval is not the
-target.
+The mixture-supported residual system must beat or match the single-neighbor
+analogue-conditioned generator on distributional scenario metrics and reduce
+explicit implication mismatch versus the current `0.50` balanced-start and
+`0.4706` two-candidate-reranker baselines. Exact historical-window retrieval is
+not the target; auditable support plus story-consistent distributions is.
 
 ## HEAD Loop Setup
 
@@ -241,25 +296,27 @@ TestFlight first:
 No private manuscript text, private paper PDFs, or under-review backup paper
 content should be sent or uploaded.
 
-The first iteration after approval should be a `research_ideation` or
-`post_experiment_analysis` cycle, not a large OpenAI labeling run. The cleanest
-first execution step is a shape-and-contract audit plus an oracle prefix
-autoencoder scaffold that uses already available windows and labels.
+The first iteration after this direction change should be a local
+mixture-prior baseline, not a large OpenAI labeling run. It should use existing
+casebook artifacts and prefix/latent outputs to test whether top-k mixture
+support improves implication alignment before adding a learned residual.
 
 Suggested first HEAD hypothesis:
 
-> A low-dimensional prefix latent can reconstruct enough of the 30-day joint39
-> recent-prefix object that the frozen SNI encoder produces nearly the same
-> final memory and the frozen generator produces similar scenario distributions.
+> A soft mixture of narrative-relevant analogue prefixes/latents can improve
+> story implication alignment versus top-1 analogue selection and simple
+> rollout reranking, without asking text to generate the whole 30-day hidden
+> prefix from scratch.
 
 Suggested first execution:
 
-1. build the prefix-latent dataset contract from existing joint39 arrays;
-2. train a small local prefix autoencoder without OpenAI calls;
-3. run oracle decoded-prefix rollout on the existing representative held-out
-   split;
-4. compare decoded-prefix generator results against true-prefix oracle and
-   analogue-top-k narrative generator.
+1. build an offline top-k analogue-mixture prior evaluator using existing
+   live/cached casebook artifacts and latent-bank outputs;
+2. compare top-1, soft top-k, diverse top-k, and mixture-plus-rerank variants;
+3. evaluate explicit implication mismatch, start support, memory compatibility,
+   and scenario-level metrics where available;
+4. only then train a residual bridge if the mixture prior provides a useful
+   support manifold.
 
 ## Citation Notes
 

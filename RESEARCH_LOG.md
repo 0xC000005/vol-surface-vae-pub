@@ -111624,3 +111624,46 @@ Do not treat simple rollout reranking as the fix. The next principled step is to
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 26 analogue-mixture main direction
+
+### Context
+After iteration 25, the evidence showed that neither implication-aligned start selection nor simple rollout-level reranking fixed narrative-direction mismatch. The user proposed a more defensible production direction: return to historical analogues, but use a **mixture of analogue regimes** rather than one nearest historical prefix, then refine that mixture in latent space.
+
+### Hypothesis
+The main production direction should shift from direct text-to-full-prefix generation to analogue-mixture latent refinement. This should be more defensible because the system stays near historically supported market regimes, exposes analogue weights for auditability, and asks the learned model only for a bounded residual adjustment rather than a full 30-day hidden trajectory from text alone.
+
+### Execution
+- Updated the tracked protocol `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`.
+- Updated the ignored local autoresearch skill `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md` so future in-session runs follow the new main direction.
+- Updated ignored local goal state `autoresearch-session/nl_prefix_latent_goal.json`.
+- Preserved the boundary from the original 11x11 conditional-generator autoresearch loop.
+
+### Result
+The durable protocol now defines the main model family as:
+
+```text
+narrative + optional starting state -> analogue pool -> soft mixture prior
+soft mixture prior + narrative + starting state -> residual-refined prefix latent
+residual-refined prefix latent -> synthetic recent-prefix state
+synthetic recent-prefix state -> frozen SNI encoder/rollout -> future scenarios
+```
+
+The promotion target is now explicit: beat or match single-neighbor analogue generation while reducing implication mismatch versus the current `0.50` balanced-start and `0.4706` two-candidate reranker baselines.
+
+### Mechanism Read
+Directly generating all 30 days of hidden prefix from text is likely too ambitious as the default path because it asks language to specify a detailed latent trajectory that the user does not actually provide. A soft analogue mixture keeps the condition near the historical market manifold, while a learned residual can still move beyond pure KNN behavior. This is a better production compromise: auditable support first, learned refinement second.
+
+### Decision / Next Step
+Resume autoresearch under the new family: `analogue_mixture_latent_refinement`. The next experiment should be local and OpenAI-free: build an offline top-k analogue-mixture prior evaluator from existing casebook/latent-bank artifacts and compare top-1, soft top-k, diverse top-k, and mixture-plus-rerank variants on implication mismatch, start support, and memory compatibility.
+
+### Artifacts
+- Protocol: `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- Local skill: `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- Local goal state: `autoresearch-session/nl_prefix_latent_goal.json`
+
+### Verification
+- `python /home/max/.codex/skills/.system/skill-creator/scripts/quick_validate.py .agents/skills/nl-prefix-latent-autoresearch` -> passed.
+- `python -m json.tool autoresearch-session/nl_prefix_latent_goal.json` -> passed.
+- `git diff --check` -> passed.
+
+---
