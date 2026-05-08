@@ -112934,3 +112934,77 @@ bottleneck is now start-conditioned robustness coverage, not basic workflow
 plumbing.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 48 start-conditioned acceptance matrix
+
+### Context
+After fixing the workflow so the analogue mixture is conditioned on both the
+narrative and the fixed initial level, the next production gap was validation
+coverage. Historical starts can be compatible even when they are not the
+recommended start, while an arbitrary risk-manager-supplied level can be far
+outside the training support. The acceptance suite needs to distinguish those
+cases.
+
+### Hypothesis
+A small start-conditioned acceptance matrix with explicit expected outcomes can
+serve as a product gate for the fixed-start contract: compatible starts should
+pass, weakly supported starts should warn, and clearly out-of-support user
+levels should fail.
+
+### Execution
+- Added `nl_prefix_latent_start_conditioned_acceptance.py`, a no-OpenAI
+  acceptance matrix harness.
+- The harness covers historical candidate starts and a generated
+  `extreme_out_of_support` user start derived from a valid joint39 template.
+- Added tests for the extreme-start modifier, expectation aggregation, and
+  markdown reporting.
+- Ran a TestFlight first to calibrate expectations, then encoded five cases:
+  fragile/recommended -> `pass`, fragile/alternate -> `warning`,
+  defensive/recommended -> `warning`, rates/recommended -> `pass`,
+  fragile/extreme user start -> `fail`.
+
+### Result
+The focused tests passed:
+
+- `uv run pytest test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py test_code/test_803a_nl_prefix_latent_product_acceptance_smoke.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py -q` -> `28 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_acceptance.py test_code/test_805a_nl_prefix_latent_start_conditioned_acceptance.py` passed.
+- `git diff --check` passed.
+
+The CUDA acceptance matrix passed:
+
+- command: `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_acceptance.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815b --case-count 5 --samples 2 --steps 100 --chunk-size 2 --device cuda`
+- status: `pass`;
+- case count: `5`;
+- expectation failures: `0`.
+
+Observed outcomes:
+
+- fragile risk-on, recommended start 18: expected `pass`, actual `pass`,
+  weighted start distance `2.330`.
+- fragile risk-on, alternate start 0: expected `warning`, actual `warning`,
+  weighted start distance `9.095`.
+- defensive risk-off, recommended start 22: expected `warning`, actual
+  `warning`, weighted start distance `7.230`.
+- rates selloff, recommended start 18: expected `pass`, actual `pass`,
+  weighted start distance `5.161`.
+- fragile risk-on, extreme user start: expected `fail`, actual `fail`, start
+  distance `22.014`, weighted start distance `143.788`.
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815b/start_conditioned_acceptance.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_conditioned_acceptance_815b/start_conditioned_acceptance.md`
+
+### Mechanism Read
+This turns the fixed-start insight into a reusable gate. The system now checks
+that a narrative-conditioned scenario run changes its validation behavior when
+the initial level changes. The extreme user-start case is especially important:
+it proves the workflow can reject a user-supplied current level that lies far
+outside the historical support instead of forcing a scenario distribution.
+
+### Decision
+Continue by scaling this matrix from five hand-picked cases to a broader
+representative start grid: multiple starts per narrative, expected outcomes
+defined by support/validation policy, and scenario-level distributional metrics
+for each accepted or warning case.
+
+---
