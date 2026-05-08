@@ -16,6 +16,9 @@ if str(ROOT) not in sys.path:
 
 from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (  # noqa: E402
     DEFAULT_STORY,
+    cached_prefix_casebook_choices,
+    cached_prefix_casebook_update,
+    refresh_fan_chart,
     run_prefix_latent_for_app,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa: E402
@@ -27,6 +30,7 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_gradio_cached_smoke_796a"
 )
+DEFAULT_CACHED_CASEBOOK_CHOICE = "safe_haven_gold_bid:18"
 
 
 def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
@@ -62,14 +66,58 @@ def _table_rows(value: Any) -> int:
         return 0
 
 
+def _prefix_output(final: tuple[Any, ...], index: int, default: Any = None) -> Any:
+    return final[index] if index < len(final) else default
+
+
+def _cached_casebook_controls(choice: str | None) -> dict[str, Any]:
+    value = str(choice or "").strip()
+    if not value:
+        return {}
+    choices = {
+        str(raw_value): label for label, raw_value in cached_prefix_casebook_choices()
+    }
+    if value not in choices:
+        raise ValueError(f"unknown cached casebook choice: {value!r}")
+    (
+        story,
+        use_explicit_start,
+        explicit_start_index,
+        condition_only_story,
+        live_story,
+        condition_report,
+        status,
+    ) = cached_prefix_casebook_update(value)
+    return {
+        "choice": value,
+        "label": choices[value],
+        "story": story,
+        "use_explicit_start": bool(use_explicit_start),
+        "explicit_start_index": int(explicit_start_index),
+        "condition_only_story": bool(condition_only_story),
+        "live_story": bool(live_story),
+        "condition_report": str(condition_report),
+        "status_markdown": str(status),
+    }
+
+
 def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    cached_casebook = _cached_casebook_controls(
+        getattr(args, "cached_casebook_choice", "")
+    )
     live_story = bool(getattr(args, "live_story", False))
+    if cached_casebook:
+        live_story = bool(cached_casebook["live_story"])
     summary_name = (
         "gradio_live_smoke_summary.json"
         if live_story
-        else "gradio_cached_smoke_summary.json"
+        else (
+            "gradio_cached_casebook_smoke_summary.json"
+            if cached_casebook
+            else "gradio_cached_smoke_summary.json"
+        )
     )
 
     def runner(run_args: SimpleNamespace) -> dict[str, Any]:
@@ -82,23 +130,28 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         fan_market=str(args.fan_market),
         analogue_scope="ALL",
         live_story=live_story,
-        story=str(args.story),
+        story=str(cached_casebook.get("story", args.story)),
+        cached_condition_report=cached_casebook.get("condition_report"),
+        condition_only_story=bool(cached_casebook.get("condition_only_story", False)),
+        use_explicit_start=bool(cached_casebook.get("use_explicit_start", False)),
+        explicit_start_window_index=cached_casebook.get("explicit_start_index"),
         runner=runner,
     )
     first = next(stream)
-    final = list(stream)[-1]
-    (
-        markdown,
-        status_markdown,
-        selected_table,
-        diagnostic_table,
-        validation_table,
-        scenario_table,
-        fan_plot,
-        report_json,
-        report,
-        analogue_update,
-    ) = final
+    final = tuple(list(stream)[-1])
+    markdown = _prefix_output(final, 0, "")
+    status_markdown = _prefix_output(final, 1, "")
+    selected_table = _prefix_output(final, 2)
+    diagnostic_table = _prefix_output(final, 3)
+    validation_table = _prefix_output(final, 4)
+    scenario_table = _prefix_output(final, 5)
+    fan_plot = _prefix_output(final, 6)
+    report_json = _prefix_output(final, 7, "")
+    report = _prefix_output(final, 8, {})
+    analogue_update = _prefix_output(final, 9)
+    condition_table = _prefix_output(final, 10)
+    warning_table = _prefix_output(final, 11)
+    candidate_table = _prefix_output(final, 14)
     errors: list[str] = []
     if "Prefix-latent run started" not in str(first[1]):
         errors.append("progress_status_missing")
@@ -114,6 +167,14 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("scenario_table_empty")
     if len(getattr(fan_plot, "data", [])) < 1:
         errors.append("fan_plot_empty")
+    redraw_market = str(
+        getattr(args, "redraw_market", getattr(args, "fan_market", "SPX"))
+    )
+    redraw_plot = refresh_fan_chart(
+        report if isinstance(report, dict) else {}, redraw_market, "ALL"
+    )
+    if len(getattr(redraw_plot, "data", [])) < 1:
+        errors.append("redraw_fan_plot_empty")
     if not isinstance(report, dict) or report.get("status") != "ok":
         errors.append("report_not_ok")
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
@@ -126,6 +187,8 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     expected_condition_source = (
         "live_openai_story" if live_story else "cached_bridge_query"
     )
+    if cached_casebook:
+        expected_condition_source = "external_condition_report"
     if condition_source != expected_condition_source:
         errors.append("condition_source_mismatch")
     if not str(report_json).strip().startswith("{"):
@@ -149,8 +212,13 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     summary = {
         "status": "ok" if not errors else "fail",
         "errors": errors,
-        "mode": "live_story" if live_story else "cached",
+        "mode": (
+            "cached_casebook"
+            if cached_casebook
+            else "live_story" if live_story else "cached"
+        ),
         "live_story": live_story,
+        "cached_casebook": cached_casebook,
         "condition_source": condition_source,
         "scope_note": (
             "Live Gradio wrapper smoke. This calls the real prefix-latent Gradio "
@@ -158,8 +226,16 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "product tables, labels, and prefix rollout."
             if live_story
             else (
-                "Cached Gradio wrapper smoke. This calls the real prefix-latent "
-                "Gradio wrapper path with cached text memory and makes no OpenAI calls."
+                (
+                    "Cached casebook Gradio wrapper smoke. This uses a cached "
+                    "condition-only report plus a fixed historical start, makes no "
+                    "OpenAI calls, and verifies post-run chart redraw."
+                )
+                if cached_casebook
+                else (
+                    "Cached Gradio wrapper smoke. This calls the real prefix-latent "
+                    "Gradio wrapper path with cached text memory and makes no OpenAI calls."
+                )
             )
         ),
         "start_mode": str(args.start_mode),
@@ -167,7 +243,12 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "diagnostic_table_rows": _table_rows(diagnostic_table),
         "validation_table_rows": _table_rows(validation_table),
         "scenario_table_rows": _table_rows(scenario_table),
+        "condition_table_rows": _table_rows(condition_table),
+        "warning_table_rows": _table_rows(warning_table),
+        "candidate_table_rows": _table_rows(candidate_table),
         "fan_trace_count": int(len(getattr(fan_plot, "data", []))),
+        "redraw_market": redraw_market,
+        "redraw_fan_trace_count": int(len(getattr(redraw_plot, "data", []))),
         "selected_start_status": str(gate.get("selected_start_status", "")),
         "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "research_overall_status": str(gate.get("overall_status", "")),
@@ -196,7 +277,16 @@ def main() -> None:
     parser.add_argument("--start-mode", default="balanced_memory_start")
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--fan-market", default="SPX")
+    parser.add_argument("--redraw-market", default="IV_ATM_3M")
     parser.add_argument("--story", default=DEFAULT_STORY)
+    parser.add_argument(
+        "--cached-casebook-choice",
+        default="",
+        help=(
+            "Optional cached casebook value, e.g. "
+            f"{DEFAULT_CACHED_CASEBOOK_CHOICE!r}. Uses no OpenAI calls."
+        ),
+    )
     parser.add_argument(
         "--live-story",
         action="store_true",

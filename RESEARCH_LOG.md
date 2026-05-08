@@ -113525,3 +113525,69 @@ This avoids hidden OpenAI calls during a demo while preserving the same
 condition-only contract used in validation.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 63 cached casebook demo QA
+
+### Context
+
+The cached casebook selector made broader validation rows available in the
+Gradio prefix-latent section, but the demo QA harness still only covered the
+older cached/live wrapper path. The immediate production gate was risk-manager
+UX: prove that a boss-demo row can be selected without OpenAI calls, run through
+the real prefix-latent wrapper, preserve provenance, and allow post-run fan
+chart redraws for a different market or IV cell.
+
+### Hypothesis
+
+A cached casebook smoke should catch the exact class of product bugs seen in the
+local Gradio demo: missing progress/status wiring, stale tuple unpacking, wrong
+condition source, missing condition/warning/candidate tables, and fan charts
+that cannot redraw after generation.
+
+### Execute
+
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`
+  with cached casebook controls from the Gradio app.
+- Added support for the current 17-output prefix-latent Gradio wrapper while
+  keeping backward-compatible test fixtures.
+- Added a cached casebook mode that selects `safe_haven_gold_bid:18`, injects
+  the saved condition-only report, forces explicit-start mode, disables live
+  OpenAI grounding, and expects `external_condition_report` provenance.
+- Added a post-run `refresh_fan_chart` check so the smoke verifies that a saved
+  report can redraw a different selected factor/IV cell after generation.
+- Added regression coverage in
+  `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`
+  -> 4 passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_casebook_smoke_824a_safe_haven --cached-casebook-choice safe_haven_gold_bid:18 --start-mode balanced_memory_start --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+  -> status `ok`, selected-start `pass`, fan trace count 8, redraw fan trace
+  count 8, no OpenAI calls.
+- `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 32 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+  -> passed.
+- `git diff --check` -> passed.
+
+Saved artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_casebook_smoke_824a_safe_haven/gradio_cached_casebook_smoke_summary.json`
+
+The summary reports mode `cached_casebook`, condition source
+`external_condition_report`, 5 condition rows, 2 warning rows, 8 candidate rows,
+11 scenario rows, selected-start `pass`, diagnostic baseline `pass`, and overall
+research status `pass`.
+
+### Decide
+
+The cached safe-haven boss-demo path is now testable without OpenAI and catches
+the chart-redraw/UI-state failure mode. The next highest-value step is to write
+a short boss-demo runbook/walkthrough that starts from a cached casebook row and
+explains, in risk-manager language, what each panel proves: condition-only
+warnings, fixed start, candidate support, analogue mixture labels, scenario fan
+charts, selected IV-cell redraws, and generated report artifacts.
+
+---
