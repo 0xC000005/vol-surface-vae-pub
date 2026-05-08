@@ -686,7 +686,10 @@ def _completed_status_markdown(report: dict[str, Any], start_time: float) -> str
 
 
 def _completed_prefix_status_markdown(report: dict[str, Any], start_time: float) -> str:
-    return prefix_latent_status_markdown(report) + f"\n- Completed in: `{_elapsed_text(start_time)}`"
+    return (
+        prefix_latent_status_markdown(report)
+        + f"\n- Completed in: `{_elapsed_text(start_time)}`"
+    )
 
 
 def _error_status_markdown(error: BaseException, start_time: float) -> str:
@@ -828,6 +831,7 @@ def build_prefix_latent_run_args(
         explicit_start_window_index=None,
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
+        implication_alignment_weight=0.25,
         include_original_baseline=True,
         hidden_dim=256,
         steps=1000,
@@ -1133,6 +1137,7 @@ def build_demo() -> Any:
         with gr.Row():
             prefix_start_mode = gr.Dropdown(
                 choices=[
+                    ("Implication-aligned start", "implication_aligned_start"),
                     ("Balanced memory/start support", "balanced_memory_start"),
                     ("Memory-nearest train start", "memory_nearest_start"),
                     ("Original start", "original"),

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.backfill.block_ar.nl_prefix_latent_gradio_live_casebook import (  # noqa: E402
+from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (  # noqa: E402
     market_implication_alignment,
 )
 

@@ -32,9 +32,13 @@ from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovati
 )
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
     DEFAULT_CHECKPOINT,
+    KEY_FACTOR_NAMES,
     _spec_names,
     compute_memory_targets,
     summarize_retrieval_generated_states,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (  # noqa: E402
+    market_implication_alignment,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_memory_decoder import (  # noqa: E402
     _decode_features,
@@ -88,6 +92,7 @@ StartMode = Literal[
     "farthest_train_start",
     "memory_nearest_start",
     "balanced_memory_start",
+    "implication_aligned_start",
     "explicit_start_window",
 ]
 
@@ -167,7 +172,10 @@ def narrative_text_for_query(
         return ""
     fallback = ""
     for bundle in bundles:
-        if not isinstance(bundle, dict) or str(bundle.get("window_id", "")) != window_id:
+        if (
+            not isinstance(bundle, dict)
+            or str(bundle.get("window_id", "")) != window_id
+        ):
             continue
         narratives = bundle.get("narratives", [])
         if not isinstance(narratives, list):
@@ -230,7 +238,9 @@ def _start_distance(
 ) -> float:
     start_z = _safe_start_z(start_state, train_indices)
     return float(
-        np.linalg.norm(start_z[int(start_window_index)] - start_z[int(query_window_index)])
+        np.linalg.norm(
+            start_z[int(start_window_index)] - start_z[int(query_window_index)]
+        )
     )
 
 
@@ -366,6 +376,143 @@ def _balanced_memory_support_start(
     }
 
 
+def _recent_prefix_terminal_rows(
+    *,
+    history_raw: np.ndarray,
+    window_index: int,
+    spec_names: list[str],
+) -> list[dict[str, Any]]:
+    history = np.asarray(history_raw, dtype=np.float32)
+    idx = int(window_index)
+    if history.ndim != 3:
+        raise ValueError("history_raw must have shape [N,T,C]")
+    if idx < 0 or idx >= history.shape[0]:
+        raise IndexError(f"window_index {idx} outside history_raw")
+    terminal_delta = history[idx, -1, :] - history[idx, 0, :]
+    rows = [
+        {
+            "Market": "IV_SURFACE",
+            "Mean Terminal Delta": float(np.nanmean(terminal_delta[:25])),
+        }
+    ]
+    index = {name: col for col, name in enumerate(spec_names)}
+    for market, spec_name in KEY_FACTOR_NAMES.items():
+        if spec_name not in index:
+            continue
+        rows.append(
+            {
+                "Market": market,
+                "Mean Terminal Delta": float(terminal_delta[index[spec_name]]),
+            }
+        )
+    return rows
+
+
+def _alignment_score_for_candidate(
+    *,
+    grounding: dict[str, Any],
+    history_raw: np.ndarray,
+    window_index: int,
+    spec_names: list[str],
+) -> tuple[float, dict[str, Any]]:
+    alignment = market_implication_alignment(
+        grounding=grounding,
+        scenario_rows=_recent_prefix_terminal_rows(
+            history_raw=history_raw,
+            window_index=int(window_index),
+            spec_names=spec_names,
+        ),
+    )
+    checked = int(alignment.get("checked_count", 0) or 0)
+    if checked <= 0:
+        return 0.0, alignment
+    matches = float(alignment.get("match_count", 0) or 0)
+    mismatches = float(alignment.get("mismatch_count", 0) or 0)
+    return float((matches - mismatches) / checked), alignment
+
+
+def _implication_aligned_start(
+    *,
+    query_window_index: int,
+    start_state: np.ndarray,
+    train_indices: np.ndarray,
+    query_memory: np.ndarray,
+    memory_targets: np.ndarray,
+    grounding: dict[str, Any],
+    history_raw: np.ndarray,
+    spec_names: list[str],
+    start_distance_threshold_z: float,
+    start_distance_penalty: float,
+    implication_alignment_weight: float,
+) -> dict[str, Any]:
+    train = np.asarray(train_indices, dtype=np.int64)
+    cosines = _candidate_memory_support_cosines(
+        query_memory=query_memory,
+        memory_targets=memory_targets,
+        candidate_indices=train,
+    )
+    distances = _start_distances_to_query(
+        query_window_index=int(query_window_index),
+        start_state=start_state,
+        train_indices=train,
+    )
+    alignment_scores: list[float] = []
+    alignments: list[dict[str, Any]] = []
+    for candidate in train:
+        score, alignment = _alignment_score_for_candidate(
+            grounding=grounding,
+            history_raw=history_raw,
+            window_index=int(candidate),
+            spec_names=spec_names,
+        )
+        alignment_scores.append(score)
+        alignments.append(alignment)
+    alignment_array = np.asarray(alignment_scores, dtype=np.float32)
+    threshold = float(start_distance_threshold_z)
+    inside = distances <= threshold
+    score = (
+        cosines
+        + float(implication_alignment_weight) * alignment_array
+        - float(start_distance_penalty) * np.maximum(distances - threshold, 0.0)
+    )
+    if bool(np.any(inside)):
+        candidate_positions = np.flatnonzero(inside)
+        best_pos = int(candidate_positions[int(np.argmax(score[inside]))])
+        method = "max_memory_plus_recent_implication_inside_start_threshold"
+    else:
+        best_pos = int(np.argmax(score))
+        method = (
+            "penalized_memory_plus_recent_implication_no_candidate_inside_threshold"
+        )
+    chosen_cosine = float(cosines[best_pos])
+    chosen_distance = float(distances[best_pos])
+    chosen_alignment = alignments[best_pos]
+    return {
+        "start_window_index": int(train[best_pos]),
+        "memory_support_cosine": chosen_cosine,
+        "start_selection_score": float(score[best_pos]),
+        "start_selection_method": method,
+        "start_distance_threshold_z": threshold,
+        "start_distance_penalty": float(start_distance_penalty),
+        "implication_alignment_weight": float(implication_alignment_weight),
+        "recent_prefix_alignment_score": float(alignment_array[best_pos]),
+        "recent_prefix_alignment_status": str(chosen_alignment.get("status", "")),
+        "recent_prefix_alignment_checked": int(
+            chosen_alignment.get("checked_count", 0) or 0
+        ),
+        "recent_prefix_alignment_mismatches": int(
+            chosen_alignment.get("mismatch_count", 0) or 0
+        ),
+        "memory_support_rank": int(1 + np.sum(cosines > chosen_cosine + 1e-8)),
+        "start_distance_rank": int(1 + np.sum(distances < chosen_distance - 1e-8)),
+        "implication_alignment_rank": int(
+            1 + np.sum(alignment_array > alignment_array[best_pos] + 1e-8)
+        ),
+        "candidate_count": int(train.size),
+        "candidate_count_inside_distance": int(np.sum(inside)),
+    }
+
+
 def resolve_start_window_index(
     *,
     query_window_index: int,
@@ -375,10 +522,14 @@ def resolve_start_window_index(
     explicit_start_window_index: int | None = None,
     query_memory: np.ndarray | None = None,
     memory_targets: np.ndarray | None = None,
+    grounding: dict[str, Any] | None = None,
+    history_raw: np.ndarray | None = None,
+    spec_names: list[str] | None = None,
     start_distance_threshold_z: float = float(
         DEFAULT_GATE_THRESHOLDS["start_distance_warn"]
     ),
     start_distance_penalty: float = 0.02,
+    implication_alignment_weight: float = 0.25,
 ) -> dict[str, Any]:
     """Resolve a product start-selection mode to one bridge-local window index."""
 
@@ -430,6 +581,31 @@ def resolve_start_window_index(
         )
         start_idx = int(proposal["start_window_index"])
         support_cosine = float(proposal["memory_support_cosine"])
+    elif mode == "implication_aligned_start":
+        if query_memory is None or memory_targets is None:
+            raise ValueError(
+                "query_memory and memory_targets are required for implication_aligned_start"
+            )
+        if grounding is None or history_raw is None or spec_names is None:
+            raise ValueError(
+                "grounding, history_raw, and spec_names are required for "
+                "implication_aligned_start"
+            )
+        proposal = _implication_aligned_start(
+            query_window_index=query_idx,
+            start_state=starts,
+            train_indices=train,
+            query_memory=query_memory,
+            memory_targets=memory_targets,
+            grounding=grounding,
+            history_raw=history_raw,
+            spec_names=spec_names,
+            start_distance_threshold_z=float(start_distance_threshold_z),
+            start_distance_penalty=float(start_distance_penalty),
+            implication_alignment_weight=float(implication_alignment_weight),
+        )
+        start_idx = int(proposal["start_window_index"])
+        support_cosine = float(proposal["memory_support_cosine"])
     else:
         start_z = _safe_start_z(starts, train)
         distances = np.linalg.norm(start_z[train] - start_z[query_idx], axis=1)
@@ -443,7 +619,11 @@ def resolve_start_window_index(
         proposal = {}
     if start_idx < 0 or start_idx >= starts.shape[0]:
         raise IndexError(f"start_window_index {start_idx} outside {starts.shape[0]}")
-    if support_cosine is None and query_memory is not None and memory_targets is not None:
+    if (
+        support_cosine is None
+        and query_memory is not None
+        and memory_targets is not None
+    ):
         support_cosine = _memory_support_cosine(
             query_memory=query_memory,
             memory_targets=memory_targets,
@@ -476,10 +656,14 @@ def build_live_story_variant_rows(
     include_original_baseline: bool = True,
     query_memory: np.ndarray | None = None,
     memory_targets: np.ndarray | None = None,
+    grounding: dict[str, Any] | None = None,
+    history_raw: np.ndarray | None = None,
+    spec_names: list[str] | None = None,
     start_distance_threshold_z: float = float(
         DEFAULT_GATE_THRESHOLDS["start_distance_warn"]
     ),
     start_distance_penalty: float = 0.02,
+    implication_alignment_weight: float = 0.25,
 ) -> list[dict[str, Any]]:
     """Build original and selected-start rows for one live cached story query."""
 
@@ -493,6 +677,7 @@ def build_live_story_variant_rows(
         memory_targets=memory_targets,
         start_distance_threshold_z=float(start_distance_threshold_z),
         start_distance_penalty=float(start_distance_penalty),
+        implication_alignment_weight=float(implication_alignment_weight),
     )
     selected = resolve_start_window_index(
         query_window_index=query_idx,
@@ -502,8 +687,12 @@ def build_live_story_variant_rows(
         explicit_start_window_index=explicit_start_window_index,
         query_memory=query_memory,
         memory_targets=memory_targets,
+        grounding=grounding,
+        history_raw=history_raw,
+        spec_names=spec_names,
         start_distance_threshold_z=float(start_distance_threshold_z),
         start_distance_penalty=float(start_distance_penalty),
+        implication_alignment_weight=float(implication_alignment_weight),
     )
     original.update(
         {
@@ -875,8 +1064,12 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         include_original_baseline=bool(args.include_original_baseline),
         query_memory=query_memory,
         memory_targets=true_memory_targets,
+        grounding=grounding_payload,
+        history_raw=history_raw,
+        spec_names=_spec_names(specs),
         start_distance_threshold_z=float(args.start_distance_threshold_z),
         start_distance_penalty=float(args.start_distance_penalty),
+        implication_alignment_weight=float(args.implication_alignment_weight),
     )
     window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
@@ -1027,9 +1220,15 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "validation_gate": validation_gate,
         "generation": generation,
         "artifact_paths": {
-            "report": str(Path(args.output_dir) / "prefix_latent_story_smoke_report.json"),
-            "markdown": str(Path(args.output_dir) / "prefix_latent_story_smoke_report.md"),
-            "arrays": str(Path(args.output_dir) / "prefix_latent_story_smoke_arrays.npz"),
+            "report": str(
+                Path(args.output_dir) / "prefix_latent_story_smoke_report.json"
+            ),
+            "markdown": str(
+                Path(args.output_dir) / "prefix_latent_story_smoke_report.md"
+            ),
+            "arrays": str(
+                Path(args.output_dir) / "prefix_latent_story_smoke_arrays.npz"
+            ),
         },
     }
     output_dir = Path(args.output_dir)
@@ -1053,7 +1252,9 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         generated_states=generated_states.astype(np.float32),
     )
     _write_json(output_dir / "prefix_latent_story_smoke_report.json", report)
-    _write_text(output_dir / "prefix_latent_story_smoke_report.md", _render_markdown(report))
+    _write_text(
+        output_dir / "prefix_latent_story_smoke_report.md", _render_markdown(report)
+    )
     return report
 
 
@@ -1084,6 +1285,7 @@ def main() -> None:
             "farthest_train_start",
             "memory_nearest_start",
             "balanced_memory_start",
+            "implication_aligned_start",
             "explicit_start_window",
         ],
         default="balanced_memory_start",
@@ -1095,7 +1297,10 @@ def main() -> None:
         default=float(DEFAULT_GATE_THRESHOLDS["start_distance_warn"]),
     )
     parser.add_argument("--start-distance-penalty", type=float, default=0.02)
-    parser.add_argument("--include-original-baseline", action="store_true", default=True)
+    parser.add_argument("--implication-alignment-weight", type=float, default=0.25)
+    parser.add_argument(
+        "--include-original-baseline", action="store_true", default=True
+    )
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -1112,24 +1317,32 @@ def main() -> None:
     parser.add_argument("--hard-case-count", type=int, default=8)
     parser.add_argument("--max-paths", type=int, default=6)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
-    parser.add_argument("--eval_split", choices=["val", "train", "train_tail"], default="val")
+    parser.add_argument(
+        "--eval_split", choices=["val", "train", "train_tail"], default="val"
+    )
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
     parser.add_argument(
         "--positive_level_policy",
         choices=["reference_based", "observed_positive"],
         default="reference_based",
     )
-    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument(
+        "--iv_transform", choices=["log_level", "bounded_logit"], default="log_level"
+    )
     parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
-    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
+    parser.add_argument(
+        "--drift_feature_mode", choices=["none", "ewma_mean"], default="none"
+    )
     args = parser.parse_args()
     report = run_prefix_latent_story_smoke(args)
     print(

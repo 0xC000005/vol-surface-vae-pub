@@ -59,7 +59,7 @@ def _bridge_report() -> dict:
                     "embedding_index": 102,
                 },
             ]
-        }
+        },
     }
 
 
@@ -204,7 +204,44 @@ def test_resolve_start_window_index_supports_balanced_memory_start() -> None:
     assert selected["candidate_count_inside_distance"] == 1
 
 
-def test_build_live_story_variant_rows_adds_original_baseline_for_changed_start() -> None:
+def test_resolve_start_window_index_supports_implication_aligned_start() -> None:
+    start = np.asarray([[0.0], [1.0], [2.0]], dtype=np.float32)
+    memory_targets = np.asarray(
+        [
+            [1.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    history_raw = np.zeros((3, 2, 26), dtype=np.float32)
+    history_raw[1, -1, 25] = -1.0
+    history_raw[2, -1, 25] = 1.0
+
+    selected = resolve_start_window_index(
+        query_window_index=0,
+        start_state=start,
+        train_indices=np.asarray([1, 2], dtype=np.int64),
+        start_mode="implication_aligned_start",
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=memory_targets,
+        grounding={"market_implications": [{"market": "SPX", "direction": "up"}]},
+        history_raw=history_raw,
+        spec_names=[*(f"iv_{idx}" for idx in range(25)), "factor:spx"],
+        start_distance_threshold_z=10.0,
+        implication_alignment_weight=1.0,
+    )
+
+    assert selected["variant"] == "implication_aligned_start"
+    assert selected["start_window_index"] == 2
+    assert selected["recent_prefix_alignment_score"] == 1.0
+    assert selected["recent_prefix_alignment_mismatches"] == 0
+    assert selected["start_selection_method"].startswith("max_memory_plus_recent")
+
+
+def test_build_live_story_variant_rows_adds_original_baseline_for_changed_start() -> (
+    None
+):
     start = np.asarray([[0.0], [1.0], [4.0]], dtype=np.float32)
     memory_targets = np.asarray([[1.0, 0.0], [0.4, 0.8], [0.0, 1.0]], dtype=np.float32)
     rows = build_live_story_variant_rows(

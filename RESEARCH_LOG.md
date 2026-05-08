@@ -111539,3 +111539,47 @@ Use the offline evaluator as the acceptance gate for implication-aware model wor
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-07: HEAD nl-prefix-latent 24 implication-aligned start baseline
+
+### Context
+Iteration 23 established a reproducible implication-alignment baseline: the 3-story live product casebook had 16 checked implications, 8 mismatches, and a `0.50` mismatch rate. The next question was whether a simple product-compatible start-selection baseline could reduce that mismatch rate before changing training.
+
+### Hypothesis
+If directional mismatch is mainly caused by poor model-chosen starts, then selecting starts whose recent 30-day prefix movement already aligns with the grounded implications should reduce the generated scenario mismatch rate. This must use only the historical prefix before the start date, not the realized future after the start date.
+
+### Execution
+- Added reusable market-alignment helpers in `experiments/backfill/block_ar/nl_prefix_latent_market_alignment.py`.
+- Refactored the Gradio casebook and offline evaluator to use the shared alignment helper.
+- Added `implication_aligned_start` to `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- The new start mode scores train candidates by memory support plus recent-prefix implication alignment, with start-distance penalties preserved. It does not use candidate realized futures.
+- Exposed the new mode in the Gradio prefix-latent start-mode dropdown.
+- Ran the same bounded 3-story live OpenAI casebook with `--start-mode implication_aligned_start`, then rescored it with the offline implication evaluator.
+
+### Result
+- The new mode selected recent prefixes that were directionally aligned before decoding: fragile risk-on and rates-led tightening both had recent-prefix alignment score `1.0` with zero recent-prefix mismatches; defensive risk-off had score about `0.6`.
+- The generated scenario mismatch rate did not improve. The implication-aligned casebook had 15 checked implications, 8 mismatches, and mismatch rate about `0.533`, versus the balanced-start baseline of 16 checked, 8 mismatches, and `0.50`.
+- All three selected starts were validation warnings, mostly from large rollout shift and low memory compatibility.
+- This falsifies the simple explanation that bad start selection alone causes directional mismatch.
+
+### Mechanism Read
+The system can choose starts whose recent observed prefix is consistent with the narrative, but the decoded prefix plus frozen rollout still loses directional control. That points to the text-memory-plus-start decoder and/or the frozen generator condition interface as the current bottleneck. The next model-side step should put implication alignment into the decoded-prefix or rollout objective, not just into start selection.
+
+### Decision / Next Step
+Do not rely on start selection as the main fix. The next principled experiment is an implication-aware bridge/decoder objective or reranker that scores the decoded-prefix rollout itself before accepting a candidate. A bounded first version can train several candidate decoded prefixes or start candidates and choose the one with the best offline implication-alignment score after a cheap rollout smoke, then compare against the `0.50` baseline.
+
+### Artifacts
+- Shared alignment helper: `experiments/backfill/block_ar/nl_prefix_latent_market_alignment.py`
+- Updated story smoke/start mode: `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- Updated Gradio app start-mode option: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Implication-start live casebook: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_802a_implication_start/gradio_live_casebook_summary.json`
+- Implication-start evaluator output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_802a_implication_start/implication_alignment_summary.json`
+
+### Verification
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py -q` -> 18 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py experiments/backfill/block_ar/nl_prefix_latent_market_alignment.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_live_casebook.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_802a_implication_start --case-count 3 --steps 100 --samples 2 --chunk-size 2 --start-mode implication_aligned_start --fan-market SPX` -> harness `ok`, 3 validation warnings, 3 market-alignment warnings.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_implication_alignment.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_implication_alignment_802a_implication_start --input experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_casebook_802a_implication_start/gradio_live_casebook_summary.json` -> 15 checked, 8 mismatches, mismatch rate `0.533`.
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_786a_nl_prefix_latent_oracle_autoencoder.py test_code/test_787a_nl_prefix_latent_text_bridge.py test_code/test_788a_nl_prefix_latent_memory_decoder.py test_code/test_789a_nl_prefix_latent_start_sensitivity.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_792a_nl_prefix_latent_live_casebook.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py test_code/test_795a_nl_prefix_latent_implication_alignment.py -q` -> 72 passed.
+- `git diff --check` -> passed.
+
+---
