@@ -79,6 +79,7 @@ DEFAULT_PREFIX_APP_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke"
 )
+DEFAULT_PREFIX_ROLLOUT_TEMPERATURE = 0.5
 DEFAULT_USER_START_STATE_JSON = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
@@ -508,7 +509,9 @@ def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
     query = _as_dict(report.get("cached_query"))
     memory_prior = _as_dict(query.get("memory_prior"))
     rows: list[dict[str, Any]] = []
-    for rank, item in enumerate(_as_list(memory_prior.get("candidate_details")), start=1):
+    for rank, item in enumerate(
+        _as_list(memory_prior.get("candidate_details")), start=1
+    ):
         if not isinstance(item, dict):
             continue
         checked = item.get("recent_prefix_checked")
@@ -548,9 +551,15 @@ def prefix_user_start_table(report: dict[str, Any]) -> pd.DataFrame:
         if isinstance(item, dict) and str(item.get("variant")) == "user_start_state":
             user_row = item
             break
-    nearest = "" if user_row is None else str(user_row.get("nearest_train_start_window_index", ""))
+    nearest = (
+        ""
+        if user_row is None
+        else str(user_row.get("nearest_train_start_window_index", ""))
+    )
     distance = "" if user_row is None else _fmt_float(user_row.get("start_distance_z"))
-    max_abs_z = "" if user_row is None else _fmt_float(user_row.get("max_abs_user_start_z"))
+    max_abs_z = (
+        "" if user_row is None else _fmt_float(user_row.get("max_abs_user_start_z"))
+    )
     return _frame(
         [
             {
@@ -594,7 +603,9 @@ def preview_start_state_json(path: str | None) -> tuple[str, pd.DataFrame]:
                 if key in values:
                     rows.append({"Field": label_name, "Value": _fmt_float(values[key])})
             missing_preview = [
-                label_name for label_name, key in START_PREVIEW_FIELDS if key not in values
+                label_name
+                for label_name, key in START_PREVIEW_FIELDS
+                if key not in values
             ]
             if missing_preview:
                 rows.append(
@@ -814,7 +825,9 @@ def prefix_warning_component_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Component": str(name),
                 "Status": str(item.get("status", "")),
                 "Metric": metric,
-                "Value": _fmt_float(value, 6 if metric == "endpoint_max_abs_error" else 3),
+                "Value": _fmt_float(
+                    value, 6 if metric == "endpoint_max_abs_error" else 3
+                ),
             }
         )
     return _frame(rows, PREFIX_WARNING_COMPONENT_COLUMNS)
@@ -1099,6 +1112,7 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         f"- Research overall: `{gate.get('overall_status', 'n/a')}`",
         f"- Stress: `{gate.get('stress_status', 'n/a')}`",
         f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
+        f"- Rollout temperature: `{_fmt_float(generation.get('rollout_temperature'))}`",
         f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
     ]
     product_gate = _as_dict(report.get("condition_only_product_gate"))
@@ -1169,6 +1183,7 @@ def _prefix_progress_status_markdown(
     start_time: float,
     start_mode: str,
     samples: int,
+    temperature: float = DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
     live_story: bool = False,
     condition_only_story: bool = False,
 ) -> str:
@@ -1178,11 +1193,11 @@ def _prefix_progress_status_markdown(
             "selection, prefix decoding, frozen rollout, warning decomposition"
         )
     elif bool(live_story):
-        condition_step = (
-            "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
-        )
+        condition_step = "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
     else:
-        condition_step = "cached text memory, start selection, prefix decoding, frozen rollout"
+        condition_step = (
+            "cached text memory, start selection, prefix decoding, frozen rollout"
+        )
     return "\n".join(
         [
             "## Prefix-Latent Run Status",
@@ -1191,6 +1206,7 @@ def _prefix_progress_status_markdown(
             f"- Current step: `{condition_step}`",
             f"- Start mode: `{start_mode}`",
             f"- Generator samples per variant: `{int(samples)}`",
+            f"- Calibrated rollout temperature: `{float(temperature):.2f}`",
             "- Outputs will fill in automatically when the run completes.",
         ]
     )
@@ -1319,7 +1335,9 @@ def build_condition_only_case_for_app(
         max_output_tokens=int(max_output_tokens),
     )
     validation = validate_condition_only_grounding_result(grounding)
-    query_text = condition_query_text_from_grounding(str(story or DEFAULT_STORY), grounding)
+    query_text = condition_query_text_from_grounding(
+        str(story or DEFAULT_STORY), grounding
+    )
     case_dir = Path(output_dir)
     case_payload = {
         "case_name": "gradio_live_condition_only_story",
@@ -1482,7 +1500,7 @@ def build_prefix_latent_run_args(
         samples=int(samples),
         n_steps=30,
         chunk_size=max(4, min(16, int(samples))),
-        temperature=1.0,
+        temperature=DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
         score_scale_floor=1e-3,
         hard_case_count=8,
         max_paths=6,
@@ -1595,9 +1613,7 @@ def run_prefix_latent_for_app(
     effective_start_mode = (
         "user_start_state"
         if bool(use_user_start_state)
-        else "explicit_start_window"
-        if bool(use_explicit_start)
-        else str(start_mode)
+        else "explicit_start_window" if bool(use_explicit_start) else str(start_mode)
     )
     explicit_start = (
         int(explicit_start_window_index)
@@ -1611,6 +1627,7 @@ def run_prefix_latent_for_app(
         start_time=start_time,
         start_mode=effective_start_mode,
         samples=int(samples),
+        temperature=DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
         live_story=bool(live_story),
         condition_only_story=bool(condition_only_story),
     )
@@ -1623,8 +1640,7 @@ def run_prefix_latent_for_app(
         if bool(condition_only_story):
             condition_report_payload = build_condition_only_report_for_app(
                 story=str(story or DEFAULT_STORY),
-                output_dir=Path(DEFAULT_PREFIX_APP_OUTPUT_DIR)
-                / "condition_only_live",
+                output_dir=Path(DEFAULT_PREFIX_APP_OUTPUT_DIR) / "condition_only_live",
                 grounder=condition_grounder,
                 condition_report_runner=condition_report_runner,
             )

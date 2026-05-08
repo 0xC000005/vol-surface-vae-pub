@@ -478,9 +478,14 @@ def test_render_markdown_labels_live_story_condition() -> None:
             "variant_rows": [],
             "validation_gate": {},
             "decoder": {},
-            "generation": {},
+            "generation": {
+                "rollout_temperature": 0.5,
+                "sample_count": 16,
+            },
         }
     )
 
     assert "## Live Narrative" in markdown
     assert "A live risk-manager story." in markdown
+    assert "Rollout temperature: 0.5" in markdown
+    assert "Sample count: 16" in markdown

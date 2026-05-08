@@ -113164,3 +113164,29 @@ The previous temperature smoke showed generator temperature 0.50 as a promising 
 The narrative-conditioned fixed-start workflow is no longer merely auditable; it now has a calibrated setting that beats persistence on this representative smoke set. This is not yet production proof, but it is strong enough to update the demo default and continue scaling the validation set.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 54 calibrated demo default
+
+### Context
+The calibrated temperature validation made rollout temperature 0.50 the strongest current production default candidate. This iteration productized that setting in the risk-manager demo/backend path and made the calibration visible in reports.
+
+### HEAD
+- Hypothesis: if calibrated temperature is now part of the production contract, the demo/backend should default to 0.50, expose the value in status and reports, and keep the CLI aligned unless explicitly overridden.
+- Execute: set the prefix-latent demo default rollout temperature to 0.50; changed the story-smoke CLI default to 0.50; added rollout temperature, sample count, forecast steps, solver steps, and chunk size to generated reports; surfaced rollout temperature in Gradio status and Markdown reports; added tests for default argument propagation and visible calibrated status.
+- Analyze: focused Gradio/story-smoke/bakeoff tests passed. A backend smoke run without passing `--temperature` recorded `rollout_temperature` 0.5 in JSON and Markdown. The Gradio demo object still builds.
+- Decide: use calibrated temperature 0.50 as the current product default. Continue scaling validation, but the demo should no longer use the uncalibrated 1.00 setting.
+
+### Evidence
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q`: 48 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_791a_nl_prefix_latent_story_smoke.py`: passed.
+- `git diff --check`: passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"`: `Blocks`.
+- Backend default smoke: `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_819a_calibrated_default_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode explicit_start_window --explicit-start-window-index 18 --steps 100 --samples 2 --chunk-size 2 --device cuda`: validation `pass`, report temperature 0.5.
+
+### Artifacts
+- Default verification report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_819a_calibrated_default_verify/prefix_latent_story_smoke_report.json`
+- Default verification Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_819a_calibrated_default_verify/prefix_latent_story_smoke_report.md`
+
+### Production implication
+The risk-manager-facing workflow now uses the best validated calibrated rollout setting by default and shows that setting in the UI/report. The next step is to scale validation beyond the four-row representative smoke set while keeping this calibrated default fixed.
+
+---

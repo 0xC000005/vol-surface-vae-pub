@@ -1294,6 +1294,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Scenario",
             "",
+            f"- Rollout temperature: {generation.get('rollout_temperature')}",
+            f"- Sample count: {generation.get('sample_count')}",
             f"- Generated shape: {generation.get('generated_state_shape')}",
             f"- Finite rate: {generation.get('finite_rate')}",
             f"- Rollout scores: {generation.get('rollout_summary')}",
@@ -1669,6 +1671,11 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         for item in path_quantiles:
             if isinstance(item, dict) and str(item.get("analogue_key", "ALL")) == "ALL":
                 item["analogue_label"] = "All start variants"
+        generation["rollout_temperature"] = float(args.temperature)
+        generation["sample_count"] = int(args.samples)
+        generation["forecast_steps"] = int(args.n_steps)
+        generation["solver_steps"] = int(args.steps)
+        generation["chunk_size"] = int(args.chunk_size)
         generation["path_quantiles"] = path_quantiles
         generation["window_scores"] = window_scores
         generation["rollout_summary"] = rollout_summary
@@ -1912,7 +1919,7 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--n-steps", type=int, default=30)
     parser.add_argument("--chunk-size", type=int, default=4)
-    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--temperature", type=float, default=0.5)
     parser.add_argument("--score-scale-floor", type=float, default=1e-3)
     parser.add_argument("--hard-case-count", type=int, default=8)
     parser.add_argument("--max-paths", type=int, default=6)

@@ -300,6 +300,8 @@ def _prefix_report() -> dict:
         "generation": {
             "generated_state_shape": [2, 16, 30, 39],
             "finite_rate": 1.0,
+            "rollout_temperature": 0.5,
+            "sample_count": 16,
             "path_quantiles": [
                 {
                     "market": "SPX",
@@ -423,6 +425,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
 
     assert "Selected-start: `pass`" in markdown
     assert "Research overall: `pass`" in markdown
+    assert "Rollout temperature: `0.500`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
@@ -447,9 +450,10 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     assert implications.iloc[0]["Horizon"] == "current_state"
     assert warnings.iloc[0]["Code"] == "non_conditioning_forward_language"
     assert "volatility could reverse" in warnings.iloc[0]["Message"]
-    assert components[components["Component"] == "rollout_shift"].iloc[0][
-        "Status"
-    ] == "warning"
+    assert (
+        components[components["Component"] == "rollout_shift"].iloc[0]["Status"]
+        == "warning"
+    )
     assert factors.iloc[0]["Factor"] == "SPX"
     assert candidates.iloc[0]["Window"] == "joint39_val_0269"
     assert candidates.iloc[0]["Weight"] == "0.420"
@@ -545,9 +549,7 @@ def test_build_start_state_payload_rejects_wrong_length() -> None:
 def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:
     choices = historical_start_candidate_choices(_prefix_report())
 
-    assert choices == [
-        ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
-    ]
+    assert choices == [("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")]
     assert historical_start_candidate_to_index("269") == 269
     assert historical_start_candidate_to_index("269.0") == 269
     assert historical_start_candidate_to_index("") is None
@@ -575,6 +577,7 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     assert args.device == "cuda"
     assert args.memory_prior_mode == "soft_topk_combined"
     assert args.memory_prior_top_k == 8
+    assert args.temperature == 0.5
 
     default_args = build_prefix_latent_run_args(
         start_mode="nearest_train_start",
@@ -731,6 +734,7 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     final = list(stream)[-1]
 
     assert "Prefix-latent run started" in first[1]
+    assert "Calibrated rollout temperature: `0.50`" in first[1]
     assert calls == [("nearest_train_start", 8)]
     assert "Completed in" in final[1]
     assert final[2].iloc[0]["Variant"] == "nearest_train_start"
