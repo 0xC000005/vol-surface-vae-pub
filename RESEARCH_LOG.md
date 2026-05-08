@@ -114109,3 +114109,40 @@ The workflow now has an operations-level guardrail: before a risk-manager demo, 
 The next production-readiness step is a clean hosted-demo dry run boundary: copy only the minimal artifact bundle into a clean local staging directory or private hosted prototype, run this preflight there, then run one cached casebook plus one live OpenAI TestFlight with the same audit trail.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 74 clean staging dry run
+
+### Context
+The preflight checker made the current demo boundary machine-checkable. The next production-readiness question was whether a clean demo tree can be assembled from tracked source plus only the explicit minimal artifact bundle, without accidentally copying local secrets, paper files, runtime environments, or broad generated trees.
+
+### Hypothesis
+A staging harness that copies tracked source and a whitelist of required artifacts can provide a safer hosted-demo boundary than running directly from the research workspace. The falsifier is any staged `.env`, paper/PDF, `.venv`, `.agents`, `.claude`, data directory, or broad generated-output tree.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py`.
+- Added `test_code/test_811a_nl_prefix_latent_demo_staging.py`.
+- The first real staging dry run exposed a serious hygiene issue: root-level `SSRN23.pdf` and `.venv/` were copied because the initial exclusion policy was too narrow. I removed that temporary staging tree and tightened the policy.
+- Updated the staging exclusion policy to omit `.env`, `.venv/`, `.agents/`, `.claude/`, `data/`, `models/`, `paper/`, `results/`, broad `nl_scenario_demo_outputs/`, `autoresearch-session/`, and `*.pdf` from the source copy. Required model/output artifacts are copied only through the explicit artifact list.
+- Ran a corrected clean staging dry run at `/tmp/nl_prefix_latent_demo_stage_832a` with staged preflight enabled.
+
+### Result
+The corrected staging dry run passed. It copied 1,786 source files plus the 15 required artifacts, totaling 48,818,004 artifact bytes, and the staged preflight returned pass. Follow-up checks confirmed `.env`, `SSRN23.pdf`, `.venv`, `.agents`, `.claude`, `paper/`, and `data/` are absent from the staged tree.
+
+Latest staging manifest:
+`/tmp/nl_prefix_latent_demo_stage_832a/demo_staging_manifest.json`
+
+### Mechanism Read
+This is a useful production-hardening step because it caught exactly the class of mistake we care about: source staging can silently carry private or local material unless the boundary is enforced. The demo is now closer to a deployable internal prototype because source, artifacts, runtime environment, and secrets are separated.
+
+### Verification
+- Red test: `uv run pytest test_code/test_811a_nl_prefix_latent_demo_staging.py -q` failed before the module existed.
+- Regression red test: direct script execution failed before adding repo-root path bootstrap.
+- Green staging tests: `uv run pytest test_code/test_811a_nl_prefix_latent_demo_staging.py -q` passed, 5 tests.
+- Combined tests: `uv run pytest test_code/test_810a_nl_prefix_latent_demo_preflight.py test_code/test_811a_nl_prefix_latent_demo_staging.py -q` passed, 9 tests.
+- Real staging dry run: `uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py --stage-root /tmp/nl_prefix_latent_demo_stage_832a --run-preflight` returned status `pass`.
+- Absence checks for staged `.env`, `SSRN23.pdf`, `.venv`, `.agents`, `.claude`, `paper/`, and `data/` returned absent after the fixed run.
+- `git diff --check` passed.
+
+### Decision / Next Step
+The next production-readiness step is manual/browser QA from the clean staged tree or a private hosted prototype: launch the staged Gradio app, run one cached casebook, run one live OpenAI TestFlight with a platform secret rather than `.env`, capture screenshots, and archive the audit trail.
+
+---

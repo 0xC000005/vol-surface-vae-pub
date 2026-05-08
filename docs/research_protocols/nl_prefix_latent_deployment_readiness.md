@@ -214,6 +214,44 @@ GitHub source repo. Space secrets should hold `OPENAI_API_KEY`. The cached
 casebook path is the safest default demo mode because it can run without live
 API calls during a presentation.
 
+## Clean Staging Dry Run
+
+Use the staging harness to assemble a clean source-plus-artifact tree before
+any private hosted prototype:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_staging.py \
+  --stage-root /tmp/nl_prefix_latent_demo_stage_832a \
+  --run-preflight
+```
+
+The staging harness copies tracked source files and then copies only the
+explicit 15-file artifact bundle. It excludes local/runtime/private material
+from the source copy:
+
+- `.env`;
+- `.venv/`;
+- `.agents/`;
+- `.claude/`;
+- `data/`;
+- `models/`, except files copied through the explicit artifact list;
+- `paper/`;
+- `results/`;
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/`, except files
+  copied through the explicit artifact list;
+- root or nested `*.pdf` files.
+
+Latest verified staging manifest:
+
+```text
+/tmp/nl_prefix_latent_demo_stage_832a/demo_staging_manifest.json
+```
+
+Summary: status `pass`, staged preflight `pass`, 1,786 source files copied,
+15 required artifacts copied, 48,818,004 artifact bytes, and no `.env`, PDF,
+`.venv`, `.agents`, `.claude`, `paper/`, or `data/` path present in the staged
+tree.
+
 ## Manual Visual QA Checklist
 
 Before showing the demo externally:
@@ -247,7 +285,8 @@ The main gaps are:
 
 ## Next Production Step
 
-The next most useful production-readiness iteration is a hosted-demo dry run:
-copy only the minimal artifact bundle into a clean local staging directory or
-private hosted prototype, run the preflight checker there, then run one cached
-casebook and one live OpenAI TestFlight with the same saved audit trail.
+The next most useful production-readiness iteration is a manual/browser QA pass
+from the clean staged tree or a private hosted prototype: launch the staged
+Gradio app, run one cached casebook, run one live OpenAI TestFlight with a
+platform secret rather than `.env`, capture screenshots, and archive the audit
+trail.
