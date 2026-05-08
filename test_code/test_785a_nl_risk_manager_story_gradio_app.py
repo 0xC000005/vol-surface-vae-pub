@@ -9,6 +9,8 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     DEFAULT_STORY,
     analogues_table,
     analogue_scope_choices,
+    boss_demo_live_casebook_table,
+    boss_demo_pack_markdown,
     build_start_state_payload,
     build_prefix_latent_run_args,
     build_run_args,
@@ -158,6 +160,37 @@ def _report() -> dict:
                     "mean_terminal_delta": 1.2,
                     "p10": -0.4,
                     "p90": 2.1,
+                }
+            ],
+        },
+    }
+
+
+def _boss_pack() -> dict:
+    return {
+        "artifact_paths": {"summary_markdown": "outputs/boss_demo_pack.md"},
+        "validation_snapshot": {
+            "run_count": 9,
+            "improved_crps_rows": 9,
+            "improved_energy_rows": 9,
+            "mean_crps_improvement_vs_persistence": 0.1469,
+        },
+        "live_casebook_snapshot": {
+            "case_count": 3,
+            "pass_count": 3,
+            "total_openai_tokens": 5609,
+            "min_support_candidate_count": 8,
+            "grounding_models": ["gpt-5.4-mini"],
+            "embedding_models": ["text-embedding-3-small"],
+            "case_rows": [
+                {
+                    "case_name": "safe_haven_gold_bid_18",
+                    "expected_start_index": 18,
+                    "overall_status": "pass",
+                    "condition_only_validation_status": "pass",
+                    "forward_warning_count": 1,
+                    "support_candidate_count": 8,
+                    "summary_path": "safe_haven/gradio_api_smoke_summary.json",
                 }
             ],
         },
@@ -385,6 +418,24 @@ def test_table_formatters_expose_demo_evidence() -> None:
     assert analogues_table(report).iloc[0]["Implication Match"] == "0.670"
     assert scenario_table(report).iloc[0]["Market"] == "SPX"
     assert "Narrative" in analogues_table(report).columns
+
+
+def test_boss_demo_pack_formatters_surface_live_readiness() -> None:
+    markdown = boss_demo_pack_markdown(_boss_pack())
+    table = boss_demo_live_casebook_table(_boss_pack())
+
+    assert "Demo readiness evidence" in markdown
+    assert "Live API casebook: `3/3` pass" in markdown
+    assert "OpenAI tokens `5609`" in markdown
+    assert "forward-risk language is warning-only" in markdown
+    assert table.iloc[0]["Case"] == "safe_haven_gold_bid_18"
+    assert table.iloc[0]["Support"] == "8"
+
+
+def test_boss_demo_pack_markdown_handles_missing_pack() -> None:
+    markdown = boss_demo_pack_markdown({})
+
+    assert "Status: `not available`" in markdown
 
 
 def test_status_markdown_summarizes_relevance_and_artifacts() -> None:

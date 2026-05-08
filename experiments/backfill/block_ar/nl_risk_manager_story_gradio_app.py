@@ -88,6 +88,11 @@ DEFAULT_USER_START_STATE_JSON = (
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
     "user_start_state_18.json"
 )
+DEFAULT_BOSS_DEMO_PACK_JSON = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_boss_demo_pack_829a_live_casebook/"
+    "boss_demo_pack.json"
+)
 CACHED_PREFIX_CASEBOOK_CONFIG = [
     (
         "commodity_inflation_pressure",
@@ -235,6 +240,15 @@ PREFIX_USER_START_COLUMNS = [
     "Max Abs Z",
 ]
 PREFIX_START_PREVIEW_COLUMNS = ["Field", "Value"]
+BOSS_DEMO_CASEBOOK_COLUMNS = [
+    "Case",
+    "Start",
+    "Status",
+    "Condition",
+    "Warnings",
+    "Support",
+    "Summary",
+]
 START_PREVIEW_FIELDS = [
     ("SPX", "factor:spx"),
     ("VIX", "factor:vix"),
@@ -614,6 +628,70 @@ def load_validation_gate_report(
     if not report_path.exists():
         return {}
     return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def load_boss_demo_pack(
+    path: str | Path = DEFAULT_BOSS_DEMO_PACK_JSON,
+) -> dict[str, Any]:
+    report_path = Path(path)
+    if not report_path.exists():
+        return {}
+    return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
+    if not report:
+        return "\n".join(
+            [
+                "## Demo readiness evidence",
+                "",
+                "- Status: `not available`",
+                "- Generate the boss demo pack to populate this section.",
+            ]
+        )
+    snapshot = _as_dict(report.get("validation_snapshot"))
+    live_snapshot = _as_dict(report.get("live_casebook_snapshot"))
+    artifact_paths = _as_dict(report.get("artifact_paths"))
+    live_models = ", ".join(_as_list(live_snapshot.get("grounding_models"))) or "n/a"
+    embedding_models = (
+        ", ".join(_as_list(live_snapshot.get("embedding_models"))) or "n/a"
+    )
+    return "\n".join(
+        [
+            "## Demo readiness evidence",
+            "",
+            f"- Evidence pack: `{artifact_paths.get('summary_markdown', '')}`",
+            f"- Offline validation: `{snapshot.get('run_count', 0)}` runs; "
+            f"CRPS improved `{snapshot.get('improved_crps_rows', 0)}/{snapshot.get('run_count', 0)}`; "
+            f"energy improved `{snapshot.get('improved_energy_rows', 0)}/{snapshot.get('run_count', 0)}`.",
+            f"- Offline mean CRPS improvement: `{_fmt_pct(snapshot.get('mean_crps_improvement_vs_persistence'))}`.",
+            f"- Live API casebook: `{live_snapshot.get('pass_count', 0)}/{live_snapshot.get('case_count', 0)}` pass; "
+            f"OpenAI tokens `{live_snapshot.get('total_openai_tokens', 0)}`; "
+            f"min support candidates `{live_snapshot.get('min_support_candidate_count', 0)}`.",
+            f"- Live models: grounding `{live_models}`; embedding `{embedding_models}`.",
+            "- Contract: current/recent implications condition the generator; forward-risk language is warning-only.",
+        ]
+    )
+
+
+def boss_demo_live_casebook_table(report: dict[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    live_snapshot = _as_dict(report.get("live_casebook_snapshot"))
+    for item in _as_list(live_snapshot.get("case_rows")):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "Case": str(item.get("case_name", "")),
+                "Start": str(item.get("expected_start_index", "")),
+                "Status": str(item.get("overall_status", "")),
+                "Condition": str(item.get("condition_only_validation_status", "")),
+                "Warnings": str(item.get("forward_warning_count", "")),
+                "Support": str(item.get("support_candidate_count", "")),
+                "Summary": str(item.get("summary_path", "")),
+            }
+        )
+    return _frame(rows, BOSS_DEMO_CASEBOOK_COLUMNS)
 
 
 def _count_items_text(value: Any) -> str:
@@ -1996,6 +2074,7 @@ def build_demo() -> Any:
     import gradio as gr
 
     validation_report = load_validation_gate_report()
+    boss_demo_pack = load_boss_demo_pack()
     with gr.Blocks(title="Narrative Conditioned Scenario Demo") as demo:
         report_state = gr.State({})
         prefix_report_state = gr.State({})
@@ -2005,6 +2084,13 @@ def build_demo() -> Any:
             "nearest historical analogues, then the generated 30-day scenario "
             "distribution. After a run, change the factor or analogue selector "
             "to redraw the fan chart without rerunning the generator."
+        )
+        gr.Markdown(boss_demo_pack_markdown(boss_demo_pack))
+        gr.Dataframe(
+            value=boss_demo_live_casebook_table(boss_demo_pack),
+            headers=BOSS_DEMO_CASEBOOK_COLUMNS,
+            label="Live API casebook readiness",
+            interactive=False,
         )
         gr.Markdown("## 1. Risk-manager story")
         story = gr.Textbox(

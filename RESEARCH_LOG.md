@@ -113944,3 +113944,53 @@ summary inside the Gradio app so the boss can inspect the evidence without
 opening repo artifacts manually.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 70 in-app readiness evidence
+
+### Context
+
+The boss-demo pack now combines offline validation and the three-story live
+casebook, but the Gradio app still required the user to open repo artifacts to
+see that evidence. The next production-readiness gap was in-app presentation:
+the demo should show readiness evidence before the risk manager starts clicking
+through scenario generation controls.
+
+### Hypothesis
+
+A lightweight readiness panel in the Gradio app should improve boss-demo
+clarity without changing model behavior. It should read the current boss pack
+JSON, summarize offline validation, live API casebook pass counts, OpenAI token
+usage, support-candidate counts, and the condition-only contract, then show a
+small casebook table.
+
+### Execute
+
+- Added `DEFAULT_BOSS_DEMO_PACK_JSON`.
+- Added `load_boss_demo_pack`, `boss_demo_pack_markdown`, and
+  `boss_demo_live_casebook_table` to
+  `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- Inserted the readiness markdown and live casebook table near the top of the
+  Gradio app.
+- Added tests in `test_code/test_785a_nl_risk_manager_story_gradio_app.py`.
+
+### Analyze
+
+Verification passed:
+
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  -> 30 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+  -> passed.
+- `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo=build_demo(); print(type(demo).__name__)"`
+  -> `Blocks`.
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_807a_nl_prefix_latent_boss_demo_pack.py test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py -q`
+  -> 41 passed.
+- `git diff --check` -> passed.
+
+### Decide
+
+The demo now exposes readiness evidence inside the app. The next step is to
+restart the local Gradio server from current HEAD and run the cached/live API
+smokes against the restarted instance to make sure the served app reflects the
+new panel and still preserves scenario-generation behavior.
+
+---
