@@ -9,8 +9,10 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     DEFAULT_STORY,
     analogues_table,
     analogue_scope_choices,
+    build_start_state_payload,
     build_prefix_latent_run_args,
     build_run_args,
+    export_historical_start_json_for_app,
     fan_chart_figure,
     historical_start_candidate_choices,
     historical_start_candidate_to_index,
@@ -498,6 +500,46 @@ def test_preview_start_state_json_reports_errors() -> None:
 
     assert "Status: `error`" in status
     assert table.empty
+
+
+def test_export_historical_start_json_for_app_writes_template(tmp_path) -> None:
+    bank = {
+        "history_raw": [
+            [[0.1, 1.0, 2.0], [0.2, 3.0, 4.0]],
+            [[0.3, 5.0, 6.0], [0.4, 7.0, 8.0]],
+        ],
+        "spec_names": ["iv:00", "factor:spx", "factor:vix"],
+        "metadata": {1: {"window_id": "joint39_val_0001"}},
+    }
+
+    status, path, preview = export_historical_start_json_for_app(
+        "1",
+        output_dir=tmp_path,
+        bank_loader=lambda: bank,
+    )
+
+    assert "Status: `ok`" in status
+    assert path.endswith("user_start_template_0001.json")
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert payload["label"] == "user_template_from_joint39_val_0001"
+    assert payload["values_by_name"]["factor:spx"] == 7.0
+    assert preview[preview["Field"] == "SPX"].iloc[0]["Value"] == "7.000"
+
+
+def test_build_start_state_payload_rejects_wrong_length() -> None:
+    payload = build_start_state_payload(
+        label="today",
+        spec_names=["iv:00", "factor:spx"],
+        raw_state=[0.2, 5000.0],
+    )
+    assert payload["values_by_name"]["factor:spx"] == 5000.0
+
+    try:
+        build_start_state_payload(label="bad", spec_names=["iv:00"], raw_state=[1, 2])
+    except ValueError as error:
+        assert "raw_state length" in str(error)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("expected ValueError")
 
 
 def test_historical_start_candidate_choices_use_memory_prior_metadata() -> None:

@@ -12,8 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import torch
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -31,8 +33,22 @@ from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (  # noqa:
 )
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa: E402
     DEFAULT_BRIDGE_ARRAYS as DEFAULT_PREFIX_BRIDGE_ARRAYS,
+    DEFAULT_CHECKPOINT as DEFAULT_PREFIX_CHECKPOINT,
     DEFAULT_BRIDGE_REPORT as DEFAULT_PREFIX_BRIDGE_REPORT,
     run_prefix_latent_story_smoke,
+    window_metadata_by_bridge_local_index,
+)
+from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
+    load_model,
+)
+from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovation_flow import (  # noqa: E402
+    build_val_block,
+)
+from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
+    _spec_names,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import (  # noqa: E402
+    selected_bridge_window_indices,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_condition_only_report import (  # noqa: E402
     run_condition_only_report,
@@ -608,6 +624,121 @@ def preview_start_state_json(path: str | None) -> tuple[str, pd.DataFrame]:
         f"- Format: `{rows[3]['Value'] if len(rows) > 3 else 'unknown'}`",
         _frame(rows, PREFIX_START_PREVIEW_COLUMNS),
     )
+
+
+def build_start_state_payload(
+    *,
+    label: str,
+    spec_names: list[str],
+    raw_state: Any,
+) -> dict[str, Any]:
+    values = [float(value) for value in list(raw_state)]
+    if len(values) != len(spec_names):
+        raise ValueError("raw_state length must match spec_names")
+    return {
+        "label": str(label),
+        "coordinate": "raw_state",
+        "values_by_name": {
+            str(name): float(value)
+            for name, value in zip(spec_names, values, strict=True)
+        },
+    }
+
+
+def load_joint39_start_bank_for_app() -> dict[str, Any]:
+    bridge_report = json.loads(Path(DEFAULT_PREFIX_BRIDGE_REPORT).read_text())
+    selected_windows = selected_bridge_window_indices(bridge_report)
+    args = SimpleNamespace(
+        state_scope="joint38",
+        test_start=4511,
+        val_size=441,
+        max_windows=441,
+        eval_split="val",
+        iv_count=25,
+        clean_nonpositive_log_levels=True,
+        positive_level_policy="reference_based",
+        iv_transform="log_level",
+        iv_lower_bound=1e-4,
+        iv_upper_bound=1.0,
+        scale_half_life=0.0,
+        scale_floor=1e-4,
+        center_mode="zero",
+        drift_feature_mode="none",
+    )
+    _model, payload = load_model(DEFAULT_PREFIX_CHECKPOINT, torch.device("cpu"))
+    (
+        _all_history_level,
+        _all_history_norm,
+        _all_center,
+        _all_scale,
+        _all_drift,
+        all_history_raw,
+        specs,
+        _block,
+    ) = build_val_block(args, payload)
+    return {
+        "history_raw": all_history_raw[selected_windows],
+        "spec_names": _spec_names(specs),
+        "metadata": window_metadata_by_bridge_local_index(bridge_report),
+    }
+
+
+def export_historical_start_json_for_app(
+    candidate_choice: str | int | float | None,
+    explicit_start_window_index: float | int | None = None,
+    *,
+    output_dir: str | Path = DEFAULT_PREFIX_APP_OUTPUT_DIR,
+    bank_loader: Callable[[], dict[str, Any]] = load_joint39_start_bank_for_app,
+) -> tuple[str, str, pd.DataFrame]:
+    start_index = historical_start_candidate_to_index(candidate_choice)
+    if start_index is None and explicit_start_window_index is not None:
+        start_index = historical_start_candidate_to_index(explicit_start_window_index)
+    if start_index is None:
+        return (
+            "## Export Start JSON\n\n- Status: `error`\n- Message: `Select a historical candidate or enter an index first.`",
+            "",
+            _frame([], PREFIX_START_PREVIEW_COLUMNS),
+        )
+    try:
+        bank = bank_loader()
+        history_raw = np.asarray(bank["history_raw"], dtype=np.float32)
+        spec_names = list(bank["spec_names"])
+        metadata = _as_dict(bank.get("metadata")).get(int(start_index), {})
+        if start_index < 0 or start_index >= len(history_raw):
+            raise IndexError(f"start index {start_index} outside {len(history_raw)}")
+        window_id = str(
+            _as_dict(metadata).get("window_id") or f"joint39_start_{start_index:04d}"
+        )
+        label = f"user_template_from_{window_id}"
+        payload = build_start_state_payload(
+            label=label,
+            spec_names=spec_names,
+            raw_state=history_raw[int(start_index), -1, :],
+        )
+        output_path = Path(output_dir) / f"user_start_template_{start_index:04d}.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        preview_status, preview = preview_start_state_json(str(output_path))
+    except Exception as error:
+        return (
+            "## Export Start JSON\n\n"
+            f"- Status: `error`\n"
+            f"- Error type: `{type(error).__name__}`\n"
+            f"- Message: `{str(error)}`",
+            "",
+            _frame([], PREFIX_START_PREVIEW_COLUMNS),
+        )
+    status = (
+        "## Export Start JSON\n\n"
+        f"- Status: `ok`\n"
+        f"- Start index: `{start_index}`\n"
+        f"- Path: `{output_path}`\n\n"
+        f"{preview_status}"
+    )
+    return status, str(output_path), preview
 
 
 def historical_start_candidate_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
@@ -1775,6 +1906,10 @@ def build_demo() -> Any:
                 "Preview Start JSON",
                 variant="secondary",
             )
+            prefix_export_start_json = gr.Button(
+                "Export Candidate Start JSON",
+                variant="secondary",
+            )
             prefix_samples = gr.Slider(
                 minimum=2,
                 maximum=64,
@@ -1943,6 +2078,16 @@ def build_demo() -> Any:
             fn=preview_start_state_json,
             inputs=prefix_start_state_json,
             outputs=[prefix_start_json_status, prefix_start_json_preview],
+            show_progress="minimal",
+        )
+        prefix_export_start_json.click(
+            fn=export_historical_start_json_for_app,
+            inputs=[prefix_explicit_start_candidate, prefix_explicit_start_index],
+            outputs=[
+                prefix_start_json_status,
+                prefix_start_state_json,
+                prefix_start_json_preview,
+            ],
             show_progress="minimal",
         )
         prefix_fan_market.change(

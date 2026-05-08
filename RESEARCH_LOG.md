@@ -112623,3 +112623,50 @@ Keep the preview panel. The next production step is to add a true export/templat
 - Tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 42 start JSON export template
+
+### Context
+The demo can preview and run from a user-supplied start JSON, but users still need a valid file. The next production-readiness gap is a safe way to export a valid `values_by_name` template from a selected historical candidate, then edit or reuse it as a current-state input.
+
+### Hypothesis
+Exporting a start JSON from a selected bridge-local historical candidate gives the user a valid template without changing the model. If the exported template can be previewed and then consumed by `user_start_state`, it becomes a defensible bridge from historical-start demos to user-specified current-state workflows.
+
+### Execution
+- Added `build_start_state_payload`.
+- Added `load_joint39_start_bank_for_app`.
+- Added `export_historical_start_json_for_app`.
+- Added Gradio `Export Candidate Start JSON` button.
+- The export path:
+  1. takes the selected historical candidate or explicit start index;
+  2. loads the joint39 start bank with the frozen generator specs;
+  3. writes a `values_by_name` JSON under the ignored demo output directory;
+  4. updates the Start-state JSON path;
+  5. previews the exported JSON immediately.
+- Added unit tests with an injected toy start bank to avoid heavyweight model loading in the test.
+
+### Result
+- Gradio app tests: `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 25 passed.
+- Broader focused tests: `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 39 passed.
+- Compile check: `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_785a_nl_risk_manager_story_gradio_app.py` -> passed.
+- Demo construction: `uv run python -c "from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import build_demo; demo = build_demo(); print(type(demo).__name__)"` -> `Blocks`.
+- Diff hygiene: `git diff --check` -> passed.
+- Actual export for candidate 18 produced:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_template_0018.json`
+  with status `ok`, format `values_by_name`, field count 39, and label `user_template_from_joint39_val_0036`.
+- No-OpenAI rollout from the exported template:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py --condition-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_live/condition_only_report/condition_only_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/exported_user_start_state_verify --memory-prior-mode soft_topk_combined --memory-prior-top-k 8 --memory-prior-temperature 0.2 --start-mode user_start_state --start-state-json experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_template_0018.json --steps 100 --samples 2 --chunk-size 2 --device cuda`
+  produced `validation_status=pass`, `operational_status=pass`, generated shape `[2, 2, 30, 39]`.
+
+### Mechanism Read
+The UI now has a complete no-OpenAI current-state loop: select/support candidate -> export valid raw joint39 JSON -> preview it -> use it as the supplied start -> run narrative-conditioned prefix generation and frozen rollout. This still uses a historical candidate as a convenient template source, but the run itself consumes a user-start JSON rather than a historical index.
+
+### Decision / Next Step
+Keep the export/template path. The next production step is not another start-control feature; it is a product-level acceptance smoke that runs the complete risk-manager path with condition-only narrative, exported/user start, support diagnostics, preview diagnostics, scenario fan chart, and validation gate in one reproducible harness.
+
+### Artifacts
+- Gradio app: `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Tests: `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- Exported template: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/user_start_template_0018.json`
+- Exported-template smoke report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/exported_user_start_state_verify/prefix_latent_story_smoke_report.json`
+
+---
