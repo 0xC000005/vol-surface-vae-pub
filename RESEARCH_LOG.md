@@ -116202,3 +116202,37 @@ Artifacts:
 - `experiments/world/reports/world_model_head037_fused_context_mse_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD038 fused context seed check
+
+### Context
+- Continued after HEAD037 treated HEAD036 as a provisional fixed-target Part 1 reference pending a same-config seed robustness check.
+- This reran the exact fused-context configuration with seed `7711`; only output names changed.
+
+### Acceptance
+- MRR/top5 should remain above HEAD028 `0.096374`/`0.132031`.
+- Decoded delta MSE should stay near or below HEAD028 `0.015369`.
+- Target-space MSE should not degrade substantially beyond HEAD036 `1.013283`.
+- Predicted rank should remain non-collapsed.
+
+### Result
+- MSE-selected checkpoint: epoch `14`, MSE `1.000193`, MRR `0.103029`, top5 `0.133594`, top10 `0.226562`, decoded delta MSE `0.015176`, predicted rank `4.585648`, context rank `6.648142`.
+- Best retrieval row: MRR `0.122457`, top5 `0.158594`, top10 `0.240625`, decoded delta MSE `0.015882`.
+- Best decoded-delta row: decoded delta MSE `0.015051`, MRR `0.103713`, top5 `0.137500`.
+- HEAD028 reference: MSE `0.987130`, MRR `0.096374`, top5 `0.132031`, top10 `0.203125`, decoded delta MSE `0.015369`, rank `3.863753`.
+
+### Interpretation
+- The fused-context gain is not a one-seed artifact.
+- The repeat is milder than HEAD036 on selected-checkpoint retrieval, but still beats HEAD028 on retrieval/top-k and decoded delta MSE while staying non-collapsed.
+- Higher-retrieval checkpoints still trade off decoded MSE, so the safer reference remains the MSE/decoded-quality checkpoint.
+
+### Decision / Next Step
+- Promote the fused-context fixed delta-PCA predictor as the current fixed-target Part 1 reference.
+- Primary reference: HEAD038 MSE-selected seed `7711`; supporting reference: HEAD036 seed `7710`.
+- Do not move to the decoder yet.
+- Next Part 1 gate should be a frozen-probe audit on the fused-context representation, using existing probe/evaluation patterns where possible.
+
+### Artifacts
+- `experiments/world/reports/world_model_head038_fused_context_seed_check.md`
+- Ignored outputs: `results/world/part1_fused_context_delta_pca_head038_seed7711.json`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`
+
+---
