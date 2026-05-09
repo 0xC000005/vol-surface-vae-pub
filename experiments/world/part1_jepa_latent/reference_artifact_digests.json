@@ -1,0 +1,80 @@
+{
+  "name": "world_model_part1_reference_artifact_digests",
+  "date": "2026-05-09",
+  "manifest_ref": "experiments/world/part1_jepa_latent/reference_manifest.json",
+  "scope": "Ignored local artifacts required to consume or reproduce the current Part 1 reference.",
+  "entries": [
+    {
+      "role": "data",
+      "path": "data/vol_surface_with_ret.npz",
+      "bytes": 1398758,
+      "sha256": "3e5d05a4cc72cfbd60646aab6f491aac763d4667144409dd72f7969e40b4d50f",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "primary_checkpoint",
+      "path": "models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt",
+      "bytes": 361367,
+      "sha256": "54b4a0804bc6cf4dbb3dee74b33974e6afca8691965fcb10a906415b753c0482",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "primary_training_result",
+      "path": "results/world/part1_fused_context_delta_pca_head038_seed7711.json",
+      "bytes": 49505,
+      "sha256": "14d78de3e78049b2012710fc7e85c7869504d5ec94bad58da8688145877cf773",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "primary_validation_probe",
+      "path": "results/world/part1_fused_context_probe_audit_head039.json",
+      "bytes": 30489,
+      "sha256": "2788fad6d884ed4ada6de3da962f7867ca82a52bd8b195ff24cdae795dd7497b",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "primary_test_probe",
+      "path": "results/world/part1_fused_context_probe_audit_head042_test_seed7711.json",
+      "bytes": 31990,
+      "sha256": "a64cfe2b21840559870d48e64c3a68e197b3e070f2a822eb27d749774b4cfb81",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "support_checkpoint",
+      "path": "models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt",
+      "bytes": 360960,
+      "sha256": "194a4ec5158be39630a5a09573898ad022d019a8981b72137fa88fd6f1c45792",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "support_training_result",
+      "path": "results/world/part1_fused_context_delta_pca_head036.json",
+      "bytes": 49472,
+      "sha256": "b2a65b6088005f35cdade41419c7f1e6bb902e1f4c5b49f13f45e17faf20160b",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "support_validation_probe",
+      "path": "results/world/part1_fused_context_probe_audit_head041_seed7710.json",
+      "bytes": 30481,
+      "sha256": "826888f5d185195542da3d7c8a11808ba9350a77e239f8e350c9dd18f31b0962",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "support_test_probe",
+      "path": "results/world/part1_fused_context_probe_audit_head043_test_seed7710.json",
+      "bytes": 31978,
+      "sha256": "6fac6c33b789b50b5d2429ceb7d12c96c60ba5e445e7e81150dab891d074cb91",
+      "tracked": false,
+      "ignored": true
+    }
+  ]
+}

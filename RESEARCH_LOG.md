@@ -116615,3 +116615,50 @@ Artifacts:
 - `experiments/world/part1_jepa_latent/reference_manifest.json`
 
 ---
+## 2026-05-09: World model HEAD050 reference artifact digests
+
+### Context
+- Continued after HEAD049 made the Part 1 handoff contract explicit.
+- The next provenance gap was artifact identity: the manifest depends on ignored local data, checkpoints, and metric JSONs that should not be committed as generated binaries.
+
+### Hypothesis / Falsifier
+- Hypothesis: a tracked digest record can identify the ignored local artifacts behind the Part 1 reference without committing generated data or checkpoints.
+- Falsifier: any referenced ignored artifact is missing, unexpectedly tracked, not covered by ignore rules, or cannot be identified by byte size and SHA-256 digest.
+
+### Checks
+- Stop sentinel: absent.
+- Ignored artifact count checked: `9`.
+- Missing ignored artifacts: `0`.
+- Unexpected tracked ignored artifacts: `0`.
+- Unexpected non-ignored generated artifacts: `0`.
+
+### Result
+- Added `experiments/world/part1_jepa_latent/reference_artifact_digests.json`.
+- The digest record covers `data/vol_surface_with_ret.npz`, the primary seed `7711` checkpoint and JSONs, and the support seed `7710` checkpoint and JSONs.
+
+### Decision / Next Step
+- The Part 1 reference now has tracked semantic contract, tracked rationale/caveat reports, and tracked digest identity for ignored local artifacts.
+- This remains provenance-only: no JEPA objective, target, decoder, retrieval/neighborhood loss, Barlow/VICReg term, or sweep was added.
+- Next useful non-modeling step: verify the digest record against the filesystem.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/reference_artifact_digests.json`
+- `experiments/world/reports/world_model_head050_reference_artifact_digests.md`
+
+---
+## 2026-05-09: World model HEAD050 digest verification addendum
+
+### Context
+- The HEAD050 digest record was written and then independently checked before commit.
+- This addendum supersedes the prior next-step note that digest verification was still pending.
+
+### Verification
+- Recomputed SHA-256 digests from disk for every entry in `experiments/world/part1_jepa_latent/reference_artifact_digests.json`.
+- Entries checked: `9`.
+- Verification mismatches: `0`.
+
+### Decision / Next Step
+- The digest record is verified.
+- Next useful non-modeling step: write a compact open-risk ledger for the frozen Part 1 reference: settled claims, caveated claims, and work requiring explicit user authorization.
+
+---
