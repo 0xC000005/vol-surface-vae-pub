@@ -285,6 +285,13 @@ def test_supervised_horizon_delta_targets_reconstruct_frames():
         target_mode="delta",
     )
     loss, parts = supervised_horizon_loss(pred_target, target, frame, past)
+    contrastive_loss, contrastive_parts = supervised_horizon_loss(
+        pred_target,
+        target,
+        frame,
+        past,
+        retrieval_weight=0.1,
+    )
 
     assert target.shape == (6, 2, 5)
     assert frame.shape == (6, 2, 5)
@@ -292,4 +299,6 @@ def test_supervised_horizon_delta_targets_reconstruct_frames():
     assert pred_frame.shape == (6, 2, 5)
     torch.testing.assert_close(target[:, 1, :], future[:, 2, :] - past[:, -1, :])
     assert torch.isfinite(loss)
+    assert torch.isfinite(contrastive_loss)
     assert parts["target_mse"] >= 0.0
+    assert contrastive_parts["retrieval"] > 0.0

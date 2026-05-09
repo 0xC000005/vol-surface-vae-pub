@@ -26,6 +26,9 @@ from experiments.world.evaluation.world_data import build_iv_world_windows  # no
 from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (  # noqa: E402
     validate_horizons,
 )
+from experiments.world.part1_jepa_latent.jepa_smoke import (  # noqa: E402
+    retrieval_contrastive_loss,
+)
 
 
 TargetMode = Literal["frame", "delta"]
@@ -126,6 +129,8 @@ def supervised_horizon_loss(
     *,
     target_mode: TargetMode = "delta",
     frame_weight: float = 0.25,
+    retrieval_weight: float = 0.0,
+    retrieval_temperature: float = 0.1,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     predicted_frame = decode_horizon_prediction(
         past,
@@ -134,10 +139,23 @@ def supervised_horizon_loss(
     )
     target_mse = F.mse_loss(predicted_target, target)
     frame_mse = F.mse_loss(predicted_frame, frame)
-    loss = target_mse + frame_weight * frame_mse
+    if retrieval_weight > 0.0:
+        retrieval_terms = [
+            retrieval_contrastive_loss(
+                predicted_target[:, horizon_idx, :],
+                target[:, horizon_idx, :],
+                temperature=retrieval_temperature,
+            )
+            for horizon_idx in range(predicted_target.shape[1])
+        ]
+        retrieval = torch.stack(retrieval_terms).mean()
+    else:
+        retrieval = predicted_target.new_tensor(0.0)
+    loss = target_mse + frame_weight * frame_mse + retrieval_weight * retrieval
     return loss, {
         "target_mse": float(target_mse.detach().cpu()),
         "frame_mse": float(frame_mse.detach().cpu()),
+        "retrieval": float(retrieval.detach().cpu()),
         "loss": float(loss.detach().cpu()),
     }
 
@@ -373,6 +391,8 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 past_batch,
                 target_mode=args.target_mode,
                 frame_weight=args.frame_weight,
+                retrieval_weight=args.retrieval_weight,
+                retrieval_temperature=args.retrieval_temperature,
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
@@ -473,6 +493,8 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--frame_weight", type=float, default=0.25)
+    parser.add_argument("--retrieval_weight", type=float, default=0.0)
+    parser.add_argument("--retrieval_temperature", type=float, default=0.1)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7705)
     parser.add_argument("--device", type=str, default="cuda")

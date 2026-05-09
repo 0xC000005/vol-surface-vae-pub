@@ -115076,3 +115076,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_head007.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_head007.pt`
 
 ---
+## 2026-05-09: World model HEAD008 delta-target contrastive lower bound
+
+Context:
+- Continued JEPA-only autoresearch after HEAD007 established fixed horizon-delta targets as a useful lower bound.
+- This iteration added a contrastive retrieval term in the stable delta-target space.
+
+Hypothesis:
+- Delta-target contrastive training should improve discriminative Part 1 signal while keeping frame MSE better than raw persistence.
+
+Execution:
+- Updated `experiments/world/part1_jepa_latent/supervised_horizon_frame.py` with `retrieval_weight` and `retrieval_temperature`.
+- Added test coverage in `test_code/test_world_model_evaluation.py`.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.05 --retrieval_temperature 0.1 --output_json results/world/part1_supervised_horizon_delta_contrastive_head008.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_head008.pt`.
+
+Result:
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `8 passed in 0.70s`.
+- Best frame-MSE checkpoint: MSE `0.020757`, MRR mean `0.053915`, top1 `0.013281`, top5 `0.071094`, top10 `0.129688`.
+- Raw persistence baseline: MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, top10 `0.135156`.
+- Best-MRR epoch in history was epoch 5: frame MSE `0.021263`, MRR mean `0.060965`, top1 `0.014844`, top5 `0.084375`.
+- Delta-target retrieval at the saved best-MSE checkpoint was strong: h30 top5 `0.171875`, top10 `0.308594`, MRR `0.123473`.
+
+Mechanism read:
+- Contrastive training works in the stable delta-target space.
+- Frame-space nearest-neighbor retrieval remains persistence-dominated, but frame MSE and top1 improve over persistence.
+- Best MSE and best retrieval occur at different epochs, so checkpoint selection is now a real experimental variable.
+
+Decision / next step:
+- Continue JEPA-only.
+- Add retrieval or composite checkpoint selection for the fixed delta lower-bound script.
+- Then use fixed horizon-delta targets as the next JEPA target contract instead of learned EMA targets.
+
+Artifacts:
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head008_delta_contrastive_lower_bound.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_contrastive_head008.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_head008.pt`
+
+---
