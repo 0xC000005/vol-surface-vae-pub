@@ -115268,3 +115268,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_head012.json`, `results/world/part1_context_probe_audit_head012.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_head012.pt`
 
 ---
+## 2026-05-09: World model HEAD013 light context correlation
+
+### Context
+- Continued JEPA-only autoresearch after HEAD012 improved context rank with normalized correlation regularization, but softened frozen-probe retrieval.
+- This iteration tested a lighter correlation penalty to improve the rank/probe tradeoff.
+
+### Hypothesis
+- A lighter normalized context-correlation penalty should preserve most of the HEAD012 rank/off-diagonal improvement while reducing frozen-probe degradation.
+- Falsifier: effective rank falls back near the unregularized checkpoint, or the frozen ridge probe remains worse than HEAD012 and HEAD010.
+
+### Execution
+- No code changes.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.05 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.0 --context_correlation_weight 0.002 --context_variance_gamma 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_corrreg_light_head013.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_light_head013.pt`.
+- Audited the saved checkpoint with `python experiments/world/part1_jepa_latent/context_probe_audit.py --device cpu --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --ridge_alpha 0.001 --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_light_head013.pt --output_json results/world/part1_context_probe_audit_head013.json`.
+
+### Result
+- MRR-selected checkpoint was epoch 4 with frame MSE `0.021323`, MRR mean `0.058137`, top1 `0.011719`, top5 `0.078906`, and top10 `0.140625`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context health: effective rank `5.284253`, participation ratio `3.450378`, offdiag abs mean `0.343461`, offdiag abs max `0.922245`.
+- Frozen ridge probe: MSE `0.016903`, MRR mean `0.107289`, top1 `0.045313`, top5 `0.139844`, top10 `0.220313`.
+
+### Mechanism Read
+- The lighter penalty is the best rank/probe compromise so far.
+- Relative to HEAD010, it raises effective rank from `3.688405` to `5.284253` and lowers offdiag abs mean from `0.484346` to `0.343461`.
+- Relative to HEAD012, it improves frozen ridge MSE from `0.018033` to `0.016903` while keeping most of the rank gain.
+- The remaining weakness is retrieval sharpness: ridge MRR remains below HEAD010's `0.111537`, and frame top5 remains below persistence.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Add a composite checkpoint/evaluation score that includes frame MRR, context effective rank, off-diagonal correlation, and frozen ridge probe MRR.
+- Use that score to choose between rank-healthy and retrieval-sharp checkpoints instead of selecting only by frame-space MRR.
+
+### Artifacts
+- `experiments/world/reports/world_model_head013_light_context_correlation.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_light_head013.json`, `results/world/part1_context_probe_audit_head013.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_light_head013.pt`
+
+---
