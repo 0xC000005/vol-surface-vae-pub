@@ -115305,3 +115305,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_light_head013.json`, `results/world/part1_context_probe_audit_head013.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_light_head013.pt`
 
 ---
+## 2026-05-09: World model HEAD014 composite context score
+
+### Context
+- Continued JEPA-only autoresearch after HEAD013 produced several plausible fixed-delta context checkpoints with different rank/probe/retrieval tradeoffs.
+- This iteration made the selection criterion explicit instead of relying on qualitative report comparison.
+
+### Hypothesis
+- A simple composite Part 1 score can make the rank/probe/retrieval tradeoff explicit and identify the best current context checkpoint candidate among HEAD010 through HEAD013.
+- Falsifier: the score is unable to distinguish the observed regimes or selects a checkpoint that clearly violates the Part 1 gates.
+
+### Execution
+- Added `experiments/world/part1_jepa_latent/score_context_runs.py`.
+- Added test coverage for `composite_part1_score` in `test_code/test_world_model_evaluation.py`.
+- Composite components: frame-space MRR, context effective-rank fraction, decorrelation `1 - offdiag_abs_mean`, frozen ridge-probe MRR, and frozen ridge-probe MSE improvement over zero-delta.
+- Ran `python experiments/world/part1_jepa_latent/score_context_runs.py --entry HEAD010_unregularized results/world/part1_supervised_horizon_delta_contrastive_mrr_head009.json results/world/part1_context_probe_audit_head010.json --entry HEAD011_covreg results/world/part1_supervised_horizon_delta_contextreg_head011.json results/world/part1_context_probe_audit_head011.json --entry HEAD012_corr_0p005 results/world/part1_supervised_horizon_delta_corrreg_head012.json results/world/part1_context_probe_audit_head012.json --entry HEAD013_corr_0p002 results/world/part1_supervised_horizon_delta_corrreg_light_head013.json results/world/part1_context_probe_audit_head013.json --output_json results/world/part1_context_composite_scores_head014.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `14 passed in 0.70s`.
+- Composite ranking: HEAD013_corr_0p002 `0.534420`, HEAD012_corr_0p005 `0.519010`, HEAD010_unregularized `0.476795`, HEAD011_covreg `0.451840`.
+- HEAD013 components: frame MRR `0.058137`, rank fraction `0.165133`, decorrelation `0.656539`, ridge MRR `0.107289`, ridge MSE improvement `0.244584`.
+
+### Mechanism Read
+- The score agrees with the qualitative read: HEAD013 is the best current Part 1 compromise.
+- HEAD013 does not have the sharpest ridge MRR, but it has substantially healthier context structure than HEAD010 and better ridge MSE than both HEAD010 and HEAD012.
+- HEAD011 remains a negative control showing covariance-magnitude regularization is dominated by normalized correlation regularization.
+
+### Decision / Next Step
+- Continue JEPA-only with HEAD013 as the current fixed-delta context candidate.
+- Use the composite scorer as a gate while testing whether predictor/head changes can recover retrieval sharpness from the healthier context.
+- Next experiment should adjust the head-side retrieval/temperature or predictor capacity before changing the encoder objective again.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/score_context_runs.py`
+- `experiments/world/reports/world_model_head014_composite_context_score.md`
+- Ignored output: `results/world/part1_context_composite_scores_head014.json`
+
+---
