@@ -117010,3 +117010,32 @@ Artifacts:
 - `results/world/part1_joint_path_pca_probe_audit_head061_test.json`
 
 ---
+## 2026-05-09: World model HEAD062 joint path-PCA validation-test gap
+
+### Context
+- Continued after HEAD061 rejected promotion of the HEAD060 joint path-PCA candidate on held-out test.
+- This post-experiment analysis checked whether the failure was an audit mismatch, target-capacity issue, context collapse, or genuine validation/test generalization gap.
+
+### Evidence
+- Ran the same audit harness on validation: `python experiments/world/part1_jepa_latent/joint_path_pca_probe_audit.py --device cpu --checkpoint models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt --max_train_windows 2048 --eval_split val --max_eval_windows 256 --batch_size 128 --ridge_alpha 1e-3 --output_json results/world/part1_joint_path_pca_probe_audit_head062_val.json`.
+- The validation audit reproduced the HEAD060 metrics, so the HEAD061 failure is not a measurement mismatch.
+- Validation vs test: trained decoded-delta MSE worsened `0.015530 -> 0.019414`; ridge raw-delta MSE worsened `0.015436 -> 0.019124`; ridge path-code MRR worsened `0.141879 -> 0.115078`.
+- PCA-oracle decoded-delta MSE stayed stable `0.004067 -> 0.004093`, so the target object has enough low-rank test capacity.
+- Context rank/offdiag improved on test `9.204105`/`0.282073 -> 10.139321`/`0.248893`, so this is not simple collapse.
+- Relative MSE improvement over zero fell from `0.310153` on validation to `0.248567` on test for the ridge raw-delta probe.
+
+### Mechanism Read
+- The weak link is the learned mapping from past context to the joint path target.
+- The global joint path-PCA target improves latent geometry and validation probes, but it does not produce a more robust predictive state than the active fixed-PCA reference under the current split.
+- Adding Barlow/VICReg, retrieval/neighborhood loss, decoder work, or another target knob would be a patch rather than a principled response to this evidence.
+
+### Decision / Next Step
+- Keep HEAD038/HEAD042 as the active Part 1 reference.
+- Do not promote HEAD060 and do not update `reference_manifest.json`.
+- Next Part 1 iteration should be research ideation for a split-robust target contract and promotion protocol before any new experiment.
+
+### Artifacts
+- `experiments/world/reports/world_model_head062_joint_path_gap_analysis.md`
+- `results/world/part1_joint_path_pca_probe_audit_head062_val.json`
+
+---
