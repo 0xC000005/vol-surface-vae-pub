@@ -115890,3 +115890,34 @@ Artifacts:
 - Ignored outputs: `results/world/part1_fixed_delta_pca_jepa_head028.json`, `models/world/checkpoints/part1_jepa_latent/fixed_delta_pca_jepa_head028.pt`
 
 ---
+## 2026-05-09: World model HEAD029 fixed PCA reference analysis
+
+### Context
+- Continued after HEAD028's positive fixed delta-PCA diagnostic.
+- This was a post-experiment analysis HEAD to avoid mixing target-space retrieval with frame-space retrieval.
+
+### Metric Boundary
+- HEAD028 fixed-target MRR/top-k are measured in whitened PCA horizon-delta space.
+- HEAD028 decoded delta MSE is comparable to frame/delta MSE references.
+
+### Evidence
+- HEAD028: fixed-target MRR `0.096374`, top5 `0.132031`, top10 `0.203125`, decoded delta MSE `0.015369`, predicted rank `3.863753`, target rank `3.327211`.
+- HEAD025 learned delta EMA JEPA: learned-target MRR `0.042356`, predicted rank `1.262683`.
+- Raw persistence: frame MSE `0.022376`, frame-space MRR `0.052426`, top5 `0.086719`, top10 `0.135156`.
+- HEAD007 supervised delta lower bound: frame MSE `0.015180`, frame-space MRR `0.052198`, top5 `0.062500`.
+- HEAD013 fixed-delta context reference: frame MSE `0.021323`, frame-space MRR `0.058137`, top5 `0.078906`.
+
+### Interpretation
+- HEAD028 should not be claimed as better frame-space retrieval, because its retrieval is in fixed target space.
+- The valid claim is that a stable whitened horizon-delta target space is learnable, avoids the low-rank HEAD025 collapse, and decodes to deltas with MSE close to the supervised lower bound.
+
+### Decision / Next Step
+- Treat fixed delta-PCA as the target-space diagnostic contract.
+- Next non-ad-hoc learned-target step should imitate that contract:
+  `future horizon delta block -> target encoder -> z_target`, trained or validated against fixed PCA target `z_pca`.
+- Do not add retrieval/neighborhood losses, do not sweep target dimensions, and do not move to the decoder yet.
+
+### Artifacts
+- `experiments/world/reports/world_model_head029_fixed_pca_reference_analysis.md`
+
+---
