@@ -115989,3 +115989,47 @@ Artifacts:
 - Ignored outputs: `results/world/part1_target_encoder_distill_head031.json`, `models/world/checkpoints/part1_jepa_latent/target_encoder_distill_head031.pt`
 
 ---
+## 2026-05-09: World model HEAD032 frozen target JEPA predictor
+
+### Context
+- Continued from HEAD031's positive target-encoder distillation diagnostic.
+- This experiment trained a target encoder to imitate the fixed delta-PCA contract, froze it, then trained a past-window context predictor against the frozen target space with MSE only.
+
+### Hypothesis / Falsifier
+- Hypothesis: a frozen distilled target encoder should preserve HEAD031 target health while letting the JEPA context predictor match or improve the HEAD028 fixed-PCA predictor.
+- Falsifier: target encoder quality is good but context prediction stays near HEAD028 MSE `0.987130`, retrieval does not beat HEAD028 MRR `0.096374`/top-k, or decoded delta MSE does not improve beyond `0.015369`.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/frozen_target_jepa.py`.
+- Added focused test in `test_code/test_world_model_evaluation.py`.
+- The script recreates the target encoder in-process so it does not depend on ignored checkpoints.
+
+### Validation
+- Red test first failed with `ModuleNotFoundError` for `frozen_target_jepa`.
+- Full validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `24 passed in 0.74s`.
+- Compile check passed for the new script and test file.
+
+### Result
+- Target encoder stage remained good: target-to-PCA MSE `0.014106`, MRR `0.990560`, decoded delta MSE `0.002044`, near PCA oracle residual `0.001846`.
+- Best context-predictor epoch by MSE: epoch `19`, MSE vs frozen target `0.979270`, MRR `0.085140`, top5 `0.112500`, top10 `0.183594`, decoded delta MSE `0.015502`, predicted rank `3.633565`, context rank `4.716221`.
+- Best retrieval row: MRR `0.089344`, top5 `0.116406`, top10 `0.198438`.
+- HEAD028 reference remains stronger on retrieval: MRR `0.096374`, top5 `0.132031`, decoded delta MSE `0.015369`.
+
+### Mechanism Read
+- The distilled target encoder is not the active bottleneck; it preserves the fixed PCA contract well enough.
+- The context predictor does not collapse, but still caps around the HEAD028 fixed-PCA predictor.
+- Failure class remains `latent_prediction`, focused on predicting future-delta target space from past windows.
+
+### Decision / Next Step
+- Do not promote HEAD032 as the current Part 1 candidate.
+- Keep HEAD028 as the fixed-target predictor reference and HEAD031 as target-encoder anchoring evidence.
+- Next HEAD should be post-experiment analysis comparing HEAD028 vs HEAD032 per-horizon dynamics before choosing one next experiment.
+- Do not add retrieval/neighborhood loss, target sweeps, or decoder components yet.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/frozen_target_jepa.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head032_frozen_target_jepa.md`
+- Ignored outputs: `results/world/part1_frozen_target_jepa_head032.json`, `models/world/checkpoints/part1_jepa_latent/frozen_target_jepa_head032.pt`
+
+---

@@ -40,6 +40,12 @@ from experiments.world.part1_jepa_latent.target_encoder_distill import (
     evaluate_distilled_targets,
     target_encoder_distill_loss,
 )
+from experiments.world.part1_jepa_latent.frozen_target_jepa import (
+    FrozenTargetJEPAConfig,
+    FrozenTargetJEPAWorldModel,
+    freeze_module,
+    frozen_target_jepa_loss,
+)
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
@@ -370,6 +376,35 @@ def test_evaluate_distilled_targets_scores_perfect_fixed_pca_codes():
     assert metrics["overall_retrieval"]["mrr_mean"] == 1.0
     assert metrics["overall_delta_decode"]["mse_mean"] < 1e-10
     assert metrics["predicted_health"]["effective_rank"] > 1.0
+
+
+def test_frozen_target_jepa_predicts_horizon_codes_and_freezes_target_encoder():
+    import torch
+
+    torch.manual_seed(31)
+    cfg = FrozenTargetJEPAConfig(
+        input_dim=5,
+        hidden_dim=12,
+        context_dim=4,
+        target_dim=3,
+        predictor_hidden_dim=10,
+        horizons=(1, 3),
+    )
+    model = FrozenTargetJEPAWorldModel(cfg)
+    target_encoder = DeltaTargetEncoder(
+        TargetEncoderDistillConfig(input_dim=5, hidden_dim=12, target_dim=3, horizons=(1, 3))
+    )
+    freeze_module(target_encoder)
+    past = torch.randn(7, 4, 5)
+    target = torch.randn(7, 2, 3)
+
+    predicted = model(past)
+    loss, parts = frozen_target_jepa_loss(predicted, target)
+
+    assert predicted.shape == (7, 2, 3)
+    assert torch.isfinite(loss)
+    assert parts["prediction"] >= 0.0
+    assert all(not param.requires_grad for param in target_encoder.parameters())
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():
