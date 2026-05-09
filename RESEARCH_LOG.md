@@ -116033,3 +116033,30 @@ Artifacts:
 - Ignored outputs: `results/world/part1_frozen_target_jepa_head032.json`, `models/world/checkpoints/part1_jepa_latent/frozen_target_jepa_head032.pt`
 
 ---
+## 2026-05-09: World model HEAD033 frozen target predictor analysis
+
+### Context
+- Continued after HEAD032 showed a frozen distilled target encoder did not beat the HEAD028 fixed-PCA predictor on retrieval or decoded delta quality.
+- This was a post-experiment analysis to avoid adding another objective or research knob blindly.
+
+### Evidence
+- HEAD032 target encoder stayed strong versus fixed PCA across horizons: target-to-PCA MSE roughly `0.008850` to `0.017700`, MRR `0.974935` to `1.000000`, top5 `1.0`, decoded delta MSE `0.000955` to `0.003057`.
+- HEAD028 vs HEAD032 per-horizon predictor comparison shows HEAD032 is similar on MSE but weaker on retrieval/top5 at every horizon.
+- HEAD032 slightly improves MSE at horizons `20` and `30`, but does not improve retrieval or decoded MSE.
+- Checkpoint selection is not hiding a win: HEAD032 best MRR row is `0.089344`, still below HEAD028 `0.096374`; best top5 row is `0.120313`, below HEAD028 `0.132031`.
+
+### Interpretation
+- The distilled target encoder is not the active bottleneck.
+- HEAD032 also avoids the old rank-collapse pattern: predicted rank stays around `3.4` to `3.8`, and context rank reaches about `4.7` to `4.9`.
+- The active failure remains `latent_prediction`: mapping the past window into future-delta target coordinates.
+
+### Decision / Next Step
+- Do not add another loss, target sweep, or decoder component.
+- Next HEAD should run a bounded predictability/capacity audit against the fixed delta-PCA target space.
+- The audit should compare a simple direct probe/predictor from past windows to fixed `z_pca` against the HEAD028 GRU predictor on MSE, retrieval, decoded MSE, and rank.
+- If a direct predictor cannot beat HEAD028, treat the next move as context-object or data-object redesign rather than another objective patch.
+
+### Artifacts
+- `experiments/world/reports/world_model_head033_frozen_target_analysis.md`
+
+---
