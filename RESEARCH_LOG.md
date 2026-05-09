@@ -115814,3 +115814,35 @@ Artifacts:
 - `experiments/world/reports/world_model_head026_delta_jepa_collapse_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD027 fixed target contract ideation
+
+### Context
+- Continued JEPA-only after HEAD026 identified target-space collapse as the bottleneck.
+- User explicitly asked to avoid ad-hoc patches and excessive knobs.
+- This was a research-ideation HEAD, not a model run.
+
+### Literature Status
+- `supported_adjacent`, not `canonical_jepa`.
+- Fixed PCA/whitened horizon-delta targets are not the canonical I-JEPA/V-JEPA learned-target encoder recipe.
+- They are a bounded diagnostic target-space contract.
+- Supporting families: I-JEPA/V-JEPA for context-to-target latent prediction and target construction; VICReg/Barlow Twins/VJ-VCR for variance, covariance, whitening, and redundancy-reduction motivation.
+
+### Problem
+- HEAD025's EMA target encoder collapsed on delta-frame targets.
+- Selected target ranks were only about `1.96` to `2.16` by horizon, and selected predicted ranks were about `1.23`.
+- Adding another retrieval/neighborhood loss would not answer whether a useful fixed future-delta target space exists.
+
+### Decision / Next Step
+- Run exactly one fixed-target diagnostic experiment next:
+  - fit `k=8` PCA/whitened embeddings on training horizon deltas;
+  - predict those fixed target embeddings from past context plus horizon token;
+  - use MSE prediction only, with retrieval/rank/decode sanity as evaluation gates;
+  - do not touch the decoder and do not add retrieval/neighborhood losses.
+
+### Falsifier
+- The fixed target contract fails if predicted fixed-target retrieval does not beat HEAD025 MRR `0.042356`, predicted rank remains near `1`, or simple decoded deltas do not support the supervised lower-bound direction.
+
+### Artifacts
+- `experiments/world/reports/world_model_head027_fixed_target_contract_ideation.md`
+
+---
