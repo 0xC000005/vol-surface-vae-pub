@@ -3,6 +3,9 @@
 This folder is for testing a JEPA-style latent time-series world model with a
 conditional flow decoder for scenario generation.
 
+Workflow protocol: `docs/research_protocols/world_model_autoresearch_plan.md`.
+Local resumability state: `autoresearch-session/world_model_state.json`.
+
 The research-log context is important:
 
 - Earlier flow-matching probes showed that CFM can learn ground-truth-aligned

@@ -114745,3 +114745,111 @@ diagnostics. Only after Part 1 passes representation-quality gates should Part 2
 attach a conditional flow decoder and report distributional scenario metrics.
 
 ---
+## 2026-05-09: World model autoresearch workflow setup
+
+### Context
+The new `experiments/world/` scaffold separates the JEPA latent world-model
+question from the conditional flow-decoder question. The user asked for a
+dedicated autoresearch workflow with the long-term objective of developing this
+world model for time-series forecasting and scenario generation while leveraging
+the data already in the repo.
+
+The existing workflows provide the pattern: the main 11x11 loop uses tracked
+goal/state/driver/check files and strict HEAD discipline, while the narrative
+prefix-latent loop uses a tracked protocol plus ignored local state and always
+appends to `RESEARCH_LOG.md` through the tail-append helper. The world-model
+workflow should be separate from both.
+
+### Hypothesis
+A third HEAD loop can make the world-model program resumable and scientifically
+legible if it locks in three boundaries before any training:
+
+1. Part 1 latent quality and Part 2 decoder quality are separate claims.
+2. Conditional flow matching is the primary decoder family.
+3. The first iteration inventories local IV/joint/SNI data and metrics before
+   starting model training.
+
+### Execution
+- Added `docs/research_protocols/world_model_autoresearch_plan.md`.
+- Added local state files:
+  - `autoresearch-session/world_model_goal.json`
+  - `autoresearch-session/world_model_state.json`
+  - `autoresearch-session/world_model_driver_prompt.md`
+  - `autoresearch-session/check_goal_world_model.py`
+- Added local skill entrypoint `.agents/skills/world-model-autoresearch/SKILL.md`.
+- Updated `experiments/world/README.md` to point at the protocol and local state.
+
+The protocol names the first local data sources to leverage:
+`data/vol_surface_with_ret.npz`, `data/multi_factor_data.npz`, regime/variance
+caches, existing SNI/flow scripts under `experiments/backfill/block_ar/`, model
+code under `diffusion/block_ar/`, and existing baseline/evaluation artifacts.
+
+### Result
+The new workflow is prepared but not started. Its local state begins at
+iteration `0`, with `part1_status`, `part2_status`, and `integration_status`
+all `not_started`.
+
+The first recommended HEAD iteration is a data-and-evaluation inventory:
+identify the smoke dataset shape, local split conventions, reusable metrics,
+and missing wrappers under `experiments/world/evaluation/`, then write a report
+under `experiments/world/reports/`.
+
+### Mechanism Read
+This setup prevents the two most likely research drifts:
+
+- treating a good flow-decoder score as proof that the JEPA representation is
+  meaningful;
+- treating a healthy latent representation as proof that scenario generation is
+  calibrated and diverse.
+
+It also keeps the decoder policy consistent with the current research direction:
+fixed parametric heads may be weak sanity baselines, but conditional flow
+matching is the primary path because the target distribution is high-dimensional
+and conditional.
+
+### Decision / Next Step
+Start `world_model_autoresearch` with one inventory HEAD iteration. Do not train
+the JEPA encoder or flow decoder until the local data object, split convention,
+and Part 1/Part 2 metric contract are explicit.
+
+---
+## 2026-05-09: World model HEAD001 data and evaluation inventory
+
+Context:
+- Started the dedicated world-model autoresearch workflow as HEAD iteration 1.
+- The new track targets a JEPA-style latent time-series world model plus a conditional flow decoder, with Part 1 representation quality and Part 2 scenario-generation quality scored separately.
+
+Hypothesis:
+- The repository already contains enough local IV/factor/regime data and evaluation code to define a smoke-scale world-model dataset plus a Part 1/Part 2 metric contract without adding new data or online dependencies.
+
+Execution:
+- Inventoried `data/vol_surface_with_ret.npz`, `data/multi_factor_data.npz`, `data/regime_labels.npz`, and `data/gt_cumulative_variance.npz`.
+- Checked `results/baselines_current_panel/manifest.json` for the current-panel split and state columns.
+- Read existing world-model/flow/evaluation precedents in `experiments/backfill/block_ar/`, including deterministic world-model, unified path-flow, one-shot flow, the 220h full suite, and `test_block_ar_requirements_v2.py`.
+- Wrote `experiments/world/reports/world_model_head001_inventory.md`.
+
+Result:
+- `data/vol_surface_with_ret.npz` is the correct first smoke object: `surface` is `(5822, 5, 5)`, fully finite, and matches the existing IV-surface model/evaluation path.
+- `multi_factor_data.npz` should be second-stage because it has useful broader factor coverage but also missing values and transform-policy details that would slow the first IV-only smoke.
+- `regime_labels.npz` is immediately useful for validation buckets and frozen probes; it uses `history_len=30` and `future_len=30`.
+- The shared split should be the manifest-aligned 30/30 convention: train windows `0..4009` and validation windows `4010..4450`.
+
+Mechanism read:
+- The first blocker is not the architecture yet. It is the lack of a clean reusable world-model data/metric harness.
+- Part 1 needs new representation diagnostics: latent prediction error, retrieval, variance, effective rank, singular spectrum, off-diagonal covariance/correlation, and frozen probes.
+- Part 2 can initially reuse compact scenario diagnostics from `train_oneshot_flow.py` and graduate to the richer Block-AR full-suite once nontrivial samples exist.
+- Keep the modeling language precise: fixed parametric decoders are weak baselines because they are too restrictive for the conditional, high-dimensional scenario distribution targeted here; conditional flow matching remains the primary decoder path.
+
+Decision / next step:
+- Proceed to implementation next.
+- Build `experiments/world/evaluation/world_data.py`, `part1_metrics.py`, and `part2_metrics.py` as the next HEAD iteration before training a Part 1 model.
+
+Artifacts:
+- `experiments/world/reports/world_model_head001_inventory.md`
+- `autoresearch-session/world_model_state.json`
+
+Verification:
+- `python` data inventory over local NPZ files.
+- `python -m json.tool results/baselines_current_panel/manifest.json`
+
+---
