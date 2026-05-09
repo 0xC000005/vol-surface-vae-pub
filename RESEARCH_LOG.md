@@ -114569,3 +114569,53 @@ This converts the local demo control plane from loose files into a database-shap
 The next production step is serving/hosting rather than model work: add a private prototype runbook or deployment wrapper that starts the app with secrets/auth, runs cached smoke, browser QA, registry ingestion, and run-store ingestion as a single acceptance command.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 85 private acceptance harness
+
+### Context
+The local demo now has per-run records, a registry, and a SQLite run store. The remaining private-prototype gap was orchestration: an operator should not have to manually launch the app, run smoke checks, build the registry, and ingest the store one step at a time.
+
+### Hypothesis
+A cached-only acceptance harness can provide a repeatable private-prototype gate by starting the Gradio app, waiting for readiness, running cached scenario smoke, browser QA, registry build, run-store ingestion, and then shutting the app down.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_private_prototype_acceptance.py`.
+- Added `test_code/test_818a_nl_prefix_latent_private_acceptance.py` with a faked process/downstream orchestration test.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the one-command private acceptance path.
+- Fixed the script's repo-root import bootstrap after the first real run exposed a direct-script import error.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_815a_nl_prefix_latent_demo_run_registry.py test_code/test_817a_nl_prefix_latent_run_store.py test_code/test_818a_nl_prefix_latent_private_acceptance.py -q
+```
+
+Result: `13 passed`.
+
+The real cached private acceptance run passed:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_private_prototype_acceptance.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached \
+  --port 7867 \
+  --samples 2
+```
+
+Result: status `pass` with five passing steps: `app_http_ready`, `cached_smoke`, `browser_qa`, `run_registry`, and `run_store`.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/private_acceptance_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/cached_smoke/gradio_api_smoke_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/browser_qa/browser_qa_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/run_registry/demo_run_registry.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/run_store/demo_run_store_summary.json`
+
+A follow-up HTTP probe confirmed the local app on port 7867 was stopped after the acceptance run. This path is cached-only and made no OpenAI calls.
+
+### Mechanism Read
+This turns the current prototype into an operator-facing acceptance flow. It still uses local files and SQLite, but it exercises the same lifecycle a private hosted prototype needs: serve, generate, render-check, register, persist, and stop/cleanup.
+
+### Decision / Next Step
+The project is now close to an internal private demo. The next gap is deployment packaging: either a private Hugging Face Space/Gradio host runbook with artifact bundle and secrets, or a local container-style wrapper that mounts the 25-file bundle and writes the SQLite run store to a persistent volume.
+
+---

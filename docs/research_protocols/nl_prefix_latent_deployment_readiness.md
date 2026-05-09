@@ -508,6 +508,31 @@ gates, run status `pass`, and gate statuses all `pass`. This is intentionally
 local and file-backed; a hosted prototype should use the same logical schema
 with a private managed database or artifact service.
 
+## Private Acceptance Harness
+
+The current local private-prototype acceptance path can be run as one cached
+command. It starts the Gradio app, waits for HTTP readiness, runs cached API
+smoke, captures browser screenshots, builds a registry, ingests the run store,
+and shuts the app down:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_private_prototype_acceptance.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached \
+  --port 7867 \
+  --samples 2
+```
+
+Latest summary:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_private_acceptance_844a_cached/private_acceptance_summary.json
+```
+
+Summary: status `pass`; `app_http_ready`, `cached_smoke`, `browser_qa`,
+`run_registry`, and `run_store` all passed. A follow-up HTTP probe confirmed the
+local app on port 7867 was stopped after the acceptance run. This path is
+cached-only and does not call OpenAI.
+
 Before showing the demo externally:
 
 - launch the current HEAD Gradio app from a clean shell;

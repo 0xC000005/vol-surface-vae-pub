@@ -346,7 +346,8 @@ def render_markdown(registry: Mapping[str, Any]) -> str:
 
 
 def build_registry(args: argparse.Namespace) -> dict[str, Any]:
-    specs = [parse_evidence_spec(value) for value in args.evidence]
+    evidence_values = args.evidence if args.evidence is not None else DEFAULT_EVIDENCE
+    specs = [parse_evidence_spec(value) for value in evidence_values]
     entries = [evidence_entry(spec) for spec in specs]
     missing_count = sum(1 for row in entries if not row.get("exists"))
     gates = build_registry_gates(entries)
