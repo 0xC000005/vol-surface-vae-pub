@@ -116864,3 +116864,44 @@ Artifacts:
 - `experiments/world/reports/world_model_head057_ema_target_block_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD058 prefix-block EMA JEPA
+
+### Context
+- Continued after HEAD057 selected one non-ad-hoc target-construction experiment: future delta-prefix target blocks for the fused-context EMA JEPA.
+- This kept the I-JEPA/A-JEPA-style EMA target encoder and MSE prediction objective, changing only target block size from isolated frame to prefix.
+
+### Hypothesis / Falsifier
+- Hypothesis: future delta-prefix target blocks give the EMA target encoder a richer and more stable target geometry than isolated horizon-delta frames, improving learned-target retrieval/rank and frozen-context probes without adding a new loss.
+- Falsifier: learned-target retrieval/top-k remains below HEAD056 or far below the fixed-PCA reference, rank collapses below HEAD056, or frozen-context fixed-PCA/raw-delta probes remain materially below the current reference.
+
+### Implementation
+- Updated `experiments/world/part1_jepa_latent/fused_context_ema_jepa.py` with `target_block={frame,prefix}`.
+- HEAD056 `frame`: `future[:, h-1:h] - past[:, -1:]`.
+- HEAD058 `prefix`: `future[:, :h] - past[:, -1:]`.
+- Added `test_fused_context_ema_jepa_prefix_targets_use_future_blocks`.
+- No Barlow Twins, VICReg, retrieval/neighborhood loss, target sweep, decoder component, or new scalar loss weight was added.
+
+### Result
+- Focused tests: `2 passed in 0.75s`.
+- HEAD058 best learned-target epoch: epoch `19`, MSE `0.125657`, MRR `0.060093`, top5 `0.067188`, predicted/target/context rank `3.776887`/`4.175854`/`4.359951`.
+- Compared with HEAD056: MRR/top5 improved from `0.054649`/`0.057031`, predicted rank improved from `2.883115`, target rank improved from `3.806809`.
+- Frozen-context fixed-PCA probe: MSE `1.247527`, MRR `0.065450`, top5 `0.081250`.
+- Frozen-context raw-delta probe: MSE `0.019055`, MRR `0.060700`, top5 `0.069531`.
+- Current fixed-PCA reference remains stronger: fixed-PCA MRR/top5 `0.103763`/`0.136719`, raw-delta MSE/MRR/top5 `0.015701`/`0.096147`/`0.128125`.
+
+### Mechanism Read
+- Prefix targets help the EMA target space itself, but the resulting context representation still does not linearly expose future fixed-PCA/raw-delta structure at the reference level.
+- The failure is now less pure collapse and more target geometry / predictive information mismatch.
+- Primary failure class remains `latent_prediction`.
+
+### Decision / Next Step
+- Do not promote HEAD058; keep the fused-context fixed-PCA reference active.
+- Next HEAD should be post-experiment analysis: decide whether to keep pursuing EMA target encoders or pivot to a more principled fixed target contract for world-state learning, such as masked low-rank future path targets with explicit frozen-probe gates.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fused_context_ema_jepa.py`
+- `experiments/world/reports/world_model_head058_prefix_block_ema_jepa.md`
+- `results/world/part1_fused_context_prefix_ema_jepa_head058.json`
+- `models/world/checkpoints/part1_jepa_latent/fused_context_prefix_ema_jepa_head058.pt`
+
+---

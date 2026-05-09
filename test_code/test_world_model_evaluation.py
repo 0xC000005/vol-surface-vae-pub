@@ -60,6 +60,7 @@ from experiments.world.part1_jepa_latent.fused_context_ema_jepa import (
     FusedContextEMAJEPAWorldModel,
     fused_context_ema_jepa_loss,
     horizon_delta_frames,
+    horizon_delta_target_block,
     relative_to_last_observation,
 )
 from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
@@ -533,6 +534,34 @@ def test_fused_context_ema_jepa_uses_relative_context_and_frozen_target():
     assert torch.isfinite(loss)
     assert parts["prediction"] >= 0.0
     assert all(not param.requires_grad for param in model.target_encoder.parameters())
+
+
+def test_fused_context_ema_jepa_prefix_targets_use_future_blocks():
+    import torch
+
+    torch.manual_seed(58)
+    cfg = FusedContextEMAJEPAConfig(
+        input_dim=2,
+        flat_input_dim=6,
+        hidden_dim=10,
+        latent_dim=4,
+        predictor_hidden_dim=9,
+        horizons=(1, 3),
+        target_block="prefix",
+    )
+    model = FusedContextEMAJEPAWorldModel(cfg)
+    past = torch.randn(5, 3, 2)
+    future = torch.randn(5, 4, 2)
+
+    frame = horizon_delta_target_block(past, future, horizon=3, target_block="frame")
+    prefix = horizon_delta_target_block(past, future, horizon=3, target_block="prefix")
+    out = model(past, future)
+
+    assert frame.shape == (5, 1, 2)
+    assert prefix.shape == (5, 3, 2)
+    torch.testing.assert_close(prefix[:, -1:, :], frame)
+    assert out["predicted"].shape == (5, 2, 4)
+    assert out["target"].shape == (5, 2, 4)
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

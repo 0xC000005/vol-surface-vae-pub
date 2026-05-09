@@ -5,7 +5,7 @@ import json
 import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
 
 import numpy as np
 import torch
@@ -38,6 +38,9 @@ from experiments.world.part1_jepa_latent.jepa_smoke import (  # noqa: E402
 )
 
 
+TargetBlock = Literal["frame", "prefix"]
+
+
 @dataclass(frozen=True)
 class FusedContextEMAJEPAConfig:
     input_dim: int = 25
@@ -47,6 +50,7 @@ class FusedContextEMAJEPAConfig:
     predictor_hidden_dim: int = 128
     horizons: tuple[int, ...] = (1, 5, 10, 20, 30)
     ema_decay: float = 0.99
+    target_block: TargetBlock = "frame"
 
 
 def relative_to_last_observation(past: torch.Tensor) -> torch.Tensor:
@@ -70,11 +74,33 @@ def horizon_delta_frames(
     return torch.cat(frames, dim=1)
 
 
+def horizon_delta_target_block(
+    past: torch.Tensor,
+    future: torch.Tensor,
+    *,
+    horizon: int,
+    target_block: TargetBlock,
+) -> torch.Tensor:
+    if target_block == "frame":
+        return horizon_delta_frames(past, future, horizons=(horizon,))
+    if target_block == "prefix":
+        if past.ndim != 3 or future.ndim != 3:
+            raise ValueError("past and future must have shape (B, T, C)")
+        if horizon <= 0 or horizon > future.shape[1]:
+            raise ValueError(f"horizon={horizon} is outside future length {future.shape[1]}")
+        if past.shape[0] != future.shape[0] or past.shape[2] != future.shape[2]:
+            raise ValueError("past and future must share batch and channel dimensions")
+        return future[:, :horizon, :] - past[:, -1:, :]
+    raise ValueError(f"Unknown target_block: {target_block!r}")
+
+
 class FusedContextEMAJEPAWorldModel(nn.Module):
     def __init__(self, cfg: FusedContextEMAJEPAConfig):
         super().__init__()
         self.cfg = cfg
         self.horizons = tuple(int(h) for h in cfg.horizons)
+        if cfg.target_block not in {"frame", "prefix"}:
+            raise ValueError(f"Unknown target_block: {cfg.target_block!r}")
         encoder_cfg = argparse.Namespace(
             input_dim=cfg.input_dim,
             hidden_dim=cfg.hidden_dim,
@@ -116,11 +142,11 @@ class FusedContextEMAJEPAWorldModel(nn.Module):
 
     def forward(self, past: torch.Tensor, future: torch.Tensor) -> dict[str, torch.Tensor]:
         context = self.encode_context(past)
-        delta_targets = horizon_delta_frames(past, future, horizons=self.horizons)
         predicted_rows = []
         target_rows = []
         batch_size = past.shape[0]
         for horizon_idx in range(len(self.horizons)):
+            horizon = self.horizons[horizon_idx]
             horizon_ids = torch.full(
                 (batch_size,),
                 horizon_idx,
@@ -130,7 +156,13 @@ class FusedContextEMAJEPAWorldModel(nn.Module):
             horizon_emb = self.horizon_embedding(horizon_ids)
             predicted_rows.append(self.predictor(torch.cat([context, horizon_emb], dim=1)))
             with torch.no_grad():
-                target_rows.append(self.target_encoder(delta_targets[:, horizon_idx : horizon_idx + 1, :]))
+                target_block = horizon_delta_target_block(
+                    past,
+                    future,
+                    horizon=horizon,
+                    target_block=self.cfg.target_block,
+                )
+                target_rows.append(self.target_encoder(target_block))
         return {
             "context": context,
             "predicted": torch.stack(predicted_rows, dim=1),
@@ -262,6 +294,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
         predictor_hidden_dim=args.predictor_hidden_dim,
         horizons=horizons,
         ema_decay=args.ema_decay,
+        target_block=args.target_block,
     )
     model = FusedContextEMAJEPAWorldModel(cfg).to(device)
     opt = torch.optim.AdamW(_parameter_groups(model), lr=args.lr, weight_decay=args.weight_decay)
@@ -426,6 +459,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--ema_decay", type=float, default=0.99)
+    parser.add_argument("--target_block", choices=("frame", "prefix"), default="frame")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7712)
     parser.add_argument("--device", type=str, default="cuda")
