@@ -432,20 +432,21 @@ or raw risk-manager narratives:
 
 ```bash
 uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py \
-  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_842a_with_run_record
 ```
 
 Latest registry:
 
 ```text
-experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_840a_browser_registry/demo_run_registry.md
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_842a_with_run_record/demo_run_registry.md
 ```
 
-Summary: status `pass`, 3/3 evidence entries present, QA packet gate `pass`
+Summary: status `pass`, 4/4 evidence entries present, QA packet gate `pass`
 with 8/8 gates, audit manifest gate `pass` with 41 hashed artifacts and zero
-missing references, browser-render gate `pass` with 2/2 screenshots. This is
-still a file-backed local registry; a production prototype should persist the
-same fields in a private durable store.
+missing references, browser-render gate `pass` with 2/2 screenshots, and
+prefix-run-record gate `pass` with selected-start `pass`, 8 support candidates,
+and a narrative hash present. This is still a file-backed local registry; a
+production prototype should persist the same fields in a private durable store.
 
 ## Per-Run Record
 

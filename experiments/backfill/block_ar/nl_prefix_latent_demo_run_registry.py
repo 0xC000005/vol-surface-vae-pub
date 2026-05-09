@@ -28,10 +28,17 @@ DEFAULT_BROWSER_QA = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_browser_qa_839g_mobile_clean/browser_qa_report.json"
 )
+DEFAULT_PREFIX_RUN_RECORD = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "risk_manager_story_gradio_demo/prefix_latent_live_smoke/cached_casebook_run/"
+    "prefix_latent_condition_only_report_823b_safe_haven/run_record/"
+    "prefix_latent_run_record.json"
+)
 DEFAULT_EVIDENCE = (
     f"qa_packet:qa_packet:{DEFAULT_QA_PACKET}",
     f"audit_manifest:audit_manifest:{DEFAULT_AUDIT_MANIFEST}",
     f"browser_qa:browser_qa:{DEFAULT_BROWSER_QA}",
+    f"prefix_run_record:prefix_run_record:{DEFAULT_PREFIX_RUN_RECORD}",
 )
 
 
@@ -151,6 +158,30 @@ def browser_qa_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def prefix_run_record_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
+    condition = _as_dict(payload.get("condition"))
+    support = _as_dict(payload.get("support"))
+    validation = _as_dict(payload.get("validation"))
+    artifact_rows = [_as_dict(row) for row in _as_list(payload.get("artifacts"))]
+    return {
+        "status": str(payload.get("status", "")),
+        "record_id": str(payload.get("record_id", "")),
+        "record_type": str(payload.get("record_type", "")),
+        "condition_source": str(condition.get("source", "")),
+        "text_memory_dim": _as_int(condition.get("text_memory_dim")),
+        "market_implication_count": _as_int(
+            condition.get("market_implication_count")
+        ),
+        "forward_warning_count": _as_int(condition.get("forward_warning_count")),
+        "narrative_hash_present": bool(condition.get("narrative_text_sha256")),
+        "support_candidate_count": _as_int(support.get("candidate_count")),
+        "overall_status": str(validation.get("overall_status", "")),
+        "selected_start_status": str(validation.get("selected_start_status", "")),
+        "artifact_count": len(artifact_rows),
+        "hashed_artifact_count": sum(1 for row in artifact_rows if row.get("sha256")),
+    }
+
+
 def generic_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"status": str(payload.get("status", ""))}
 
@@ -162,6 +193,8 @@ def summarize_evidence(kind: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         return audit_manifest_summary(payload)
     if kind == "browser_qa":
         return browser_qa_summary(payload)
+    if kind == "prefix_run_record":
+        return prefix_run_record_summary(payload)
     return generic_summary(payload)
 
 
@@ -178,6 +211,7 @@ def build_registry_gates(entries: Sequence[Mapping[str, Any]]) -> list[dict[str,
     qa = _as_dict(_as_dict(by_type.get("qa_packet")).get("summary"))
     audit = _as_dict(_as_dict(by_type.get("audit_manifest")).get("summary"))
     browser = _as_dict(_as_dict(by_type.get("browser_qa")).get("summary"))
+    run_record = _as_dict(_as_dict(by_type.get("prefix_run_record")).get("summary"))
     return [
         _gate(
             "qa_packet_pass",
@@ -208,6 +242,20 @@ def build_registry_gates(entries: Sequence[Mapping[str, Any]]) -> list[dict[str,
                 f"status={browser.get('status', '')}, "
                 f"screenshots={browser.get('pass_screenshot_count', 0)}/"
                 f"{browser.get('screenshot_count', 0)}"
+            ),
+        ),
+        _gate(
+            "prefix_run_record_pass",
+            run_record.get("status") == "pass"
+            and run_record.get("record_type") == "prefix_latent_narrative_scenario_run"
+            and run_record.get("selected_start_status") == "pass"
+            and run_record.get("support_candidate_count", 0) > 0
+            and run_record.get("narrative_hash_present"),
+            (
+                f"status={run_record.get('status', '')}, "
+                f"selected_start={run_record.get('selected_start_status', '')}, "
+                f"support={run_record.get('support_candidate_count', 0)}, "
+                f"narrative_hash={run_record.get('narrative_hash_present', False)}"
             ),
         ),
     ]

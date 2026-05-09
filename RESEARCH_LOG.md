@@ -114476,3 +114476,51 @@ This is the first write-through audit/control-plane piece rather than another re
 The next production step is to make the run registry consume these per-run records directly, so a private hosted prototype can list user-visible runs rather than only static QA evidence packets. After that, the remaining gap is choosing the private storage backend and serving/deployment wrapper.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 83 registry ingests per-run records
+
+### Context
+Iteration 82 added write-through per-run records for real Gradio prefix-latent scenario runs. The remaining control-plane gap was that the run registry still indexed static QA/audit/browser reports but did not treat generated scenario run records as first-class evidence.
+
+### Hypothesis
+The file-backed run registry can ingest prefix-latent per-run records directly and gate on the properties that matter for a risk-manager-facing run: selected-start status, support candidate count, correct record type, and narrative hash presence instead of raw narrative retention.
+
+### Execution
+- Extended `experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py` with a `prefix_run_record` evidence type and a blocking `prefix_run_record_pass` gate.
+- Updated `test_code/test_815a_nl_prefix_latent_demo_run_registry.py` to cover prefix-run-record summaries, pass/fail gate behavior, and missing-record handling.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` so the latest registry command includes the per-run record.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_815a_nl_prefix_latent_demo_run_registry.py test_code/test_816a_nl_prefix_latent_run_record.py -q
+```
+
+Result: `11 passed`.
+
+The real registry run passed with the per-run record included:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_demo_run_registry.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_842a_with_run_record
+```
+
+Result: status `pass`, 4 evidence entries, 4 existing, 0 missing.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_842a_with_run_record/demo_run_registry.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_demo_run_registry_842a_with_run_record/demo_run_registry.md`
+
+Registry gates:
+- `qa_packet_pass`: pass, 8/8 QA gates.
+- `audit_manifest_pass`: pass, 41 hashed artifacts, zero missing references, no raw sensitive text retained.
+- `browser_render_pass`: pass, 2/2 screenshots.
+- `prefix_run_record_pass`: pass, selected-start `pass`, 8 support candidates, narrative hash present.
+
+### Mechanism Read
+The registry can now represent both launch/readiness evidence and actual user-visible scenario runs. This is closer to production because a hosted prototype can persist one registry row per scenario run and later audit exactly what the user saw, which support candidates were used, and which artifacts/hashes belong to the result.
+
+### Decision / Next Step
+The remaining production gap is no longer the local registry schema; it is choosing and simulating the private persistence backend. The next step is a storage adapter/run-store abstraction, initially file-backed SQLite or JSONL, then swappable to a hosted private database.
+
+---
