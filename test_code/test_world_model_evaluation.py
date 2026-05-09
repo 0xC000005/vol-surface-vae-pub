@@ -30,6 +30,7 @@ from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
+    checkpoint_selection_score,
     decode_horizon_prediction,
     make_horizon_frame_targets,
     supervised_horizon_loss,
@@ -302,3 +303,12 @@ def test_supervised_horizon_delta_targets_reconstruct_frames():
     assert torch.isfinite(contrastive_loss)
     assert parts["target_mse"] >= 0.0
     assert contrastive_parts["retrieval"] > 0.0
+
+
+def test_checkpoint_selection_score_prefers_requested_metric():
+    low_mse = {"val_mse": 0.01, "val_mrr_mean": 0.02, "val_top5_mean": 0.03}
+    high_mrr = {"val_mse": 0.02, "val_mrr_mean": 0.05, "val_top5_mean": 0.02}
+
+    assert checkpoint_selection_score(low_mse, "mse") > checkpoint_selection_score(high_mrr, "mse")
+    assert checkpoint_selection_score(high_mrr, "mrr") > checkpoint_selection_score(low_mse, "mrr")
+    assert checkpoint_selection_score(low_mse, "top5") > checkpoint_selection_score(high_mrr, "top5")

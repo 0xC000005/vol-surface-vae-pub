@@ -115113,3 +115113,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_contrastive_head008.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_head008.pt`
 
 ---
+## 2026-05-09: World model HEAD009 retrieval-selected fixed-delta checkpoint
+
+### Context
+- Continued JEPA-only autoresearch after HEAD008 showed that contrastive fixed-delta training improved retrieval, but the saved best-MSE checkpoint did not match the best retrieval epoch.
+- This iteration made checkpoint selection explicit so the saved artifact can match the Part 1 discriminative objective.
+
+### Hypothesis
+- The fixed horizon-delta contrastive lower bound should save a more useful Part 1 checkpoint when selection uses validation retrieval rather than validation MSE.
+- Falsifier: retrieval-selected checkpointing fails to preserve the best MRR epoch or loses the frame-MSE advantage over raw persistence.
+
+### Execution
+- Updated `experiments/world/part1_jepa_latent/supervised_horizon_frame.py` with `--selection_metric {mse,mrr,top5}` and a tested `checkpoint_selection_score` helper.
+- Updated `test_code/test_world_model_evaluation.py` with selection-metric coverage.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.05 --retrieval_temperature 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_contrastive_mrr_head009.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_mrr_head009.pt`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `9 passed in 0.71s`.
+- The selected checkpoint was epoch 5 with frame MSE `0.021263`, MRR mean `0.060965`, top1 `0.014844`, top5 `0.084375`, and top10 `0.139844`.
+- Raw persistence baseline on the same windows had frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Delta-target retrieval remained above chance at the selected checkpoint: h1 MRR `0.082338`, h10 MRR `0.073456`, h20 MRR `0.089948`, and h30 MRR `0.093898`.
+
+### Mechanism Read
+- Retrieval-selected checkpointing is the right default for this branch because it preserves the Part 1 retrieval objective while still beating raw persistence on MSE.
+- The selected checkpoint beats persistence on MSE, MRR, top1, and top10; top5 is close but still slightly below persistence.
+- This remains a supervised fixed-target lower bound, not yet a complete JEPA representation result.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Audit context embeddings from the retrieval-selected fixed-delta checkpoint: variance, effective rank, off-diagonal correlation, and frozen linear probes for horizon deltas.
+- If context state is healthy, promote fixed horizon deltas as the Part 1 target contract for the next JEPA model.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head009_retrieval_selected_delta_checkpoint.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_contrastive_mrr_head009.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_mrr_head009.pt`
+
+---

@@ -332,6 +332,16 @@ def _serializable(obj):
     return obj
 
 
+def checkpoint_selection_score(row: dict[str, float], selection_metric: str) -> float:
+    if selection_metric == "mse":
+        return -float(row["val_mse"])
+    if selection_metric == "mrr":
+        return float(row["val_mrr_mean"])
+    if selection_metric == "top5":
+        return float(row["val_top5_mean"])
+    raise ValueError(f"Unknown selection_metric: {selection_metric!r}")
+
+
 def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     _set_seed(args.seed)
     horizons = validate_horizons(tuple(args.horizons), future_len=30)
@@ -368,6 +378,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
 
     history = []
     best_summary: dict[str, object] | None = None
+    best_score: float | None = None
     best_state = None
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -418,7 +429,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
             "val_top5_mean": val_metrics["overall_retrieval"]["top5_mean"],
         }
         history.append(row)
-        if best_summary is None or row["val_mse"] < best_summary["val_mse"]:
+        score = checkpoint_selection_score(row, args.selection_metric)
+        if best_score is None or score > best_score:
+            best_score = score
             best_summary = row
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         print(json.dumps(row))
@@ -457,6 +470,8 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
             "future": list(val.future_window.shape),
         },
         "history": history,
+        "selection_metric": args.selection_metric,
+        "best_selection_score": best_score,
         "best_epoch_summary": best_summary,
         "best_val_metrics": best_metrics,
         "final_val_metrics": final_metrics,
@@ -495,6 +510,7 @@ def main() -> None:
     parser.add_argument("--frame_weight", type=float, default=0.25)
     parser.add_argument("--retrieval_weight", type=float, default=0.0)
     parser.add_argument("--retrieval_temperature", type=float, default=0.1)
+    parser.add_argument("--selection_metric", choices=("mse", "mrr", "top5"), default="mse")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7705)
     parser.add_argument("--device", type=str, default="cuda")
