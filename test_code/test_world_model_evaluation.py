@@ -34,6 +34,12 @@ from experiments.world.part1_jepa_latent.fixed_delta_pca_jepa import (
     make_horizon_delta_matrix,
     transform_delta_targets,
 )
+from experiments.world.part1_jepa_latent.target_encoder_distill import (
+    DeltaTargetEncoder,
+    TargetEncoderDistillConfig,
+    evaluate_distilled_targets,
+    target_encoder_distill_loss,
+)
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
@@ -315,6 +321,55 @@ def test_make_horizon_delta_matrix_uses_requested_horizons():
     assert deltas.shape == (2, 2, 2)
     np.testing.assert_allclose(deltas[:, 0, :], future[:, 0, :] - past[:, -1, :])
     np.testing.assert_allclose(deltas[:, 1, :], future[:, 2, :] - past[:, -1, :])
+
+
+def test_target_encoder_distill_model_outputs_horizon_codes():
+    import torch
+
+    torch.manual_seed(29)
+    cfg = TargetEncoderDistillConfig(
+        input_dim=5,
+        hidden_dim=12,
+        target_dim=3,
+        horizons=(1, 3),
+    )
+    model = DeltaTargetEncoder(cfg)
+    deltas = torch.randn(7, 2, 5)
+    target = torch.randn(7, 2, 3)
+
+    predicted = model(deltas)
+    loss, parts = target_encoder_distill_loss(predicted, target)
+
+    assert predicted.shape == (7, 2, 3)
+    assert torch.isfinite(loss)
+    assert parts["target_mse"] >= 0.0
+
+
+def test_evaluate_distilled_targets_scores_perfect_fixed_pca_codes():
+    train_deltas = np.array(
+        [
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 1.0]],
+            [[0.0, 1.0, 0.0], [1.0, 0.0, 1.0]],
+            [[0.0, 0.0, 1.0], [1.0, 1.0, 0.0]],
+            [[1.0, 1.0, 1.0], [-1.0, 1.0, 2.0]],
+        ],
+        dtype=np.float32,
+    )
+    pca = fit_delta_pca_target(train_deltas, target_dim=3)
+    target_z = transform_delta_targets(train_deltas, pca)
+
+    metrics = evaluate_distilled_targets(
+        predicted_z=target_z,
+        target_z=target_z,
+        truth_delta=train_deltas,
+        pca_target=pca,
+        horizons=(1, 3),
+    )
+
+    assert metrics["overall_prediction"]["mse"] == 0.0
+    assert metrics["overall_retrieval"]["mrr_mean"] == 1.0
+    assert metrics["overall_delta_decode"]["mse_mean"] < 1e-10
+    assert metrics["predicted_health"]["effective_rank"] > 1.0
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

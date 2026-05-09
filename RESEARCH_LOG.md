@@ -115951,3 +115951,41 @@ Artifacts:
 - `experiments/world/reports/world_model_head030_target_encoder_distillation_ideation.md`
 
 ---
+## 2026-05-09: World model HEAD031 target encoder distillation
+
+### Context
+- Continued from HEAD030's `supported_adjacent` target-encoder distillation plan.
+- This was a target-encoder-only diagnostic: no context predictor, no retrieval/neighborhood loss, no variance/covariance weights, and no decoder.
+
+### Hypothesis / Falsifier
+- Hypothesis: a small learned target encoder can imitate the fixed delta-PCA contract when trained directly on future horizon deltas.
+- Falsifier: target-to-PCA MSE remains close to HEAD028 context-predictor MSE `0.987130`, decoded delta MSE remains close to `0.015369` instead of the PCA oracle residual `0.001846`, or target health collapses toward HEAD025 rank `1.262683`.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/target_encoder_distill.py`.
+- Added focused tests in `test_code/test_world_model_evaluation.py`.
+- Contract: `future horizon delta -> learned target encoder -> z_target`, trained with MSE to fixed `z_pca` from the HEAD028 PCA contract.
+
+### Validation
+- Red test first failed with `ModuleNotFoundError` for `target_encoder_distill`.
+- Full focused validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `23 passed in 0.78s`.
+- Compile check passed for the new script and test file.
+
+### Result
+- CPU smoke: `epochs=25`, `max_train_windows=2048`, `max_val_windows=256`, `target_dim=8`, `hidden_dim=64`.
+- Best epoch `25`: target-to-PCA MSE `0.008652`, cosine mean `0.997209`, MRR `0.998438`, top1 `0.996875`, top5/top10 `1.0`.
+- Decoded delta MSE `0.001990`, close to PCA oracle residual `0.001846` and far below HEAD028 context-predictor decoded delta MSE `0.015369`.
+- Predicted effective rank `3.426355`, matching fixed PCA target rank `3.327211` instead of the HEAD025 collapse pattern.
+
+### Decision / Next Step
+- The target encoder passes the teacher-contract diagnostic.
+- Next HEAD should train a JEPA context predictor against a frozen distilled target encoder with MSE prediction only.
+- Keep the same horizons and target dim; do not add retrieval/neighborhood loss, target sweeps, or decoder components.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/target_encoder_distill.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head031_target_encoder_distill.md`
+- Ignored outputs: `results/world/part1_target_encoder_distill_head031.json`, `models/world/checkpoints/part1_jepa_latent/target_encoder_distill_head031.pt`
+
+---
