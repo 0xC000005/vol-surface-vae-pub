@@ -116103,3 +116103,30 @@ Artifacts:
 - Ignored outputs: `results/world/part1_direct_delta_pca_predictor_head034.json`, `models/world/checkpoints/part1_jepa_latent/direct_delta_pca_predictor_head034.pt`
 
 ---
+## 2026-05-09: World model HEAD035 direct predictor tradeoff analysis
+
+### Context
+- Continued after HEAD034 showed direct flattened-past prediction improves retrieval/top-k but worsens fixed-target MSE and decoded delta MSE.
+- This was post-experiment analysis to choose one next move without adding objectives or knobs.
+
+### Evidence
+- HEAD028 reference: MSE `0.987130`, MRR `0.096374`, top5 `0.132031`, top10 `0.203125`, decoded delta MSE `0.015369`, rank `3.863753`.
+- HEAD034 MSE-selected checkpoint: MSE `1.093260`, MRR `0.098682`, top5 `0.132812`, top10 `0.203125`, decoded delta MSE `0.016982`, rank `5.273018`, context rank `11.586305`.
+- HEAD034 retrieval-selected checkpoint: MSE `1.093676`, MRR `0.110811`, top5 `0.150781`, top10 `0.221875`, decoded delta MSE `0.016992`, rank `5.180739`, context rank `11.372300`.
+- HEAD034 best decoded-delta checkpoint still trails HEAD028: decoded delta MSE `0.016267` with MRR `0.092990`.
+
+### Interpretation
+- HEAD034 is not a model candidate because it loses the MSE and decoded-delta surface.
+- It is positive evidence for a context/predictor architecture bottleneck: direct flattened-past features expose more retrieval signal than the GRU-only HEAD028 predictor.
+- The tradeoff is not solved by checkpoint selection.
+
+### Decision / Next Step
+- Run one architecture-only fused-context experiment: GRU branch plus direct flattened-past branch, fused before the horizon predictor, trained with MSE to fixed `z_pca`.
+- Keep the fixed PCA contract, horizons, target dim, data slice, and objective unchanged.
+- No target encoder, retrieval/neighborhood loss, target sweep, or decoder.
+- Falsifier: the fused model does not beat HEAD028 on MSE/decoded MSE or cannot preserve HEAD034's retrieval/top-k gain.
+
+### Artifacts
+- `experiments/world/reports/world_model_head035_direct_predictor_analysis.md`
+
+---
