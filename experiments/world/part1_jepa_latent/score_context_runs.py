@@ -7,6 +7,7 @@ from typing import Mapping
 
 
 DEFAULT_COMPOSITE_WEIGHTS = {
+    "frame_mse_improvement": 1.0,
     "frame_mrr": 1.0,
     "rank_fraction": 0.5,
     "decorrelation": 0.25,
@@ -36,6 +37,14 @@ def composite_part1_score(
         train_result,
         ("best_val_metrics", "overall_retrieval", "mrr_mean"),
     )
+    frame_mse = _float_at(
+        train_result,
+        ("best_val_metrics", "overall_prediction", "mse"),
+    )
+    persistence_mse = _float_at(
+        train_result,
+        ("raw_persistence_baseline", "prediction", "mse_mean"),
+    )
     effective_rank = _float_at(
         audit_result,
         ("val_context_health", "effective_rank"),
@@ -58,8 +67,10 @@ def composite_part1_score(
     )
     rank_fraction = effective_rank / max(context_dim, 1.0)
     decorrelation = max(0.0, 1.0 - offdiag_abs_mean)
+    frame_mse_improvement = (persistence_mse - frame_mse) / max(persistence_mse, 1e-12)
     ridge_mse_improvement = max(0.0, (zero_mse - ridge_mse) / max(zero_mse, 1e-12))
     components = {
+        "frame_mse_improvement": frame_mse_improvement,
         "frame_mrr": frame_mrr,
         "rank_fraction": rank_fraction,
         "decorrelation": decorrelation,

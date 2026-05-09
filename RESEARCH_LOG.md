@@ -115379,3 +115379,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_headsharp_head015.json`, `results/world/part1_context_probe_audit_head015.json`, `results/world/part1_context_composite_scores_head015.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_headsharp_head015.pt`
 
 ---
+## 2026-05-09: World model HEAD016 frame-MSE composite gate
+
+### Context
+- Continued JEPA-only autoresearch after HEAD015 exposed a scorer bug: a checkpoint could improve frozen probes while failing to beat raw persistence in frame MSE.
+- This iteration patched the composite score to include the missing frame-MSE persistence gate.
+
+### Hypothesis
+- Adding frame-MSE improvement over raw persistence to the composite Part 1 score should prevent persistence-failing checkpoints from outranking balanced rank/probe candidates.
+- Falsifier: HEAD015 still ranks above HEAD013 after the frame-MSE correction.
+
+### Execution
+- Updated `experiments/world/part1_jepa_latent/score_context_runs.py`.
+- Added regression coverage in `test_code/test_world_model_evaluation.py`.
+- Added `frame_mse_improvement = (persistence_mse - frame_mse) / persistence_mse` as a composite component; the term is allowed to be negative.
+- Re-scored HEAD010, HEAD011, HEAD012, HEAD013, and HEAD015 into `results/world/part1_context_composite_scores_head016.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `15 passed in 0.72s`.
+- Corrected ranking: HEAD013_corr_0p002 `0.581476`, HEAD012_corr_0p005 `0.558285`, HEAD010_unregularized `0.526537`, HEAD011_covreg `0.495492`, HEAD015_headsharp `0.468361`.
+- HEAD015 is now penalized with frame_mse_improvement `-0.069337`.
+- HEAD013 remains best with frame_mse_improvement `0.047056`, frame MRR `0.058137`, rank fraction `0.165133`, decorrelation `0.656539`, ridge MRR `0.107289`, and ridge MSE improvement `0.244584`.
+
+### Mechanism Read
+- The corrected score fixes the HEAD015 counterexample.
+- Strong frozen-probe metrics no longer hide failure to beat the raw persistence forecast.
+- The current Part 1 candidate is HEAD013, not HEAD015: it balances healthier context structure, positive frame-MSE improvement, and positive frozen probe metrics.
+
+### Decision / Next Step
+- Continue JEPA-only with HEAD013 as the current fixed-delta context candidate.
+- Either add composite-aware checkpoint selection or test milder head-side retrieval adjustments while gating on the corrected composite score.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/score_context_runs.py`
+- `experiments/world/reports/world_model_head016_frame_mse_composite_gate.md`
+- Ignored output: `results/world/part1_context_composite_scores_head016.json`
+
+---

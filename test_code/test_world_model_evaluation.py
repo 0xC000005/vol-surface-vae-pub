@@ -428,8 +428,10 @@ def test_ridge_probe_metrics_reports_horizon_metrics():
 def test_composite_part1_score_rewards_rank_probe_and_retrieval():
     weaker_train = {
         "best_val_metrics": {
+            "overall_prediction": {"mse": 0.019},
             "overall_retrieval": {"mrr_mean": 0.04},
-        }
+        },
+        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
     }
     weaker_audit = {
         "config": {"context_dim": 10},
@@ -447,8 +449,10 @@ def test_composite_part1_score_rewards_rank_probe_and_retrieval():
     }
     stronger_train = {
         "best_val_metrics": {
+            "overall_prediction": {"mse": 0.015},
             "overall_retrieval": {"mrr_mean": 0.06},
-        }
+        },
+        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
     }
     stronger_audit = {
         "config": {"context_dim": 10},
@@ -468,4 +472,40 @@ def test_composite_part1_score_rewards_rank_probe_and_retrieval():
     assert composite_part1_score(stronger_train, stronger_audit)["score"] > composite_part1_score(
         weaker_train,
         weaker_audit,
+    )["score"]
+
+
+def test_composite_part1_score_penalizes_frame_mse_worse_than_persistence():
+    audit = {
+        "config": {"context_dim": 10},
+        "val_context_health": {
+            "effective_rank": 5.0,
+            "offdiag_abs_mean": 0.3,
+        },
+        "ridge_probe_target_metrics": {
+            "overall_prediction": {"mse": 0.015},
+            "overall_retrieval": {"mrr_mean": 0.11},
+        },
+        "zero_delta_target_baseline": {
+            "overall_prediction": {"mse": 0.02},
+        },
+    }
+    beats_persistence = {
+        "best_val_metrics": {
+            "overall_prediction": {"mse": 0.018},
+            "overall_retrieval": {"mrr_mean": 0.06},
+        },
+        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+    }
+    misses_persistence = {
+        "best_val_metrics": {
+            "overall_prediction": {"mse": 0.022},
+            "overall_retrieval": {"mrr_mean": 0.06},
+        },
+        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+    }
+
+    assert composite_part1_score(beats_persistence, audit)["score"] > composite_part1_score(
+        misses_persistence,
+        audit,
     )["score"]
