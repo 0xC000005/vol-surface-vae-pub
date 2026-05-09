@@ -55,6 +55,9 @@ from experiments.world.part1_jepa_latent.fused_context_delta_pca_predictor impor
     FusedContextDeltaPCAConfig,
     FusedContextDeltaPCAPredictor,
 )
+from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
+    encode_fused_contexts,
+)
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
@@ -456,6 +459,32 @@ def test_fused_context_delta_pca_predictor_combines_sequence_and_direct_branches
 
     assert predicted.shape == (5, 2, 3)
     assert context.shape == (5, 4)
+
+
+def test_fused_context_probe_audit_encodes_contexts():
+    import torch
+
+    torch.manual_seed(43)
+    cfg = FusedContextDeltaPCAConfig(
+        input_dim=2,
+        flat_input_dim=6,
+        hidden_dim=10,
+        context_dim=4,
+        target_dim=3,
+        predictor_hidden_dim=9,
+        horizons=(1, 3),
+    )
+    model = FusedContextDeltaPCAPredictor(cfg)
+    past = np.random.default_rng(43).normal(size=(5, 3, 2)).astype(np.float32)
+
+    contexts = encode_fused_contexts(
+        model,
+        past,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+
+    assert contexts.shape == (5, 4)
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

@@ -116236,3 +116236,48 @@ Artifacts:
 - Ignored outputs: `results/world/part1_fused_context_delta_pca_head038_seed7711.json`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`
 
 ---
+## 2026-05-09: World model HEAD039 fused context probe audit
+
+### Context
+- Continued after HEAD038 promoted the fused-context fixed delta-PCA predictor as the current Part 1 fixed-target reference.
+- This experiment audited whether the frozen fused context itself carries future-state signal, rather than relying only on the trained horizon head.
+
+### Hypothesis / Falsifier
+- Hypothesis: frozen fused contexts should linearly support fixed-PCA future targets and raw horizon deltas while remaining non-collapsed.
+- Falsifier: ridge probes cannot approach trained-head retrieval/top-k, cannot beat a zero-delta baseline, or show collapsed context health.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/fused_context_probe_audit.py`.
+- Loaded the HEAD038 seed `7711` fused-context checkpoint and trained closed-form ridge probes from frozen context to fixed delta-PCA targets and raw horizon deltas.
+- No decoder, retrieval/neighborhood loss, target sweep, or new objective was added.
+
+### Validation
+- Focused red test first failed with `ModuleNotFoundError` for the new audit module.
+- Focused test passed: `pytest test_code/test_world_model_evaluation.py::test_fused_context_probe_audit_encodes_contexts -q`.
+- Full validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `27 passed in 0.76s`.
+- Compile check passed for the new script and test file.
+
+### Result
+- Validation context health: variance min `0.012638`, variance mean `0.153847`, effective rank `6.648142`, participation ratio `4.448062`, off-diagonal absolute mean `0.323006`.
+- Trained head fixed-PCA metrics: MSE `1.000193`, MRR `0.103029`, top5 `0.133594`, top10 `0.226562`, decoded delta MSE `0.015176`, rank `4.585648`.
+- Frozen-context ridge to fixed-PCA: MSE `1.031914`, MRR `0.103763`, top5 `0.136719`, top10 `0.211719`, rank `4.817703`.
+- Frozen-context ridge to raw deltas: MSE `0.015701`, MRR `0.096147`, top5 `0.128125`, top10 `0.196875`, rank `3.016013`.
+- Zero-delta baseline: MSE `0.022376`, MRR `0.023923`, top5 `0.019531`, top10 `0.039062`.
+
+### Mechanism Read
+- The context is non-collapsed and linearly exposes fixed-target neighborhood structure: the ridge probe matches or slightly exceeds trained-head MRR/top5 while losing coordinate MSE.
+- The raw-delta probe strongly beats zero-delta persistence, so the representation carries future-delta information beyond a degenerate baseline.
+- The trained horizon head still matters for fixed-PCA coordinate accuracy.
+
+### Decision / Next Step
+- HEAD039 passes the frozen-probe audit as a Part 1 representation-quality check.
+- Do not move to the decoder yet.
+- Next HEAD should be post-experiment analysis comparing HEAD039 with earlier context-probe baselines and deciding whether the next Part 1 risk is test-split robustness, cross-seed probe robustness, or horizon-specific weakness.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fused_context_probe_audit.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head039_fused_context_probe_audit.md`
+- Ignored output: `results/world/part1_fused_context_probe_audit_head039.json`
+
+---
