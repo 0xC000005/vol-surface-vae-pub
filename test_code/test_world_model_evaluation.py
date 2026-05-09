@@ -55,6 +55,13 @@ from experiments.world.part1_jepa_latent.fused_context_delta_pca_predictor impor
     FusedContextDeltaPCAConfig,
     FusedContextDeltaPCAPredictor,
 )
+from experiments.world.part1_jepa_latent.fused_context_ema_jepa import (
+    FusedContextEMAJEPAConfig,
+    FusedContextEMAJEPAWorldModel,
+    fused_context_ema_jepa_loss,
+    horizon_delta_frames,
+    relative_to_last_observation,
+)
 from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
     build_arg_parser as build_fused_context_probe_arg_parser,
     encode_fused_contexts,
@@ -495,6 +502,37 @@ def test_fused_context_probe_audit_accepts_eval_split():
 
     assert args.eval_split == "test"
     assert args.max_eval_windows == 17
+
+
+def test_fused_context_ema_jepa_uses_relative_context_and_frozen_target():
+    import torch
+
+    torch.manual_seed(56)
+    cfg = FusedContextEMAJEPAConfig(
+        input_dim=2,
+        flat_input_dim=6,
+        hidden_dim=10,
+        latent_dim=4,
+        predictor_hidden_dim=9,
+        horizons=(1, 3),
+    )
+    model = FusedContextEMAJEPAWorldModel(cfg)
+    past = torch.randn(5, 3, 2)
+    future = torch.randn(5, 4, 2)
+
+    rel = relative_to_last_observation(past)
+    deltas = horizon_delta_frames(past, future, horizons=cfg.horizons)
+    out = model(past, future)
+    loss, parts = fused_context_ema_jepa_loss(out)
+
+    assert rel.shape == past.shape
+    assert deltas.shape == (5, 2, 2)
+    assert out["context"].shape == (5, 4)
+    assert out["predicted"].shape == (5, 2, 4)
+    assert out["target"].shape == (5, 2, 4)
+    assert torch.isfinite(loss)
+    assert parts["prediction"] >= 0.0
+    assert all(not param.requires_grad for param in model.target_encoder.parameters())
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

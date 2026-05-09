@@ -116797,3 +116797,43 @@ Artifacts:
 - `experiments/world/reports/world_model_head055_frozen_package_summary.md`
 
 ---
+## 2026-05-09: World model HEAD056 fused-context EMA JEPA
+
+### Context
+- The user explicitly authorized improving Part 1 JEPA after the fixed-PCA reference was identified as useful but not a principled canonical JEPA claim.
+- Literature gate: I-JEPA supports context-to-target representation prediction and target-block design; A-JEPA supports EMA target encoders with time-aware masking/targets; DMT-JEPA neighbor targets were not used because that would reopen the retrieval/neighborhood objective path.
+
+### Hypothesis / Falsifier
+- Hypothesis: old EMA JEPA failures were partly a context bottleneck. A fused GRU/direct context over relative past windows, paired with an EMA target encoder over future horizon-delta frames, should improve learned-target retrieval/rank and become competitive with the fixed-PCA reference.
+- Falsifier: learned-target retrieval remains far below the fixed-PCA reference, frozen contexts do not probe to fixed-PCA/raw-delta targets near reference metrics, or learned target/predicted ranks collapse.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/fused_context_ema_jepa.py`.
+- Added a focused test in `test_code/test_world_model_evaluation.py`.
+- Contract: `relative past -> fused GRU/direct context -> horizon predictor -> z_pred`; `future horizon delta frame -> EMA target encoder -> stopgrad(z_target)`; loss is MSE only.
+- No Barlow Twins, VICReg, retrieval/neighborhood loss, target sweep, decoder component, or fixed-PCA prediction loss was added.
+
+### Result
+- Focused unit test: `1 passed in 0.74s`.
+- Best learned-target epoch: epoch `15`, MSE `0.097189`, MRR `0.054649`, top5 `0.057031`, predicted rank `2.883115`, target rank `3.806809`, context rank `4.441587`.
+- Frozen-context fixed-PCA ridge probe: MSE `1.240337`, MRR `0.069033`, top5 `0.086719`.
+- Frozen-context raw-delta ridge probe: MSE `0.019864`, MRR `0.067651`, top5 `0.074219`.
+- Current fixed-PCA reference remains stronger: fixed-PCA ridge MRR/top5 `0.103763`/`0.136719`, raw-delta ridge MSE/MRR/top5 `0.015701`/`0.096147`/`0.128125`.
+
+### Mechanism Read
+- HEAD056 improves over old EMA JEPA runs, where learned-target MRR was around `0.033-0.034` and predicted rank around `1.7-2.2`.
+- The improvement is not enough to beat the fixed-PCA reference.
+- The failure is no longer just the context bottleneck; the EMA target geometry is still not discriminative enough for the current IV-surface data object.
+- Primary failure class: `latent_prediction`, with residual `collapse` risk.
+
+### Decision / Next Step
+- Do not promote HEAD056; keep the fused-context fixed-PCA reference active.
+- Next Part 1 move should stay canonical but change target construction: analyze a masked full-window JEPA target where context and target encoders see the same relative coordinate family, and future targets are blocks from the same 60-day relative path rather than isolated horizon-delta frames.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fused_context_ema_jepa.py`
+- `experiments/world/reports/world_model_head056_fused_context_ema_jepa.md`
+- `results/world/part1_fused_context_ema_jepa_head056.json`
+- `models/world/checkpoints/part1_jepa_latent/fused_context_ema_jepa_head056.pt`
+
+---
