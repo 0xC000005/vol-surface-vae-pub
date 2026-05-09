@@ -116315,3 +116315,39 @@ Artifacts:
 - Compared ignored outputs under `results/world/`, especially `part1_fused_context_probe_audit_head039.json` and prior `part1_context_probe_audit_head*.json` files.
 
 ---
+## 2026-05-09: World model HEAD041 fused context probe seed check
+
+### Context
+- Continued after HEAD040 identified cross-seed probe robustness as the next Part 1 risk.
+- This experiment reran the HEAD039 frozen fused-context probe audit on the supporting HEAD036 checkpoint, seed `7710`.
+
+### Hypothesis / Falsifier
+- Hypothesis: HEAD039's frozen-probe result is not a seed-specific artifact.
+- Falsifier: seed `7710` loses context rank, fails to beat the zero-delta baseline in raw-delta MSE/retrieval, or cannot reproduce fixed-PCA probe retrieval near the trained head.
+
+### Implementation
+- Reused `experiments/world/part1_jepa_latent/fused_context_probe_audit.py` with checkpoint `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Wrote ignored output `results/world/part1_fused_context_probe_audit_head041_seed7710.json`.
+- No model objective, target, decoder, retrieval loss, or Barlow/VICReg-style term was added.
+
+### Result
+- Validation context health: variance min `0.002247`, variance mean `0.153385`, effective rank `6.551514`, offdiag abs mean `0.347958`.
+- Trained fixed-PCA head: MSE `1.013283`, MRR `0.117733`, top5 `0.157812`, top10 `0.242188`, decoded delta MSE `0.015363`, rank `4.595201`.
+- Frozen-context ridge to fixed-PCA: MSE `1.026062`, MRR `0.118667`, top5 `0.157031`, top10 `0.239063`, rank `4.865685`.
+- Frozen-context ridge to raw deltas: MSE `0.015880`, MRR `0.106107`, top5 `0.125000`, top10 `0.208594`, rank `2.826555`.
+- Zero-delta baseline: MSE `0.022376`, MRR `0.023923`, top5 `0.019531`, top10 `0.039062`.
+
+### Interpretation
+- Cross-seed probe robustness passes: seed `7710` has similar context rank and decoded quality to seed `7711`, and stronger fixed-PCA retrieval.
+- Raw-delta probe retrieval improves over HEAD039 MRR but still trails the strongest older raw-delta retrieval contexts on top5.
+- This strengthens the fused fixed-target Part 1 reference without erasing the HEAD040 caveat.
+
+### Decision / Next Step
+- Do not add Barlow Twins, retrieval/neighborhood losses, or decoder work.
+- Next HEAD should add or use a split-aware fused-context probe audit so the same checks can run on the held-out test split while training ridge probes only on train.
+
+### Artifacts
+- `experiments/world/reports/world_model_head041_fused_context_probe_seed_check.md`
+- Ignored output: `results/world/part1_fused_context_probe_audit_head041_seed7710.json`
+
+---
