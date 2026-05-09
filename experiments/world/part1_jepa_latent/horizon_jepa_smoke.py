@@ -32,6 +32,10 @@ from experiments.world.part1_jepa_latent.jepa_smoke import (  # noqa: E402
 )
 
 
+TargetMode = Literal["prefix", "frame"]
+TargetCoordinate = Literal["absolute", "delta"]
+
+
 @dataclass(frozen=True)
 class HorizonJEPAConfig:
     input_dim: int = 25
@@ -67,7 +71,7 @@ def select_horizon_target(
     future: torch.Tensor,
     *,
     horizon: int,
-    target_mode: Literal["prefix", "frame"] = "prefix",
+    target_mode: TargetMode = "prefix",
 ) -> torch.Tensor:
     if target_mode == "prefix":
         return select_horizon_prefix(future, horizon=horizon)
@@ -80,19 +84,58 @@ def select_horizon_target(
     raise ValueError(f"Unknown target_mode: {target_mode!r}")
 
 
+def select_horizon_delta_target(
+    past: torch.Tensor,
+    future: torch.Tensor,
+    *,
+    horizon: int,
+    target_mode: TargetMode = "prefix",
+) -> torch.Tensor:
+    if past.ndim != 3:
+        raise ValueError(f"past must have shape (B, T, C), got {tuple(past.shape)}")
+    if past.shape[0] != future.shape[0] or past.shape[2] != future.shape[2]:
+        raise ValueError("past and future must share batch and channel dimensions")
+    target = select_horizon_target(future, horizon=horizon, target_mode=target_mode)
+    return target - past[:, -1:, :]
+
+
+def select_horizon_encoder_input(
+    past: torch.Tensor,
+    future: torch.Tensor,
+    *,
+    horizon: int,
+    target_mode: TargetMode,
+    target_coordinate: TargetCoordinate,
+) -> torch.Tensor:
+    if target_coordinate == "absolute":
+        return select_horizon_target(future, horizon=horizon, target_mode=target_mode)
+    if target_coordinate == "delta":
+        return select_horizon_delta_target(
+            past,
+            future,
+            horizon=horizon,
+            target_mode=target_mode,
+        )
+    raise ValueError(f"Unknown target_coordinate: {target_coordinate!r}")
+
+
 class HorizonJEPAWorldModel(nn.Module):
     def __init__(
         self,
         cfg: HorizonJEPAConfig,
         *,
-        target_mode: Literal["prefix", "frame"] = "prefix",
+        target_mode: TargetMode = "prefix",
+        target_coordinate: TargetCoordinate = "absolute",
         target_encoder_mode: Literal["ema", "trainable"] = "ema",
     ):
         super().__init__()
         self.cfg = cfg
         self.horizons = tuple(int(h) for h in cfg.horizons)
         self.target_mode = target_mode
+        self.target_coordinate = target_coordinate
         self.target_encoder_mode = target_encoder_mode
+        if target_coordinate not in {"absolute", "delta"}:
+            raise ValueError(f"Unknown target_coordinate: {target_coordinate!r}")
         if target_encoder_mode not in {"ema", "trainable"}:
             raise ValueError(f"Unknown target_encoder_mode: {target_encoder_mode!r}")
         self.context_encoder = SequenceEncoder(cfg)
@@ -125,10 +168,12 @@ class HorizonJEPAWorldModel(nn.Module):
             )
             horizon_emb = self.horizon_embedding(horizon_ids)
             pred = self.predictor(torch.cat([context, horizon_emb], dim=1))
-            target_input = select_horizon_target(
+            target_input = select_horizon_encoder_input(
+                past,
                 future,
                 horizon=horizon,
                 target_mode=self.target_mode,
+                target_coordinate=self.target_coordinate,
             )
             if self.target_encoder_mode == "ema":
                 with torch.no_grad():
@@ -374,6 +419,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     model = HorizonJEPAWorldModel(
         cfg,
         target_mode=args.target_mode,
+        target_coordinate=args.target_coordinate,
         target_encoder_mode=args.target_encoder_mode,
     ).to(device)
     opt = torch.optim.AdamW(_parameter_groups(model), lr=args.lr, weight_decay=args.weight_decay)
@@ -461,6 +507,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
         "config": asdict(cfg),
         "args": vars(args),
         "target_mode": args.target_mode,
+        "target_coordinate": args.target_coordinate,
         "target_encoder_mode": args.target_encoder_mode,
         "device": str(device),
         "train_shape": {
@@ -504,6 +551,7 @@ def main() -> None:
     parser.add_argument("--predictor_hidden_dim", type=int, default=64)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 5, 10, 20, 30])
     parser.add_argument("--target_mode", choices=("prefix", "frame"), default="prefix")
+    parser.add_argument("--target_coordinate", choices=("absolute", "delta"), default="absolute")
     parser.add_argument("--target_encoder_mode", choices=("ema", "trainable"), default="ema")
     parser.add_argument("--max_train_windows", type=int, default=2048)
     parser.add_argument("--max_val_windows", type=int, default=256)

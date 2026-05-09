@@ -115740,3 +115740,46 @@ Artifacts:
 - `experiments/world/reports/world_model_head024_canonical_jepa_target_ideation.md`
 
 ---
+## 2026-05-09: World model HEAD025 delta-target horizon JEPA
+
+### Context
+- Continued from HEAD024's literature-gated recommendation.
+- User requested avoiding ad-hoc patches and excessive research knobs.
+- This HEAD implemented one canonical target-construction experiment: horizon delta targets before the EMA target encoder, with no new ranking/neighborhood objective.
+
+### Literature Status
+- `canonical_jepa`: context-to-target latent prediction with EMA target encoder and changed target construction.
+- Sources: I-JEPA (`https://arxiv.org/abs/2301.08243`) and V-JEPA (`https://arxiv.org/abs/2404.08471`).
+
+### Hypothesis
+- A horizon-delta target coordinate should make EMA horizon-JEPA less persistence-dominated than absolute future targets.
+- Falsifier: delta-target EMA JEPA still produces low-rank predicted latents and fails persistence/retrieval gates.
+
+### Execution
+- Added `select_horizon_delta_target`, `select_horizon_encoder_input`, and `--target_coordinate {absolute,delta}` to `experiments/world/part1_jepa_latent/horizon_jepa_smoke.py`.
+- Added focused TDD coverage in `test_code/test_world_model_evaluation.py`.
+- Ran one CPU smoke with `target_mode=frame`, `target_coordinate=delta`, `target_encoder_mode=ema`, `retrieval_weight=0.0`, and the existing variance/covariance health terms.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `19 passed in 0.71s`.
+- Best epoch: `10`.
+- Best validation metrics: MRR `0.042356`, top1 `0.003906`, top5 `0.043750`, top10 `0.091406`, MSE `0.263569`.
+- Predicted effective rank at the selected epoch: `1.262683`; target effective rank: `2.077708`; predicted offdiag abs mean: `0.787735`.
+- Raw horizon-frame persistence reference on the same validation windows: MRR `0.052426`, top5 `0.086719`, top10 `0.135156`, MSE `0.022376`.
+
+### Mechanism Read
+- The delta coordinate improved over the old learned-target JEPA runs, but it still fails the Part 1 gate.
+- The EMA target encoder's delta-frame latent is itself low-rank, and the predictor's best MRR arrives with even stronger low-rank collapse.
+- Early higher-rank epochs do not retrieve well enough, so the next issue is target-space stability, not another loss knob.
+
+### Decision / Next Step
+- Continue JEPA-only, but do not add another loss term or sweep a new weight.
+- Next HEAD should be `post_experiment_analysis`: audit target and predicted latent spectra over epochs/horizons and decide whether to stabilize the target through a fixed target embedding contract or separate target-space pretraining before returning to EMA JEPA.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/horizon_jepa_smoke.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head025_delta_target_horizon_jepa.md`
+- Ignored outputs: `results/world/part1_horizon_delta_frame_jepa_head025.json`, `models/world/checkpoints/part1_jepa_latent/horizon_delta_frame_jepa_head025.pt`
+
+---

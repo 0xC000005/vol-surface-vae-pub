@@ -24,6 +24,7 @@ from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (
     HorizonJEPAConfig,
     HorizonJEPAWorldModel,
     horizon_jepa_loss,
+    select_horizon_delta_target,
     select_horizon_prefix,
     select_horizon_target,
 )
@@ -234,6 +235,39 @@ def test_horizon_jepa_selects_prefixes_and_scores_loss():
     assert torch.isfinite(loss)
     assert parts["prediction"] >= 0.0
     assert parts["retrieval"] > 0.0
+
+
+def test_horizon_jepa_delta_target_subtracts_last_past_frame():
+    import torch
+
+    past = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[-1.0, 0.5], [2.0, -3.0]],
+        ]
+    )
+    future = torch.tensor(
+        [
+            [[4.0, 5.0], [7.0, 9.0], [10.0, 12.0]],
+            [[3.0, -1.0], [4.0, -2.0], [8.0, 1.0]],
+        ]
+    )
+
+    delta_frame = select_horizon_delta_target(
+        past,
+        future,
+        horizon=2,
+        target_mode="frame",
+    )
+    delta_prefix = select_horizon_delta_target(
+        past,
+        future,
+        horizon=2,
+        target_mode="prefix",
+    )
+
+    torch.testing.assert_close(delta_frame[:, 0, :], future[:, 1, :] - past[:, -1, :])
+    torch.testing.assert_close(delta_prefix, future[:, :2, :] - past[:, -1:, :])
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():
