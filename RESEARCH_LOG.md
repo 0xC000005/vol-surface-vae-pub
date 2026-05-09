@@ -115416,3 +115416,39 @@ Artifacts:
 - Ignored output: `results/world/part1_context_composite_scores_head016.json`
 
 ---
+## 2026-05-09: World model HEAD017 mild head retrieval adjustment
+
+### Context
+- Continued JEPA-only autoresearch after HEAD016 corrected the composite score to enforce the frame-MSE persistence gate.
+- This iteration tested a milder head-side retrieval adjustment than HEAD015 while keeping the HEAD013-style light context-correlation objective.
+
+### Hypothesis
+- A milder head-side retrieval adjustment should recover some retrieval sharpness from the healthier context while preserving the corrected frame-MSE persistence gate.
+- Falsifier: the run either fails to beat HEAD013 under the corrected composite score or repeats HEAD015's frame-MSE persistence failure.
+
+### Execution
+- No code changes.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --hidden_dim 64 --context_dim 32 --predictor_hidden_dim 192 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.075 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.0 --context_correlation_weight 0.002 --context_variance_gamma 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_corrreg_mildhead_head017.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_head017.pt`.
+- Audited the checkpoint with `context_probe_audit.py` and scored it against HEAD013 with the corrected composite scorer.
+
+### Result
+- MRR-selected checkpoint was epoch 7 with frame MSE `0.021182`, MRR mean `0.058656`, top1 `0.018750`, top5 `0.068750`, and top10 `0.134375`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context audit: effective rank `5.323299`, offdiag abs mean `0.352284`, ridge MSE `0.017022`, ridge MRR mean `0.110486`, top1 `0.051563`, top5 `0.137500`, top10 `0.233594`.
+- Corrected composite score ranked HEAD017 `0.587240` above HEAD013 `0.581476`.
+
+### Mechanism Read
+- HEAD017 is the new best corrected-composite candidate.
+- It improves frame MSE, frame MRR/top1, context rank, and ridge MRR relative to HEAD013 without repeating HEAD015's persistence failure.
+- The remaining bottleneck is broader retrieval ranking: frame top5 remains below persistence and frame top10 is slightly below persistence.
+
+### Decision / Next Step
+- Continue JEPA-only with HEAD017 as the current fixed-delta context candidate.
+- Add or tune a top-k-aware selection/evaluation criterion so candidates cannot improve top1/MRR while losing top5/top10 against persistence.
+- Avoid the aggressive HEAD015 contrastive setting.
+
+### Artifacts
+- `experiments/world/reports/world_model_head017_mild_head_retrieval.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_head017.json`, `results/world/part1_context_probe_audit_head017.json`, `results/world/part1_context_composite_scores_head017.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_head017.pt`
+
+---
