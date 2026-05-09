@@ -116281,3 +116281,37 @@ Artifacts:
 - Ignored output: `results/world/part1_fused_context_probe_audit_head039.json`
 
 ---
+## 2026-05-09: World model HEAD040 probe baseline comparison
+
+### Context
+- Continued after HEAD039 showed the fused-context fixed delta-PCA model passes a frozen-probe audit on the HEAD038 seed.
+- This was post-experiment analysis to compare HEAD039 against the older raw-delta context-probe family and answer whether the next move should be decoder work, a Barlow/VICReg-style objective, or more Part 1 validation.
+
+### Literature / Framing
+- No new objective was introduced.
+- The active direction remains JEPA-style because it predicts future target representations from past context representations, consistent with I-JEPA/V-JEPA/TS-JEPA principles.
+- The fixed delta-PCA target contract remains `supported_adjacent`, not canonical I-JEPA, because it stabilizes the target space after learned EMA target collapse.
+- Barlow Twins is not the active loss. Its redundancy-reduction idea is only adjacent motivation for variance/covariance diagnostics; VJ-VCR or VICReg would be the cleaner framing if explicit variance/covariance regularization is revisited.
+
+### Evidence
+- HEAD039 raw-delta ridge probe has the best MSE among compared context probes: `0.015701` vs HEAD015 `0.016111`, HEAD013 `0.016903`, HEAD017/HEAD023 `0.017022`, and HEAD010 `0.017107`.
+- HEAD039 has the healthiest context structure in this comparison: rank `6.648142`, offdiag `0.323006`, variance mean `0.153847`.
+- HEAD039 is not the best raw-delta retrieval representation: MRR/top5/top10 `0.096147`/`0.128125`/`0.196875` trails HEAD010 `0.111537`/`0.147656`/`0.228906` and HEAD023 `0.111229`/`0.142187`/`0.226562`.
+- Horizon read: HEAD039 raw-delta retrieval is weakest at h5/h10 relative to the older context probes, while h30 top5 is competitive.
+- HEAD039 trained fixed-PCA head still has the best decoded-delta MSE in this branch (`0.015176`), but fixed-PCA retrieval is not directly equivalent to raw-delta retrieval.
+
+### Interpretation
+- The fused fixed-target model is a stronger coordinate/decoded-surface representation, not a uniformly stronger retrieval representation.
+- Older retrieval/contrastive contexts remain useful diagnostic baselines, but prior evidence says they should not be promoted as the main direction because they lost forecast/decode gates or were noncanonical.
+- The correct next risk is robustness, not another objective or decoder jump.
+
+### Decision / Next Step
+- Do not move to the decoder yet.
+- Do not add Barlow Twins, retrieval, or neighborhood objectives.
+- Next HEAD should run the HEAD039 fused-context probe audit on the supporting HEAD036 seed. If that agrees, run the same audit on a held-out test split or create a reusable split-aware probe wrapper.
+
+### Artifacts
+- `experiments/world/reports/world_model_head040_probe_baseline_comparison.md`
+- Compared ignored outputs under `results/world/`, especially `part1_fused_context_probe_audit_head039.json` and prior `part1_context_probe_audit_head*.json` files.
+
+---
