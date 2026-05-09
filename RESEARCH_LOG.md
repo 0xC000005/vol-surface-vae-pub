@@ -115846,3 +115846,47 @@ Artifacts:
 - `experiments/world/reports/world_model_head027_fixed_target_contract_ideation.md`
 
 ---
+## 2026-05-09: World model HEAD028 fixed delta-PCA diagnostic
+
+### Context
+- Continued from HEAD027's fixed target contract ideation.
+- This was the one planned fixed target diagnostic: `k=8` PCA/whitened horizon-delta targets, MSE prediction only, no retrieval/neighborhood loss and no decoder.
+
+### Literature Status
+- `supported_adjacent`, not `canonical_jepa`.
+- This is a diagnostic target-space contract, not a replacement for JEPA's learned target encoder.
+
+### Hypothesis
+- A fixed PCA/whitened horizon-delta target should avoid the target-space collapse seen in HEAD025 and provide a usable Part 1 target contract.
+- Falsifier: predicted fixed-target retrieval does not beat HEAD025 MRR `0.042356`, predicted rank remains near `1`, or decoded deltas do not improve over raw persistence frame MSE.
+
+### Execution
+- Added `experiments/world/part1_jepa_latent/fixed_delta_pca_jepa.py`.
+- Added focused tests in `test_code/test_world_model_evaluation.py`.
+- Ran one CPU smoke with `target_dim=8`, `epochs=25`, `max_train_windows=2048`, `max_val_windows=256`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `21 passed in 0.75s`.
+- Best epoch: `25`.
+- Fixed-target MRR `0.096374`, top1 `0.035156`, top5 `0.132031`, top10 `0.203125`.
+- Decoded delta MSE `0.015369`.
+- Predicted effective rank `3.863753`; target effective rank `3.327211`; context rank `4.874274`.
+- Raw persistence reference: MRR `0.052426`, top5 `0.086719`, top10 `0.135156`, frame MSE `0.022376`.
+- HEAD025 learned delta EMA MRR was `0.042356`.
+
+### Mechanism Read
+- The fixed target contract passes the diagnostic.
+- Stable whitened delta targets avoid the rank-1 collapse seen in HEAD025 and expose a much stronger learnable future-delta signal.
+- This does not prove a learned target encoder works; it proves the target space is worth predicting if the contract is fixed and well-conditioned.
+
+### Decision / Next Step
+- Promote fixed delta-PCA as the current Part 1 target-space diagnostic contract, not as the final model family.
+- Next HEAD should be post-experiment analysis: compare HEAD028 to supervised delta-frame references without mixing incompatible metrics, then decide whether the next learned-target attempt should distill or reconstruct this fixed target contract.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fixed_delta_pca_jepa.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head028_fixed_delta_pca_diagnostic.md`
+- Ignored outputs: `results/world/part1_fixed_delta_pca_jepa_head028.json`, `models/world/checkpoints/part1_jepa_latent/fixed_delta_pca_jepa_head028.pt`
+
+---

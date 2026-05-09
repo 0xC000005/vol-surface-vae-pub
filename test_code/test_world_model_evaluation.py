@@ -28,6 +28,12 @@ from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (
     select_horizon_prefix,
     select_horizon_target,
 )
+from experiments.world.part1_jepa_latent.fixed_delta_pca_jepa import (
+    fit_delta_pca_target,
+    inverse_transform_delta_targets,
+    make_horizon_delta_matrix,
+    transform_delta_targets,
+)
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
@@ -268,6 +274,47 @@ def test_horizon_jepa_delta_target_subtracts_last_past_frame():
 
     torch.testing.assert_close(delta_frame[:, 0, :], future[:, 1, :] - past[:, -1, :])
     torch.testing.assert_close(delta_prefix, future[:, :2, :] - past[:, -1:, :])
+
+
+def test_fixed_delta_pca_target_round_trips_rank_two_deltas():
+    train_deltas = np.array(
+        [
+            [[1.0, 0.0, 2.0], [0.0, 1.0, -1.0]],
+            [[2.0, 0.0, 4.0], [0.0, 2.0, -2.0]],
+            [[-1.0, 0.0, -2.0], [0.0, -1.0, 1.0]],
+            [[-2.0, 0.0, -4.0], [0.0, -2.0, 2.0]],
+        ],
+        dtype=np.float32,
+    )
+    target = fit_delta_pca_target(train_deltas, target_dim=2)
+    z = transform_delta_targets(train_deltas, target)
+    reconstructed = inverse_transform_delta_targets(z, target)
+
+    assert z.shape == (4, 2, 2)
+    np.testing.assert_allclose(reconstructed, train_deltas, atol=1e-5)
+
+
+def test_make_horizon_delta_matrix_uses_requested_horizons():
+    past = np.array(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[0.0, 1.0], [2.0, 3.0]],
+        ],
+        dtype=np.float32,
+    )
+    future = np.array(
+        [
+            [[4.0, 6.0], [5.0, 9.0], [7.0, 10.0]],
+            [[3.0, 5.0], [4.0, 8.0], [8.0, 11.0]],
+        ],
+        dtype=np.float32,
+    )
+
+    deltas = make_horizon_delta_matrix(past, future, horizons=(1, 3))
+
+    assert deltas.shape == (2, 2, 2)
+    np.testing.assert_allclose(deltas[:, 0, :], future[:, 0, :] - past[:, -1, :])
+    np.testing.assert_allclose(deltas[:, 1, :], future[:, 2, :] - past[:, -1, :])
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():
