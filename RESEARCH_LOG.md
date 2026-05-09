@@ -115150,3 +115150,42 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_contrastive_mrr_head009.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_mrr_head009.pt`
 
 ---
+## 2026-05-09: World model HEAD010 context probe audit
+
+### Context
+- Continued JEPA-only autoresearch after HEAD009 saved a retrieval-selected fixed-delta checkpoint.
+- This iteration checked whether the learned context state itself is predictive and healthy, rather than only evaluating the trained horizon head.
+
+### Hypothesis
+- The retrieval-selected fixed-delta checkpoint should contain a context state that is future-predictive under a frozen linear probe.
+- Falsifier: frozen context embeddings are collapsed/near-constant or a linear probe cannot beat the zero-delta baseline on horizon-delta targets.
+
+### Execution
+- Added `experiments/world/part1_jepa_latent/context_probe_audit.py`.
+- The audit loads a supervised fixed-delta checkpoint, encodes train/validation contexts, measures representation health, fits frozen ridge probes from context to horizon-delta targets, and compares against zero-delta and trained-head target metrics.
+- Added ridge-probe tests in `test_code/test_world_model_evaluation.py`.
+- Ran `python experiments/world/part1_jepa_latent/context_probe_audit.py --device cpu --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --ridge_alpha 0.001 --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contrastive_mrr_head009.pt --output_json results/world/part1_context_probe_audit_head010.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `11 passed in 0.70s`.
+- Validation context health: variance min `0.003021`, variance mean `0.014709`, effective rank `3.688405`, participation ratio `2.214723`, offdiag abs mean `0.484346`, offdiag abs max `0.969168`.
+- Frozen ridge probe on horizon-delta targets: MSE `0.017107`, RMSE `0.130792`, cosine `0.402427`, MRR mean `0.111537`, top1 `0.050000`, top5 `0.147656`, top10 `0.228906`.
+- Zero-delta target baseline: MSE `0.022376`, MRR mean `0.023923`, top1 `0.003906`, top5 `0.019531`, top10 `0.039063`.
+- Trained horizon head in target space: MSE `0.021263`, MRR mean `0.081859`, top1 `0.026563`, top5 `0.103906`, top10 `0.182031`.
+
+### Mechanism Read
+- The context state is not collapsed and contains future-predictive information: a frozen linear probe beats both zero-delta and the trained nonlinear horizon head on target-space MSE and retrieval.
+- The context state is still highly redundant: effective rank is only about `3.69` out of `32`, and off-diagonal correlations are high.
+- The immediate Part 1 issue is no longer "no predictive signal"; it is extracting and spreading that signal across a healthier JEPA representation.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Add direct context variance/covariance regularization to the supervised fixed-delta lower bound.
+- Keep retrieval-selected checkpointing and the context probe audit as gates; falsify the change if context rank rises only by sacrificing fixed-delta MSE/retrieval.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/context_probe_audit.py`
+- `experiments/world/reports/world_model_head010_context_probe_audit.md`
+- Ignored output: `results/world/part1_context_probe_audit_head010.json`
+
+---

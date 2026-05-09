@@ -35,6 +35,10 @@ from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     make_horizon_frame_targets,
     supervised_horizon_loss,
 )
+from experiments.world.part1_jepa_latent.context_probe_audit import (
+    ridge_probe_metrics,
+    ridge_probe_predict,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -312,3 +316,60 @@ def test_checkpoint_selection_score_prefers_requested_metric():
     assert checkpoint_selection_score(low_mse, "mse") > checkpoint_selection_score(high_mrr, "mse")
     assert checkpoint_selection_score(high_mrr, "mrr") > checkpoint_selection_score(low_mse, "mrr")
     assert checkpoint_selection_score(low_mse, "top5") > checkpoint_selection_score(high_mrr, "top5")
+
+
+def test_ridge_probe_predict_recovers_linear_multivariate_targets():
+    train_x = np.array(
+        [
+            [0.0, 1.0],
+            [1.0, 0.0],
+            [1.0, 1.0],
+            [2.0, -1.0],
+        ],
+        dtype=np.float64,
+    )
+    weights = np.array([[1.0, -2.0, 0.5], [0.25, 1.5, -1.0]], dtype=np.float64)
+    bias = np.array([0.5, -0.25, 0.75], dtype=np.float64)
+    train_y = train_x @ weights + bias
+    val_x = np.array([[0.5, 0.5], [3.0, -2.0]], dtype=np.float64)
+    val_y = val_x @ weights + bias
+
+    pred = ridge_probe_predict(train_x, train_y, val_x, alpha=1e-9)
+
+    assert np.mean((pred - val_y) ** 2) < 1e-10
+
+
+def test_ridge_probe_metrics_reports_horizon_metrics():
+    train_context = np.array(
+        [
+            [0.0, 1.0],
+            [1.0, 0.0],
+            [1.0, 1.0],
+            [2.0, -1.0],
+        ],
+        dtype=np.float64,
+    )
+    val_context = np.array([[0.5, 0.5], [3.0, -2.0]], dtype=np.float64)
+    weights_h1 = np.array([[1.0, -1.0], [0.5, 0.25]], dtype=np.float64)
+    weights_h5 = np.array([[0.25, 1.5], [-1.0, 0.75]], dtype=np.float64)
+    train_targets = np.stack(
+        [train_context @ weights_h1, train_context @ weights_h5],
+        axis=1,
+    )
+    val_targets = np.stack(
+        [val_context @ weights_h1, val_context @ weights_h5],
+        axis=1,
+    )
+
+    metrics = ridge_probe_metrics(
+        train_context,
+        val_context,
+        train_targets,
+        val_targets,
+        horizons=(1, 5),
+        alpha=1e-9,
+    )
+
+    assert metrics["overall_prediction"]["mse"] < 1e-10
+    assert metrics["per_horizon"]["1"]["prediction"]["mse"] < 1e-10
+    assert metrics["per_horizon"]["5"]["prediction"]["mse"] < 1e-10
