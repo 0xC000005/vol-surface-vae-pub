@@ -116933,3 +116933,42 @@ Artifacts:
 - `experiments/world/reports/world_model_head059_part1_branch_decision.md`
 
 ---
+## 2026-05-09: World model HEAD060 joint path-PCA target
+
+### Context
+- Continued after HEAD059 paused the EMA target-encoder branch and selected one fixed joint future-path PCA target experiment.
+- The goal was to improve Part 1 JEPA target geometry without adding Barlow Twins, VICReg, retrieval/neighborhood objectives, target sweeps, decoder work, or new scalar loss weights.
+
+### Literature Status
+- `supported_adjacent`.
+- The model remains JEPA-style because it predicts a future latent target from past context with MSE, but the target is a fixed train-fit whitened PCA code over the joint future horizon-delta path rather than a canonical EMA target encoder.
+
+### Hypothesis / Falsifier
+- Hypothesis: a single target over the full future horizon-delta path `(1, 5, 10, 20, 30)` preserves cross-horizon and cross-cell covariance better than isolated per-horizon targets, improving decoded-delta quality, retrieval, and frozen-context raw-delta probes.
+- Falsifier: decoded-delta MSE is not competitive with the fixed-PCA reference, path-code retrieval is weak, frozen context remains poor on raw-delta probes, or context health collapses.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/joint_path_pca_predictor.py`.
+- Added a focused round-trip and predictor-shape test in `test_code/test_world_model_evaluation.py`.
+- Contract: train-fit joint path PCA target, fused GRU/direct context, single predictor, MSE loss.
+
+### Result
+- Real-data command: `python experiments/world/part1_jepa_latent/joint_path_pca_predictor.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_dim 16 --hidden_dim 64 --context_dim 32 --predictor_hidden_dim 128 --seed 7714 --output_json results/world/part1_joint_path_pca_head060.json --checkpoint models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt`.
+- Best epoch `13`: path-code MSE/MRR/top5 `0.951244`/`0.133841`/`0.175781`; decoded-delta MSE/MRR/top5 `0.015530`/`0.094780`/`0.131250`.
+- Context health: effective rank `9.204105`, offdiag abs mean `0.282073`.
+- Frozen context ridge to joint path-PCA: MSE/MRR/top5 `0.976923`/`0.141879`/`0.207031`.
+- Frozen context ridge to raw deltas: MSE/MRR/top5 `0.015436`/`0.101809`/`0.126563`.
+- Compared with the HEAD038 primary validation reference, HEAD060 is slightly worse on trained decoded-delta MSE (`0.015530` vs `0.015176`) but better on raw-delta ridge MSE/MRR (`0.015436`/`0.101809` vs `0.015701`/`0.096147`) and context rank/offdiag (`9.204105`/`0.282073` vs `6.648142`/`0.323006`).
+
+### Decision / Next Step
+- Promote HEAD060 as a provisional Part 1 candidate, not a replacement reference yet.
+- Next iteration should run a split-aware held-out test audit for the joint path-PCA checkpoint using train-only PCA/ridge fitting and test-window evaluation.
+- Do not update `reference_manifest.json` until the test audit and/or a seed repeat confirms the validation result.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/joint_path_pca_predictor.py`
+- `experiments/world/reports/world_model_head060_joint_path_pca.md`
+- `results/world/part1_joint_path_pca_head060.json`
+- `models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt`
+
+---

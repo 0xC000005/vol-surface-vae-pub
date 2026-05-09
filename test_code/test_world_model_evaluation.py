@@ -63,6 +63,13 @@ from experiments.world.part1_jepa_latent.fused_context_ema_jepa import (
     horizon_delta_target_block,
     relative_to_last_observation,
 )
+from experiments.world.part1_jepa_latent.joint_path_pca_predictor import (
+    FusedContextJointPathPCAConfig,
+    FusedContextJointPathPCAPredictor,
+    fit_joint_delta_path_pca_target,
+    inverse_transform_joint_delta_path_targets,
+    transform_joint_delta_path_targets,
+)
 from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
     build_arg_parser as build_fused_context_probe_arg_parser,
     encode_fused_contexts,
@@ -562,6 +569,36 @@ def test_fused_context_ema_jepa_prefix_targets_use_future_blocks():
     torch.testing.assert_close(prefix[:, -1:, :], frame)
     assert out["predicted"].shape == (5, 2, 4)
     assert out["target"].shape == (5, 2, 4)
+
+
+def test_joint_path_pca_target_roundtrips_and_predictor_shapes():
+    import torch
+
+    torch.manual_seed(60)
+    deltas = np.random.default_rng(60).normal(size=(8, 2, 3)).astype(np.float32)
+    target = fit_joint_delta_path_pca_target(deltas, horizons=(1, 3), target_dim=6)
+    z = transform_joint_delta_path_targets(deltas, target)
+    decoded = inverse_transform_joint_delta_path_targets(z, target)
+
+    assert z.shape == (8, 6)
+    assert decoded.shape == deltas.shape
+    np.testing.assert_allclose(decoded, deltas, atol=1e-5)
+
+    cfg = FusedContextJointPathPCAConfig(
+        input_dim=2,
+        flat_input_dim=6,
+        hidden_dim=10,
+        context_dim=4,
+        target_dim=5,
+        predictor_hidden_dim=9,
+        horizons=(1, 3),
+    )
+    model = FusedContextJointPathPCAPredictor(cfg)
+    past = torch.randn(5, 3, 2)
+    predicted, context = model(past, return_context=True)
+
+    assert predicted.shape == (5, 5)
+    assert context.shape == (5, 4)
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():
