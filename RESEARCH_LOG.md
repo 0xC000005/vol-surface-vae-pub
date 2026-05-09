@@ -114853,3 +114853,43 @@ Verification:
 - `python -m json.tool results/baselines_current_panel/manifest.json`
 
 ---
+## 2026-05-09: World model HEAD002 smoke dataset and metric harness
+
+Context:
+- Continued the world-model autoresearch loop after HEAD001 defined the local data and evaluation contract.
+- This iteration implemented the first reusable harness rather than training a JEPA model.
+
+Hypothesis:
+- A small manifest-aligned harness can build IV 30/30 windows and score placeholder Part 1 and Part 2 outputs without new data, online dependencies, or full model training.
+
+Execution:
+- Added `experiments/world/evaluation/world_data.py` for manifest-style train/validation/test window construction over `data/vol_surface_with_ret.npz`.
+- Added `experiments/world/evaluation/part1_metrics.py` with latent prediction, retrieval, and representation-health diagnostics.
+- Added `experiments/world/evaluation/part2_metrics.py` with compact decoder sample diagnostics for `(B, S, 30, 5, 5)` or flattened path samples.
+- Added `test_code/test_world_model_evaluation.py` and updated `experiments/world/evaluation/README.md`.
+
+Result:
+- `pytest test_code/test_world_model_evaluation.py -q` passed: `3 passed in 0.07s`.
+- Real-data smoke loaded train windows `(64, 30, 25)` and validation windows `(32, 30, 25)` with regime labels for the train subset.
+- Validation starts matched the expected manifest-style split: `[4010, 4011, 4012] ... [4039, 4040, 4041]` for the 32-window smoke.
+- Placeholder Part 1 metrics were finite: last-past-frame versus mean-future latent gave MSE `0.0128497`, cosine mean `0.984405`, top1 retrieval `0.03125`, top5 retrieval `0.15625`, effective rank `1.19985`, and off-diagonal absolute correlation mean `0.95179`.
+- Placeholder Part 2 metrics were finite for tiny jitter around truth: coverage90 `0.85`, variance ratio `0.002387`, pairwise distance `0.3860`, correlation Frobenius `9.7649`, and PC1 alignment `0.9377`.
+
+Mechanism read:
+- The placeholder Part 1 health metrics already expose the kind of low-rank/high-correlation redundancy the JEPA branch must beat.
+- The compact Part 2 scorer is only a shape/finite-output smoke at this point; it is not generator-quality evidence.
+- The bottleneck has moved from data plumbing to the first actual Part 1 falsifier.
+
+Decision / next step:
+- Proceed to a minimal IV-only JEPA latent smoke under `experiments/world/part1_jepa_latent/`.
+- Train a small context encoder, target encoder, and horizon predictor; evaluate prediction, retrieval, variance, effective rank, and off-diagonal covariance/correlation against the placeholder baseline.
+- Do not attach the flow decoder until Part 1 has a non-collapsed baseline.
+
+Artifacts:
+- `experiments/world/evaluation/world_data.py`
+- `experiments/world/evaluation/part1_metrics.py`
+- `experiments/world/evaluation/part2_metrics.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head002_harness.md`
+
+---

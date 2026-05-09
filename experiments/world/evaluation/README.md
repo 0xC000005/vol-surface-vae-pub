@@ -2,6 +2,13 @@
 
 Keep the two claims separate.
 
+## Modules
+
+- `world_data.py`: manifest-aligned IV 30/30 window builder.
+- `part1_metrics.py`: latent prediction, retrieval, and representation-health
+  diagnostics.
+- `part2_metrics.py`: compact path-sample diagnostics for decoder smokes.
+
 ## Part 1 Metrics
 
 These test whether the latent world model learned useful future-predictive
