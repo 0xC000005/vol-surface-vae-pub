@@ -115706,3 +115706,37 @@ Artifacts:
 - `docs/research_protocols/world_model_autoresearch_plan.md`
 
 ---
+## 2026-05-09: World model HEAD024 canonical JEPA target ideation
+
+### Context
+- Resumed JEPA-only world-model autoresearch after adding the literature gate.
+- User requested avoiding ad-hoc patches and excessive research knobs.
+- HEAD023 showed the soft-neighborhood objective was a negative diagnostic, not a promoted JEPA direction.
+
+### Literature Status
+- `canonical_jepa`: I-JEPA and V-JEPA support context-to-target latent prediction, EMA or stop-gradient target encoders, target construction, masking/horizon design, and simple latent prediction losses.
+- `supported_adjacent`: VJ-VCR supports variance/covariance regularization as a JEPA collapse-control mechanism.
+- `not selected now`: Var-JEPA is principled for uncertainty and latent generative structure, but it is a larger paradigm shift than the next small HEAD step.
+
+### Hypothesis
+- The active bottleneck is target construction, not missing neighborhood/ranking losses.
+- Absolute future targets are persistence-dominated, while the supervised lower bound showed horizon deltas are learnable and discriminative.
+- Falsifier for the next experiment: canonical EMA horizon-JEPA on delta targets still produces low-rank predicted latents and fails persistence/retrieval/probe gates.
+
+### Execution
+- No model code changes in this ideation HEAD.
+- Reviewed local HEAD006, HEAD007, HEAD013, and HEAD023 evidence.
+- Reviewed primary-source JEPA literature and classified the next candidate as `canonical_jepa`.
+- Wrote `experiments/world/reports/world_model_head024_canonical_jepa_target_ideation.md`.
+
+### Decision / Next Step
+- Do not add another retrieval, top-k, neighborhood, or decoder objective.
+- Implement exactly one canonical target-construction experiment next:
+  `future horizon target = future block - last observed past frame` before the EMA target encoder.
+- Keep the loss to latent prediction plus existing variance/covariance health terms.
+- Keep retrieval/probe metrics as evaluation-only gates.
+
+### Artifacts
+- `experiments/world/reports/world_model_head024_canonical_jepa_target_ideation.md`
+
+---
