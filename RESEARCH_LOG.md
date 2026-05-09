@@ -116500,3 +116500,34 @@ Artifacts:
 - `experiments/world/part1_jepa_latent/reference_manifest.json`
 
 ---
+## 2026-05-09: World model HEAD046 manifest provenance sanity
+
+### Context
+- Continued after HEAD045 created the Part 1 reference manifest.
+- This iteration checked that the manifest is valid, points to existing artifacts, and reconciles key metrics against source JSON outputs.
+
+### Hypothesis / Falsifier
+- Hypothesis: the manifest should be internally valid and reproduce key metrics from source probe JSONs within rounding tolerance.
+- Falsifier: invalid JSON, missing referenced artifacts, or metric mismatches.
+
+### Checks
+- `python -m json.tool experiments/world/part1_jepa_latent/reference_manifest.json`.
+- `python -m json.tool autoresearch-session/world_model_state.json`.
+- Path-existence check over every checkpoint/result/report path referenced by the manifest.
+- Metric reconciliation from the four source probe JSONs into the manifest summary table.
+
+### Finding / Fix
+- Initial reconciliation showed recorded metrics matched, but the manifest omitted `context_variance_mean`.
+- Added `context_variance_mean` to all four summary rows because it is useful for the Part 1 non-collapse handoff.
+- Final reconciliation checked 12 fields per row with 0 mismatches across validation seed `7711`, validation seed `7710`, test seed `7711`, and test seed `7710`.
+
+### Decision / Next Step
+- The Part 1 manifest is now provenance-consistent with the source artifacts.
+- Do not add Barlow Twins, retrieval/neighborhood objectives, target sweeps, or more Part 1 knobs unless a new documented failure appears.
+- Do not start decoder work unless explicitly requested.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/reference_manifest.json`
+- `experiments/world/reports/world_model_head046_manifest_provenance_sanity.md`
+
+---

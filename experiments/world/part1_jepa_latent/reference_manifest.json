@@ -49,6 +49,7 @@
     "validation_seed_7711": {
       "context_effective_rank": 6.648142,
       "context_offdiag_abs_mean": 0.323006,
+      "context_variance_mean": 0.153847,
       "trained_decoded_delta_mse": 0.015176,
       "trained_fixed_pca_mrr": 0.103029,
       "trained_fixed_pca_top5": 0.133594,
@@ -62,6 +63,7 @@
     "validation_seed_7710": {
       "context_effective_rank": 6.551514,
       "context_offdiag_abs_mean": 0.347958,
+      "context_variance_mean": 0.153385,
       "trained_decoded_delta_mse": 0.015363,
       "trained_fixed_pca_mrr": 0.117733,
       "trained_fixed_pca_top5": 0.157812,
@@ -75,6 +77,7 @@
     "test_seed_7711": {
       "context_effective_rank": 7.534067,
       "context_offdiag_abs_mean": 0.310717,
+      "context_variance_mean": 0.121553,
       "trained_decoded_delta_mse": 0.017769,
       "trained_fixed_pca_mrr": 0.119919,
       "trained_fixed_pca_top5": 0.155469,
@@ -88,6 +91,7 @@
     "test_seed_7710": {
       "context_effective_rank": 7.508093,
       "context_offdiag_abs_mean": 0.32109,
+      "context_variance_mean": 0.142549,
       "trained_decoded_delta_mse": 0.017537,
       "trained_fixed_pca_mrr": 0.124176,
       "trained_fixed_pca_top5": 0.175781,
