@@ -115921,3 +115921,33 @@ Artifacts:
 - `experiments/world/reports/world_model_head029_fixed_pca_reference_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD030 target encoder distillation ideation
+
+### Context
+- Continued JEPA-only after HEAD029 separated fixed-target retrieval from frame-space metrics.
+- The next question was how to reintroduce a learned target encoder without adding ad hoc predictor losses or extra research knobs.
+
+### Literature Status
+- `supported_adjacent`, not `canonical_jepa`.
+- I-JEPA/A-JEPA support latent context-to-target prediction with careful target construction and EMA target encoders.
+- BYOL, SimSiam, and DINO support the adjacent teacher/student, stop-gradient, and self-distillation stabilization pattern.
+- This supports one bounded target-encoder teacher-contract diagnostic, not neighborhood losses, contrastive losses, or decoder work.
+
+### Local Evidence
+- HEAD025 learned delta EMA JEPA: MRR `0.042356`, predicted rank `1.262683`, target rank `2.077708`.
+- HEAD028 fixed delta-PCA diagnostic: fixed-target MRR `0.096374`, decoded delta MSE `0.015369`, predicted rank `3.863753`, target rank `3.327211`.
+- The fixed PCA oracle residual on the same validation contract is `0.001846` delta MSE.
+
+### Hypothesis / Falsifier
+- Hypothesis: a small learned target encoder can imitate the fixed delta-PCA contract when trained directly on future horizon deltas.
+- Falsifier: target-to-PCA MSE remains close to HEAD028 context-predictor MSE `0.987130`, decoded delta MSE stays close to `0.015369` instead of the PCA residual direction, or target health collapses toward the HEAD025 rank pattern.
+
+### Decision / Next Step
+- Run one HEAD031 experiment: `future horizon delta block -> target encoder -> z_target`, trained with MSE to fixed `z_pca`.
+- Keep horizons `(1, 5, 10, 20, 30)`, target dim `8`, the HEAD028 data slice, and the same fixed train PCA contract.
+- Do not add retrieval/neighborhood loss, target-dimension sweeps, variance/covariance weights, or decoder components.
+
+### Artifacts
+- `experiments/world/reports/world_model_head030_target_encoder_distillation_ideation.md`
+
+---
