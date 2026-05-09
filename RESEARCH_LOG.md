@@ -116531,3 +116531,28 @@ Artifacts:
 - `experiments/world/reports/world_model_head046_manifest_provenance_sanity.md`
 
 ---
+## 2026-05-09: World model HEAD047 autoresearch continuation guardrail
+
+### Context
+- The user asked why the loop stopped after HEAD046.
+- There was no `autoresearch-session/WORLD_MODEL_STOP` file and `goal_reached` was false.
+- The stop happened because the workflow state said not to add more Part 1 knobs and not to start decoder work unless explicitly requested; that should constrain the next iteration, not stop the autoresearch loop.
+
+### Failure Class
+- Workflow-control failure: a modeling guardrail was incorrectly treated as a loop stop condition.
+
+### Fix
+- Updated `.agents/skills/world-model-autoresearch/SKILL.md` with a `When A Modeling Track Is Gated` section.
+- The skill now states that `no more Part 1 knobs` and `do not start decoder work unless explicitly requested` are not stop conditions.
+- If modeling tracks are gated, the loop should continue with bounded non-modeling work: provenance checks, manifest/report reconciliation, handoff criteria, artifact inventory, and workflow guardrails.
+
+### Decision / Next Step
+- Continue autoresearch unless a real stop condition appears: `goal_reached`, `WORLD_MODEL_STOP`, exhausted requested iteration budget, or runtime/tool limits.
+- Given the current state, continue only with non-modeling work unless explicitly redirected.
+- Do not add Barlow Twins, retrieval/neighborhood objectives, target sweeps, decoder work, or new Part 1 knobs.
+
+### Artifacts
+- `.agents/skills/world-model-autoresearch/SKILL.md`
+- `experiments/world/reports/world_model_head047_autoresearch_continuation_guardrail.md`
+
+---
