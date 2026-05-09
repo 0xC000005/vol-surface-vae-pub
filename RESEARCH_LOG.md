@@ -116437,3 +116437,39 @@ Artifacts:
 - Ignored output: `results/world/part1_fused_context_probe_audit_head043_test_seed7710.json`
 
 ---
+## 2026-05-09: World model HEAD044 Part 1 reference closeout
+
+### Context
+- Continued after HEAD043 passed held-out test probing on both fused-context seeds.
+- This was post-experiment analysis to close out the JEPA-style Part 1 reference and prevent more ad hoc Part 1 knobs.
+
+### Reference Definition
+- Current Part 1 reference: fused context encoder with GRU sequence branch plus direct flattened-past branch.
+- Target contract: fixed whitened delta-PCA target over horizons `(1, 5, 10, 20, 30)`.
+- Objective: MSE to fixed future-latent targets.
+- Primary checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`.
+- Supporting checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Framing: JEPA-style time-series representation prediction, `supported_adjacent` rather than canonical ImageNet I-JEPA because the target space is fixed PCA rather than an EMA target encoder.
+
+### Evidence
+- Validation seed `7711`: context rank/offdiag `6.648142`/`0.323006`, trained decoded delta MSE `0.015176`, fixed-PCA ridge MRR/top5 `0.103763`/`0.136719`, raw-delta ridge MSE/MRR/top5 `0.015701`/`0.096147`/`0.128125`.
+- Validation seed `7710`: context rank/offdiag `6.551514`/`0.347958`, trained decoded delta MSE `0.015363`, fixed-PCA ridge MRR/top5 `0.118667`/`0.157031`, raw-delta ridge MSE/MRR/top5 `0.015880`/`0.106107`/`0.125000`.
+- Test seed `7711`: context rank/offdiag `7.534067`/`0.310717`, trained decoded delta MSE `0.017769`, fixed-PCA ridge MRR/top5 `0.116466`/`0.148438`, raw-delta ridge MSE/MRR/top5 `0.017923`/`0.110315`/`0.142969`.
+- Test seed `7710`: context rank/offdiag `7.508093`/`0.321090`, trained decoded delta MSE `0.017537`, fixed-PCA ridge MRR/top5 `0.131317`/`0.191406`, raw-delta ridge MSE/MRR/top5 `0.018021`/`0.115288`/`0.160156`.
+- Raw-delta MSE improvement over zero baseline is stable near `0.29` to `0.30` across validation and test.
+
+### Interpretation
+- Non-collapse, fixed-target prediction, decoded coordinate quality, cross-seed robustness, and split robustness pass.
+- Barlow Twins is not the active method; variance/covariance ideas remain diagnostics or adjacent collapse-control framing only.
+- Raw-delta retrieval top-k is not uniformly dominant versus older retrieval/contrastive diagnostic contexts, so that caveat must travel with the reference.
+- Part 1 success does not prove Part 2 scenario-generation quality.
+
+### Decision / Next Step
+- Treat the fused-context fixed delta-PCA predictor as the current validated Part 1 JEPA-style representation reference.
+- Stop adding Part 1 losses, target sweeps, Barlow-style regularizers, or retrieval/neighborhood objectives.
+- Next useful non-decoder step is a small Part 1 reference manifest with checkpoint paths, split contract, metrics, and caveats, so later decoder or benchmark work cannot accidentally use the wrong artifact.
+
+### Artifacts
+- `experiments/world/reports/world_model_head044_part1_reference_closeout.md`
+
+---
