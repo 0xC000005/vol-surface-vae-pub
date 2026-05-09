@@ -116397,3 +116397,43 @@ Artifacts:
 - Ignored output: `results/world/part1_fused_context_probe_audit_head042_test_seed7711.json`
 
 ---
+## 2026-05-09: World model HEAD043 support seed test probe
+
+### Context
+- Continued after HEAD042 passed the primary seed `7711` held-out test probe.
+- This experiment reran the same split-aware test audit on the supporting fused-context checkpoint, seed `7710`.
+
+### Hypothesis / Falsifier
+- Hypothesis: the supporting seed should also pass held-out test probing, confirming HEAD042 was not a primary-seed-only result.
+- Falsifier: seed `7710` collapses on test, fails to improve over the zero-delta baseline, or loses fixed-PCA/raw-delta retrieval signal.
+
+### Implementation
+- Reused `experiments/world/part1_jepa_latent/fused_context_probe_audit.py` with `--eval_split test` and checkpoint `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Wrote ignored output `results/world/part1_fused_context_probe_audit_head043_test_seed7710.json`.
+- No model objective, target, decoder, retrieval loss, or Barlow/VICReg-style term was added.
+
+### Result
+- Test context health: variance min `0.000939`, variance mean `0.142549`, effective rank `7.508093`, offdiag abs mean `0.321090`.
+- Trained fixed-PCA head on test: MSE `1.052584`, MRR `0.124176`, top5 `0.175781`, top10 `0.259375`, decoded delta MSE `0.017537`, rank `5.100427`.
+- Frozen-context ridge to fixed-PCA on test: MSE `1.046969`, MRR `0.131317`, top5 `0.191406`, top10 `0.269531`, rank `5.428738`.
+- Frozen-context ridge to raw deltas on test: MSE `0.018021`, MRR `0.115288`, top5 `0.160156`, top10 `0.238281`, rank `2.567909`.
+- Zero-delta test baseline: MSE `0.025450`, MRR `0.023923`, top5 `0.019531`, top10 `0.039062`.
+- Raw-delta MSE improvement over zero baseline: seed `7710` test `0.291907` vs seed `7711` test `0.295762`.
+
+### Interpretation
+- Support-seed held-out test probing passes.
+- Test context health is stable across both seeds, and seed `7710` is stronger than seed `7711` on fixed-PCA retrieval.
+- Raw-delta MSE improvement over the zero baseline is stable near `29%`.
+- The HEAD040 caveat remains: this is the best coordinate/decoded-surface reference, while older diagnostic retrieval contexts can still be sharper on some raw-delta retrieval comparisons.
+
+### Decision / Next Step
+- Treat the fused-context fixed delta-PCA predictor as the current validated Part 1 JEPA-style representation reference.
+- Keep primary reference seed `7711` and supporting seed `7710`.
+- Do not add Barlow Twins, retrieval/neighborhood losses, or more Part 1 knobs.
+- Next HEAD should be post-experiment analysis to write the Part 1 reference closeout and define minimum handoff criteria for later decoder conditioning, without starting decoder work unless explicitly requested.
+
+### Artifacts
+- `experiments/world/reports/world_model_head043_support_seed_test_probe.md`
+- Ignored output: `results/world/part1_fused_context_probe_audit_head043_test_seed7710.json`
+
+---
