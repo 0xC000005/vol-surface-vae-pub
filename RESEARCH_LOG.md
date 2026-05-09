@@ -116174,3 +116174,31 @@ Artifacts:
 - Ignored outputs: `results/world/part1_fused_context_delta_pca_head036.json`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`
 
 ---
+## 2026-05-09: World model HEAD037 fused context MSE analysis
+
+### Context
+- Continued after HEAD036 improved retrieval/top-k and matched decoded delta MSE, but regressed whitened fixed-target MSE versus HEAD028.
+- This was post-experiment analysis to decide whether the MSE regression should block promotion.
+
+### Component Audit
+- HEAD028 whitened z-MSE `0.987130`; HEAD036 whitened z-MSE `1.013283`; delta `+0.026153`.
+- HEAD028 raw decoded contribution from PCA-coordinate errors `0.01352228`; HEAD036 `0.01351655`; delta `-0.00000574`.
+- HEAD036 improves PC1 z-MSE (`-0.043007`) and PC6 (`-0.122046`), while regressing mostly in PC5 (`+0.170322`) and smaller-scale directions.
+- Because decoded delta quality is scale-weighted, the whitened z-MSE regression does not damage the decoded delta surface.
+
+### Interpretation
+- HEAD036 is not a simple target-MSE failure.
+- HEAD028 remains better on whitened coordinate MSE.
+- HEAD036 is better on retrieval/top-k and effectively tied/slightly better on raw decoded delta quality.
+- For a latent world-state Part 1 gate, retrieval and non-collapse matter; this is the first model to improve retrieval materially without losing decoded-frame quality.
+
+### Decision / Next Step
+- Treat HEAD036 as the provisional fixed-target Part 1 reference, while explicitly tracking the target-space MSE regression.
+- Do not move to the decoder yet.
+- Next HEAD should run the exact same fused-context configuration with one new seed as a robustness check, not as a new research knob.
+- Acceptance: MRR/top5 remain above HEAD028 `0.096374`/`0.132031`, decoded delta MSE stays near or below `0.015369`, target-space MSE does not degrade substantially beyond `1.013283`, and rank stays non-collapsed.
+
+### Artifacts
+- `experiments/world/reports/world_model_head037_fused_context_mse_analysis.md`
+
+---
