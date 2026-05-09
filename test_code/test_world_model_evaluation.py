@@ -429,9 +429,12 @@ def test_composite_part1_score_rewards_rank_probe_and_retrieval():
     weaker_train = {
         "best_val_metrics": {
             "overall_prediction": {"mse": 0.019},
-            "overall_retrieval": {"mrr_mean": 0.04},
+            "overall_retrieval": {"mrr_mean": 0.04, "top5_mean": 0.05, "top10_mean": 0.10},
         },
-        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.04, "top10_mean": 0.09},
+        },
     }
     weaker_audit = {
         "config": {"context_dim": 10},
@@ -450,9 +453,12 @@ def test_composite_part1_score_rewards_rank_probe_and_retrieval():
     stronger_train = {
         "best_val_metrics": {
             "overall_prediction": {"mse": 0.015},
-            "overall_retrieval": {"mrr_mean": 0.06},
+            "overall_retrieval": {"mrr_mean": 0.06, "top5_mean": 0.07, "top10_mean": 0.12},
         },
-        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.04, "top10_mean": 0.09},
+        },
     }
     stronger_audit = {
         "config": {"context_dim": 10},
@@ -493,19 +499,67 @@ def test_composite_part1_score_penalizes_frame_mse_worse_than_persistence():
     beats_persistence = {
         "best_val_metrics": {
             "overall_prediction": {"mse": 0.018},
-            "overall_retrieval": {"mrr_mean": 0.06},
+            "overall_retrieval": {"mrr_mean": 0.06, "top5_mean": 0.07, "top10_mean": 0.12},
         },
-        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.04, "top10_mean": 0.09},
+        },
     }
     misses_persistence = {
         "best_val_metrics": {
             "overall_prediction": {"mse": 0.022},
-            "overall_retrieval": {"mrr_mean": 0.06},
+            "overall_retrieval": {"mrr_mean": 0.06, "top5_mean": 0.07, "top10_mean": 0.12},
         },
-        "raw_persistence_baseline": {"prediction": {"mse_mean": 0.02}},
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.04, "top10_mean": 0.09},
+        },
     }
 
     assert composite_part1_score(beats_persistence, audit)["score"] > composite_part1_score(
         misses_persistence,
+        audit,
+    )["score"]
+
+
+def test_composite_part1_score_penalizes_topk_below_persistence():
+    audit = {
+        "config": {"context_dim": 10},
+        "val_context_health": {
+            "effective_rank": 5.0,
+            "offdiag_abs_mean": 0.3,
+        },
+        "ridge_probe_target_metrics": {
+            "overall_prediction": {"mse": 0.015},
+            "overall_retrieval": {"mrr_mean": 0.11},
+        },
+        "zero_delta_target_baseline": {
+            "overall_prediction": {"mse": 0.02},
+        },
+    }
+    stronger_topk = {
+        "best_val_metrics": {
+            "overall_prediction": {"mse": 0.018},
+            "overall_retrieval": {"mrr_mean": 0.06, "top5_mean": 0.09, "top10_mean": 0.14},
+        },
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.08, "top10_mean": 0.13},
+        },
+    }
+    weaker_topk = {
+        "best_val_metrics": {
+            "overall_prediction": {"mse": 0.018},
+            "overall_retrieval": {"mrr_mean": 0.06, "top5_mean": 0.06, "top10_mean": 0.12},
+        },
+        "raw_persistence_baseline": {
+            "prediction": {"mse_mean": 0.02},
+            "retrieval": {"top5_mean": 0.08, "top10_mean": 0.13},
+        },
+    }
+
+    assert composite_part1_score(stronger_topk, audit)["score"] > composite_part1_score(
+        weaker_topk,
         audit,
     )["score"]

@@ -9,6 +9,8 @@ from typing import Mapping
 DEFAULT_COMPOSITE_WEIGHTS = {
     "frame_mse_improvement": 1.0,
     "frame_mrr": 1.0,
+    "frame_top5_delta": 0.5,
+    "frame_top10_delta": 0.5,
     "rank_fraction": 0.5,
     "decorrelation": 0.25,
     "ridge_mrr": 1.0,
@@ -37,6 +39,14 @@ def composite_part1_score(
         train_result,
         ("best_val_metrics", "overall_retrieval", "mrr_mean"),
     )
+    frame_top5 = _float_at(
+        train_result,
+        ("best_val_metrics", "overall_retrieval", "top5_mean"),
+    )
+    frame_top10 = _float_at(
+        train_result,
+        ("best_val_metrics", "overall_retrieval", "top10_mean"),
+    )
     frame_mse = _float_at(
         train_result,
         ("best_val_metrics", "overall_prediction", "mse"),
@@ -44,6 +54,14 @@ def composite_part1_score(
     persistence_mse = _float_at(
         train_result,
         ("raw_persistence_baseline", "prediction", "mse_mean"),
+    )
+    persistence_top5 = _float_at(
+        train_result,
+        ("raw_persistence_baseline", "retrieval", "top5_mean"),
+    )
+    persistence_top10 = _float_at(
+        train_result,
+        ("raw_persistence_baseline", "retrieval", "top10_mean"),
     )
     effective_rank = _float_at(
         audit_result,
@@ -68,10 +86,14 @@ def composite_part1_score(
     rank_fraction = effective_rank / max(context_dim, 1.0)
     decorrelation = max(0.0, 1.0 - offdiag_abs_mean)
     frame_mse_improvement = (persistence_mse - frame_mse) / max(persistence_mse, 1e-12)
+    frame_top5_delta = frame_top5 - persistence_top5
+    frame_top10_delta = frame_top10 - persistence_top10
     ridge_mse_improvement = max(0.0, (zero_mse - ridge_mse) / max(zero_mse, 1e-12))
     components = {
         "frame_mse_improvement": frame_mse_improvement,
         "frame_mrr": frame_mrr,
+        "frame_top5_delta": frame_top5_delta,
+        "frame_top10_delta": frame_top10_delta,
         "rank_fraction": rank_fraction,
         "decorrelation": decorrelation,
         "ridge_mrr": ridge_mrr,

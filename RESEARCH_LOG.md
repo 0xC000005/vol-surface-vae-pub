@@ -115452,3 +115452,41 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_head017.json`, `results/world/part1_context_probe_audit_head017.json`, `results/world/part1_context_composite_scores_head017.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_head017.pt`
 
 ---
+## 2026-05-09: World model HEAD018 top-k composite gate
+
+### Context
+- Continued JEPA-only autoresearch after HEAD017 found a new corrected-composite winner that still lost frame top5/top10 against persistence.
+- This iteration patched the score to expose broad retrieval ranking, not only MSE/MRR/top1.
+
+### Hypothesis
+- Adding frame top5/top10 deltas against raw persistence to the composite Part 1 score should prevent a candidate from improving top1/MRR while quietly losing broader retrieval ranking.
+- Falsifier: HEAD017 still ranks above HEAD013 despite worse top5/top10 deltas.
+
+### Execution
+- Updated `experiments/world/part1_jepa_latent/score_context_runs.py`.
+- Added regression coverage in `test_code/test_world_model_evaluation.py`.
+- Added `frame_top5_delta = frame_top5 - persistence_top5` and `frame_top10_delta = frame_top10 - persistence_top10`, each with weight `0.5`.
+- Re-scored HEAD010, HEAD012, HEAD013, HEAD015, and HEAD017 into `results/world/part1_context_composite_scores_head018.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `16 passed in 0.71s`.
+- Top-k-aware ranking: HEAD013_corr_0p002 `0.580304`, HEAD017_mildhead `0.577865`, HEAD012_corr_0p005 `0.559066`, HEAD010_unregularized `0.527709`, HEAD015_headsharp `0.465236`.
+- HEAD013 top-k deltas: top5 `-0.007813`, top10 `0.005469`.
+- HEAD017 top-k deltas: top5 `-0.017969`, top10 `-0.000781`.
+- HEAD012 is the only listed correlation run with positive top5 and top10 deltas, but it remains lower due to weaker ridge MSE improvement.
+
+### Mechanism Read
+- The top-k gate changes the decision back to HEAD013.
+- HEAD017 remains useful, but it loses too much broad retrieval ranking despite better frame MSE/top1 and ridge MRR.
+- The remaining Part 1 bottleneck is not simply nearest-neighbor sharpness; it is neighborhood retrieval quality under a frame-MSE persistence gate.
+
+### Decision / Next Step
+- Continue JEPA-only with HEAD013 as the current top-k-aware fixed-delta context candidate.
+- Test top5 checkpoint selection on the light-correlation/mild-head family, or add a composite-aware selector if per-epoch checkpoints become available.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/score_context_runs.py`
+- `experiments/world/reports/world_model_head018_topk_composite_gate.md`
+- Ignored output: `results/world/part1_context_composite_scores_head018.json`
+
+---
