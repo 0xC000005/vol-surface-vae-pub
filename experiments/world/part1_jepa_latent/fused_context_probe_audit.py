@@ -98,16 +98,23 @@ def audit_fused_context_checkpoint(args: argparse.Namespace) -> dict[str, object
         max_windows=args.max_train_windows,
         normalize=True,
     )
-    val = build_iv_world_windows(
-        split="val",
-        max_windows=args.max_val_windows,
+    eval_max_windows = args.max_eval_windows
+    if eval_max_windows is None:
+        eval_max_windows = args.max_val_windows
+    eval_batch = build_iv_world_windows(
+        split=args.eval_split,
+        max_windows=eval_max_windows,
         normalize=True,
     )
     train_delta = make_horizon_delta_matrix(train.past_window, train.future_window, horizons=horizons)
-    val_delta = make_horizon_delta_matrix(val.past_window, val.future_window, horizons=horizons)
+    eval_delta = make_horizon_delta_matrix(
+        eval_batch.past_window,
+        eval_batch.future_window,
+        horizons=horizons,
+    )
     pca_target = fit_delta_pca_target(train_delta, target_dim=model.cfg.target_dim)
     train_z = transform_delta_targets(train_delta, pca_target)
-    val_z = transform_delta_targets(val_delta, pca_target)
+    eval_z = transform_delta_targets(eval_delta, pca_target)
 
     train_contexts = encode_fused_contexts(
         model,
@@ -115,47 +122,55 @@ def audit_fused_context_checkpoint(args: argparse.Namespace) -> dict[str, object
         batch_size=args.batch_size,
         device=device,
     )
-    val_contexts = encode_fused_contexts(
+    eval_contexts = encode_fused_contexts(
         model,
-        val.past_window,
+        eval_batch.past_window,
         batch_size=args.batch_size,
         device=device,
     )
-    val_pred, val_context_from_head = predict_fused_context_delta_pca(
+    eval_pred, eval_context_from_head = predict_fused_context_delta_pca(
         model,
-        val.past_window,
+        eval_batch.past_window,
         batch_size=args.batch_size,
         device=device,
     )
     trained_head_metrics = evaluate_direct_delta_pca(
-        predicted_z=val_pred,
-        target_z=val_z,
-        truth_delta=val_delta,
+        predicted_z=eval_pred,
+        target_z=eval_z,
+        truth_delta=eval_delta,
         pca_target=pca_target,
         horizons=horizons,
-        context=val_context_from_head,
+        context=eval_context_from_head,
     )
     ridge_fixed_pca_metrics = ridge_probe_metrics(
         train_contexts,
-        val_contexts,
+        eval_contexts,
         train_z,
-        val_z,
+        eval_z,
         horizons=horizons,
         alpha=args.ridge_alpha,
     )
     ridge_delta_metrics = ridge_probe_metrics(
         train_contexts,
-        val_contexts,
+        eval_contexts,
         train_delta,
-        val_delta,
+        eval_delta,
         horizons=horizons,
         alpha=args.ridge_alpha,
     )
     zero_delta_metrics = horizon_target_metrics(
-        np.zeros_like(val_delta),
-        val_delta,
+        np.zeros_like(eval_delta),
+        eval_delta,
         horizons=horizons,
     )
+    eval_context_health = representation_health_metrics(eval_contexts)
+    eval_shape = {
+        "past": list(eval_batch.past_window.shape),
+        "future": list(eval_batch.future_window.shape),
+        "context": list(eval_contexts.shape),
+        "fixed_z": list(eval_z.shape),
+        "delta": list(eval_delta.shape),
+    }
     result = {
         "checkpoint": str(args.checkpoint),
         "config": {
@@ -168,8 +183,9 @@ def audit_fused_context_checkpoint(args: argparse.Namespace) -> dict[str, object
             "horizons": list(model.horizons),
         },
         "device": str(device),
+        "eval_split": args.eval_split,
         "ridge_alpha": args.ridge_alpha,
-        "pca_oracle_delta_mse": pca_oracle_delta_mse(val_z, val_delta, pca_target),
+        "pca_oracle_delta_mse": pca_oracle_delta_mse(eval_z, eval_delta, pca_target),
         "train_shape": {
             "past": list(train.past_window.shape),
             "future": list(train.future_window.shape),
@@ -177,15 +193,11 @@ def audit_fused_context_checkpoint(args: argparse.Namespace) -> dict[str, object
             "fixed_z": list(train_z.shape),
             "delta": list(train_delta.shape),
         },
-        "val_shape": {
-            "past": list(val.past_window.shape),
-            "future": list(val.future_window.shape),
-            "context": list(val_contexts.shape),
-            "fixed_z": list(val_z.shape),
-            "delta": list(val_delta.shape),
-        },
+        "eval_shape": eval_shape,
+        "val_shape": eval_shape,
         "train_context_health": representation_health_metrics(train_contexts),
-        "val_context_health": representation_health_metrics(val_contexts),
+        "eval_context_health": eval_context_health,
+        "val_context_health": eval_context_health,
         "trained_head_fixed_pca_metrics": trained_head_metrics,
         "ridge_probe_fixed_pca_metrics": ridge_fixed_pca_metrics,
         "ridge_probe_delta_metrics": ridge_delta_metrics,
@@ -195,14 +207,14 @@ def audit_fused_context_checkpoint(args: argparse.Namespace) -> dict[str, object
     output_json = Path(args.output_json)
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(_serializable(result), indent=2), encoding="utf-8")
-    print(json.dumps(_serializable(result["val_context_health"]), indent=2))
+    print(json.dumps(_serializable(result["eval_context_health"]), indent=2))
     print(json.dumps(_serializable(result["ridge_probe_fixed_pca_metrics"]["overall_prediction"]), indent=2))
     print(json.dumps(_serializable(result["ridge_probe_fixed_pca_metrics"]["overall_retrieval"]), indent=2))
     print(json.dumps(_serializable(result["ridge_probe_delta_metrics"]["overall_prediction"]), indent=2))
     return result
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit fused fixed-target context embeddings with ridge probes")
     parser.add_argument(
         "--checkpoint",
@@ -211,6 +223,8 @@ def main() -> None:
     )
     parser.add_argument("--max_train_windows", type=int, default=2048)
     parser.add_argument("--max_val_windows", type=int, default=256)
+    parser.add_argument("--max_eval_windows", type=int, default=None)
+    parser.add_argument("--eval_split", choices=("val", "test"), default="val")
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--ridge_alpha", type=float, default=1e-3)
     parser.add_argument("--device", type=str, default="cuda")
@@ -219,6 +233,11 @@ def main() -> None:
         type=str,
         default="results/world/part1_fused_context_probe_audit_head039.json",
     )
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
     args = parser.parse_args()
     audit_fused_context_checkpoint(args)
 

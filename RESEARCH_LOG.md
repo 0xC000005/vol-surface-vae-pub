@@ -116351,3 +116351,49 @@ Artifacts:
 - Ignored output: `results/world/part1_fused_context_probe_audit_head041_seed7710.json`
 
 ---
+## 2026-05-09: World model HEAD042 split-aware probe audit
+
+### Context
+- Continued after HEAD041 passed cross-seed validation probing and identified held-out test probing as the next Part 1 risk.
+- This experiment made the fused-context probe audit split-aware, then ran the primary seed `7711` on the held-out test split.
+
+### Hypothesis / Falsifier
+- Hypothesis: the fused-context fixed-target probe audit should be reusable on held-out test windows, training ridge probes only on train and evaluating on the requested split; seed `7711` should retain non-collapse and meaningful fixed-PCA/raw-delta probes on test.
+- Falsifier: split-aware evaluation breaks the validation path, test contexts collapse, or test raw-delta probes fail to beat the zero-delta baseline.
+
+### Implementation
+- Added `--eval_split {val,test}` and `--max_eval_windows` to `experiments/world/part1_jepa_latent/fused_context_probe_audit.py`.
+- Preserved backward-compatible `val_shape` and `val_context_health` keys while adding `eval_shape`, `eval_context_health`, and `eval_split`.
+- Added a focused parser test in `test_code/test_world_model_evaluation.py`.
+- No model objective, target, decoder, retrieval loss, or Barlow/VICReg-style term was added.
+
+### Validation
+- Red test first failed with `ImportError: cannot import name 'build_arg_parser'`.
+- Focused test passed: `pytest test_code/test_world_model_evaluation.py::test_fused_context_probe_audit_accepts_eval_split -q`.
+- Full validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `28 passed in 0.75s`.
+- Compile check passed for the audit script and test file.
+
+### Test Result
+- Test context health: variance min `0.011115`, variance mean `0.121553`, effective rank `7.534067`, offdiag abs mean `0.310717`.
+- Trained fixed-PCA head on test: MSE `1.057194`, MRR `0.119919`, top5 `0.155469`, top10 `0.235937`, decoded delta MSE `0.017769`, rank `4.735351`.
+- Frozen-context ridge to fixed-PCA on test: MSE `1.078600`, MRR `0.116466`, top5 `0.148438`, top10 `0.220312`, rank `5.045933`.
+- Frozen-context ridge to raw deltas on test: MSE `0.017923`, MRR `0.110315`, top5 `0.142969`, top10 `0.223438`, rank `2.730868`.
+- Zero-delta test baseline: MSE `0.025450`, MRR `0.023923`, top5 `0.019531`, top10 `0.039062`.
+- Raw-delta MSE improvement over zero baseline remained close to validation: test `0.295762` vs validation `0.298315`.
+
+### Interpretation
+- Primary seed held-out test probing passes.
+- Test context rank/offdiag are healthy, and fixed-PCA/raw-delta retrieval are stronger than validation despite higher absolute MSE.
+- The higher test MSE is partly split difficulty: the zero-delta baseline is also worse on test.
+
+### Decision / Next Step
+- Do not add Barlow Twins, retrieval/neighborhood losses, or decoder work yet.
+- Next HEAD should run the same split-aware test audit on the supporting seed `7710`. If it passes, promote the fused fixed-target JEPA-style representation as the current Part 1 reference for later decoder-conditioning experiments, with the raw-delta top5 caveat retained.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fused_context_probe_audit.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head042_split_aware_probe_audit.md`
+- Ignored output: `results/world/part1_fused_context_probe_audit_head042_test_seed7711.json`
+
+---

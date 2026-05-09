@@ -56,6 +56,7 @@ from experiments.world.part1_jepa_latent.fused_context_delta_pca_predictor impor
     FusedContextDeltaPCAPredictor,
 )
 from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
+    build_arg_parser as build_fused_context_probe_arg_parser,
     encode_fused_contexts,
 )
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
@@ -485,6 +486,15 @@ def test_fused_context_probe_audit_encodes_contexts():
     )
 
     assert contexts.shape == (5, 4)
+
+
+def test_fused_context_probe_audit_accepts_eval_split():
+    parser = build_fused_context_probe_arg_parser()
+
+    args = parser.parse_args(["--eval_split", "test", "--max_eval_windows", "17"])
+
+    assert args.eval_split == "test"
+    assert args.max_eval_windows == 17
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():
