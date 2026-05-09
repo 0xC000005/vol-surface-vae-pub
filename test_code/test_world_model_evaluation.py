@@ -33,7 +33,9 @@ from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     checkpoint_selection_score,
     context_correlation_loss,
     decode_horizon_prediction,
+    epoch_checkpoint_path,
     make_horizon_frame_targets,
+    save_epoch_checkpoint,
     supervised_horizon_loss,
 )
 from experiments.world.part1_jepa_latent.context_probe_audit import (
@@ -366,6 +368,29 @@ def test_checkpoint_selection_score_prefers_requested_metric():
     assert checkpoint_selection_score(low_mse, "mse") > checkpoint_selection_score(high_mrr, "mse")
     assert checkpoint_selection_score(high_mrr, "mrr") > checkpoint_selection_score(low_mse, "mrr")
     assert checkpoint_selection_score(low_mse, "top5") > checkpoint_selection_score(high_mrr, "top5")
+
+
+def test_save_epoch_checkpoint_writes_numbered_checkpoint(tmp_path):
+    import torch
+
+    cfg = SupervisedHorizonConfig(input_dim=3, hidden_dim=4, context_dim=2, predictor_hidden_dim=5)
+    model = SupervisedHorizonFrameModel(cfg)
+    row = {"epoch": 7, "val_mse": 0.1, "val_mrr_mean": 0.2}
+
+    checkpoint_path = save_epoch_checkpoint(
+        tmp_path,
+        epoch=7,
+        model=model,
+        cfg=cfg,
+        epoch_summary=row,
+        args={"selection_metric": "mrr"},
+    )
+
+    assert checkpoint_path == epoch_checkpoint_path(tmp_path, 7)
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    assert payload["epoch"] == 7
+    assert payload["epoch_summary"] == row
+    assert payload["config"]["input_dim"] == 3
 
 
 def test_ridge_probe_predict_recovers_linear_multivariate_targets():

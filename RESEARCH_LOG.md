@@ -115562,3 +115562,41 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_softhead_head020.json`, `results/world/part1_context_probe_audit_head020.json`, `results/world/part1_context_composite_scores_head020.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_softhead_head020.pt`
 
 ---
+## 2026-05-09: World model HEAD021 epoch checkpoint retention
+
+### Context
+- Continued JEPA-only autoresearch after HEAD020 showed scalar retrieval-weight and top5-selection sweeps are not enough.
+- Top-k gains appear in early checkpoints, while later checkpoints improve MSE/probe/context health.
+- This iteration added per-epoch checkpoint retention so the tradeoff can be selected post-hoc.
+
+### Hypothesis
+- Saving per-epoch checkpoints for the supervised fixed-delta run should enable post-hoc composite/top-k selection without rerunning training for every scalar selection metric.
+- Falsifier: the training script cannot retain epoch checkpoints cleanly or the saved artifacts do not contain enough metadata to reload and audit individual epochs.
+
+### Execution
+- Added `epoch_checkpoint_path`, `save_epoch_checkpoint`, and `--epoch_checkpoint_dir` to `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`.
+- Added regression coverage in `test_code/test_world_model_evaluation.py`.
+- Reran the mild-head/light-correlation setup with `--epoch_checkpoint_dir models/world/checkpoints/part1_jepa_latent/head021_mildhead_epochs`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `17 passed in 0.72s`.
+- The run wrote `25` numbered checkpoints: `epoch_001.pt` through `epoch_025.pt`.
+- Result JSON records `epoch_checkpoint_dir` as `models/world/checkpoints/part1_jepa_latent/head021_mildhead_epochs`.
+- The scalar MRR-selected best epoch remains epoch `7` with val MSE `0.021182`, val MRR `0.058656`, and val top5 `0.068750`.
+
+### Mechanism Read
+- This changes the experiment surface rather than the model.
+- Individual epochs can now be loaded and audited with context probes and corrected top-k-aware composite scoring.
+- The first useful audit should compare epochs `2`, `3`, `7`, and possibly `8`: early epochs carry broad top-k retrieval, while epoch `7` carries the best MRR/MSE compromise.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Audit saved HEAD021 epoch checkpoints post-hoc with the context probe and corrected top-k-aware composite score.
+- Choose the best actual saved state from the tradeoff surface, not from a single scalar selection proxy.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head021_epoch_checkpoint_retention.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_epochs_head021.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_epochs_head021.pt`, `models/world/checkpoints/part1_jepa_latent/head021_mildhead_epochs/`
+
+---

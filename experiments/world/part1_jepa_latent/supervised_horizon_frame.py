@@ -393,6 +393,34 @@ def checkpoint_selection_score(row: dict[str, float], selection_metric: str) -> 
     raise ValueError(f"Unknown selection_metric: {selection_metric!r}")
 
 
+def epoch_checkpoint_path(checkpoint_dir: str | Path, epoch: int) -> Path:
+    return Path(checkpoint_dir) / f"epoch_{int(epoch):03d}.pt"
+
+
+def save_epoch_checkpoint(
+    checkpoint_dir: str | Path,
+    *,
+    epoch: int,
+    model: SupervisedHorizonFrameModel,
+    cfg: SupervisedHorizonConfig,
+    epoch_summary: dict[str, object],
+    args: dict[str, object],
+) -> Path:
+    path = epoch_checkpoint_path(checkpoint_dir, epoch)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "epoch": int(epoch),
+            "config": asdict(cfg),
+            "state_dict": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
+            "epoch_summary": _serializable(epoch_summary),
+            "args": _serializable(args),
+        },
+        path,
+    )
+    return path
+
+
 def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     _set_seed(args.seed)
     horizons = validate_horizons(tuple(args.horizons), future_len=30)
@@ -485,6 +513,15 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
             "val_top5_mean": val_metrics["overall_retrieval"]["top5_mean"],
         }
         history.append(row)
+        if args.epoch_checkpoint_dir:
+            save_epoch_checkpoint(
+                args.epoch_checkpoint_dir,
+                epoch=epoch,
+                model=model,
+                cfg=cfg,
+                epoch_summary=row,
+                args=vars(args),
+            )
         score = checkpoint_selection_score(row, args.selection_metric)
         if best_score is None or score > best_score:
             best_score = score
@@ -528,6 +565,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
         "history": history,
         "selection_metric": args.selection_metric,
         "best_selection_score": best_score,
+        "epoch_checkpoint_dir": args.epoch_checkpoint_dir or None,
         "best_epoch_summary": best_summary,
         "best_val_metrics": best_metrics,
         "final_val_metrics": final_metrics,
@@ -584,6 +622,7 @@ def main() -> None:
         type=str,
         default="models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_head007.pt",
     )
+    parser.add_argument("--epoch_checkpoint_dir", type=str, default="")
     args = parser.parse_args()
     train_smoke(args)
 
