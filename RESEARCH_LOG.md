@@ -115600,3 +115600,40 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_epochs_head021.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_epochs_head021.pt`, `models/world/checkpoints/part1_jepa_latent/head021_mildhead_epochs/`
 
 ---
+## 2026-05-09: World model HEAD022 post-hoc epoch selection
+
+### Context
+- Continued JEPA-only autoresearch after HEAD021 saved per-epoch checkpoints for the mild-head/light-correlation run.
+- This iteration audited selected saved epochs post-hoc under the corrected top-k-aware composite score.
+
+### Hypothesis
+- Auditing saved HEAD021 epoch checkpoints post-hoc should identify whether a single saved epoch already balances MSE, probe quality, context health, and top-k retrieval better than the scalar MRR-selected checkpoint.
+- Falsifier: no audited saved epoch improves the top-k-aware composite score over the existing scalar MRR-selected epoch.
+
+### Execution
+- No code changes.
+- Audited saved checkpoints `epoch_002.pt`, `epoch_003.pt`, `epoch_007.pt`, and `epoch_008.pt` with `context_probe_audit.py`.
+- Generated per-epoch score input JSONs from the saved HEAD021 history plus fresh frame-space validation metrics.
+- Scored the epoch states into `results/world/part1_context_composite_scores_head022_epochs.json`.
+
+### Result
+- Post-hoc epoch ranking: epoch007 `0.577865`, epoch008 `0.564362`, epoch003 `0.520371`, epoch002 `0.458707`.
+- Epoch 7: frame_mse_improvement `0.053350`, frame MRR `0.058656`, frame_top5_delta `-0.017969`, frame_top10_delta `-0.000781`, rank fraction `0.166353`, ridge MRR `0.110486`.
+- Epoch 3: positive broad retrieval with frame_top5_delta `0.003906` and frame_top10_delta `0.004687`, but weak frame_mse_improvement `0.010343`, rank fraction `0.148390`, and ridge MRR `0.104012`.
+- Epoch 8: slightly better rank/decorrelation than epoch 7, but worse top-k deltas and lower frame MRR.
+
+### Mechanism Read
+- Post-hoc checkpoint selection does not reveal a better saved state.
+- Epoch 7 remains best by the top-k-aware composite score.
+- The active bottleneck is training dynamics/objective design: broad top-k retrieval appears early, before MSE/probe/context health mature, and then decays.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Change the training objective or evaluation target for neighborhood retrieval rather than only changing checkpoint selection.
+- A reasonable next candidate is a top-k preserving auxiliary objective or smoother neighborhood target in delta space.
+
+### Artifacts
+- `experiments/world/reports/world_model_head022_posthoc_epoch_selection.md`
+- Ignored outputs: `results/world/part1_context_probe_audit_head022_epoch*.json`, `results/world/head022_epoch_score_inputs/`, `results/world/part1_context_composite_scores_head022_epochs.json`
+
+---
