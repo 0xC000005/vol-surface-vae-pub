@@ -101,6 +101,52 @@ Decision law:
 
 Do not run an experiment merely because more training looks active.
 
+## Literature Gate For Objective Changes
+
+The workflow is local-first for data, metrics, artifacts, and prior results, but
+it is not literature-blind. Before implementing or promoting a nonstandard JEPA
+objective, decoder objective, or collapse-prevention mechanism, run a short
+primary-source literature check and classify the proposal.
+
+Use three labels:
+
+- `canonical_jepa`: the change directly follows established JEPA practice,
+  including context-to-target latent prediction, EMA/stop-gradient target
+  encoders, masking or target-block design, horizon/position tokens, and simple
+  latent L1/L2 prediction losses.
+- `supported_adjacent`: the change is not canonical JEPA, but is supported by
+  adjacent self-supervised learning, contrastive learning, relational learning,
+  variance/covariance regularization, distribution matching, or probabilistic
+  latent-variable literature.
+- `speculative_local_heuristic`: the change is motivated mainly by local
+  diagnostics, metrics, or failure modes in this repository.
+
+Promotion rules:
+
+1. Prefer `canonical_jepa` changes when the failure class can plausibly be fixed
+   through target construction, target encoder design, masking/horizon design,
+   prediction loss, or variance/covariance controls.
+2. A `supported_adjacent` change must name the supporting paper family in the
+   report and explain why the assumptions carry over to multivariate time
+   series.
+3. A `speculative_local_heuristic` may be tested only as a diagnostic or
+   deliberately bounded experiment. It must not become the main workflow
+   direction unless it beats the current reference candidate on the appropriate
+   Part 1 or Part 2 gate.
+4. Every report involving a nonstandard objective must include a
+   `Literature Status` section with the classification, sources, and whether the
+   objective is being treated as canonical, adjacent, or speculative.
+
+For the current JEPA Part 1 branch, the preferred order of attack is:
+
+1. improve target construction and temporal/horizon factorization;
+2. use EMA or stop-gradient target encoders where appropriate;
+3. tune masking, horizon tokens, and prediction loss;
+4. use variance/covariance or distribution-matching regularization for
+   collapse/redundancy;
+5. treat neighborhood/contrastive/relational losses as secondary diagnostics
+   unless primary sources and local metrics both support promotion.
+
 ## Part 1: Latent World Model Gates
 
 Part 1 evaluates representation quality before scenario generation.

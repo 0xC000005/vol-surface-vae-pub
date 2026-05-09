@@ -115680,3 +115680,29 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_softneighborhood_head023.json`, `results/world/part1_context_probe_audit_head023.json`, `results/world/part1_context_composite_scores_head023.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_softneighborhood_head023.pt`, `models/world/checkpoints/part1_jepa_latent/head023_softneighborhood_epochs/`
 
 ---
+## 2026-05-09: World model autoresearch literature gate
+
+### Context
+- After HEAD023, we reviewed whether the soft-neighborhood objective was a principled JEPA move or a local heuristic.
+- Online primary-source review showed that canonical I-JEPA/V-JEPA practice emphasizes latent target prediction, EMA or stop-gradient target encoders, masking/target construction, and simple latent prediction losses.
+- Neighborhood-style losses are supported by adjacent contrastive or relational learning literature, but they are not canonical JEPA.
+
+### Workflow Change
+- Added a literature gate to the world-model autoresearch workflow.
+- Before adding or promoting any nonstandard JEPA objective, decoder objective, or collapse-prevention mechanism, the workflow must run a short primary-source literature check.
+- The proposal must be classified as `canonical_jepa`, `supported_adjacent`, or `speculative_local_heuristic`.
+
+### Promotion Rule
+- Prefer canonical JEPA changes before adjacent or speculative objectives.
+- `supported_adjacent` changes must name the supporting paper family and explain why it applies to this time-series setting.
+- `speculative_local_heuristic` changes may be tested as diagnostics, but cannot become the main workflow direction unless they beat the current reference candidate and are explicitly labeled as noncanonical in the report.
+
+### Decision
+- HEAD023 remains a negative diagnostic result, not a promoted modeling direction.
+- Future JEPA Part 1 work should first improve target construction, EMA/stop-gradient target encoders, masking/horizon design, prediction losses, and variance/covariance or distribution-matching regularization before returning to neighborhood/contrastive objectives.
+
+### Artifacts
+- `.agents/skills/world-model-autoresearch/SKILL.md`
+- `docs/research_protocols/world_model_autoresearch_plan.md`
+
+---
