@@ -114673,3 +114673,75 @@ This does not claim the container image has been built or deployed. It makes the
 The remaining step cannot be fully completed without choosing the target host or artifact store. The next useful execution step is to build this container on the target machine or run the existing cached acceptance harness on the intended private host with the real artifact mount.
 
 ---
+## 2026-05-09: World model JEPA plus flow decoder track scaffold
+
+### Context
+The `world_model_conversation` proposal reframes the next research track as a
+self-supervised latent time-series world model with a conditional flow decoder.
+The user explicitly rejected fixed Gaussian or Student-t mixture heads as the
+main decoder path; the correct framing is that fixed parametric decoders are too
+restrictive for the conditional, high-dimensional scenario distribution targeted
+by the risk engine.
+
+Research-log evidence supports keeping flow matching central. The March 23-24
+alternative-architecture review and H2 series found that CFM can produce
+ground-truth-aligned diversity and cross-cell structure, while naive high-dimensional
+one-shot MLP CFM failed and factored temporal/spatial flow architectures worked
+substantially better. The existing flow work also showed why decoder quality must
+be evaluated separately from latent/world-state quality: deterministic AR flow can
+preserve correlation and kurtosis but still underdisperse during rollout.
+
+### Hypothesis
+A clean world-model experiment lane should separate two questions:
+
+1. Does JEPA-style future-latent prediction learn a non-collapsed, non-redundant,
+   future-predictive state?
+2. Can a conditional flow decoder attached to that state produce calibrated,
+   diverse, realistic multi-day scenarios?
+
+The scaffold should make this split explicit before any implementation so later
+experiments do not conflate latent representation quality with scenario-generator
+quality.
+
+### Execution
+- Created tracked experiment scaffold under `experiments/world/`.
+- Added `experiments/world/part1_jepa_latent/` for JEPA encoder, target encoder,
+  predictor, variance/covariance regularization, and latent-quality diagnostics.
+- Added `experiments/world/part2_flow_decoder/` for conditional flow-matching
+  scenario decoders attached to the learned latent state.
+- Added `experiments/world/evaluation/` to keep Part 1 and Part 2 metrics separate.
+- Added `experiments/world/configs/` and `experiments/world/reports/` for small
+  reproducible configs and concise run reports.
+- Created local ignored artifact directories under `models/world/checkpoints/` and
+  `models/world/runs/` for checkpoints and run outputs.
+
+### Result
+The tracked scaffold now documents the intended experiment contract:
+
+- Part 1 metrics: future-latent prediction error, retrieval top-k, embedding
+  variance, effective rank, singular-value spectrum, off-diagonal covariance, and
+  frozen probes.
+- Part 2 metrics: CRPS or quantile scores, Energy Score, Variogram Score, coverage,
+  sample variance ratio, pairwise scenario distance, correlation/PCA realism, tail
+  metrics, and conditionality by context bucket.
+- Decoder policy: conditional flow matching is the primary decoder path; fixed
+  parametric heads are not the intended method for this track.
+
+`git status --short --ignored=matching experiments/world models/world` reports
+`?? experiments/world/` and `!! models/world/`, as expected because `models/` is
+ignored by the repository.
+
+### Mechanism Read
+This is not just a folder organization change. It encodes the research separation
+needed for the proposal: JEPA/VICReg-Barlow style learning is responsible for a
+useful predictive latent state, while conditional flow matching is responsible for
+transporting base noise into concrete scenario paths. Success in one part should
+not be used as proof of success in the other.
+
+### Decision / Next Step
+Proceed with a smoke-scale Part 1 implementation first: multi-horizon future-latent
+prediction on normalized/state-mapped windows with variance/covariance collapse
+diagnostics. Only after Part 1 passes representation-quality gates should Part 2
+attach a conditional flow decoder and report distributional scenario metrics.
+
+---
