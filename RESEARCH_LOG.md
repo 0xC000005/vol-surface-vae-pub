@@ -115526,3 +115526,39 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_top5_head019.json`, `results/world/part1_context_probe_audit_head019.json`, `results/world/part1_context_composite_scores_head019.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_top5_head019.pt`
 
 ---
+## 2026-05-09: World model HEAD020 softer head retrieval pressure
+
+### Context
+- Continued JEPA-only autoresearch after HEAD019 showed that top5-only checkpoint selection recovers broad retrieval but chooses an undertrained checkpoint.
+- This iteration tested whether softer retrieval pressure can keep top-k positive without losing MSE/probe/context quality.
+
+### Hypothesis
+- Reducing the mild-head retrieval weight from `0.075` to `0.06` should preserve later-epoch MSE/probe gains while reducing broad top-k retrieval loss.
+- Falsifier: the run again selects an early checkpoint whose top-k gains come at the cost of frame MSE, context health, and frozen-probe quality.
+
+### Execution
+- No code changes.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --hidden_dim 64 --context_dim 32 --predictor_hidden_dim 192 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.06 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.0 --context_correlation_weight 0.002 --context_variance_gamma 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_corrreg_softhead_head020.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_softhead_head020.pt`.
+- Audited the checkpoint with `context_probe_audit.py` and scored it against HEAD013 and HEAD019 with the top-k-aware composite scorer.
+
+### Result
+- MRR-selected checkpoint was epoch 2 with frame MSE `0.022327`, MRR mean `0.058461`, top1 `0.012500`, top5 `0.087500`, and top10 `0.138281`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context audit: effective rank `4.495739`, offdiag abs mean `0.373337`, ridge MSE `0.017281`, ridge MRR mean `0.098365`, top1 `0.039063`, top5 `0.128906`, top10 `0.202344`.
+- Top-k-aware composite score: HEAD013 `0.580304`, HEAD019 `0.520371`, HEAD020 `0.501753`.
+
+### Mechanism Read
+- This is another negative top-k repair.
+- Softer retrieval pressure produces positive top5/top10 deltas and a tiny frame-MSE edge, but the selected checkpoint is even earlier and weaker on context rank, ridge MRR, and composite score.
+- Top-k gains appear early before the context representation and frozen probes mature, then decay as the supervised head improves MSE/probe fit.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Do not continue scalar retrieval-weight sweeps as the main strategy.
+- Add per-epoch checkpoint retention or epoch-level diagnostics so the top-k/MSE/probe tradeoff can be selected post-hoc.
+
+### Artifacts
+- `experiments/world/reports/world_model_head020_soft_head_retrieval.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_softhead_head020.json`, `results/world/part1_context_probe_audit_head020.json`, `results/world/part1_context_composite_scores_head020.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_softhead_head020.pt`
+
+---
