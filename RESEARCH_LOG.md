@@ -116749,3 +116749,27 @@ Artifacts:
 - `experiments/world/reports/world_model_head053_consistency_check.md`
 
 ---
+## 2026-05-09: World model HEAD054 restart checklist
+
+### Context
+- Continued after HEAD053 verified protocol, state, research-log tail, and recent reports were consistent.
+- The next bounded process step was to make future authorized experiments restart from the frozen reference rather than stale or incomplete context.
+
+### Hypothesis / Falsifier
+- Hypothesis: a short tracked restart checklist can prevent ad hoc objective drift when future work is explicitly authorized.
+- Falsifier: the checklist leaves unclear what to read first, what fixed reference to consume, what is forbidden without authorization, or what must be reported.
+
+### Change
+- Added `experiments/world/part1_jepa_latent/restart_checklist.md`.
+- It records read-first context, fixed primary/support checkpoints, data/split/target contracts, pre-experiment checks, authorization-required changes, and required reporting fields.
+
+### Decision / Next Step
+- The frozen Part 1 package is now restart-ready for future authorized experiments.
+- This does not authorize new Part 1 objectives, Barlow/VICReg terms, retrieval/neighborhood losses, target sweeps, or decoder work.
+- Remaining safe continuation is final package summarization or waiting for explicit user authorization.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/restart_checklist.md`
+- `experiments/world/reports/world_model_head054_restart_checklist.md`
+
+---
