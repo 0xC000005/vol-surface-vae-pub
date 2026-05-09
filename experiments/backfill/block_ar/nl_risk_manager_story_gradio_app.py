@@ -68,6 +68,9 @@ from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testfligh
     split_story_for_conditioning,
     validate_condition_only_grounding_result,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_run_record import (  # noqa: E402
+    write_prefix_run_record,
+)
 
 
 DEFAULT_APP_OUTPUT_DIR = (
@@ -1574,6 +1577,7 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         [
             f"- Markdown report: `{artifacts.get('markdown', 'n/a')}`",
             f"- JSON report: `{artifacts.get('report', 'n/a')}`",
+            f"- Run record: `{artifacts.get('run_record', 'n/a')}`",
         ]
     )
     return "\n".join(lines)
@@ -2121,6 +2125,25 @@ def run_prefix_latent_for_app(
                 "condition_only_case"
             )
         report = enrich_prefix_report_with_product_gate(report)
+        if runner is run_prefix_latent_story_smoke:
+            run_record_path = Path(output_dir) / "run_record" / "prefix_latent_run_record.json"
+            _as_dict(report.setdefault("artifact_paths", {}))["run_record"] = str(
+                run_record_path
+            )
+            report_path_text = str(
+                _as_dict(report.get("artifact_paths")).get("report", "")
+            )
+            if report_path_text:
+                _write_json(Path(report_path_text), report)
+            run_record = write_prefix_run_record(
+                report,
+                output_dir=Path(output_dir) / "run_record",
+            )
+            report["run_record_summary"] = {
+                "record_id": run_record.get("record_id", ""),
+                "status": run_record.get("status", ""),
+                "artifact_paths": run_record.get("artifact_paths", {}),
+            }
     except Exception as error:  # pragma: no cover - defensive UI path
         error_report = {
             "status": "error",

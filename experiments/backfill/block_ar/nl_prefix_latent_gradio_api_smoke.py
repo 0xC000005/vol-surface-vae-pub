@@ -338,6 +338,7 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "prefix_report_path": str(artifact_paths.get("report", "")),
         "prefix_markdown_path": str(artifact_paths.get("markdown", "")),
         "prefix_arrays_path": str(artifact_paths.get("arrays", "")),
+        "prefix_run_record_path": str(artifact_paths.get("run_record", "")),
         "condition_report_path": str(embedding_metadata.get("condition_report", "")),
         "condition_arrays_path": str(embedding_metadata.get("condition_arrays", "")),
         "grounding_model": str(embedding_metadata.get("grounding_model", "")),

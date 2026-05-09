@@ -533,6 +533,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert "Rollout temperature: `0.500`" in markdown
     assert "Scenario CRPS vs persistence: `+14.5%`" in markdown
     assert "Operational interpretation: `supported calibrated scenario`" in markdown
+    assert "Run record: `n/a`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"

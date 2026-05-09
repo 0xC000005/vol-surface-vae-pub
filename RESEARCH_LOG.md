@@ -114424,3 +114424,55 @@ The run registry is not a new model component. It is the operational control pla
 The production bottleneck has moved from local evidence collection to persistence and serving: a private hosted prototype should now persist the same registry fields in a durable store, serve the Gradio UI with platform secrets and auth, and attach each user-visible run to a registry record containing narrative warnings, support candidates, scenario artifacts, and hashes.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 82 per-run record write-through
+
+### Context
+The run registry introduced a safe index over existing QA/audit/browser evidence, but production use also needs each user-visible scenario run to write a compact record at generation time. Without that write-through path, a hosted prototype would still need to reconstruct run provenance after the fact.
+
+### Hypothesis
+A prefix-latent Gradio run can emit a registry-ready per-run record containing the condition source, selected start, support candidates, validation status, generation metadata, and artifact hashes while retaining only a SHA-256 hash and character count for the narrative text.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_run_record.py`.
+- Added `test_code/test_816a_nl_prefix_latent_run_record.py` for run-record construction, artifact hashing, Markdown rendering, and raw narrative exclusion.
+- Wired the real Gradio prefix-latent path to write `run_record/prefix_latent_run_record.json` and expose the path in both the returned app report and persisted prefix report.
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py` to include `prefix_run_record_path` in smoke summaries.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the per-run record contract.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_815a_nl_prefix_latent_demo_run_registry.py test_code/test_816a_nl_prefix_latent_run_record.py -q
+```
+
+Result: `51 passed`.
+
+A real cached Gradio API smoke passed without OpenAI calls:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py \
+  --url http://127.0.0.1:7866 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_841b_run_record_visible \
+  --casebook-choice safe_haven_gold_bid:18 \
+  --samples 2 \
+  --fan-market SPX \
+  --redraw-market IV_ATM_3M
+```
+
+Result: status `ok`, selected-start `pass`, 8 support candidates, 8 fan traces, and 8 IV-cell redraw traces.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_841b_run_record_visible/gradio_api_smoke_summary.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/cached_casebook_run/prefix_latent_condition_only_report_823b_safe_haven/run_record/prefix_latent_run_record.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/cached_casebook_run/prefix_latent_condition_only_report_823b_safe_haven/run_record/prefix_latent_run_record.md`
+
+Verification found `prefix_run_record_path` present in the API smoke summary, the persisted prefix report contained the same path, the run record existed, condition source was `external_condition_report`, support count was 8, and the raw default story text was not retained in the run-record JSON.
+
+### Mechanism Read
+This is the first write-through audit/control-plane piece rather than another retrospective manifest. It creates the object a private hosted prototype should persist for each scenario generation: one record per run, linked to hashes and warnings, without storing raw risk-manager narrative text by default.
+
+### Decision / Next Step
+The next production step is to make the run registry consume these per-run records directly, so a private hosted prototype can list user-visible runs rather than only static QA evidence packets. After that, the remaining gap is choosing the private storage backend and serving/deployment wrapper.
+
+---

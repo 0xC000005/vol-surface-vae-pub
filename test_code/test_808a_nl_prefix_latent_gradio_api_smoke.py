@@ -109,6 +109,12 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
                     json.dumps(
                         {
                             "status": "ok",
+                            "artifact_paths": {
+                                "report": "prefix_report.json",
+                                "markdown": "prefix_report.md",
+                                "arrays": "prefix_arrays.npz",
+                                "run_record": "prefix_run_record.json",
+                            },
                             "cached_query": {
                                 "condition_source": "external_condition_report",
                                 "embedding_metadata": {
@@ -184,6 +190,7 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
     assert summary["selected_start_status"] == "pass"
     assert summary["fan_trace_count"] == 8
     assert summary["redraw_trace_count"] == 8
+    assert summary["prefix_run_record_path"] == "prefix_run_record.json"
     assert summary["support_candidate_count"] == 1
     assert summary["support_top_candidates"][0]["window_id"] == "joint39_val_0036"
     assert summary["market_implications"][0]["market"] == "GOLD"

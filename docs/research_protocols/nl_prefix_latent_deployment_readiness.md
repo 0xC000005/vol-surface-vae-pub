@@ -447,6 +447,37 @@ missing references, browser-render gate `pass` with 2/2 screenshots. This is
 still a file-backed local registry; a production prototype should persist the
 same fields in a private durable store.
 
+## Per-Run Record
+
+Real prefix-latent Gradio runs now write a compact run record beside the run
+artifacts. The record is designed to be the row payload for a private hosted
+prototype's durable run registry:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/cached_casebook_run/prefix_latent_condition_only_report_823b_safe_haven/run_record/prefix_latent_run_record.json
+```
+
+The record includes:
+
+- source commit and deterministic record id;
+- condition source, text-memory dimension, implication count, and forward
+  warning count;
+- a SHA-256 hash and character count for the narrative text, not the raw text;
+- selected start metadata and support candidates;
+- validation status and generation shape;
+- artifact paths, sizes, and hashes.
+
+Verified cached Gradio smoke:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_841b_run_record_visible/gradio_api_smoke_summary.json
+```
+
+Summary: status `ok`, selected-start `pass`, 8 support candidates, 8 fan traces,
+8 IV-cell redraw traces, `prefix_run_record_path` present, persisted prefix
+report contains the same run-record path, and the run-record JSON did not retain
+the default raw story text.
+
 Before showing the demo externally:
 
 - launch the current HEAD Gradio app from a clean shell;
