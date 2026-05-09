@@ -13,6 +13,12 @@ from experiments.world.evaluation.part1_metrics import (
 )
 from experiments.world.evaluation.part2_metrics import compact_path_sample_metrics
 from experiments.world.evaluation.world_data import build_iv_world_windows
+from experiments.world.part1_jepa_latent.jepa_smoke import (
+    JEPAConfig,
+    JEPAWorldModel,
+    jepa_loss,
+    update_ema,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -121,3 +127,28 @@ def test_compact_path_sample_metrics_score_decoder_samples():
     assert metrics["variance_ratio"] > 0.0
     assert metrics["effective_rank"] > 0.0
     assert metrics["corr_frobenius"] >= 0.0
+
+
+def test_jepa_smoke_model_forward_loss_and_ema_update():
+    import torch
+
+    torch.manual_seed(7)
+    cfg = JEPAConfig(input_dim=5, hidden_dim=8, latent_dim=4, predictor_hidden_dim=8)
+    model = JEPAWorldModel(cfg)
+    past = torch.randn(6, 3, 5)
+    future = torch.randn(6, 3, 5)
+
+    out = model(past, future)
+    loss, parts = jepa_loss(out, variance_weight=0.1, covariance_weight=0.1)
+    before = [p.detach().clone() for p in model.target_encoder.parameters()]
+    with torch.no_grad():
+        next(model.context_encoder.parameters()).add_(1.0)
+    update_ema(model.context_encoder, model.target_encoder, decay=0.5)
+    after = list(model.target_encoder.parameters())
+
+    assert out["context"].shape == (6, 4)
+    assert out["target"].shape == (6, 4)
+    assert out["predicted"].shape == (6, 4)
+    assert torch.isfinite(loss)
+    assert parts["prediction"] >= 0.0
+    assert any(not torch.equal(a, b) for a, b in zip(before, after))

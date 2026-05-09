@@ -114893,3 +114893,41 @@ Artifacts:
 - `experiments/world/reports/world_model_head002_harness.md`
 
 ---
+## 2026-05-09: World model HEAD003 minimal Part 1 JEPA smoke
+
+Context:
+- Continued the world-model autoresearch loop from the harness stage into the first actual Part 1 JEPA latent smoke.
+- The goal was to falsify the minimal representation branch before attaching any flow decoder.
+
+Hypothesis:
+- A minimal IV-only JEPA-style latent model can beat the raw last-frame / mean-future placeholder on future-latent prediction and retrieval while keeping variance/effective-rank diagnostics healthier than collapse.
+
+Execution:
+- Added `experiments/world/part1_jepa_latent/jepa_smoke.py`.
+- The model uses a GRU context encoder over the past IV window, an EMA GRU target encoder over the future IV window, and an MLP predictor from context latent to target latent.
+- The objective is prediction MSE plus variance and covariance health regularizers.
+- Ran: `python experiments/world/part1_jepa_latent/jepa_smoke.py --device cpu --epochs 8 --batch_size 128 --max_train_windows 1024 --max_val_windows 256 --output_json results/world/part1_jepa_smoke_head003.json --checkpoint models/world/checkpoints/part1_jepa_latent/jepa_smoke_head003.pt`.
+
+Result:
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `4 passed in 0.73s`.
+- Training loss fell from `0.272157` at epoch 1 to `0.056699` at epoch 8; prediction component fell from `0.225814` to `0.009857`.
+- Validation JEPA metrics on 256 windows: MSE `0.0126759`, cosine mean `0.990283`, top1 retrieval `0.00390625`, top5 retrieval `0.01953125`, MRR `0.0236204`, context effective rank `2.26309`, and context off-diagonal absolute correlation mean `0.54837`.
+- Raw placeholder baseline on the same windows: MSE `0.0139568`, cosine mean `0.983798`, top1 retrieval `0.00390625`, top5 retrieval `0.0390625`, MRR `0.0358555`, target effective rank `2.95571`.
+
+Mechanism read:
+- The smoke improved smooth prediction metrics but failed the identity/retrieval test.
+- Prediction MSE alone is too weak: the latent can become a central future summary rather than a discriminative future state.
+- The representation is still low-rank, so Part 1 is not validated.
+- This is useful evidence to keep the flow decoder detached for now; attaching it would risk hiding representation failure behind decoder behavior.
+
+Decision / next step:
+- Treat HEAD003 as a failed Part 1 smoke.
+- Run post-experiment analysis next before more training.
+- Candidate repairs: explicit multi-horizon targets or horizon tokens, stronger variance/covariance pressure, supervised future-summary probes, and a retrieval/contrastive auxiliary loss if MSE continues to ignore instance identity.
+
+Artifacts:
+- `experiments/world/part1_jepa_latent/jepa_smoke.py`
+- `experiments/world/reports/world_model_head003_part1_jepa_smoke.md`
+- Ignored outputs: `results/world/part1_jepa_smoke_head003.json`, `models/world/checkpoints/part1_jepa_latent/jepa_smoke_head003.pt`
+
+---

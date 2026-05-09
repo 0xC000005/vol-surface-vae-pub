@@ -27,3 +27,8 @@ Quality gates for this part should be representation-focused:
 
 Do not align arbitrary time windows. The positive pair is the past context and
 the actual future window from the same sample.
+
+## Current Smoke
+
+- `jepa_smoke.py`: minimal IV-only GRU context encoder, EMA target encoder, and
+  predictor. Use it as a Part 1 falsifier, not as the final architecture.
