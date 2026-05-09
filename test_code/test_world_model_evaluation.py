@@ -36,6 +36,7 @@ from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     epoch_checkpoint_path,
     make_horizon_frame_targets,
     save_epoch_checkpoint,
+    soft_neighborhood_contrastive_loss,
     supervised_horizon_loss,
 )
 from experiments.world.part1_jepa_latent.context_probe_audit import (
@@ -359,6 +360,29 @@ def test_context_correlation_loss_penalizes_duplicate_dimensions():
     duplicated[:, 1] = duplicated[:, 0]
 
     assert context_correlation_loss(duplicated) > context_correlation_loss(context)
+
+
+def test_soft_neighborhood_contrastive_loss_prefers_aligned_predictions():
+    import torch
+
+    target = torch.eye(6)
+    aligned = target.clone()
+    permuted = torch.roll(target, shifts=1, dims=0)
+
+    aligned_loss = soft_neighborhood_contrastive_loss(
+        aligned,
+        target,
+        temperature=0.1,
+        target_temperature=0.2,
+    )
+    permuted_loss = soft_neighborhood_contrastive_loss(
+        permuted,
+        target,
+        temperature=0.1,
+        target_temperature=0.2,
+    )
+
+    assert aligned_loss < permuted_loss
 
 
 def test_checkpoint_selection_score_prefers_requested_metric():

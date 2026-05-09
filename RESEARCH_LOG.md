@@ -115637,3 +115637,46 @@ Artifacts:
 - Ignored outputs: `results/world/part1_context_probe_audit_head022_epoch*.json`, `results/world/head022_epoch_score_inputs/`, `results/world/part1_context_composite_scores_head022_epochs.json`
 
 ---
+## 2026-05-09: World model HEAD023 soft neighborhood objective
+
+### Context
+- Continued JEPA-only autoresearch after HEAD022 showed checkpoint selection was not the bottleneck.
+- This iteration tested whether a soft neighborhood contrastive objective in horizon-delta space could preserve broad top-k retrieval without giving up frame-MSE/probe quality.
+
+### Hypothesis
+- Adding a soft neighborhood contrastive term should preserve top-k neighborhoods better than one-hot retrieval alone while retaining later-training frame-MSE and frozen-probe gains.
+- Falsifier: the run improves neighborhood/top-k metrics only by selecting an early underfit checkpoint or by losing the frame-MSE/probe gate.
+
+### Execution
+- Added `soft_neighborhood_contrastive_loss` to `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`.
+- Added CLI controls: `--neighborhood_weight`, `--neighborhood_temperature`, and `--neighborhood_target_temperature`.
+- Added regression coverage in `test_code/test_world_model_evaluation.py`.
+- Ran the mild-head/light-correlation setup with `retrieval_weight=0.05`, `neighborhood_weight=0.05`, and epoch checkpoint retention.
+- Audited the selected checkpoint with `context_probe_audit.py` and scored it against HEAD013, HEAD017, and HEAD019 with the top-k-aware composite scorer.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `18 passed in 0.72s`.
+- Selected epoch: `5`.
+- Frame metrics: MSE `0.022259`, MRR `0.057032`, top1 `0.010938`, top5 `0.082813`, top10 `0.139844`.
+- Raw persistence: MSE `0.022376`, MRR `0.052426`, top1 `0.000781`, top5 `0.086719`, top10 `0.135156`.
+- Context/probe audit: effective rank `5.060637`, offdiag abs mean `0.361862`, ridge MSE `0.017022`, ridge MRR `0.111229`.
+- Composite ranking: HEAD013 `0.580304`, HEAD017 `0.577865`, HEAD023 `0.532110`, HEAD019 `0.520371`.
+
+### Mechanism Read
+- The tested soft-neighborhood setting is negative under the current Part 1 gate.
+- It improves ridge MRR slightly and keeps top10 positive against persistence, but it gives up too much frame-MSE improvement and still leaves top5 below persistence.
+- The failure class remains `latent_prediction`: neighborhood ranking and frame-space prediction are still trading off instead of co-maturing.
+
+### Decision / Next Step
+- Stop after this task per user request.
+- Do not promote HEAD023 as the current Part 1 candidate.
+- Keep HEAD013 as the top-k-aware reference and HEAD017 as the frame-MSE/ridge-MRR near miss.
+- If resumed, avoid more scalar neighborhood-weight sweeps; change the target or training schedule so prediction fit and neighborhood retrieval mature together.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head023_soft_neighborhood_objective.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_softneighborhood_head023.json`, `results/world/part1_context_probe_audit_head023.json`, `results/world/part1_context_composite_scores_head023.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_softneighborhood_head023.pt`, `models/world/checkpoints/part1_jepa_latent/head023_softneighborhood_epochs/`
+
+---

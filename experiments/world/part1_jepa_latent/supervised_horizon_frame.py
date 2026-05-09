@@ -143,6 +143,38 @@ def context_correlation_loss(context: torch.Tensor, eps: float = 1e-4) -> torch.
     return (offdiag * offdiag).sum() / context.shape[1]
 
 
+def soft_neighborhood_contrastive_loss(
+    predicted: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    temperature: float = 0.1,
+    target_temperature: float = 0.2,
+    detach_target: bool = True,
+) -> torch.Tensor:
+    if predicted.shape != target.shape:
+        raise ValueError(
+            f"predicted and target must match, got {tuple(predicted.shape)} and {tuple(target.shape)}"
+        )
+    if predicted.ndim != 2:
+        raise ValueError("predicted and target must have shape (B, D)")
+    if predicted.shape[0] < 2:
+        raise ValueError("soft_neighborhood_contrastive_loss needs at least two samples")
+    if temperature <= 0.0:
+        raise ValueError("temperature must be positive")
+    if target_temperature <= 0.0:
+        raise ValueError("target_temperature must be positive")
+
+    pred_norm = F.normalize(predicted, dim=1)
+    target_for_scores = target.detach() if detach_target else target
+    target_norm = F.normalize(target_for_scores, dim=1)
+    logits = pred_norm @ target_norm.T / temperature
+    with torch.no_grad():
+        neighbor_probs = F.softmax((target_norm @ target_norm.T) / target_temperature, dim=1)
+    row_loss = -(neighbor_probs * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+    col_loss = -(neighbor_probs.T * F.log_softmax(logits.T, dim=1)).sum(dim=1).mean()
+    return 0.5 * (row_loss + col_loss)
+
+
 def supervised_horizon_loss(
     predicted_target: torch.Tensor,
     target: torch.Tensor,
@@ -153,6 +185,9 @@ def supervised_horizon_loss(
     frame_weight: float = 0.25,
     retrieval_weight: float = 0.0,
     retrieval_temperature: float = 0.1,
+    neighborhood_weight: float = 0.0,
+    neighborhood_temperature: float = 0.1,
+    neighborhood_target_temperature: float = 0.2,
     context: torch.Tensor | None = None,
     context_variance_weight: float = 0.0,
     context_covariance_weight: float = 0.0,
@@ -178,6 +213,19 @@ def supervised_horizon_loss(
         retrieval = torch.stack(retrieval_terms).mean()
     else:
         retrieval = predicted_target.new_tensor(0.0)
+    if neighborhood_weight > 0.0:
+        neighborhood_terms = [
+            soft_neighborhood_contrastive_loss(
+                predicted_target[:, horizon_idx, :],
+                target[:, horizon_idx, :],
+                temperature=neighborhood_temperature,
+                target_temperature=neighborhood_target_temperature,
+            )
+            for horizon_idx in range(predicted_target.shape[1])
+        ]
+        neighborhood = torch.stack(neighborhood_terms).mean()
+    else:
+        neighborhood = predicted_target.new_tensor(0.0)
     if context is not None:
         context_variance = variance_loss(context, gamma=context_variance_gamma)
         context_covariance = covariance_loss(context)
@@ -196,6 +244,7 @@ def supervised_horizon_loss(
         target_mse
         + frame_weight * frame_mse
         + retrieval_weight * retrieval
+        + neighborhood_weight * neighborhood
         + context_variance_weight * context_variance
         + context_covariance_weight * context_covariance
         + context_correlation_weight * context_correlation
@@ -204,6 +253,7 @@ def supervised_horizon_loss(
         "target_mse": float(target_mse.detach().cpu()),
         "frame_mse": float(frame_mse.detach().cpu()),
         "retrieval": float(retrieval.detach().cpu()),
+        "neighborhood": float(neighborhood.detach().cpu()),
         "context_variance": float(context_variance.detach().cpu()),
         "context_covariance": float(context_covariance.detach().cpu()),
         "context_correlation": float(context_correlation.detach().cpu()),
@@ -483,6 +533,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 frame_weight=args.frame_weight,
                 retrieval_weight=args.retrieval_weight,
                 retrieval_temperature=args.retrieval_temperature,
+                neighborhood_weight=args.neighborhood_weight,
+                neighborhood_temperature=args.neighborhood_temperature,
+                neighborhood_target_temperature=args.neighborhood_target_temperature,
                 context=context,
                 context_variance_weight=args.context_variance_weight,
                 context_covariance_weight=args.context_covariance_weight,
@@ -604,6 +657,9 @@ def main() -> None:
     parser.add_argument("--frame_weight", type=float, default=0.25)
     parser.add_argument("--retrieval_weight", type=float, default=0.0)
     parser.add_argument("--retrieval_temperature", type=float, default=0.1)
+    parser.add_argument("--neighborhood_weight", type=float, default=0.0)
+    parser.add_argument("--neighborhood_temperature", type=float, default=0.1)
+    parser.add_argument("--neighborhood_target_temperature", type=float, default=0.2)
     parser.add_argument("--context_variance_weight", type=float, default=0.0)
     parser.add_argument("--context_covariance_weight", type=float, default=0.0)
     parser.add_argument("--context_variance_gamma", type=float, default=0.1)
