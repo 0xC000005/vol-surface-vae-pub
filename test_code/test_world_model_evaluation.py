@@ -309,6 +309,43 @@ def test_supervised_horizon_delta_targets_reconstruct_frames():
     assert contrastive_parts["retrieval"] > 0.0
 
 
+def test_supervised_horizon_loss_adds_context_regularizers():
+    import torch
+
+    past = torch.randn(8, 4, 3)
+    predicted_target = torch.zeros(8, 2, 3)
+    target = torch.zeros(8, 2, 3)
+    frame = decode_horizon_prediction(past, target, target_mode="delta")
+    context = torch.randn(8, 5)
+
+    base_loss, base_parts = supervised_horizon_loss(
+        predicted_target,
+        target,
+        frame,
+        past,
+        target_mode="delta",
+        frame_weight=0.0,
+    )
+    regularized_loss, parts = supervised_horizon_loss(
+        predicted_target,
+        target,
+        frame,
+        past,
+        target_mode="delta",
+        frame_weight=0.0,
+        context=context,
+        context_variance_weight=0.1,
+        context_covariance_weight=0.1,
+        context_variance_gamma=0.5,
+    )
+
+    assert base_parts["context_variance"] == 0.0
+    assert base_parts["context_covariance"] == 0.0
+    assert parts["context_variance"] >= 0.0
+    assert parts["context_covariance"] >= 0.0
+    assert regularized_loss > base_loss
+
+
 def test_checkpoint_selection_score_prefers_requested_metric():
     low_mse = {"val_mse": 0.01, "val_mrr_mean": 0.02, "val_top5_mean": 0.03}
     high_mrr = {"val_mse": 0.02, "val_mrr_mean": 0.05, "val_top5_mean": 0.02}

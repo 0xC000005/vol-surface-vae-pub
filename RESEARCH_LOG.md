@@ -115189,3 +115189,43 @@ Artifacts:
 - Ignored output: `results/world/part1_context_probe_audit_head010.json`
 
 ---
+## 2026-05-09: World model HEAD011 context regularization trial
+
+### Context
+- Continued JEPA-only autoresearch after HEAD010 showed that frozen context probes are predictive but context embeddings are redundant.
+- This iteration tested direct context variance/covariance regularization inside the supervised fixed-delta lower bound.
+
+### Hypothesis
+- Adding direct variance/covariance regularization to the supervised fixed-delta context state should improve representation health without sacrificing the fixed-delta prediction and retrieval advantage.
+- Falsifier: context effective rank/off-diagonal correlation does not improve, or the ridge probe loses its advantage over zero-delta and the trained head.
+
+### Execution
+- Updated `experiments/world/part1_jepa_latent/supervised_horizon_frame.py` with `--context_variance_weight`, `--context_covariance_weight`, and `--context_variance_gamma`.
+- Added loss-level regression coverage in `test_code/test_world_model_evaluation.py`.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.05 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.005 --context_variance_gamma 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_contextreg_head011.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contextreg_head011.pt`.
+- Audited the saved checkpoint with `python experiments/world/part1_jepa_latent/context_probe_audit.py --device cpu --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --ridge_alpha 0.001 --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contextreg_head011.pt --output_json results/world/part1_context_probe_audit_head011.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `12 passed in 0.73s`.
+- MRR-selected checkpoint was epoch 5 with frame MSE `0.021399`, MRR mean `0.058350`, top1 `0.010938`, top5 `0.083594`, and top10 `0.135938`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context health after regularization: variance min `0.004570`, variance mean `0.019640`, effective rank `3.567140`, participation ratio `2.147186`, offdiag abs mean `0.502522`, offdiag abs max `0.972201`.
+- Frozen ridge probe after regularization: MSE `0.017674`, MRR mean `0.108320`, top1 `0.045313`, top5 `0.140625`, top10 `0.224219`.
+
+### Mechanism Read
+- This is a mixed but mostly negative result.
+- The fixed-delta signal survives: the checkpoint still beats persistence on frame MSE, MRR, top1, and top10, and the frozen ridge probe still beats zero-delta.
+- The representation-health bottleneck does not improve: effective rank decreased from HEAD010's `3.688405` to `3.567140`, and offdiag abs mean increased from `0.484346` to `0.502522`.
+- The likely issue is that covariance-magnitude regularization is not the same as correlation/whitening regularization; increasing variance along dominant directions can leave normalized redundancy high.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Do not treat simple variance/covariance regularization as sufficient.
+- Replace or supplement it with a normalized correlation/whitening-style context regularizer, and keep the frozen context probe audit as the Part 1 gate.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head011_context_regularization.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_contextreg_head011.json`, `results/world/part1_context_probe_audit_head011.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contextreg_head011.pt`
+
+---

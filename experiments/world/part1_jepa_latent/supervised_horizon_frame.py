@@ -27,7 +27,9 @@ from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (  # noqa: E4
     validate_horizons,
 )
 from experiments.world.part1_jepa_latent.jepa_smoke import (  # noqa: E402
+    covariance_loss,
     retrieval_contrastive_loss,
+    variance_loss,
 )
 
 
@@ -74,7 +76,12 @@ class SupervisedHorizonFrameModel(nn.Module):
             nn.Linear(cfg.predictor_hidden_dim, cfg.input_dim),
         )
 
-    def forward(self, past: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        past: torch.Tensor,
+        *,
+        return_context: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         context = self.context_encoder(past)
         rows = []
         batch_size = past.shape[0]
@@ -87,7 +94,10 @@ class SupervisedHorizonFrameModel(nn.Module):
             )
             horizon_emb = self.horizon_embedding(horizon_ids)
             rows.append(self.predictor(torch.cat([context, horizon_emb], dim=1)))
-        return torch.stack(rows, dim=1)
+        predicted = torch.stack(rows, dim=1)
+        if return_context:
+            return predicted, context
+        return predicted
 
 
 def make_horizon_frame_targets(
@@ -131,6 +141,10 @@ def supervised_horizon_loss(
     frame_weight: float = 0.25,
     retrieval_weight: float = 0.0,
     retrieval_temperature: float = 0.1,
+    context: torch.Tensor | None = None,
+    context_variance_weight: float = 0.0,
+    context_covariance_weight: float = 0.0,
+    context_variance_gamma: float = 0.1,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     predicted_frame = decode_horizon_prediction(
         past,
@@ -151,11 +165,27 @@ def supervised_horizon_loss(
         retrieval = torch.stack(retrieval_terms).mean()
     else:
         retrieval = predicted_target.new_tensor(0.0)
-    loss = target_mse + frame_weight * frame_mse + retrieval_weight * retrieval
+    if context is not None:
+        context_variance = variance_loss(context, gamma=context_variance_gamma)
+        context_covariance = covariance_loss(context)
+    elif context_variance_weight > 0.0 or context_covariance_weight > 0.0:
+        raise ValueError("context must be provided when context regularization weights are positive")
+    else:
+        context_variance = predicted_target.new_tensor(0.0)
+        context_covariance = predicted_target.new_tensor(0.0)
+    loss = (
+        target_mse
+        + frame_weight * frame_mse
+        + retrieval_weight * retrieval
+        + context_variance_weight * context_variance
+        + context_covariance_weight * context_covariance
+    )
     return loss, {
         "target_mse": float(target_mse.detach().cpu()),
         "frame_mse": float(frame_mse.detach().cpu()),
         "retrieval": float(retrieval.detach().cpu()),
+        "context_variance": float(context_variance.detach().cpu()),
+        "context_covariance": float(context_covariance.detach().cpu()),
         "loss": float(loss.detach().cpu()),
     }
 
@@ -394,7 +424,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 target_mode=args.target_mode,
             )
             opt.zero_grad(set_to_none=True)
-            pred_target = model(past_batch)
+            pred_target, context = model(past_batch, return_context=True)
             loss, parts = supervised_horizon_loss(
                 pred_target,
                 target,
@@ -404,6 +434,10 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 frame_weight=args.frame_weight,
                 retrieval_weight=args.retrieval_weight,
                 retrieval_temperature=args.retrieval_temperature,
+                context=context,
+                context_variance_weight=args.context_variance_weight,
+                context_covariance_weight=args.context_covariance_weight,
+                context_variance_gamma=args.context_variance_gamma,
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
@@ -510,6 +544,9 @@ def main() -> None:
     parser.add_argument("--frame_weight", type=float, default=0.25)
     parser.add_argument("--retrieval_weight", type=float, default=0.0)
     parser.add_argument("--retrieval_temperature", type=float, default=0.1)
+    parser.add_argument("--context_variance_weight", type=float, default=0.0)
+    parser.add_argument("--context_covariance_weight", type=float, default=0.0)
+    parser.add_argument("--context_variance_gamma", type=float, default=0.1)
     parser.add_argument("--selection_metric", choices=("mse", "mrr", "top5"), default="mse")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7705)
