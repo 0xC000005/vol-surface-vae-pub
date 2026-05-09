@@ -115783,3 +115783,34 @@ Artifacts:
 - Ignored outputs: `results/world/part1_horizon_delta_frame_jepa_head025.json`, `models/world/checkpoints/part1_jepa_latent/horizon_delta_frame_jepa_head025.pt`
 
 ---
+## 2026-05-09: World model HEAD026 delta JEPA collapse analysis
+
+### Context
+- Continued JEPA-only after HEAD025's canonical delta-target EMA horizon-JEPA failed the Part 1 gate.
+- This was a post-experiment analysis HEAD, not a new model or knob sweep.
+
+### Question
+- Why did HEAD025 improve over the old learned-target JEPA runs but still fail?
+
+### Evidence
+- HEAD025 history showed rank and retrieval moving in opposite directions:
+  - epoch 4: predicted rank `5.410567`, MRR `0.024882`;
+  - epoch 10: predicted rank `1.262683`, MRR `0.042356`.
+- Per-horizon selected-epoch target ranks were only about `1.96` to `2.16`.
+- Per-horizon selected-epoch predicted ranks were about `1.23`.
+- HEAD025 improved over HEAD006 learned-target JEPA MRR (`0.042356` vs `0.034284`/`0.033023`) but still lost to raw persistence MRR `0.052426`, top5 `0.086719`, and top10 `0.135156`.
+
+### Mechanism Read
+- Delta target construction helped, but did not fix target-space collapse.
+- The EMA target encoder is not providing a rich enough future latent; the predictor then improves retrieval by collapsing toward a low-dimensional ordering signal.
+- The issue is target-space stability, not a missing retrieval/neighborhood loss.
+
+### Decision / Next Step
+- Do not add another retrieval loss, neighborhood loss, or scalar regularization knob.
+- Run a research-ideation HEAD for a fixed horizon-delta target embedding contract, likely PCA or whitened SVD fitted on training deltas.
+- The next diagnostic should prove the target space is worth predicting before asking EMA JEPA to learn it.
+
+### Artifacts
+- `experiments/world/reports/world_model_head026_delta_jepa_collapse_analysis.md`
+
+---
