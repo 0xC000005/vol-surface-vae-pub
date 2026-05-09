@@ -116130,3 +116130,47 @@ Artifacts:
 - `experiments/world/reports/world_model_head035_direct_predictor_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD036 fused context delta-PCA predictor
+
+### Context
+- Continued from HEAD035's architecture-only plan.
+- This experiment fused a GRU sequence branch with a direct flattened-past branch before the horizon predictor, while keeping the fixed delta-PCA target and MSE objective unchanged.
+
+### Hypothesis / Falsifier
+- Hypothesis: fused context can preserve HEAD028 coordinate stability while borrowing HEAD034's direct retrieval signal.
+- Falsifier: it does not beat HEAD028 on decoded delta MSE or fixed-target MSE, or cannot preserve HEAD034 retrieval/top-k gains.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/fused_context_delta_pca_predictor.py`.
+- Added focused test in `test_code/test_world_model_evaluation.py`.
+- Architecture: `past -> GRU branch + direct flattened branch -> fused context -> horizon predictor -> fixed z_pca`.
+- No target encoder, retrieval/neighborhood loss, target sweep, or decoder.
+
+### Validation
+- Red test first failed with `ModuleNotFoundError` for `fused_context_delta_pca_predictor`.
+- Full validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `26 passed in 0.79s`.
+- Compile check passed for the new script and test file.
+
+### Result
+- MSE-selected checkpoint: epoch `16`, MSE `1.013283`, MRR `0.117733`, top1 `0.052344`, top5 `0.157812`, top10 `0.242188`, decoded delta MSE `0.015363`, predicted rank `4.595201`, context rank `6.551514`.
+- Best retrieval row: MRR `0.117905`, top5 `0.157812`, top10 `0.231250`, decoded delta MSE `0.016342`.
+- HEAD028 reference: MSE `0.987130`, MRR `0.096374`, top5 `0.132031`, top10 `0.203125`, decoded delta MSE `0.015369`, rank `3.863753`.
+- HEAD034 direct best retrieval: MRR `0.110811`, top5 `0.150781`, top10 `0.221875`, decoded delta MSE `0.016992`.
+
+### Mechanism Read
+- Fusion improves retrieval/top-k over both HEAD028 and HEAD034 while keeping decoded delta MSE essentially at the HEAD028 level.
+- It does not improve fixed-target MSE; target-space coordinate MSE remains worse than HEAD028.
+- This is the strongest Part 1 candidate so far for retrieval plus decoded delta quality, but not a complete pass.
+
+### Decision / Next Step
+- Do not move to the decoder yet.
+- Next HEAD should be post-experiment analysis: decide whether HEAD036 should become the current reference despite target-space MSE regression, and audit whether that MSE regression is concentrated in low-variance or high-variance PCA directions.
+- Do not add retrieval loss, target sweeps, or another objective before that analysis.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/fused_context_delta_pca_predictor.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head036_fused_context_delta_pca.md`
+- Ignored outputs: `results/world/part1_fused_context_delta_pca_head036.json`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`
+
+---
