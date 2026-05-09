@@ -17,6 +17,7 @@ from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
     jepa_loss,
+    retrieval_contrastive_loss,
     update_ema,
 )
 
@@ -139,7 +140,12 @@ def test_jepa_smoke_model_forward_loss_and_ema_update():
     future = torch.randn(6, 3, 5)
 
     out = model(past, future)
-    loss, parts = jepa_loss(out, variance_weight=0.1, covariance_weight=0.1)
+    loss, parts = jepa_loss(
+        out,
+        variance_weight=0.1,
+        covariance_weight=0.1,
+        retrieval_weight=0.1,
+    )
     before = [p.detach().clone() for p in model.target_encoder.parameters()]
     with torch.no_grad():
         next(model.context_encoder.parameters()).add_(1.0)
@@ -151,4 +157,18 @@ def test_jepa_smoke_model_forward_loss_and_ema_update():
     assert out["predicted"].shape == (6, 4)
     assert torch.isfinite(loss)
     assert parts["prediction"] >= 0.0
+    assert parts["retrieval"] > 0.0
     assert any(not torch.equal(a, b) for a, b in zip(before, after))
+
+
+def test_retrieval_contrastive_loss_prefers_matching_pairs():
+    import torch
+
+    predicted = torch.eye(4)
+    target = torch.eye(4)
+    shuffled = target[[1, 0, 3, 2]]
+
+    matching = retrieval_contrastive_loss(predicted, target, temperature=0.1)
+    mismatched = retrieval_contrastive_loss(predicted, shuffled, temperature=0.1)
+
+    assert matching < mismatched

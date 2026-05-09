@@ -114964,3 +114964,39 @@ Artifacts:
 - `experiments/world/reports/world_model_head004_part1_failure_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD005 retrieval-loss Part 1 repair smoke
+
+Context:
+- Continued from HEAD004, which showed that the first JEPA smoke failed because the predicted latent was low-variance and retrieval stayed at chance.
+- This iteration tested the direct repair: add in-batch retrieval / InfoNCE loss and stronger variance pressure.
+
+Hypothesis:
+- Retrieval loss plus stronger variance pressure should move validation retrieval above chance and increase effective rank without destroying prediction quality.
+
+Execution:
+- Updated `experiments/world/part1_jepa_latent/jepa_smoke.py` with `retrieval_contrastive_loss`, `--retrieval_weight`, `--retrieval_temperature`, and dynamic loss-component logging.
+- Added test coverage in `test_code/test_world_model_evaluation.py`.
+- Ran: `python experiments/world/part1_jepa_latent/jepa_smoke.py --device cpu --epochs 12 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --variance_weight 0.5 --covariance_weight 0.01 --retrieval_weight 0.2 --retrieval_temperature 0.1 --output_json results/world/part1_jepa_retrieval_head005.json --checkpoint models/world/checkpoints/part1_jepa_latent/jepa_retrieval_head005.pt`.
+
+Result:
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `5 passed in 0.69s`.
+- Best training loss occurred around epoch 8; final epoch had prediction loss `0.28474`, variance loss `0.29679`, and retrieval loss `4.48958`.
+- Validation metrics: MSE `0.500727`, cosine mean `0.917203`, top1 `0.01171875`, top5 `0.03515625`, top10 `0.05078125`, MRR `0.036219`, context effective rank `3.08071`, predicted effective rank `1.99685`.
+- Raw placeholder baseline on the same windows remained much stronger on MSE (`0.0139568`) and still better on top5/top10 retrieval.
+
+Mechanism read:
+- Stronger variance pressure made context latents spread out, but the predictor did not map that spread into a useful discriminative future latent.
+- The loss terms are fighting: retrieval/top1 improved slightly, but prediction quality collapsed.
+- This remains a failed Part 1 representation result, so the flow decoder stays detached.
+
+Decision / next step:
+- Stop blind weight sweeping.
+- Redesign Part 1 around more explicit horizon-specific future summary targets, supervised future-summary probe lower bounds, and possibly separate normalized retrieval and regression heads.
+- Add best-validation checkpoint reporting before treating any future smoke as passed.
+
+Artifacts:
+- `experiments/world/part1_jepa_latent/jepa_smoke.py`
+- `experiments/world/reports/world_model_head005_retrieval_repair_smoke.md`
+- Ignored outputs: `results/world/part1_jepa_retrieval_head005.json`, `models/world/checkpoints/part1_jepa_latent/jepa_retrieval_head005.pt`
+
+---

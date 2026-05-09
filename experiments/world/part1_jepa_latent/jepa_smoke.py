@@ -93,11 +93,37 @@ def covariance_loss(z: torch.Tensor) -> torch.Tensor:
     return (offdiag * offdiag).sum() / z.shape[1]
 
 
+def retrieval_contrastive_loss(
+    predicted: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    temperature: float = 0.1,
+) -> torch.Tensor:
+    if predicted.shape != target.shape:
+        raise ValueError(
+            f"predicted and target must match, got {tuple(predicted.shape)} and {tuple(target.shape)}"
+        )
+    if predicted.shape[0] < 2:
+        raise ValueError("retrieval_contrastive_loss needs at least two samples")
+    if temperature <= 0.0:
+        raise ValueError("temperature must be positive")
+
+    pred_norm = F.normalize(predicted, dim=1)
+    target_norm = F.normalize(target.detach(), dim=1)
+    logits = pred_norm @ target_norm.T / temperature
+    labels = torch.arange(predicted.shape[0], device=predicted.device)
+    row_loss = F.cross_entropy(logits, labels)
+    col_loss = F.cross_entropy(logits.T, labels)
+    return 0.5 * (row_loss + col_loss)
+
+
 def jepa_loss(
     outputs: dict[str, torch.Tensor],
     *,
     variance_weight: float = 0.05,
     covariance_weight: float = 0.005,
+    retrieval_weight: float = 0.0,
+    retrieval_temperature: float = 0.1,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     predicted = outputs["predicted"]
     target = outputs["target"].detach()
@@ -114,11 +140,26 @@ def jepa_loss(
         + covariance_loss(predicted)
         + covariance_loss(target)
     ) / 3.0
-    loss = prediction + variance_weight * var + covariance_weight * cov
+    retrieval = (
+        retrieval_contrastive_loss(
+            predicted,
+            target,
+            temperature=retrieval_temperature,
+        )
+        if retrieval_weight > 0.0
+        else prediction.new_tensor(0.0)
+    )
+    loss = (
+        prediction
+        + variance_weight * var
+        + covariance_weight * cov
+        + retrieval_weight * retrieval
+    )
     return loss, {
         "prediction": float(prediction.detach().cpu()),
         "variance": float(var.detach().cpu()),
         "covariance": float(cov.detach().cpu()),
+        "retrieval": float(retrieval.detach().cpu()),
         "loss": float(loss.detach().cpu()),
     }
 
@@ -240,7 +281,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     for epoch in range(1, args.epochs + 1):
         model.train()
         losses = []
-        parts_accum = {"prediction": [], "variance": [], "covariance": [], "loss": []}
+        parts_accum: dict[str, list[float]] = {}
         for past_batch, future_batch in train_loader:
             past_batch = past_batch.to(device)
             future_batch = future_batch.to(device)
@@ -250,6 +291,8 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 out,
                 variance_weight=args.variance_weight,
                 covariance_weight=args.covariance_weight,
+                retrieval_weight=args.retrieval_weight,
+                retrieval_temperature=args.retrieval_temperature,
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
@@ -257,7 +300,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
             update_ema(model.context_encoder, model.target_encoder, cfg.ema_decay)
             losses.append(float(loss.detach().cpu()))
             for key, value in parts.items():
-                parts_accum[key].append(value)
+                parts_accum.setdefault(key, []).append(value)
         row = {
             "epoch": epoch,
             "loss": float(np.mean(losses)),
@@ -322,6 +365,8 @@ def main() -> None:
     parser.add_argument("--ema_decay", type=float, default=0.99)
     parser.add_argument("--variance_weight", type=float, default=0.05)
     parser.add_argument("--covariance_weight", type=float, default=0.005)
+    parser.add_argument("--retrieval_weight", type=float, default=0.0)
+    parser.add_argument("--retrieval_temperature", type=float, default=0.1)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7703)
     parser.add_argument("--device", type=str, default="cuda")
