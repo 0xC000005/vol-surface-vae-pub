@@ -46,6 +46,11 @@ from experiments.world.part1_jepa_latent.frozen_target_jepa import (
     freeze_module,
     frozen_target_jepa_loss,
 )
+from experiments.world.part1_jepa_latent.direct_delta_pca_predictor import (
+    DirectDeltaPCAConfig,
+    DirectDeltaPCAPredictor,
+    flatten_past_window,
+)
 from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
@@ -405,6 +410,26 @@ def test_frozen_target_jepa_predicts_horizon_codes_and_freezes_target_encoder():
     assert torch.isfinite(loss)
     assert parts["prediction"] >= 0.0
     assert all(not param.requires_grad for param in target_encoder.parameters())
+
+
+def test_direct_delta_pca_predictor_flattens_past_and_predicts_horizon_codes():
+    import torch
+
+    torch.manual_seed(37)
+    cfg = DirectDeltaPCAConfig(
+        input_dim=6,
+        hidden_dim=10,
+        target_dim=3,
+        horizons=(1, 3),
+    )
+    model = DirectDeltaPCAPredictor(cfg)
+    past = torch.randn(5, 3, 2)
+
+    flat = flatten_past_window(past)
+    predicted = model(past)
+
+    assert flat.shape == (5, 6)
+    assert predicted.shape == (5, 2, 3)
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

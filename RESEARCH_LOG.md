@@ -116060,3 +116060,46 @@ Artifacts:
 - `experiments/world/reports/world_model_head033_frozen_target_analysis.md`
 
 ---
+## 2026-05-09: World model HEAD034 direct delta-PCA predictor audit
+
+### Context
+- Continued from HEAD033's recommendation to audit predictability/capacity against the fixed delta-PCA target space.
+- This experiment used a direct flattened-past MLP predictor to fixed `z_pca`, with MSE only.
+
+### Hypothesis / Falsifier
+- Hypothesis: a direct predictor can expose whether the past window contains more discriminative signal than the HEAD028 GRU predictor uses.
+- Falsifier: it fails to beat HEAD028 on MSE, retrieval, decoded delta MSE, or rank.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/direct_delta_pca_predictor.py`.
+- Added focused test in `test_code/test_world_model_evaluation.py`.
+- Contract: `flatten(past window) -> direct MLP trunk -> horizon-conditioned predictor -> fixed z_pca`.
+- No target encoder, retrieval/neighborhood loss, target sweep, or decoder was used.
+
+### Validation
+- Red test first failed with `ModuleNotFoundError` for `direct_delta_pca_predictor`.
+- Full validation passed: `pytest test_code/test_world_model_evaluation.py -q` returned `25 passed in 0.76s`.
+- Compile check passed for the new script and test file.
+
+### Result
+- MSE-selected checkpoint: epoch `16`, MSE `1.093260`, MRR `0.098682`, top5 `0.132812`, top10 `0.203125`, decoded delta MSE `0.016982`, predicted rank `5.273018`, context rank `11.586305`.
+- Best retrieval row: epoch `15`, MSE `1.093676`, MRR `0.110811`, top5 `0.150781`, top10 `0.221875`, decoded delta MSE `0.016992`, predicted rank `5.180739`, context rank `11.372300`.
+- HEAD028 reference: MSE `0.987130`, MRR `0.096374`, top5 `0.132031`, top10 `0.203125`, decoded delta MSE `0.015369`, predicted rank `3.863753`.
+
+### Mechanism Read
+- The direct predictor beats HEAD028 on retrieval/top-k but worsens MSE and decoded delta MSE.
+- This falsifies the strongest version of a data-object unpredictability story: the past window contains more discriminative signal than HEAD028 used.
+- The result points to a predictor/context architecture bottleneck, with a ranking-vs-coordinate-accuracy tradeoff.
+
+### Decision / Next Step
+- Do not promote HEAD034 as a model candidate.
+- Next HEAD should be post-experiment analysis comparing MSE-selected and retrieval-selected direct checkpoints against HEAD028 before choosing the next model change.
+- Avoid retrieval/neighborhood loss, target sweeps, and decoder work.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/direct_delta_pca_predictor.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/reports/world_model_head034_direct_delta_pca_predictor.md`
+- Ignored outputs: `results/world/part1_direct_delta_pca_predictor_head034.json`, `models/world/checkpoints/part1_jepa_latent/direct_delta_pca_predictor_head034.pt`
+
+---
