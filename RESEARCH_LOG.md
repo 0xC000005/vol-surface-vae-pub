@@ -115039,3 +115039,40 @@ Artifacts:
 - Ignored outputs under `results/world/part1_horizon*_head006.json` and `models/world/checkpoints/part1_jepa_latent/*head006.pt`
 
 ---
+## 2026-05-09: World model HEAD007 supervised delta target lower bound
+
+Context:
+- Continued JEPA-only autoresearch after HEAD006 showed learned EMA targets were the bottleneck.
+- This iteration established a fixed supervised future-target lower bound before another learned-target JEPA attempt.
+
+Hypothesis:
+- A supervised horizon-delta predictor should beat raw persistence on future-frame MSE if the past window contains usable predictive information.
+
+Execution:
+- Added `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`.
+- The model predicts horizon-specific frame deltas from a GRU context encoder and horizon embeddings.
+- Added target construction, decode, supervised loss, frame-space evaluation, persistence baseline, and tests.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --output_json results/world/part1_supervised_horizon_delta_head007.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_head007.pt`.
+
+Result:
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `8 passed in 0.72s`.
+- Best validation MSE epoch was 21: frame MSE `0.015180`, cosine `0.982725`, MRR mean `0.052198`, top1 mean `0.015625`, top5 mean `0.062500`, top10 mean `0.117969`.
+- Raw persistence baseline on the same windows: MSE `0.022376`, cosine `0.974271`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, top10 `0.135156`.
+- Delta-target retrieval was well above chance across horizons; h10, for example, had top1 `0.039062`, top5 `0.097656`, top10 `0.175781`, and MRR `0.089904`.
+
+Mechanism read:
+- This is the first positive Part 1 signal: the past window can predict horizon deltas better than persistence in MSE.
+- Delta-space retrieval is much more informative than raw-frame retrieval, which is dominated by persistence at short horizons.
+- The learned EMA target was the wrong first target; stable fixed delta targets are a better JEPA contract.
+
+Decision / next step:
+- Continue JEPA-only.
+- Add an explicit delta-target contrastive retrieval term to the supervised fixed-target lower bound.
+- If stable, use fixed delta targets as the next JEPA target contract before reintroducing a learned target encoder.
+
+Artifacts:
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head007_supervised_delta_lower_bound.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_head007.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_head007.pt`
+
+---

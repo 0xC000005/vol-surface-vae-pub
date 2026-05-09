@@ -1,0 +1,494 @@
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Iterator, Literal
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+
+import sys
+
+sys.path.insert(0, ".")
+
+from experiments.world.evaluation.part1_metrics import (  # noqa: E402
+    latent_prediction_metrics,
+    representation_health_metrics,
+    retrieval_metrics,
+)
+from experiments.world.evaluation.world_data import build_iv_world_windows  # noqa: E402
+from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (  # noqa: E402
+    validate_horizons,
+)
+
+
+TargetMode = Literal["frame", "delta"]
+
+
+@dataclass(frozen=True)
+class SupervisedHorizonConfig:
+    input_dim: int = 25
+    hidden_dim: int = 64
+    context_dim: int = 32
+    predictor_hidden_dim: int = 128
+    horizons: tuple[int, ...] = (1, 5, 10, 20, 30)
+    target_mode: TargetMode = "delta"
+
+
+class GRUContextEncoder(nn.Module):
+    def __init__(self, cfg: SupervisedHorizonConfig):
+        super().__init__()
+        self.gru = nn.GRU(cfg.input_dim, cfg.hidden_dim, batch_first=True)
+        self.head = nn.Sequential(
+            nn.LayerNorm(cfg.hidden_dim),
+            nn.Linear(cfg.hidden_dim, cfg.context_dim),
+        )
+
+    def forward(self, past: torch.Tensor) -> torch.Tensor:
+        _seq, h_n = self.gru(past)
+        return self.head(h_n[-1])
+
+
+class SupervisedHorizonFrameModel(nn.Module):
+    def __init__(self, cfg: SupervisedHorizonConfig):
+        super().__init__()
+        if cfg.target_mode not in {"frame", "delta"}:
+            raise ValueError(f"Unknown target_mode: {cfg.target_mode!r}")
+        self.cfg = cfg
+        self.horizons = tuple(int(h) for h in cfg.horizons)
+        self.context_encoder = GRUContextEncoder(cfg)
+        self.horizon_embedding = nn.Embedding(len(self.horizons), cfg.context_dim)
+        self.predictor = nn.Sequential(
+            nn.LayerNorm(cfg.context_dim * 2),
+            nn.Linear(cfg.context_dim * 2, cfg.predictor_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(cfg.predictor_hidden_dim, cfg.input_dim),
+        )
+
+    def forward(self, past: torch.Tensor) -> torch.Tensor:
+        context = self.context_encoder(past)
+        rows = []
+        batch_size = past.shape[0]
+        for horizon_idx in range(len(self.horizons)):
+            horizon_ids = torch.full(
+                (batch_size,),
+                horizon_idx,
+                dtype=torch.long,
+                device=past.device,
+            )
+            horizon_emb = self.horizon_embedding(horizon_ids)
+            rows.append(self.predictor(torch.cat([context, horizon_emb], dim=1)))
+        return torch.stack(rows, dim=1)
+
+
+def make_horizon_frame_targets(
+    past: torch.Tensor,
+    future: torch.Tensor,
+    *,
+    horizons: tuple[int, ...],
+    target_mode: TargetMode,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if past.ndim != 3 or future.ndim != 3:
+        raise ValueError("past and future must have shape (B, T, C)")
+    validate_horizons(horizons, future_len=future.shape[1])
+    frames = torch.stack([future[:, h - 1, :] for h in horizons], dim=1)
+    if target_mode == "frame":
+        return frames, frames
+    if target_mode == "delta":
+        return frames - past[:, -1:, :], frames
+    raise ValueError(f"Unknown target_mode: {target_mode!r}")
+
+
+def decode_horizon_prediction(
+    past: torch.Tensor,
+    predicted_target: torch.Tensor,
+    *,
+    target_mode: TargetMode,
+) -> torch.Tensor:
+    if target_mode == "frame":
+        return predicted_target
+    if target_mode == "delta":
+        return past[:, -1:, :] + predicted_target
+    raise ValueError(f"Unknown target_mode: {target_mode!r}")
+
+
+def supervised_horizon_loss(
+    predicted_target: torch.Tensor,
+    target: torch.Tensor,
+    frame: torch.Tensor,
+    past: torch.Tensor,
+    *,
+    target_mode: TargetMode = "delta",
+    frame_weight: float = 0.25,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    predicted_frame = decode_horizon_prediction(
+        past,
+        predicted_target,
+        target_mode=target_mode,
+    )
+    target_mse = F.mse_loss(predicted_target, target)
+    frame_mse = F.mse_loss(predicted_frame, frame)
+    loss = target_mse + frame_weight * frame_mse
+    return loss, {
+        "target_mse": float(target_mse.detach().cpu()),
+        "frame_mse": float(frame_mse.detach().cpu()),
+        "loss": float(loss.detach().cpu()),
+    }
+
+
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def _loader_from_arrays(
+    past: np.ndarray,
+    future: np.ndarray,
+    *,
+    batch_size: int,
+    shuffle: bool,
+) -> DataLoader:
+    dataset = TensorDataset(torch.from_numpy(past), torch.from_numpy(future))
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=shuffle)
+
+
+def _parameter_groups(model: SupervisedHorizonFrameModel) -> Iterator[nn.Parameter]:
+    yield from model.context_encoder.parameters()
+    yield from model.horizon_embedding.parameters()
+    yield from model.predictor.parameters()
+
+
+@torch.no_grad()
+def predict_horizon_frames(
+    model: SupervisedHorizonFrameModel,
+    past: np.ndarray,
+    future: np.ndarray,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, np.ndarray]:
+    model.eval()
+    pred_targets = []
+    pred_frames = []
+    true_frames = []
+    targets = []
+    loader = _loader_from_arrays(past, future, batch_size=batch_size, shuffle=False)
+    for past_batch, future_batch in loader:
+        past_batch = past_batch.to(device)
+        future_batch = future_batch.to(device)
+        target, frame = make_horizon_frame_targets(
+            past_batch,
+            future_batch,
+            horizons=model.horizons,
+            target_mode=model.cfg.target_mode,
+        )
+        pred_target = model(past_batch)
+        pred_frame = decode_horizon_prediction(
+            past_batch,
+            pred_target,
+            target_mode=model.cfg.target_mode,
+        )
+        pred_targets.append(pred_target.cpu().numpy())
+        pred_frames.append(pred_frame.cpu().numpy())
+        true_frames.append(frame.cpu().numpy())
+        targets.append(target.cpu().numpy())
+    return {
+        "predicted_target": np.concatenate(pred_targets, axis=0),
+        "predicted_frame": np.concatenate(pred_frames, axis=0),
+        "true_frame": np.concatenate(true_frames, axis=0),
+        "target": np.concatenate(targets, axis=0),
+    }
+
+
+def evaluate_supervised_horizon(
+    model: SupervisedHorizonFrameModel,
+    past: np.ndarray,
+    future: np.ndarray,
+    *,
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, object]:
+    preds = predict_horizon_frames(
+        model,
+        past,
+        future,
+        batch_size=batch_size,
+        device=device,
+    )
+    predicted = preds["predicted_frame"]
+    truth = preds["true_frame"]
+    per_horizon: dict[str, object] = {}
+    for horizon_idx, horizon in enumerate(model.horizons):
+        per_horizon[str(horizon)] = {
+            "prediction": latent_prediction_metrics(
+                predicted[:, horizon_idx, :],
+                truth[:, horizon_idx, :],
+            ),
+            "retrieval": retrieval_metrics(
+                predicted[:, horizon_idx, :],
+                truth[:, horizon_idx, :],
+                top_k=(1, 5, 10),
+            ),
+        }
+
+    pred_flat = predicted.reshape(-1, predicted.shape[-1])
+    truth_flat = truth.reshape(-1, truth.shape[-1])
+    return {
+        "overall_prediction": latent_prediction_metrics(pred_flat, truth_flat),
+        "overall_retrieval": {
+            "mrr_mean": float(
+                np.mean([per_horizon[str(h)]["retrieval"]["mrr"] for h in model.horizons])
+            ),
+            "top1_mean": float(
+                np.mean([per_horizon[str(h)]["retrieval"]["top1"] for h in model.horizons])
+            ),
+            "top5_mean": float(
+                np.mean([per_horizon[str(h)]["retrieval"]["top5"] for h in model.horizons])
+            ),
+            "top10_mean": float(
+                np.mean([per_horizon[str(h)]["retrieval"]["top10"] for h in model.horizons])
+            ),
+        },
+        "predicted_health": representation_health_metrics(pred_flat),
+        "truth_health": representation_health_metrics(truth_flat),
+        "per_horizon": per_horizon,
+    }
+
+
+def raw_horizon_persistence_baseline(
+    past: np.ndarray,
+    future: np.ndarray,
+    *,
+    horizons: tuple[int, ...],
+) -> dict[str, object]:
+    predicted = np.stack([past[:, -1, :] for _h in horizons], axis=1)
+    truth = np.stack([future[:, h - 1, :] for h in horizons], axis=1)
+    per_horizon: dict[str, object] = {}
+    for horizon_idx, horizon in enumerate(horizons):
+        per_horizon[str(horizon)] = {
+            "prediction": latent_prediction_metrics(
+                predicted[:, horizon_idx, :],
+                truth[:, horizon_idx, :],
+            ),
+            "retrieval": retrieval_metrics(
+                predicted[:, horizon_idx, :],
+                truth[:, horizon_idx, :],
+                top_k=(1, 5, 10),
+            ),
+        }
+    return {
+        "prediction": {
+            "mse_mean": float(np.mean([per_horizon[str(h)]["prediction"]["mse"] for h in horizons])),
+            "cosine_mean": float(
+                np.mean([per_horizon[str(h)]["prediction"]["cosine_mean"] for h in horizons])
+            ),
+        },
+        "retrieval": {
+            "mrr_mean": float(np.mean([per_horizon[str(h)]["retrieval"]["mrr"] for h in horizons])),
+            "top1_mean": float(np.mean([per_horizon[str(h)]["retrieval"]["top1"] for h in horizons])),
+            "top5_mean": float(np.mean([per_horizon[str(h)]["retrieval"]["top5"] for h in horizons])),
+            "top10_mean": float(np.mean([per_horizon[str(h)]["retrieval"]["top10"] for h in horizons])),
+        },
+        "per_horizon": per_horizon,
+    }
+
+
+def _serializable(obj):
+    if isinstance(obj, dict):
+        return {k: _serializable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serializable(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_serializable(v) for v in obj]
+    if isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    if isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    return obj
+
+
+def train_smoke(args: argparse.Namespace) -> dict[str, object]:
+    _set_seed(args.seed)
+    horizons = validate_horizons(tuple(args.horizons), future_len=30)
+    device = torch.device(
+        args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu"
+    )
+    cfg = SupervisedHorizonConfig(
+        input_dim=25,
+        hidden_dim=args.hidden_dim,
+        context_dim=args.context_dim,
+        predictor_hidden_dim=args.predictor_hidden_dim,
+        horizons=horizons,
+        target_mode=args.target_mode,
+    )
+    train = build_iv_world_windows(
+        split="train",
+        max_windows=args.max_train_windows,
+        normalize=True,
+    )
+    val = build_iv_world_windows(
+        split="val",
+        max_windows=args.max_val_windows,
+        normalize=True,
+    )
+
+    model = SupervisedHorizonFrameModel(cfg).to(device)
+    opt = torch.optim.AdamW(_parameter_groups(model), lr=args.lr, weight_decay=args.weight_decay)
+    train_loader = _loader_from_arrays(
+        train.past_window,
+        train.future_window,
+        batch_size=args.batch_size,
+        shuffle=True,
+    )
+
+    history = []
+    best_summary: dict[str, object] | None = None
+    best_state = None
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        losses = []
+        parts_accum: dict[str, list[float]] = {}
+        for past_batch, future_batch in train_loader:
+            past_batch = past_batch.to(device)
+            future_batch = future_batch.to(device)
+            target, frame = make_horizon_frame_targets(
+                past_batch,
+                future_batch,
+                horizons=horizons,
+                target_mode=args.target_mode,
+            )
+            opt.zero_grad(set_to_none=True)
+            pred_target = model(past_batch)
+            loss, parts = supervised_horizon_loss(
+                pred_target,
+                target,
+                frame,
+                past_batch,
+                target_mode=args.target_mode,
+                frame_weight=args.frame_weight,
+            )
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
+            opt.step()
+            losses.append(float(loss.detach().cpu()))
+            for key, value in parts.items():
+                parts_accum.setdefault(key, []).append(value)
+
+        val_metrics = evaluate_supervised_horizon(
+            model,
+            val.past_window,
+            val.future_window,
+            batch_size=args.batch_size,
+            device=device,
+        )
+        row = {
+            "epoch": epoch,
+            "loss": float(np.mean(losses)),
+            **{f"{k}_mean": float(np.mean(v)) for k, v in parts_accum.items()},
+            "val_mse": val_metrics["overall_prediction"]["mse"],
+            "val_mrr_mean": val_metrics["overall_retrieval"]["mrr_mean"],
+            "val_top1_mean": val_metrics["overall_retrieval"]["top1_mean"],
+            "val_top5_mean": val_metrics["overall_retrieval"]["top5_mean"],
+        }
+        history.append(row)
+        if best_summary is None or row["val_mse"] < best_summary["val_mse"]:
+            best_summary = row
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        print(json.dumps(row))
+
+    final_metrics = evaluate_supervised_horizon(
+        model,
+        val.past_window,
+        val.future_window,
+        batch_size=args.batch_size,
+        device=device,
+    )
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    best_metrics = evaluate_supervised_horizon(
+        model,
+        val.past_window,
+        val.future_window,
+        batch_size=args.batch_size,
+        device=device,
+    )
+    baseline = raw_horizon_persistence_baseline(
+        val.past_window,
+        val.future_window,
+        horizons=horizons,
+    )
+    result = {
+        "config": asdict(cfg),
+        "args": vars(args),
+        "device": str(device),
+        "train_shape": {
+            "past": list(train.past_window.shape),
+            "future": list(train.future_window.shape),
+        },
+        "val_shape": {
+            "past": list(val.past_window.shape),
+            "future": list(val.future_window.shape),
+        },
+        "history": history,
+        "best_epoch_summary": best_summary,
+        "best_val_metrics": best_metrics,
+        "final_val_metrics": final_metrics,
+        "raw_persistence_baseline": baseline,
+    }
+    output_json = Path(args.output_json)
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(_serializable(result), indent=2), encoding="utf-8")
+
+    checkpoint = Path(args.checkpoint)
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "config": asdict(cfg),
+            "state_dict": model.state_dict(),
+            "result": _serializable(result),
+        },
+        checkpoint,
+    )
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Supervised horizon-frame Part 1 lower bound")
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--hidden_dim", type=int, default=64)
+    parser.add_argument("--context_dim", type=int, default=32)
+    parser.add_argument("--predictor_hidden_dim", type=int, default=128)
+    parser.add_argument("--horizons", type=int, nargs="+", default=[1, 5, 10, 20, 30])
+    parser.add_argument("--target_mode", choices=("frame", "delta"), default="delta")
+    parser.add_argument("--max_train_windows", type=int, default=2048)
+    parser.add_argument("--max_val_windows", type=int, default=256)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--weight_decay", type=float, default=1e-4)
+    parser.add_argument("--frame_weight", type=float, default=0.25)
+    parser.add_argument("--grad_clip", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=7705)
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--output_json",
+        type=str,
+        default="results/world/part1_supervised_horizon_delta_head007.json",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_head007.pt",
+    )
+    args = parser.parse_args()
+    train_smoke(args)
+
+
+if __name__ == "__main__":
+    main()

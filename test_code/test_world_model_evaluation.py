@@ -27,6 +27,13 @@ from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (
     select_horizon_prefix,
     select_horizon_target,
 )
+from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
+    SupervisedHorizonConfig,
+    SupervisedHorizonFrameModel,
+    decode_horizon_prediction,
+    make_horizon_frame_targets,
+    supervised_horizon_loss,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -247,3 +254,42 @@ def test_horizon_jepa_trainable_target_gets_regularization_gradients():
     target_grad = next(model.target_encoder.parameters()).grad
     assert target_grad is not None
     assert torch.isfinite(target_grad).all()
+
+
+def test_supervised_horizon_delta_targets_reconstruct_frames():
+    import torch
+
+    torch.manual_seed(17)
+    cfg = SupervisedHorizonConfig(
+        input_dim=5,
+        hidden_dim=8,
+        context_dim=4,
+        predictor_hidden_dim=8,
+        horizons=(1, 3),
+        target_mode="delta",
+    )
+    model = SupervisedHorizonFrameModel(cfg)
+    past = torch.randn(6, 4, 5)
+    future = torch.randn(6, 5, 5)
+
+    target, frame = make_horizon_frame_targets(
+        past,
+        future,
+        horizons=cfg.horizons,
+        target_mode="delta",
+    )
+    pred_target = model(past)
+    pred_frame = decode_horizon_prediction(
+        past,
+        pred_target,
+        target_mode="delta",
+    )
+    loss, parts = supervised_horizon_loss(pred_target, target, frame, past)
+
+    assert target.shape == (6, 2, 5)
+    assert frame.shape == (6, 2, 5)
+    assert pred_target.shape == (6, 2, 5)
+    assert pred_frame.shape == (6, 2, 5)
+    torch.testing.assert_close(target[:, 1, :], future[:, 2, :] - past[:, -1, :])
+    assert torch.isfinite(loss)
+    assert parts["target_mse"] >= 0.0
