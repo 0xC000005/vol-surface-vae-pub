@@ -479,6 +479,35 @@ Summary: status `ok`, selected-start `pass`, 8 support candidates, 8 fan traces,
 report contains the same run-record path, and the run-record JSON did not retain
 the default raw story text.
 
+## Local Run Store
+
+The first private-prototype persistence layer is a local SQLite run store. It
+ingests the registry plus one or more per-run records and stores:
+
+- run records keyed by `record_id`;
+- per-run artifact hashes;
+- registry evidence rows;
+- registry gates.
+
+Command:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_run_store.py \
+  --sqlite experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store.sqlite \
+  --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store_summary.json
+```
+
+Latest summary:
+
+```text
+experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store_summary.json
+```
+
+Summary: 1 run record, 4 run artifacts, 4 registry evidence rows, 4 registry
+gates, run status `pass`, and gate statuses all `pass`. This is intentionally
+local and file-backed; a hosted prototype should use the same logical schema
+with a private managed database or artifact service.
+
 Before showing the demo externally:
 
 - launch the current HEAD Gradio app from a clean shell;

@@ -114524,3 +114524,48 @@ The registry can now represent both launch/readiness evidence and actual user-vi
 The remaining production gap is no longer the local registry schema; it is choosing and simulating the private persistence backend. The next step is a storage adapter/run-store abstraction, initially file-backed SQLite or JSONL, then swappable to a hosted private database.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 84 local run store
+
+### Context
+The registry can now index static readiness evidence and actual prefix-latent per-run records. The next production gap was persistence: a private hosted prototype needs a database-like run store rather than only generated JSON/Markdown reports.
+
+### Hypothesis
+A small SQLite-backed run store can serve as the first private-prototype persistence contract. It should ingest run records and registry evidence without storing raw narrative text beyond the sanitized payload already present in the per-run record.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_run_store.py`.
+- Added `test_code/test_817a_nl_prefix_latent_run_store.py` covering schema creation, run-record upsert, registry upsert, idempotent updates, and summary writing.
+- Updated `docs/research_protocols/nl_prefix_latent_deployment_readiness.md` with the local run-store command and evidence path.
+
+### Result
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_815a_nl_prefix_latent_demo_run_registry.py test_code/test_816a_nl_prefix_latent_run_record.py test_code/test_817a_nl_prefix_latent_run_store.py -q
+```
+
+Result: `14 passed`.
+
+The real local store build passed:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_run_store.py \
+  --sqlite experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store.sqlite \
+  --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store_summary.json
+```
+
+Result summary: 1 run record, 4 run artifacts, 4 registry evidence rows, 4 registry gates, run status `pass`, and gate statuses all `pass`.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store.sqlite`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_run_store_843a_with_registry/demo_run_store_summary.json`
+
+A direct SQLite check found one stored run: record `a57682b41c1fddea`, status `pass`, condition source `external_condition_report`, selected-start `pass`, and 8 support candidates. The stored gates were `qa_packet_pass`, `audit_manifest_pass`, `browser_render_pass`, and `prefix_run_record_pass`, all `pass`.
+
+### Mechanism Read
+This converts the local demo control plane from loose files into a database-shaped contract. The store is still local, but the schema now makes the hosted-production path concrete: the Gradio app writes per-run records, the registry validates evidence, and the run store persists records, artifacts, and gates.
+
+### Decision / Next Step
+The next production step is serving/hosting rather than model work: add a private prototype runbook or deployment wrapper that starts the app with secrets/auth, runs cached smoke, browser QA, registry ingestion, and run-store ingestion as a single acceptance command.
+
+---
