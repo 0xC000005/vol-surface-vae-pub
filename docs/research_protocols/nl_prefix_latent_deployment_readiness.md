@@ -209,6 +209,12 @@ zero unsafe staged paths, `.env` ignored, cached smoke `pass`.
 A hosted prototype should be treated as a private app until the artifact and
 data-governance story is settled.
 
+The current packaging runbook is:
+
+```text
+docs/research_protocols/nl_prefix_latent_private_deployment_runbook.md
+```
+
 Minimum hosting requirements:
 
 - install dependencies with `uv sync` or an equivalent lockfile-based setup;

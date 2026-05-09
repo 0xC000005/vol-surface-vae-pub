@@ -114619,3 +114619,33 @@ This turns the current prototype into an operator-facing acceptance flow. It sti
 The project is now close to an internal private demo. The next gap is deployment packaging: either a private Hugging Face Space/Gradio host runbook with artifact bundle and secrets, or a local container-style wrapper that mounts the 25-file bundle and writes the SQLite run store to a persistent volume.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 86 private deployment runbook
+
+### Context
+The local private acceptance harness now exercises the app lifecycle end to end. The next production-readiness gap was packaging guidance: how to move the verified local workflow into a private internal demo without accidentally uploading private paper material, secrets, or broad generated artifacts.
+
+### Hypothesis
+A concise private deployment runbook can lock the current deployment boundary: required artifact bundle, secrets, VM/workstation path, private Gradio/Hugging Face Space path, acceptance criteria, and remaining production gaps.
+
+### Execution
+- Added `docs/research_protocols/nl_prefix_latent_private_deployment_runbook.md`.
+- Linked the runbook from `docs/research_protocols/nl_prefix_latent_deployment_readiness.md`.
+- Sanity-read the runbook after writing it.
+
+### Result
+The runbook now documents:
+- the narrative -> start -> support pool -> frozen rollout -> run record -> registry -> run store contract;
+- private artifact and secret inputs;
+- explicit forbidden uploads, including `.env`, paper files, manuscript PDFs, and broad generated trees;
+- private VM/workstation deployment commands;
+- private Gradio/Hugging Face Space boundary;
+- acceptance criteria tied to preflight, cached smoke, browser QA, registry, run store, and privacy hygiene;
+- the latest verified cached acceptance command and remaining production gaps.
+
+### Mechanism Read
+This does not improve model quality, but it reduces operational ambiguity. The project now has a reproducible local acceptance command and a documented private deployment boundary. That matters because the biggest near-term risk for a boss demo is packaging and governance, not another bridge architecture change.
+
+### Decision / Next Step
+The system is ready for an internal private demo if the 25-file artifact bundle is copied privately and the cached acceptance command is rerun on the target host. The remaining production path is managed auth, managed artifact storage, managed database persistence, and hosted-platform browser QA.
+
+---
