@@ -115000,3 +115000,42 @@ Artifacts:
 - Ignored outputs: `results/world/part1_jepa_retrieval_head005.json`, `models/world/checkpoints/part1_jepa_latent/jepa_retrieval_head005.pt`
 
 ---
+## 2026-05-09: World model HEAD006 horizon-specific JEPA redesign
+
+Context:
+- Continued the JEPA-only repair after HEAD005 showed that a single pooled future target plus retrieval loss still failed the Part 1 representation gate.
+- The decoder remains untouched.
+
+Hypothesis:
+- Horizon-specific JEPA targets should reduce future-latent smoothing by requiring predictions for explicit horizons `{1, 5, 10, 20, 30}`.
+
+Execution:
+- Added `experiments/world/part1_jepa_latent/horizon_jepa_smoke.py`.
+- Added horizon-prefix targets, horizon-frame targets, best-validation checkpoint reporting, and optional trainable target-encoder regularization.
+- Extended tests in `test_code/test_world_model_evaluation.py`.
+- Ran three CPU smokes: prefix-target EMA, frame-target EMA, and frame-target trainable target.
+
+Result:
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `7 passed in 0.71s`.
+- Prefix-target EMA best epoch: MSE `0.088411`, MRR mean `0.034284`, top1 `0.008594`, top5 `0.035156`, predicted effective rank `2.207`.
+- Frame-target EMA best epoch: MSE `0.065770`, MRR mean `0.033023`, top1 `0.007031`, top5 `0.032031`, predicted effective rank `1.715`.
+- Frame-target trainable target did not help: best/final MSE was much worse (`0.541556`) and MRR stayed around `0.033148`.
+- Raw horizon-frame persistence baseline on the same validation windows remained stronger overall: MSE mean `0.022376`, MRR mean `0.052426`, top5 mean `0.086719`, top10 mean `0.135156`.
+
+Mechanism read:
+- Horizon-specific targets improved the diagnostic surface but did not solve the JEPA target problem.
+- Prefix targets are still too smooth; frame targets are more explicit but predicted latents stay low-rank.
+- Making the target encoder trainable destabilizes prediction without a retrieval win.
+- The learned target embedding itself is now the bottleneck.
+
+Decision / next step:
+- Keep the workflow focused on JEPA/Part 1.
+- Do not attach a decoder.
+- Next repair should establish a stable future-target lower bound: supervised horizon-frame prediction and/or fixed PCA/standardized raw-frame target embeddings, then only reintroduce learned target encoders after the fixed-target predictor beats raw persistence on retrieval or probe metrics.
+
+Artifacts:
+- `experiments/world/part1_jepa_latent/horizon_jepa_smoke.py`
+- `experiments/world/reports/world_model_head006_horizon_jepa_redesign.md`
+- Ignored outputs under `results/world/part1_horizon*_head006.json` and `models/world/checkpoints/part1_jepa_latent/*head006.pt`
+
+---

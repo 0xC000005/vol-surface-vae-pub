@@ -20,6 +20,13 @@ from experiments.world.part1_jepa_latent.jepa_smoke import (
     retrieval_contrastive_loss,
     update_ema,
 )
+from experiments.world.part1_jepa_latent.horizon_jepa_smoke import (
+    HorizonJEPAConfig,
+    HorizonJEPAWorldModel,
+    horizon_jepa_loss,
+    select_horizon_prefix,
+    select_horizon_target,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -172,3 +179,71 @@ def test_retrieval_contrastive_loss_prefers_matching_pairs():
     mismatched = retrieval_contrastive_loss(predicted, shuffled, temperature=0.1)
 
     assert matching < mismatched
+
+
+def test_horizon_jepa_selects_prefixes_and_scores_loss():
+    import torch
+
+    torch.manual_seed(11)
+    cfg = HorizonJEPAConfig(
+        input_dim=5,
+        hidden_dim=8,
+        latent_dim=4,
+        predictor_hidden_dim=8,
+        horizons=(1, 3),
+    )
+    model = HorizonJEPAWorldModel(cfg)
+    past = torch.randn(6, 4, 5)
+    future = torch.randn(6, 5, 5)
+
+    prefix = select_horizon_prefix(future, horizon=3)
+    frame = select_horizon_target(future, horizon=3, target_mode="frame")
+    prefix_target = select_horizon_target(future, horizon=3, target_mode="prefix")
+    out = model(past, future)
+    loss, parts = horizon_jepa_loss(
+        out,
+        variance_weight=0.1,
+        covariance_weight=0.1,
+        retrieval_weight=0.1,
+    )
+
+    assert prefix.shape == (6, 3, 5)
+    assert frame.shape == (6, 1, 5)
+    assert prefix_target.shape == (6, 3, 5)
+    assert torch.equal(frame[:, 0, :], future[:, 2, :])
+    assert out["context"].shape == (6, 4)
+    assert out["target"].shape == (6, 2, 4)
+    assert out["predicted"].shape == (6, 2, 4)
+    assert torch.isfinite(loss)
+    assert parts["prediction"] >= 0.0
+    assert parts["retrieval"] > 0.0
+
+
+def test_horizon_jepa_trainable_target_gets_regularization_gradients():
+    import torch
+
+    torch.manual_seed(13)
+    cfg = HorizonJEPAConfig(
+        input_dim=5,
+        hidden_dim=8,
+        latent_dim=4,
+        predictor_hidden_dim=8,
+        horizons=(1, 3),
+    )
+    model = HorizonJEPAWorldModel(cfg, target_encoder_mode="trainable")
+    past = torch.randn(6, 4, 5)
+    future = torch.randn(6, 5, 5)
+
+    out = model(past, future)
+    loss, _parts = horizon_jepa_loss(
+        out,
+        variance_weight=0.1,
+        covariance_weight=0.1,
+        retrieval_weight=0.1,
+        target_regularization_grad=True,
+    )
+    loss.backward()
+
+    target_grad = next(model.target_encoder.parameters()).grad
+    assert target_grad is not None
+    assert torch.isfinite(target_grad).all()

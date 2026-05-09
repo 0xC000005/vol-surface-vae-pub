@@ -98,6 +98,7 @@ def retrieval_contrastive_loss(
     target: torch.Tensor,
     *,
     temperature: float = 0.1,
+    detach_target: bool = True,
 ) -> torch.Tensor:
     if predicted.shape != target.shape:
         raise ValueError(
@@ -109,7 +110,7 @@ def retrieval_contrastive_loss(
         raise ValueError("temperature must be positive")
 
     pred_norm = F.normalize(predicted, dim=1)
-    target_norm = F.normalize(target.detach(), dim=1)
+    target_norm = F.normalize(target.detach() if detach_target else target, dim=1)
     logits = pred_norm @ target_norm.T / temperature
     labels = torch.arange(predicted.shape[0], device=predicted.device)
     row_loss = F.cross_entropy(logits, labels)
