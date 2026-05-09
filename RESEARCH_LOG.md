@@ -116583,3 +116583,35 @@ Artifacts:
 - `experiments/world/part1_jepa_latent/reference_manifest.json`
 
 ---
+## 2026-05-09: World model HEAD049 Part 1 handoff readiness
+
+### Context
+- Continued after HEAD048 inventoried the Part 1 reference artifact graph.
+- This iteration stayed non-modeling and turned the validated reference into an explicit handoff contract for future downstream, benchmark, or decoder work.
+
+### Hypothesis / Falsifier
+- Hypothesis: the validated Part 1 reference can be consumed safely without reopening the JEPA objective if allowed inputs, forbidden mutations, and required caveats are explicit.
+- Falsifier: ambiguity about checkpoint, split contract, target contract, or caveats required by future consumers.
+
+### Contract
+- Source of truth: `experiments/world/part1_jepa_latent/reference_manifest.json`.
+- Primary checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`.
+- Supporting checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Split/window contract: `build_iv_world_windows`, history `30`, future `30`, `test_start=4511`, `val_size=441`, normalized IV-surface coordinates.
+- Target contract: fixed whitened horizon delta-PCA, horizons `(1, 5, 10, 20, 30)`, target dim `8`, fit on train only.
+
+### Guardrails
+- Do not refit the PCA target on validation/test/downstream windows.
+- Do not change split, history/future lengths, target dimension, or horizons while calling the result the HEAD045/HEAD046 reference.
+- Do not add Barlow Twins, VICReg, retrieval/neighborhood objectives, target sweeps, decoder feedback, or new Part 1 knobs without a new documented Part 1 failure.
+- Do not use Part 2 generation metrics as proof of Part 1 health.
+
+### Decision / Next Step
+- The Part 1 reference is handoff-ready as a fixed upstream conditioning object.
+- Next useful non-modeling step: add a checksum/digest record for ignored local artifacts so exact data, checkpoint, and result JSON identities are auditable without committing generated binaries.
+
+### Artifacts
+- `experiments/world/reports/world_model_head049_part1_handoff_readiness.md`
+- `experiments/world/part1_jepa_latent/reference_manifest.json`
+
+---
