@@ -115229,3 +115229,42 @@ Artifacts:
 - Ignored outputs: `results/world/part1_supervised_horizon_delta_contextreg_head011.json`, `results/world/part1_context_probe_audit_head011.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_contextreg_head011.pt`
 
 ---
+## 2026-05-09: World model HEAD012 context correlation regularization
+
+### Context
+- Continued JEPA-only autoresearch after HEAD011 showed that covariance-magnitude regularization preserved the signal but worsened normalized redundancy.
+- This iteration replaced that failed rank repair with a normalized off-diagonal correlation penalty on context embeddings.
+
+### Hypothesis
+- A normalized off-diagonal correlation penalty on context embeddings should improve representation health more directly than covariance-magnitude regularization while preserving the fixed-delta predictive signal.
+- Falsifier: context effective rank/off-diagonal correlation does not improve, or the saved checkpoint loses the fixed-delta edge over persistence and zero-delta baselines.
+
+### Execution
+- Added `context_correlation_loss` and `--context_correlation_weight` to `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`.
+- Added regression coverage in `test_code/test_world_model_evaluation.py`.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.05 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.0 --context_correlation_weight 0.005 --context_variance_gamma 0.1 --selection_metric mrr --output_json results/world/part1_supervised_horizon_delta_corrreg_head012.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_head012.pt`.
+- Audited the saved checkpoint with `python experiments/world/part1_jepa_latent/context_probe_audit.py --device cpu --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --ridge_alpha 0.001 --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_head012.pt --output_json results/world/part1_context_probe_audit_head012.json`.
+
+### Result
+- Tests passed: `pytest test_code/test_world_model_evaluation.py -q` returned `13 passed in 0.71s`.
+- MRR-selected checkpoint was epoch 4 with frame MSE `0.021497`, MRR mean `0.058749`, top1 `0.012500`, top5 `0.087500`, and top10 `0.135938`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context health improved: effective rank `5.732591`, participation ratio `3.959500`, offdiag abs mean `0.332259`, offdiag abs max `0.895429`.
+- Frozen ridge probe stayed positive but softened: MSE `0.018033`, MRR mean `0.106710`, top1 `0.048438`, top5 `0.136719`, top10 `0.225000`.
+
+### Mechanism Read
+- The normalized correlation penalty solves the specific HEAD011 failure: it raises rank and lowers normalized off-diagonal correlation.
+- The fixed-delta signal survives and still beats raw persistence on frame MSE, MRR, top1, top5, and top10.
+- The new bottleneck is a rank/probe tradeoff: HEAD012 has healthier context than HEAD010, but its frozen ridge probe is weaker than HEAD010's MSE `0.017107` and MRR `0.111537`.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Tune the rank/probe tradeoff with a lighter correlation weight or a composite checkpoint score that includes context health and frozen-probe metrics.
+- Keep the context probe audit as a Part 1 gate and do not attach the decoder yet.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/supervised_horizon_frame.py`
+- `experiments/world/reports/world_model_head012_context_correlation_regularization.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_head012.json`, `results/world/part1_context_probe_audit_head012.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_head012.pt`
+
+---

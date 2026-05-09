@@ -31,6 +31,7 @@ from experiments.world.part1_jepa_latent.supervised_horizon_frame import (
     SupervisedHorizonConfig,
     SupervisedHorizonFrameModel,
     checkpoint_selection_score,
+    context_correlation_loss,
     decode_horizon_prediction,
     make_horizon_frame_targets,
     supervised_horizon_loss,
@@ -344,6 +345,17 @@ def test_supervised_horizon_loss_adds_context_regularizers():
     assert parts["context_variance"] >= 0.0
     assert parts["context_covariance"] >= 0.0
     assert regularized_loss > base_loss
+
+
+def test_context_correlation_loss_penalizes_duplicate_dimensions():
+    import torch
+
+    torch.manual_seed(23)
+    context = torch.randn(64, 4)
+    duplicated = context.clone()
+    duplicated[:, 1] = duplicated[:, 0]
+
+    assert context_correlation_loss(duplicated) > context_correlation_loss(context)
 
 
 def test_checkpoint_selection_score_prefers_requested_metric():

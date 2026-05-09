@@ -131,6 +131,18 @@ def decode_horizon_prediction(
     raise ValueError(f"Unknown target_mode: {target_mode!r}")
 
 
+def context_correlation_loss(context: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
+    if context.ndim != 2:
+        raise ValueError("context must have shape (B, D)")
+    centered = context - context.mean(dim=0, keepdim=True)
+    std = torch.sqrt(centered.var(dim=0, unbiased=False) + eps)
+    normalized = centered / std
+    denom = max(normalized.shape[0] - 1, 1)
+    corr = normalized.T @ normalized / denom
+    offdiag = corr - torch.diag(torch.diag(corr))
+    return (offdiag * offdiag).sum() / context.shape[1]
+
+
 def supervised_horizon_loss(
     predicted_target: torch.Tensor,
     target: torch.Tensor,
@@ -145,6 +157,7 @@ def supervised_horizon_loss(
     context_variance_weight: float = 0.0,
     context_covariance_weight: float = 0.0,
     context_variance_gamma: float = 0.1,
+    context_correlation_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     predicted_frame = decode_horizon_prediction(
         past,
@@ -168,17 +181,24 @@ def supervised_horizon_loss(
     if context is not None:
         context_variance = variance_loss(context, gamma=context_variance_gamma)
         context_covariance = covariance_loss(context)
-    elif context_variance_weight > 0.0 or context_covariance_weight > 0.0:
+        context_correlation = context_correlation_loss(context)
+    elif (
+        context_variance_weight > 0.0
+        or context_covariance_weight > 0.0
+        or context_correlation_weight > 0.0
+    ):
         raise ValueError("context must be provided when context regularization weights are positive")
     else:
         context_variance = predicted_target.new_tensor(0.0)
         context_covariance = predicted_target.new_tensor(0.0)
+        context_correlation = predicted_target.new_tensor(0.0)
     loss = (
         target_mse
         + frame_weight * frame_mse
         + retrieval_weight * retrieval
         + context_variance_weight * context_variance
         + context_covariance_weight * context_covariance
+        + context_correlation_weight * context_correlation
     )
     return loss, {
         "target_mse": float(target_mse.detach().cpu()),
@@ -186,6 +206,7 @@ def supervised_horizon_loss(
         "retrieval": float(retrieval.detach().cpu()),
         "context_variance": float(context_variance.detach().cpu()),
         "context_covariance": float(context_covariance.detach().cpu()),
+        "context_correlation": float(context_correlation.detach().cpu()),
         "loss": float(loss.detach().cpu()),
     }
 
@@ -438,6 +459,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 context_variance_weight=args.context_variance_weight,
                 context_covariance_weight=args.context_covariance_weight,
                 context_variance_gamma=args.context_variance_gamma,
+                context_correlation_weight=args.context_correlation_weight,
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
@@ -547,6 +569,7 @@ def main() -> None:
     parser.add_argument("--context_variance_weight", type=float, default=0.0)
     parser.add_argument("--context_covariance_weight", type=float, default=0.0)
     parser.add_argument("--context_variance_gamma", type=float, default=0.1)
+    parser.add_argument("--context_correlation_weight", type=float, default=0.0)
     parser.add_argument("--selection_metric", choices=("mse", "mrr", "top5"), default="mse")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=7705)
