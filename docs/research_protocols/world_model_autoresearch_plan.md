@@ -335,6 +335,33 @@ Research-log entries should include:
 - decision / next step;
 - artifact paths and verification commands when applicable.
 
+## Gated Modeling Tracks
+
+Modeling guardrails are constraints on what the next iteration may do; they are
+not stop conditions by themselves.
+
+If Part 1 is frozen or explicitly marked "no more knobs", do not add new Part 1
+losses, target sweeps, retrieval/neighborhood objectives, Barlow/VICReg terms,
+or split/horizon changes unless a new Part 1 failure is documented and the
+literature gate is satisfied.
+
+If decoder work has not been explicitly requested, do not start conditional
+flow training, decoder baselines, decoder conditioning changes, or Part 2
+experiments.
+
+When Part 1 and Part 2 are both gated, continue only with bounded process work
+until a real stop condition appears or the user redirects the loop. Allowed
+work is limited to:
+
+- provenance, manifest, digest, and artifact-identity checks;
+- report, metric, and research-log reconciliation;
+- handoff criteria, restart checklists, and open-risk ledgers;
+- workflow guardrails that prevent objective creep;
+- explicit decision reports that preserve caveats for future work.
+
+These iterations still need a hypothesis, falsifier, state update,
+research-log tail append, verification, and one focused commit.
+
 ## Stop Conditions
 
 The workflow stops only when one of these is true:

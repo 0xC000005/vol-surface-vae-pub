@@ -116694,3 +116694,29 @@ Artifacts:
 - `experiments/world/reports/world_model_head051_part1_open_risk_ledger.md`
 
 ---
+## 2026-05-09: World model HEAD052 tracked gated-track guardrail
+
+### Context
+- Continued after HEAD051 froze Part 1 with an open-risk ledger.
+- The active `.agents` skill had the correct continuation guardrail, but `.agents/` is ignored; the durable tracked protocol still needed the same rule.
+
+### Hypothesis / Falsifier
+- Hypothesis: the workflow-control fix from HEAD047 must live in the tracked protocol, not only in ignored local skill state.
+- Falsifier: future sessions could still confuse `no more Part 1 knobs` or `no decoder unless requested` with a stop condition, or continue with unbounded process churn after both modeling tracks are gated.
+
+### Change
+- Added `Gated Modeling Tracks` to `docs/research_protocols/world_model_autoresearch_plan.md`.
+- The protocol now says modeling guardrails are constraints, not stop conditions.
+- Frozen Part 1 forbids new losses, target sweeps, retrieval/neighborhood objectives, Barlow/VICReg terms, and split/horizon changes unless a new Part 1 failure is documented and the literature gate is satisfied.
+- Decoder work still requires explicit user request.
+- When Part 1 and Part 2 are both gated, only bounded process work is allowed: provenance checks, reconciliation, handoff criteria, restart checklists, open-risk ledgers, and objective-creep guardrails.
+
+### Decision / Next Step
+- This is a workflow durability fix only; no model, objective, decoder, data split, or experiment configuration changed.
+- Next bounded step: consistency verification over the latest protocol, reports, state recommendation, and research-log tail.
+
+### Artifacts
+- `docs/research_protocols/world_model_autoresearch_plan.md`
+- `experiments/world/reports/world_model_head052_protocol_gated_track_guardrail.md`
+
+---
