@@ -116662,3 +116662,35 @@ Artifacts:
 - Next useful non-modeling step: write a compact open-risk ledger for the frozen Part 1 reference: settled claims, caveated claims, and work requiring explicit user authorization.
 
 ---
+## 2026-05-09: World model HEAD051 Part 1 open-risk ledger
+
+### Context
+- Continued after HEAD050 added and verified artifact digests for ignored local Part 1 reference files.
+- This iteration remained non-modeling and separated settled claims, caveated claims, and authorization-required work for the frozen Part 1 reference.
+
+### Hypothesis / Falsifier
+- Hypothesis: the current Part 1 reference can be frozen responsibly if settled claims, caveats, and authorization boundaries are explicit.
+- Falsifier: ambiguity that could let future work overstate the JEPA claim, hide a caveat, or mutate Part 1 under routine continuation.
+
+### Settled
+- Active reference: fused-context fixed delta-PCA predictor in `experiments/world/part1_jepa_latent/reference_manifest.json`.
+- Primary seed/checkpoint: seed `7711`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`.
+- Support seed/checkpoint: seed `7710`, `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Contract: `data/vol_surface_with_ret.npz`, history `30`, future `30`, horizons `(1, 5, 10, 20, 30)`, normalized IV-surface coordinates, fixed whitened train-fit delta-PCA targets with dimension `8`.
+- Artifact identity: `experiments/world/part1_jepa_latent/reference_artifact_digests.json`.
+
+### Caveats / Boundaries
+- This is JEPA-style and `supported_adjacent`, not canonical ImageNet I-JEPA.
+- Raw-delta retrieval is not uniformly dominant versus older diagnostic retrieval contexts.
+- Barlow Twins is not the active objective.
+- Part 1 success does not establish Part 2 scenario-generation quality.
+- New losses, target sweeps, decoder work, or canonicality upgrades require explicit user authorization and/or a new documented failure.
+
+### Decision / Next Step
+- Keep Part 1 frozen at the current reference.
+- Next bounded step: consistency check over the latest reports, state recommendation, and research-log tail.
+
+### Artifacts
+- `experiments/world/reports/world_model_head051_part1_open_risk_ledger.md`
+
+---
