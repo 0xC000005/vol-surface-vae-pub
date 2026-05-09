@@ -115490,3 +115490,39 @@ Artifacts:
 - Ignored output: `results/world/part1_context_composite_scores_head018.json`
 
 ---
+## 2026-05-09: World model HEAD019 top5 checkpoint selection
+
+### Context
+- Continued JEPA-only autoresearch after HEAD018 showed that top-k-aware composite scoring selects HEAD013 over HEAD017 because HEAD017 loses top5/top10.
+- This iteration tested whether selecting the mild-head/light-correlation run by validation top5 can recover broad retrieval ranking without breaking the frame-MSE gate.
+
+### Hypothesis
+- Selecting by validation top5 should recover broader retrieval ranking while preserving the frame-MSE persistence gate.
+- Falsifier: top5 selection improves broad retrieval only by losing too much frame MSE, context health, or frozen-probe quality under the top-k-aware composite score.
+
+### Execution
+- No code changes.
+- Ran `python experiments/world/part1_jepa_latent/supervised_horizon_frame.py --device cpu --epochs 25 --batch_size 128 --max_train_windows 2048 --max_val_windows 256 --hidden_dim 64 --context_dim 32 --predictor_hidden_dim 192 --target_mode delta --frame_weight 0.25 --retrieval_weight 0.075 --retrieval_temperature 0.1 --context_variance_weight 0.05 --context_covariance_weight 0.0 --context_correlation_weight 0.002 --context_variance_gamma 0.1 --selection_metric top5 --output_json results/world/part1_supervised_horizon_delta_corrreg_mildhead_top5_head019.json --checkpoint models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_top5_head019.pt`.
+- Audited the checkpoint with `context_probe_audit.py` and scored it against HEAD013 and HEAD017 with the top-k-aware composite scorer.
+
+### Result
+- Top5-selected checkpoint was epoch 3 with frame MSE `0.022145`, MRR mean `0.056790`, top1 `0.009375`, top5 `0.090625`, and top10 `0.139844`.
+- Raw persistence baseline remained frame MSE `0.022376`, MRR mean `0.052426`, top1 `0.000781`, top5 `0.086719`, and top10 `0.135156`.
+- Context audit: effective rank `4.748494`, offdiag abs mean `0.368346`, ridge MSE `0.017327`, ridge MRR mean `0.104012`, top1 `0.042969`, top5 `0.141406`, top10 `0.221875`.
+- Top-k-aware composite score: HEAD013 `0.580304`, HEAD017 `0.577865`, HEAD019 `0.520371`.
+
+### Mechanism Read
+- Top5 selection works narrowly: it beats persistence on frame top5 and top10 while still barely beating persistence on frame MSE.
+- It is too early and undertrained relative to the balanced candidates; frame-MSE improvement, context rank, and frozen-probe metrics drop too much.
+- Top5-only checkpoint selection is not the right main gate.
+
+### Decision / Next Step
+- Continue JEPA-only.
+- Avoid top5-only selection as the main gate.
+- Either save per-epoch checkpoints for composite selection or test a softer top-k/ranking objective that preserves later-epoch MSE/probe gains.
+
+### Artifacts
+- `experiments/world/reports/world_model_head019_top5_selection.md`
+- Ignored outputs: `results/world/part1_supervised_horizon_delta_corrreg_mildhead_top5_head019.json`, `results/world/part1_context_probe_audit_head019.json`, `results/world/part1_context_composite_scores_head019.json`, `models/world/checkpoints/part1_jepa_latent/supervised_horizon_delta_corrreg_mildhead_top5_head019.pt`
+
+---
