@@ -114931,3 +114931,36 @@ Artifacts:
 - Ignored outputs: `results/world/part1_jepa_smoke_head003.json`, `models/world/checkpoints/part1_jepa_latent/jepa_smoke_head003.pt`
 
 ---
+## 2026-05-09: World model HEAD004 Part 1 failure analysis
+
+Context:
+- Ran the required post-experiment analysis after HEAD003 produced a mixed Part 1 result: lower prediction MSE/cosine improvement, but chance-level retrieval and low-rank latents.
+
+Question:
+- Why did the minimal JEPA smoke improve smooth prediction metrics while failing the actual representation-quality gate?
+
+Execution:
+- Inspected `results/world/part1_jepa_smoke_head003.json`.
+- Compared training loss components, validation singular spectra, effective rank, off-diagonal correlation, and retrieval against chance for 256 candidates.
+- Wrote `experiments/world/reports/world_model_head004_part1_failure_analysis.md`.
+
+Result:
+- Prediction loss fell from `0.225814` to `0.009857`, but variance loss stayed near `0.94`.
+- Predicted latent singular values were very small: top values `[0.033989, 0.014010, 0.008472, 0.005470, ...]`.
+- Retrieval was at chance: top1 `0.00390625`, top5 `0.01953125`, top10 `0.04296875` for 256 candidates.
+- Baseline top5/top10 were higher than the JEPA smoke despite worse MSE.
+
+Mechanism read:
+- The objective allows a low-variance central future latent to satisfy MSE/cosine without preserving sample identity.
+- The low covariance loss is not reassuring because raw covariance can be small when variance is also tiny.
+- This is a Part 1 `latent_prediction` failure with a secondary `collapse` risk, not a decoder problem.
+
+Decision / next step:
+- Repair the Part 1 objective before further training.
+- Next experiment should add an in-batch retrieval / InfoNCE auxiliary loss between predicted and target latents, increase variance pressure, and require validation retrieval above chance plus improved effective rank.
+- Keep the flow decoder detached.
+
+Artifacts:
+- `experiments/world/reports/world_model_head004_part1_failure_analysis.md`
+
+---
