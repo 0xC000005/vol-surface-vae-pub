@@ -99,6 +99,18 @@ uv run python experiments/backfill/block_ar/nl_prefix_latent_run_store.py \
   --summary-json experiments/backfill/block_ar/nl_scenario_demo_outputs/private_demo_store/demo_run_store_summary.json
 ```
 
+## Option A2: Local Container Wrapper
+
+A private-demo container wrapper is available at:
+
+```text
+deploy/nl_prefix_latent_private_demo/
+```
+
+Use it only with private mounted artifacts and a persistent private output
+volume. The wrapper deliberately excludes `.env`, paper files, broad data/model
+trees, and generated outputs from the image build context.
+
 ## Option B: Private Gradio/Hugging Face Space
 
 Use only a private Space or private equivalent.

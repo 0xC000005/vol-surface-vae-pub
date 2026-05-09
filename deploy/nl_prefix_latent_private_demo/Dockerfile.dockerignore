@@ -1,0 +1,14 @@
+.env
+.venv/
+.agents/
+.claude/
+.git/
+autoresearch-session/
+paper/
+results/
+models/
+data/
+experiments/backfill/block_ar/nl_scenario_demo_outputs/
+**/*.pdf
+__pycache__/
+*.pyc

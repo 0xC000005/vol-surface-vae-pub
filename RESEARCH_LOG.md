@@ -114649,3 +114649,27 @@ This does not improve model quality, but it reduces operational ambiguity. The p
 The system is ready for an internal private demo if the 25-file artifact bundle is copied privately and the cached acceptance command is rerun on the target host. The remaining production path is managed auth, managed artifact storage, managed database persistence, and hosted-platform browser QA.
 
 ---
+## 2026-05-08: HEAD nl-prefix-latent 87 private container wrapper
+
+### Context
+The private deployment runbook documents VM/workstation and private Space-style hosting. A target host has not been selected, but a container-style wrapper is still useful because it makes the artifact mount, secret, and persistent output boundary explicit.
+
+### Hypothesis
+A private-demo Docker wrapper with a Dockerfile-specific ignore file can reduce packaging risk by excluding local secrets, under-review paper material, broad data/model trees, and generated outputs from the image build context while leaving artifacts to be mounted privately at runtime.
+
+### Execution
+- Added `deploy/nl_prefix_latent_private_demo/Dockerfile`.
+- Added `deploy/nl_prefix_latent_private_demo/Dockerfile.dockerignore`.
+- Added `deploy/nl_prefix_latent_private_demo/README.md` with build, run, and acceptance commands.
+- Linked the wrapper from `docs/research_protocols/nl_prefix_latent_private_deployment_runbook.md`.
+
+### Result
+File-level sanity checks passed for the Dockerfile, Dockerfile-specific ignore file, and README. The README documents a private mount layout for the explicit artifact bundle and a persistent output volume for run records, registry outputs, screenshots, and the SQLite run store.
+
+### Mechanism Read
+This does not claim the container image has been built or deployed. It makes the intended deployment boundary reviewable: source code in the image, private artifacts mounted at runtime, secrets supplied as environment variables, and generated audit state written to a mounted output volume.
+
+### Decision / Next Step
+The remaining step cannot be fully completed without choosing the target host or artifact store. The next useful execution step is to build this container on the target machine or run the existing cached acceptance harness on the intended private host with the real artifact mount.
+
+---
