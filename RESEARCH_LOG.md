@@ -116837,3 +116837,30 @@ Artifacts:
 - `models/world/checkpoints/part1_jepa_latent/fused_context_ema_jepa_head056.pt`
 
 ---
+## 2026-05-09: World model HEAD057 EMA target-block analysis
+
+### Context
+- Continued after HEAD056 showed fused relative context improves old EMA JEPA runs but still trails the fixed-PCA reference.
+- This was post-experiment analysis to choose the next non-ad-hoc Part 1 move.
+
+### Evidence
+- HEAD006 absolute prefix/frame EMA JEPA: MRR around `0.033-0.034`, predicted rank around `1.7-2.2`.
+- HEAD025 delta-frame EMA JEPA: MRR `0.042356`, predicted rank `1.262683`.
+- HEAD056 fused relative context with isolated delta-frame EMA targets: MRR/top5 `0.054649`/`0.057031`, predicted/target/context rank `2.883115`/`3.806809`/`4.441587`.
+- HEAD056 frozen-context probes remained weak: fixed-PCA MRR/top5 `0.069033`/`0.086719`, raw-delta MSE/MRR/top5 `0.019864`/`0.067651`/`0.074219`.
+- Current fixed-PCA reference remains stronger: fixed-PCA ridge MRR/top5 `0.103763`/`0.136719`, raw-delta ridge MSE/MRR/top5 `0.015701`/`0.096147`/`0.128125`.
+
+### Mechanism Read
+- Context-side repair helped, so the old EMA failure was partly architectural.
+- Isolated future delta-frame targets are still too weak; the EMA target geometry remains less discriminative than the fixed-PCA target contract.
+- The next canonical target-construction change should use richer future target blocks, closer to the I-JEPA/A-JEPA target-block principle.
+
+### Decision / Next Step
+- Run one target-construction experiment: fused relative context plus EMA target encoder over future delta-prefix target blocks.
+- Keep MSE-only prediction.
+- Do not add Barlow Twins, VICReg, retrieval/neighborhood objectives, target sweeps, decoder work, or a new scalar loss weight.
+
+### Artifacts
+- `experiments/world/reports/world_model_head057_ema_target_block_analysis.md`
+
+---
