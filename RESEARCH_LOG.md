@@ -116473,3 +116473,30 @@ Artifacts:
 - `experiments/world/reports/world_model_head044_part1_reference_closeout.md`
 
 ---
+## 2026-05-09: World model HEAD045 Part 1 reference manifest
+
+### Context
+- Continued after HEAD044 closed out the fused-context fixed delta-PCA predictor as the current validated Part 1 JEPA-style reference.
+- This step packaged the reference so later decoder or benchmark work cannot accidentally use the wrong checkpoint, split contract, or caveats.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/reference_manifest.json`.
+- The manifest records the primary and supporting checkpoints, training/probe JSONs, data split contract, fixed delta-PCA target contract, validation/test metrics, caveats, and handoff rules.
+- No model objective, target, decoder, retrieval loss, or Barlow/VICReg-style term was added.
+
+### Contents
+- Primary checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`.
+- Supporting checkpoint: `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Data contract: `data/vol_surface_with_ret.npz`, history `30`, future `30`, horizons `(1, 5, 10, 20, 30)`, `test_start=4511`, `val_size=441`.
+- Target contract: fixed whitened horizon delta PCA, target dim `8`, fit on train, MSE prediction loss.
+- Handoff caveat: strongest coordinate/decoded-surface reference, not uniformly dominant on raw-delta top-k retrieval versus older diagnostic retrieval contexts.
+
+### Decision / Next Step
+- Part 1 reference is now validated and packaged.
+- Do not add more Part 1 knobs without a new documented failure.
+- If continuing without decoder work, the only useful next step is a provenance sanity pass over the manifest and reports.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/reference_manifest.json`
+
+---
