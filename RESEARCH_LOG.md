@@ -116905,3 +116905,31 @@ Artifacts:
 - `models/world/checkpoints/part1_jepa_latent/fused_context_prefix_ema_jepa_head058.pt`
 
 ---
+## 2026-05-09: World model HEAD059 Part 1 branch decision
+
+### Context
+- Continued after HEAD058 improved EMA learned-target rank/retrieval but still failed the frozen-context probes.
+- This was post-experiment analysis to decide whether to keep pursuing EMA target encoders or pivot target construction.
+
+### Evidence
+- EMA branch learned-target MRR/top5/rank improved from HEAD025 to HEAD056 to HEAD058.
+- HEAD025: MRR `0.042356`, top5 `0.043750`, pred rank `1.262683`.
+- HEAD056: MRR `0.054649`, top5 `0.057031`, pred rank `2.883115`.
+- HEAD058: MRR `0.060093`, top5 `0.067188`, pred rank `3.776887`.
+- Frozen-context probes did not follow: HEAD058 fixed-PCA MRR/top5 `0.065450`/`0.081250`, raw-delta MSE/MRR/top5 `0.019055`/`0.060700`/`0.069531`.
+- Current fixed-PCA reference remains stronger: fixed-PCA MRR/top5 `0.103763`/`0.136719`, raw-delta MSE/MRR/top5 `0.015701`/`0.096147`/`0.128125`.
+
+### Mechanism Read
+- The EMA branch is no longer pure collapse; the target and predicted ranks improved.
+- The failure is target geometry mismatch: the learned EMA target space does not transfer into the fixed-PCA/raw-delta probes needed for a reusable world state.
+- More retrieval losses, variance/covariance weights, or target sweeps would be objective patching rather than a principled fix.
+
+### Decision / Next Step
+- Pause EMA target-encoder work.
+- Run one fixed joint future-path PCA target experiment: flatten the full horizon-delta path over horizons `(1, 5, 10, 20, 30)`, fit a train-only whitened PCA path code, and train fused context to predict that single future-path code with MSE.
+- This is `supported_adjacent`, not canonical ImageNet I-JEPA, but it is a more principled fixed world-state target than independent per-horizon PCA because it preserves cross-horizon/cross-cell future covariance in one target object.
+
+### Artifacts
+- `experiments/world/reports/world_model_head059_part1_branch_decision.md`
+
+---
