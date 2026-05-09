@@ -70,6 +70,9 @@ from experiments.world.part1_jepa_latent.joint_path_pca_predictor import (
     inverse_transform_joint_delta_path_targets,
     transform_joint_delta_path_targets,
 )
+from experiments.world.part1_jepa_latent.joint_path_pca_probe_audit import (
+    build_arg_parser as build_joint_path_pca_probe_arg_parser,
+)
 from experiments.world.part1_jepa_latent.fused_context_probe_audit import (
     build_arg_parser as build_fused_context_probe_arg_parser,
     encode_fused_contexts,
@@ -599,6 +602,24 @@ def test_joint_path_pca_target_roundtrips_and_predictor_shapes():
 
     assert predicted.shape == (5, 5)
     assert context.shape == (5, 4)
+
+
+def test_joint_path_pca_probe_audit_accepts_eval_split():
+    parser = build_joint_path_pca_probe_arg_parser()
+    args = parser.parse_args(
+        [
+            "--eval_split",
+            "test",
+            "--max_eval_windows",
+            "17",
+            "--checkpoint",
+            "models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt",
+        ]
+    )
+
+    assert args.eval_split == "test"
+    assert args.max_eval_windows == 17
+    assert args.checkpoint.endswith("joint_path_pca_head060.pt")
 
 
 def test_horizon_jepa_trainable_target_gets_regularization_gradients():

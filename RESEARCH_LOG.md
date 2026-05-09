@@ -116972,3 +116972,41 @@ Artifacts:
 - `models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt`
 
 ---
+## 2026-05-09: World model HEAD061 joint path-PCA test audit
+
+### Context
+- Continued after HEAD060 looked like a provisional Part 1 improvement on validation.
+- This iteration tested whether that result survives a held-out test audit before updating any reference manifest.
+
+### Hypothesis / Falsifier
+- Hypothesis: the HEAD060 joint path-PCA checkpoint should keep its validation advantage on test when the checkpoint and saved train-fit PCA target are reused, ridge probes are fit on train contexts only, and metrics are evaluated on test windows.
+- Falsifier: test decoded-delta or raw-delta probe metrics fall behind the existing HEAD042 primary reference test audit.
+
+### Implementation
+- Added `experiments/world/part1_jepa_latent/joint_path_pca_probe_audit.py`.
+- The audit loads the HEAD060 checkpoint, reconstructs the saved joint path-PCA target, evaluates the trained head on `test`, trains ridge probes on train contexts, and reports path-code, raw-delta, PCA-oracle, and zero-delta metrics.
+- Added a focused parser test in `test_code/test_world_model_evaluation.py`.
+- No model objective, architecture, decoder, target sweep, retrieval loss, or regularization knob was added.
+
+### Result
+- Focused checks: `2 passed in 0.75s`.
+- Test command: `python experiments/world/part1_jepa_latent/joint_path_pca_probe_audit.py --device cpu --checkpoint models/world/checkpoints/part1_jepa_latent/joint_path_pca_head060.pt --max_train_windows 2048 --eval_split test --max_eval_windows 256 --batch_size 128 --ridge_alpha 1e-3 --output_json results/world/part1_joint_path_pca_probe_audit_head061_test.json`.
+- Test context health: rank/offdiag `10.139321`/`0.248893`, healthier than the HEAD042 primary test reference rank/offdiag `7.534067`/`0.310717`.
+- Trained head test decoded-delta MSE/MRR/top5 `0.019414`/`0.081147`/`0.117969`.
+- Frozen context raw-delta ridge test MSE/MRR/top5 `0.019124`/`0.101138`/`0.130469`.
+- HEAD042 primary test reference remains stronger on raw-delta ridge MSE/MRR/top5: `0.017923`/`0.110315`/`0.142969`.
+- PCA-oracle decoded-delta test MSE/MRR/top5 `0.004093`/`0.399714`/`0.534375`, so the target object has low-rank capacity; the learned past-to-target mapping is the weak link.
+- Zero-delta test MSE is `0.025450`; HEAD061 still improves over zero by about `0.248565`, but less than the HEAD042 reference improvement of about `0.295762`.
+
+### Decision / Next Step
+- Do not promote HEAD060 and do not update `reference_manifest.json`.
+- Keep HEAD038/HEAD042 as the active Part 1 reference.
+- Treat joint path-PCA as a useful diagnostic branch: it improves rank/offdiag and validation probes, but the validation gain does not transfer to held-out test.
+- Next iteration should be post-experiment analysis of the validation/test gap before any new objective or architecture change.
+
+### Artifacts
+- `experiments/world/part1_jepa_latent/joint_path_pca_probe_audit.py`
+- `experiments/world/reports/world_model_head061_joint_path_pca_test_audit.md`
+- `results/world/part1_joint_path_pca_probe_audit_head061_test.json`
+
+---
