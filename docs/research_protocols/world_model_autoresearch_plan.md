@@ -534,7 +534,7 @@ experiments.
 
 When Part 1 and Part 2 are both gated, continue with one bounded process
 iteration at a time until a real stop condition appears or the user redirects
-the loop. This is a continuation rule, not permission to pause. Allowed work
+the loop. This is a continuation rule, not permission to stop. Allowed work
 includes:
 
 - provenance, manifest, digest, and artifact-identity checks;

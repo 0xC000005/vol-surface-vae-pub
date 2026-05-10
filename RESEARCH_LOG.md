@@ -118959,3 +118959,37 @@ index, and manual-stop workflow.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model stale stop wording audit
+
+### Context
+
+The unwanted pauses came from discretionary stop interpretation. After the
+larger guardrail fixes, I audited active resume docs for residual ambiguous stop
+wording.
+
+### Hypothesis
+
+Manual-stop mode should not contain wording that can be interpreted as
+permission to stop because of elapsed time, completed cycles, process-only work,
+or low-yield remaining tasks.
+
+### Execution
+
+- Searched active workflow, README, package, restart, open-risk, and report-index
+  documents for stale stop wording.
+- Replaced residual "pause" phrasing in tracked active docs with explicit stop
+  language.
+- Tightened `.agents/skills/world-model-autoresearch/SKILL.md` to forbid any
+  discretionary stop reason outside the hard-stop list.
+- Added `experiments/world/reports/world_model_head113_stale_stop_wording_audit.md`.
+
+### Result
+
+The active resume path now says gated work converts into a bounded next
+iteration, not a stop condition.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---

@@ -77,7 +77,7 @@ human-oriented resume guide, not the source of truth.
 - HEAD092: `world_model_head092_goal_state_reconciliation.md` reconciles local
   ignored goal/state files.
 - HEAD094: `world_model_head094_manual_stop_guardrail.md` removes the vague
-  discretionary pause path.
+  discretionary stop path.
 - HEAD095: `world_model_head095_target_stage_guardrail.md` prevents target-stage
   completion from stopping manual-stop mode unless `goal_reached` is explicit.
 - HEAD096: `world_model_head096_stop_condition_verification.md` verifies the
@@ -92,7 +92,7 @@ human-oriented resume guide, not the source of truth.
   package checker enforce the HEAD105 target-scope report.
 - HEAD107: `world_model_head107_manual_stop_runtime_guardrail.md` removes
   elapsed-time, turn-count, fatigue, diminishing-returns, and process-only-work
-  pause interpretations from manual-stop mode.
+  stop interpretations from manual-stop mode.
 - HEAD108: `world_model_head108_restart_checklist_caveat_sync.md` syncs the
   restart checklist with the current caveat boundary.
 - HEAD109: `world_model_head109_active_readme_caveat_audit.md` syncs active
