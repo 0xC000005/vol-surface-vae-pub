@@ -119901,3 +119901,18 @@ The scaffold provides a trainable context encoder, frozen target encoder initial
 The context-to-target branch now has data and model/loss scaffolds ready for a minimal training smoke. It remains a separate diagnostic branch and does not promote Part 1.
 
 ---
+## 2026-05-10: World Model HEAD140 Context-Target Smoke
+
+### Context
+HEAD139 provided a minimal context-to-target model/loss scaffold. The next step was to run the first smoke-scale training check before comparing exact-state probes.
+
+### Execution
+Ran `context_target_jepa_smoke.py` for `8` epochs on `384` train windows and `128` validation windows using CPU, seed `2140`, no future targets, and no value reconstruction.
+
+### Result
+The training loss decreases from `0.291315` to `0.027290`, so the branch is runnable. Validation loss is `0.036270` and alignment is `0.025615`. However, representation health is weak versus scaled Barlow: clean-last effective rank is `9.414709`, clean-last variance minimum is `0.002395`, and offdiag is `0.303647`.
+
+### Decision
+`DO_NOT_PROMOTE`. The context-to-target branch can train, but it is not yet a better Part 1 candidate. Next, run frozen exact-state probes for the HEAD140 context encoder before any model correction.
+
+---

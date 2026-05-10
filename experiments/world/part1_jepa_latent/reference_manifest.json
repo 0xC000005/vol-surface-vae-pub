@@ -161,6 +161,7 @@
       "context_target_jepa_design_report": "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
       "context_target_data_scaffold_report": "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
       "context_target_model_scaffold_report": "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
+      "context_target_smoke_report": "experiments/world/reports/world_model_head140_context_target_smoke.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -191,6 +192,8 @@
       "scale_regime_probe_gap_json": "results/world/scale_regime_probe_gap_head133.json",
       "scale_baseline_target_taxonomy_json": "results/world/scale_baseline_target_taxonomy_head134.json",
       "scale_representation_surface_json": "results/world/scale_representation_surface_head136.json",
+      "context_target_smoke_json": "results/world/context_target_jepa_smoke_head140.json",
+      "context_target_smoke_checkpoint": "models/world/checkpoints/part1_jepa_latent/context_target_jepa_smoke_head140.pt",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -373,6 +376,15 @@
           "uses_future_targets": false,
           "uses_value_reconstruction": false,
           "next_step": "smoke_training_and_scaled_barlow_comparison"
+        },
+        "context_target_smoke": {
+          "status": "runnable_but_weak_representation_health",
+          "val_loss": 0.03627,
+          "val_alignment": 0.025615,
+          "clean_last_effective_rank": 9.414709,
+          "clean_last_offdiag_abs_mean": 0.303647,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "next_step": "frozen_exact_state_probe_against_scaled_barlow"
         }
       },
       "layer_status": {
@@ -434,7 +446,8 @@
     "experiments/world/reports/world_model_head136_scale_representation_surface.md",
     "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
     "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
-    "experiments/world/reports/world_model_head139_context_target_model_scaffold.md"
+    "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
+    "experiments/world/reports/world_model_head140_context_target_smoke.md"
   ],
   "guardrail_doc_checks": [
     {

@@ -76,6 +76,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head138_context_target_data_scaffold.md`.
 - Latest context-target model scaffold:
   `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`.
+- Latest context-target training smoke:
+  `experiments/world/reports/world_model_head140_context_target_smoke.md`.
 
 ## Fixed Contract
 
@@ -214,6 +216,10 @@ is a representation-learning package for same-market-state masked views.
 - Context-target model scaffold: HEAD139 adds the minimal latent model and
   target-time masked loss. It has a trainable context encoder, frozen target
   encoder, and predictor, but no future targets and no value reconstruction.
+- Context-target training smoke: HEAD140 runs the first same-window
+  context-to-target training smoke. The loss decreases, but clean representation
+  health is weak versus scaled Barlow: clean-last effective rank is `9.41` and
+  offdiag is `0.304`. It is runnable, not promoted.
 
 ## Caveats
 
@@ -287,13 +293,15 @@ is a representation-learning package for same-market-state masked views.
   context-to-target branch and does not change the active Barlow reference.
 - Treat HEAD139 as model/loss scaffolding only. It has not been trained or
   compared to scaled Barlow.
+- Treat HEAD140 as a runnable negative/weak smoke until frozen exact-state and
+  representation-health probes show otherwise.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a minimal same-window context-to-target JEPA training smoke using HEAD138 and
-  HEAD139 scaffolds;
+- a frozen exact-state probe comparing HEAD140 context embeddings against
+  scaled Barlow;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
