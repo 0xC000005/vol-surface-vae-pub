@@ -44,6 +44,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head123_hard_mask_smoke.md`.
 - Latest present-state information audit:
   `experiments/world/reports/world_model_head124_present_state_probe.md`.
+- Latest state-content gate:
+  `experiments/world/reports/world_model_head125_state_content_gate.md`.
 
 ## Fixed Contract
 
@@ -114,6 +116,10 @@ is a representation-learning package for same-market-state masked views.
   features beat it on current IV-surface reconstruction, and factor-level plus
   side-channel probes remain weak. This explains why simple raw market-state
   baselines remain strong on persistence-like future probes.
+- State-content gate: HEAD125 formalizes HEAD124 as an evaluation layer. It
+  passes non-surface signal, but fails exact IV-state retention, factor-level
+  fidelity against the raw full-geometry upper bound, and mask-aggression
+  regression. The gate verdict is `FAIL`.
 
 ## Caveats
 
@@ -145,6 +151,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD124 as evidence that the next Part 1 work should improve
   state-content retention and evaluation coverage, not future-prediction
   pretraining or mask-severity tuning by itself.
+- Treat HEAD125 as the active explanation for why simple market-state baselines
+  remain strong: the representation learns useful factors but is not certified
+  to preserve exact current-state geometry.
 
 ## Next Work Requires Direction
 

@@ -144,6 +144,7 @@
       "hard_mask_training_smoke_report": "experiments/world/reports/world_model_head123_hard_mask_smoke.md",
       "hard_mask_downstream_probe_report": "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
       "present_state_probe_report": "experiments/world/reports/world_model_head124_present_state_probe.md",
+      "state_content_gate_report": "experiments/world/reports/world_model_head125_state_content_gate.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -153,6 +154,7 @@
       "hard_mask_smoke_analysis_json": "results/world/hard_mask_smoke_analysis_head123.json",
       "hard_mask_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_hardmask_head123.pt",
       "present_state_probe_json": "results/world/present_state_probe_head124.json",
+      "state_content_gate_json": "results/world/state_content_gate_head125.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -200,6 +202,14 @@
           "default_factor_level_mse": 0.747878,
           "default_vol_side_channel_mse": 0.428133,
           "decision": "embedding_has_factor_return_signal_but_loses_exact_present_state_geometry"
+        },
+        "state_content_gate": {
+          "quality_gate_passed": false,
+          "non_surface_signal": "PASS",
+          "exact_iv_state_retention": "FAIL",
+          "factor_level_gap": "FAIL",
+          "mask_aggression_regression": "FAIL",
+          "decision": "state_content_retention_not_yet_certified"
         }
       },
       "layer_status": {
@@ -244,7 +254,8 @@
     "experiments/world/reports/world_model_head122_hard_mask_preset.md",
     "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
     "experiments/world/reports/world_model_head123_hard_mask_smoke.md",
-    "experiments/world/reports/world_model_head124_present_state_probe.md"
+    "experiments/world/reports/world_model_head124_present_state_probe.md",
+    "experiments/world/reports/world_model_head125_state_content_gate.md"
   ],
   "guardrail_doc_checks": [
     {

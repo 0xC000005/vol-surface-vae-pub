@@ -119393,3 +119393,41 @@ losses, and do not tune mask severity again before resolving state-content
 retention.
 
 ---
+## 2026-05-10: World Model HEAD125 State Content Gate
+
+### Context
+
+HEAD124 explained the simple-baseline gap as a state-content retention problem:
+the embedding has factor-return signal but loses too much exact current IV and
+factor-level geometry. The workflow needed a compact gate so this evidence
+does not get mixed up with future-prediction probes or decoder quality.
+
+### Execution
+
+Added and ran
+`experiments/world/part1_jepa_latent/assess_state_content_gate.py`, which reads
+`results/world/present_state_probe_head124.json` and scores four layers:
+non-surface signal, exact IV-state retention, factor-level gap versus the raw
+full-geometry upper bound, and hard-mask regression versus the default
+checkpoint.
+
+### Result
+
+The gate fails overall. Non-surface signal passes:
+`factor_return_r2=0.799291`, default Barlow factor-level MSE is better than raw
+surface-only (`0.747878` versus `0.922377`), and side-channel MSE is better than
+raw surface-only (`0.428133` versus `0.598214`). The remaining layers fail:
+current IV-surface retention is weaker than raw surface-only (`0.014483` versus
+`0.005630`), factor-level fidelity is far from the raw full-geometry upper bound
+(`0.747878` versus `0.113066`), and the hard-mask checkpoint worsens
+all-geometry MSE (`0.304687` versus default `0.261496`).
+
+### Decision
+
+Part 1 is not ready. The active explanation is not collapse and not simply
+"mask harder." The representation learns useful non-surface signal, but it is
+not certified to preserve exact joint market-state geometry. Keep this as an
+evaluation gate and next investigate state-content retention through
+architecture/scale diagnostics before any objective-family change.
+
+---

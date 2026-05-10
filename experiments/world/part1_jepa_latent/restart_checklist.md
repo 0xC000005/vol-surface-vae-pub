@@ -18,15 +18,16 @@ probe that consumes the Part 1 world-model reference candidate.
 9. `experiments/world/reports/world_model_head122_hard_mask_preset.md`
 10. `experiments/world/reports/world_model_head123_hard_mask_smoke.md`
 11. `experiments/world/reports/world_model_head124_present_state_probe.md`
-12. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-13. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-14. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-15. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-16. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-17. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-18. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-19. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-20. latest tail of `RESEARCH_LOG.md`
+12. `experiments/world/reports/world_model_head125_state_content_gate.md`
+13. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+14. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+15. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+16. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+17. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+18. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+19. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+20. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+21. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -84,6 +85,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD124 as the current present-state audit: the default embedding has
   factor-return signal but loses too much exact IV/current-state geometry. This
   explains the raw baseline gap and should guide the next Part 1 evidence work.
+- Treat HEAD125 as the current state-content gate: non-surface signal passes,
+  but exact IV-state retention and factor-level fidelity fail.
 
 ## Do Not Do Without Explicit Authorization
 
