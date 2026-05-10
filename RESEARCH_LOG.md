@@ -117319,3 +117319,46 @@ Validation metrics compared with raw masked-view baseline and HEAD066 hybrid:
 The direct Barlow baseline validates the objective change much better than the EMA/predictor hybrid for same-state retrieval. It is not solved: rank is low and off-diagonal redundancy is high. Next iteration should analyze the spectrum/redundancy before adding knobs, then choose one principled correction if needed.
 
 ---
+## 2026-05-09: World model HEAD069 direct Barlow loss-scaling analysis
+
+### Context
+HEAD068 validated the direct two-view Barlow direction for same-state retrieval, but effective rank remained low and off-diagonal redundancy was high. HEAD069 analyzed whether this was a principled loss-scaling issue before adding any new knobs.
+
+### Finding
+The implemented direct Barlow loss used mean reductions:
+
+```text
+mean((diag(C) - 1)^2) + 0.005 * mean(offdiag(C)^2)
+```
+
+The Barlow Twins paper uses summed diagonal and off-diagonal terms:
+
+```text
+sum_i (1 - C_ii)^2 + lambda * sum_{i != j} C_ij^2
+```
+
+If we keep mean reductions for stable reporting, the canonical equivalent is:
+
+```text
+mean_diag + lambda * (D - 1) * mean_offdiag
+```
+
+For HEAD068, `D = 64`, so paper lambda `0.005` corresponds to mean-style offdiag weight `0.315`, not `0.005`.
+
+### Quantitative Check
+From `results/world/masked_multiview_barlow_head068.json` validation metrics:
+
+- latent dimension: `64`;
+- configured offdiag weight: `0.005`;
+- diagonal mean loss: `0.003628`;
+- offdiag mean loss: `0.281904`;
+- current loss formula: `0.005037`;
+- canonical-average equivalent: `0.092427`;
+- current offdiag contribution share: `0.279822`;
+- canonical offdiag contribution share: `0.960751`;
+- mean-style weight matching canonical scaling: `0.315`.
+
+### Decision
+The next experiment should make one correction only: add canonical mean-scaled Barlow loss, keeping paper lambda `0.005`, the same direct shared encoder, the same masks, the same train budget, and the same diagnostics. Falsifier: if canonical scaling improves redundancy/rank but destroys same-state retrieval, then the next issue is representation/projection separation or encoder geometry rather than simple loss scaling.
+
+---
