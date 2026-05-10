@@ -176,6 +176,7 @@
       "surface_local_target_coverage_report": "experiments/world/reports/world_model_head152_surface_local_target_coverage.md",
       "surface_local_model_scaffold_report": "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md",
       "surface_local_smoke_report": "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md",
+      "surface_local_smoke_failure_report": "experiments/world/reports/world_model_head155_surface_local_smoke_failure.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -217,6 +218,7 @@
       "scale_exact_state_topology_json": "results/world/scale_exact_state_topology_head149.json",
       "surface_local_target_coverage_json": "results/world/surface_local_target_coverage_head152.json",
       "surface_local_smoke_json": "results/world/surface_local_jepa_smoke_head154.json",
+      "surface_local_smoke_failure_json": "results/world/surface_local_smoke_failure_head155.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -545,6 +547,16 @@
           "val_target_effective_rank": 4.750035,
           "promotion_decision": "SMOKE_ONLY_DO_NOT_PROMOTE",
           "decision": "surface_local_token_jepa_smoke_is_runnable_but_not_part1_quality_evidence"
+        },
+        "surface_local_smoke_failure": {
+          "status": "low_rank_target_and_predictor_shrinkage",
+          "top10_over_random": 2.8,
+          "median_rank_subset512": 187.5,
+          "predicted_rank_fraction": 0.164412,
+          "target_rank_fraction": 0.197918,
+          "predicted_to_target_variance_ratio": 0.136648,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "decision": "diagnose_target_latent_geometry_and_intrinsic_separability_before_tuning"
         }
       },
       "layer_status": {
@@ -621,7 +633,8 @@
     "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
     "experiments/world/reports/world_model_head152_surface_local_target_coverage.md",
     "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md",
-    "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md"
+    "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md",
+    "experiments/world/reports/world_model_head155_surface_local_smoke_failure.md"
   ],
   "guardrail_doc_checks": [
     {

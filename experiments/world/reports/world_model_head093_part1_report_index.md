@@ -194,6 +194,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD154: `world_model_head154_surface_local_jepa_smoke.md` runs the first
   surface-local token JEPA smoke. It trains but remains weak on target-token
   retrieval and rank, so it is not promoted.
+- HEAD155: `world_model_head155_surface_local_smoke_failure.md` diagnoses that
+  the weak smoke is low-rank in the target latent itself and has additional
+  predictor variance shrinkage.
 
 ## Packaging And Restart Guardrails
 
@@ -292,17 +295,18 @@ Then read:
 39. `experiments/world/reports/world_model_head152_surface_local_target_coverage.md`
 40. `experiments/world/reports/world_model_head153_surface_local_model_scaffold.md`
 41. `experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md`
-42. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-43. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-44. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-45. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-46. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-47. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-48. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-49. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-50. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-51. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-52. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+42. `experiments/world/reports/world_model_head155_surface_local_smoke_failure.md`
+43. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+44. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+45. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+46. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+47. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+48. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+49. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+50. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+51. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+52. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+53. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

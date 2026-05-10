@@ -120126,3 +120126,18 @@ Validation loss fell from `0.417678` to `0.233348`, with validation alignment `0
 `SMOKE_ONLY_DO_NOT_PROMOTE`. The surface-local token JEPA route is runnable but not Part 1 quality evidence. Diagnose low retrieval and low rank before any architecture knob tuning. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD155 Surface-Local Smoke Failure Diagnosis
+
+### Context
+HEAD154 was runnable but weak: loss fell while target-token retrieval and rank remained poor. The next step was diagnosis, not architecture tuning.
+
+### Execution
+Added and ran `analyze_surface_local_smoke_failure.py` against `results/world/surface_local_jepa_smoke_head154.json`.
+
+### Result
+Top10 retrieval is `0.054688` versus random top10 `0.019531`, only `2.8x` random; median rank is `187.5` on a 512-row subset. Predicted effective-rank fraction is `0.164412`, target effective-rank fraction is `0.197918`, and predicted/target variance ratio is `0.136648`.
+
+### Decision
+`DO_NOT_PROMOTE`. The surface-local failure is not target coverage. The selected target latent is already low-rank and the predictor further shrinks variance. Next safe work is a geometry/family intrinsic-separability audit before any architecture knob tuning. Part B remains blocked.
+
+---

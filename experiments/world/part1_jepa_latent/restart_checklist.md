@@ -196,6 +196,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD154 as the surface-local token JEPA smoke result: it trains, but
   target-token retrieval is weak and predicted rank is low, so diagnose before
   tuning or promoting the route.
+- Treat HEAD155 as the current surface-local diagnosis: target coverage is not
+  the failure; selected target latents are already low-rank and the predictor
+  shrinks variance further.
 
 ## Do Not Do Without Explicit Authorization
 
