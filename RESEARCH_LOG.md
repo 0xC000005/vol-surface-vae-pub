@@ -119712,3 +119712,40 @@ baseline gap is reduced but not solved. Next run the broader Part 1 gate and
 downstream/simple-baseline audits on HEAD127 before any decoder work.
 
 ---
+## 2026-05-10: World Model HEAD128 Scale Downstream Quality
+
+### Context
+
+HEAD127 was the first positive scale diagnostic: it improved rank, retrieval,
+and present-state probes without changing the masked-multiview objective. The
+next required check was whether that improvement translates to broader frozen
+downstream/simple-baseline probes.
+
+### Execution
+
+Ran
+`experiments/world/part1_jepa_latent/masked_multiview_downstream_probe_audit.py`
+on
+`models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_head127.pt`,
+saving `results/world/masked_multiview_downstream_probe_scale_head128.json` and
+`experiments/world/reports/world_model_head128_scale_downstream_probe.md`. Added
+`experiments/world/part1_jepa_latent/analyze_scale_downstream_quality.py` to
+compare HEAD128 against the default HEAD085 downstream audit.
+
+### Result
+
+Scale improves downstream quality but does not clear the Part 1 gate.
+Standalone Barlow still beats the best raw surface baseline on `2/5` IV future
+targets. The scaled embedding improves MSE on all five Barlow-only targets, and
+raw-last+Barlow improves raw-last on `4/5` targets instead of `3/5`. Regime
+accuracy improves sharply from `0.109375` to `0.515625`, but remains below raw
+last-surface accuracy `0.554688` and majority `0.597656`.
+
+### Decision
+
+HEAD127/128 is a better Part 1 candidate, but it is not Part-B-ready. The
+active blocker remains broad baseline superiority and market-state probe
+certification. Continue with Part 1 gate work on the scaled checkpoint before
+any decoder training.
+
+---

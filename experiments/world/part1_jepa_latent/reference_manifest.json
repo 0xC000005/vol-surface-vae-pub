@@ -147,6 +147,8 @@
       "state_content_gate_report": "experiments/world/reports/world_model_head125_state_content_gate.md",
       "grouped_geometry_state_probe_report": "experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md",
       "scale_state_probe_report": "experiments/world/reports/world_model_head127_scale_state_probe.md",
+      "scale_downstream_probe_report": "experiments/world/reports/world_model_head128_scale_downstream_probe.md",
+      "scale_downstream_quality_report": "experiments/world/reports/world_model_head128_scale_downstream_quality.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -163,6 +165,8 @@
       "scale_training_result_json": "results/world/masked_multiview_barlow_scale_head127.json",
       "scale_state_probe_json": "results/world/scale_state_probe_head127.json",
       "scale_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_head127.pt",
+      "scale_downstream_probe_json": "results/world/masked_multiview_downstream_probe_scale_head128.json",
+      "scale_downstream_quality_json": "results/world/scale_downstream_quality_head128.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -239,6 +243,14 @@
           "scale_improves_factor_level_mse": true,
           "scale_preserves_factor_return_signal": true,
           "scale_beats_raw_surface_on_iv": false
+        },
+        "scale_downstream_quality": {
+          "status": "improved_but_not_part_b_ready",
+          "standalone_best_raw_wins": "2/5",
+          "raw_last_plus_barlow_improvements": "4/5",
+          "regime_accuracy": 0.515625,
+          "majority_accuracy": 0.597656,
+          "scale_clears_baseline_superiority": false
         }
       },
       "layer_status": {
@@ -286,7 +298,9 @@
     "experiments/world/reports/world_model_head124_present_state_probe.md",
     "experiments/world/reports/world_model_head125_state_content_gate.md",
     "experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md",
-    "experiments/world/reports/world_model_head127_scale_state_probe.md"
+    "experiments/world/reports/world_model_head127_scale_state_probe.md",
+    "experiments/world/reports/world_model_head128_scale_downstream_probe.md",
+    "experiments/world/reports/world_model_head128_scale_downstream_quality.md"
   ],
   "guardrail_doc_checks": [
     {

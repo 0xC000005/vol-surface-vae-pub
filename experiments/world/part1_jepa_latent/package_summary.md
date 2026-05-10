@@ -50,6 +50,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md`.
 - Latest scale/state-content diagnostic:
   `experiments/world/reports/world_model_head127_scale_state_probe.md`.
+- Latest scale downstream audit:
+  `experiments/world/reports/world_model_head128_scale_downstream_quality.md`.
 
 ## Fixed Contract
 
@@ -135,6 +137,10 @@ is a representation-learning package for same-market-state masked views.
   IV-surface MSE, factor-level MSE, and preserves factor-return signal. It still
   does not beat raw surface features on exact current-IV reconstruction, so it
   is a next quality-gate candidate, not Part-B-ready evidence.
+- Scale downstream audit: HEAD128 improves most downstream diagnostics but does
+  not clear Part 1. Standalone Barlow still beats the best raw surface baseline
+  on only `2/5` IV future targets, raw-last+Barlow improves raw-last on `4/5`,
+  and regime accuracy improves to `0.516` but remains below majority `0.598`.
 
 ## Caveats
 
@@ -174,6 +180,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD127 as the current best Part 1 candidate for the next gate, while
   preserving the caveat that exact current-IV retention still loses to raw
   surface features.
+- Treat HEAD128 as evidence that scale helps but does not close the quality
+  gate. Do not start Part B from HEAD127/128 without another explicit Part 1
+  promotion decision.
 
 ## Next Work Requires Direction
 
