@@ -120276,3 +120276,18 @@ I-JEPA/V-JEPA support feature prediction only when the target representation and
 No implementation is authorized. Any JEPA revival must first prove target latents carry market-state variation before predictor training. Raw-value reconstruction must be labeled as a separate MAE-style diagnostic. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD165 Exact-State Conditioning Boundary
+
+### Context
+HEAD164 clarified that raw-value reconstruction is a separate MAE-style family, not a JEPA patch. The next exact-state question was whether the learned embedding should replace raw current state or add abstract state alongside it.
+
+### Execution
+Added `world_model_head165_exact_state_conditioning_boundary.md`, consolidating HEAD132/134/154-157/164 evidence.
+
+### Result
+Raw current-state IV features are near-identity information for exact-state probes. Scaled Barlow can add path-shape/risk-width signal, but it does not replace raw exact state. The clean boundary is raw current state and observed-mask channels for exact conditioning, learned JEPA embedding for abstract/invariant state, and downstream evaluation of raw-only, learned-only, and raw+learned conditioning.
+
+### Decision
+Do not patch JEPA with reconstruction just to make one compact embedding replace raw identity information. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked unless explicitly authorized or a later gate changes status.
+
+---

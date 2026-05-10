@@ -221,6 +221,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD164 as the exact-state literature refresh: do not add raw-value
   reconstruction under the JEPA label; any new JEPA target needs a state-variation
   gate first.
+- Treat HEAD165 as the exact-state conditioning boundary: do not require one
+  compact learned embedding to replace raw current-state identity information.
 
 ## Do Not Do Without Explicit Authorization
 

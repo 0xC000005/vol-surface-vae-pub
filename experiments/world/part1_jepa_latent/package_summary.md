@@ -423,6 +423,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD164 as the exact-state literature refresh: any JEPA revival needs a
   target-latent state-variation gate, while raw-value reconstruction is a
   separate MAE-style diagnostic family.
+- Treat HEAD165 as the exact-state conditioning boundary: raw exact state should
+  remain an explicit conditioning channel; learned embeddings should prove
+  additive abstract state rather than replace raw identity information.
 
 ## Next Work Requires Direction
 
