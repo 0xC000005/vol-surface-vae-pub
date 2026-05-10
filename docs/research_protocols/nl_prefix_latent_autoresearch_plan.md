@@ -24,8 +24,8 @@ The long-run product contract has two modes:
 After the initial level is fixed, both modes share the same contract:
 
 ```text
-narrative + fixed initial joint39 level
--> start-compatible analogue pool
+narrative + grounding sidecar + fixed initial joint39 level
+-> narrative-compatible and start-compatible analogue pool
 -> soft mixture of plausible 30-day recent prefixes
 -> bounded residual/refinement or decoder condition
 -> frozen SNI autoregressive rollout
@@ -41,6 +41,57 @@ level. It is conditioned on the level the user supplied or accepted from the
 system's recommendations. The system must expose the analogue weights, support
 diagnostics, and post-rollout implication checks so a risk manager can see
 whether the generated distribution is supported, weakly supported, or rejected.
+
+## Workflow Revision: Grounding Is A Sidecar, Not The Narrative
+
+The grounding layer must not collapse the user's narrative into only a few
+up/down labels. A risk-manager story can contain regime shape, fragility,
+liquidity language, catalyst context, and uncertainty about mechanism. Those
+fields can matter for support selection even when they are not directly
+observable as one of the joint39 factors.
+
+The production representation is therefore multi-channel:
+
+```text
+full narrative text
++ condition-only market implications
++ grounding warnings / unsupported claims / forward-risk sidecars
++ accepted joint39 start
+-> support mixture and frozen rollout
+```
+
+The explicit market implications are still required because they provide
+directionality, temporal discipline, and auditability. But they are not the
+whole condition. They are a sidecar that constrains and explains the full
+narrative channel. The support mixture should score candidates with at least
+three separable channels:
+
+- full-narrative similarity, which preserves story nuance and regime language;
+- explicit-implication alignment, which prevents semantic collapse such as
+  "rates up" and "rates down" landing in the same bucket;
+- fixed-start compatibility, which keeps the autoregressive rollout in the
+  generator's valid domain.
+
+Every future bridge or support-mixture experiment should include a grounding
+bottleneck ablation:
+
+1. raw narrative only;
+2. implications only;
+3. current grounded condition text;
+4. raw narrative plus explicit implications;
+5. raw narrative plus full grounding sidecar.
+
+If implications-only wins, the narrative is probably not adding usable signal.
+If raw narrative or narrative-plus-grounding wins, the workflow must preserve
+the richer story channel. If raw narrative wins but produces temporal leakage
+or poor warnings, the product should keep grounding as a guardrail while using
+full narrative for support scoring.
+
+Warnings and unsupported claims should remain visible audit fields. They should
+be embedded only when the experiment is explicitly testing a full-sidecar
+channel, because concatenating warning text into the retrieval embedding can
+add noise even when the warning is correctly excluded from numerical
+conditioning.
 
 ## Workflow Revision: Start Before Mixture
 
@@ -64,7 +115,7 @@ point should the model retrieve and weight historical prefix support:
 ```text
 narrative -> condition-only grounding
 grounding -> candidate start levels, if needed
-accepted/user-supplied s0 + grounding -> analogue pool and mixture weights
+accepted/user-supplied s0 + full narrative + grounding sidecar -> analogue pool and mixture weights
 mixture prefix ending at s0 -> frozen SNI rollout -> future distribution
 ```
 
@@ -80,9 +131,10 @@ This protocol now treats research progress and production readiness as separate
 but connected obligations. A new model result is not enough. Each iteration
 should move at least one of these product gates:
 
-1. **Grounded narrative input.** The risk-manager story is converted into
-   explicit market implications, unsupported-claim warnings, model metadata,
-   and cached text conditions.
+1. **Narrative plus grounded sidecar input.** The risk-manager story is kept as
+   full narrative text and also converted into explicit market implications,
+   unsupported-claim warnings, forward-risk sidecars, model metadata, and
+   cached text conditions.
 2. **Fixed-start mixture contract.** The model first accepts either a proposed
    historical start or an explicit user-specified joint39 start. Only after that
    level is fixed does it build the narrative-conditioned analogue mixture, then
@@ -100,11 +152,12 @@ should move at least one of these product gates:
    validation status, scenario fans, selected IV-cell views, and artifacts in a
    form a non-ML risk manager can inspect.
 
-The next production milestone is a **mixture-supported live story path**. It
-should retrieve several narrative-consistent analogue prefixes, blend them into
-a support prior, apply a bounded latent residual or candidate refinement, and
-verify that the generated rollout honors explicit market implications better
-than single-neighbor or simple reranking baselines.
+The next production milestone is a **mixture-supported live story path with
+grounding-bottleneck evidence**. It should retrieve several
+narrative-consistent analogue prefixes, blend them into a support prior, apply
+a bounded latent residual or candidate refinement, and verify that the full
+narrative plus grounding sidecar performs at least as well as implication-only
+conditioning while retaining auditability and temporal leakage controls.
 
 ## Current Problem
 

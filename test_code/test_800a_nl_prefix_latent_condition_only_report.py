@@ -10,6 +10,7 @@ sys.path.insert(0, ".")
 from experiments.backfill.block_ar.nl_prefix_latent_condition_only_report import (
     build_condition_report,
     compatible_grounding_from_condition_case,
+    condition_query_text_for_channel,
     project_condition_query_text,
     run_condition_only_report,
     select_condition_case,
@@ -82,6 +83,30 @@ def test_compatible_grounding_uses_condition_implications() -> None:
     assert grounding["condition_only_validation"]["status"] == "pass"
 
 
+def test_query_channel_preserves_raw_narrative_and_sidecar() -> None:
+    case = _case_payload()
+
+    raw = condition_query_text_for_channel(case, query_channel="raw_narrative")
+    implications = condition_query_text_for_channel(
+        case, query_channel="implications_only"
+    )
+    narrative_plus_implications = condition_query_text_for_channel(
+        case, query_channel="narrative_plus_implications"
+    )
+    combined = condition_query_text_for_channel(
+        case, query_channel="narrative_plus_grounding"
+    )
+
+    assert "Equities are recovering" in raw
+    assert "SPX up medium" in implications
+    assert "RAW_RISK_MANAGER_NARRATIVE" in narrative_plus_implications
+    assert "SPX up medium" in narrative_plus_implications
+    assert "GROUNDING_WARNINGS" not in narrative_plus_implications
+    assert "RAW_RISK_MANAGER_NARRATIVE" in combined
+    assert "GROUNDING_SIDECAR" in combined
+    assert "NON_CONDITIONING_FORWARD_LANGUAGE" in combined
+
+
 def test_project_condition_query_text_uses_embedder_and_adapter() -> None:
     calls = {}
 
@@ -142,10 +167,15 @@ def test_build_condition_report_writes_report_and_arrays(tmp_path) -> None:
         output_dir=tmp_path,
         bridge_arrays="bridge_arrays.npz",
         bridge_adapter="adapter.pt",
+        query_channel="narrative_plus_grounding",
     )
 
     arrays = np.load(report["artifact_paths"]["arrays"])
     assert report["cached_query"]["condition_source"] == "condition_only_openai_story"
+    assert (
+        report["cached_query"]["embedding_metadata"]["query_channel"]
+        == "narrative_plus_grounding"
+    )
     assert report["cached_query"]["grounding"]["market_implications"][0]["market"] == "SPX"
     assert arrays["text_memory"].shape == (1, 3)
     assert arrays["query_embedding"].shape == (1, 2)
@@ -187,10 +217,13 @@ def test_run_condition_only_report_uses_bridge_arrays_for_condition_dim(tmp_path
         bridge_arrays=str(bridge_arrays),
         bridge_adapter="adapter.pt",
         embedding_model="fake",
+        query_channel="raw_narrative",
         dotenv=".env",
     )
 
     report = run_condition_only_report(args)
 
     assert report["cached_query"]["embedding_metadata"]["condition_dim"] == 5
+    assert report["cached_query"]["embedding_metadata"]["query_channel"] == "raw_narrative"
+    assert report["cached_query"]["query_text"].startswith("RAW_RISK_MANAGER_NARRATIVE")
     assert np.load(report["artifact_paths"]["arrays"])["text_memory"].shape == (1, 5)

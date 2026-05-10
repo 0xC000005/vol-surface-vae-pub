@@ -3,7 +3,9 @@
 
 The output contract matches ``nl_prefix_latent_story_smoke.py --condition-report``:
 the report contains a cached query payload and an arrays file with one
-``text_memory`` row. Only the clean condition query text is embedded.
+``text_memory`` row. The default embeds the clean condition query text, but
+query-channel modes can preserve the raw narrative or compare implication-only
+conditioning for grounding-bottleneck ablations.
 """
 
 from __future__ import annotations
@@ -41,6 +43,14 @@ from experiments.backfill.block_ar.nl_text_conditioning import (  # noqa: E402
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_condition_only_report_809a"
+)
+
+QUERY_CHANNELS = (
+    "grounded_condition",
+    "raw_narrative",
+    "implications_only",
+    "narrative_plus_implications",
+    "narrative_plus_grounding",
 )
 
 
@@ -113,6 +123,115 @@ def _condition_implication_rows(grounding: dict[str, Any]) -> list[dict[str, Any
                 }
             )
     return rows
+
+
+def _format_implication_for_query(item: dict[str, Any]) -> str:
+    evidence = item.get("evidence", [])
+    if isinstance(evidence, list):
+        evidence_text = "; ".join(str(part) for part in evidence if str(part))
+    else:
+        evidence_text = str(evidence)
+    return (
+        f"{item.get('market', '')} {item.get('direction', '')} "
+        f"{item.get('magnitude', '')} confidence={item.get('confidence', '')} "
+        f"horizon={item.get('horizon', '')} target={item.get('target_use', '')} "
+        f"inferred={bool(item.get('inferred', False))} evidence={evidence_text}"
+    ).strip()
+
+
+def _format_sidecar_items(label: str, items: Any) -> list[str]:
+    if not isinstance(items, list) or not items:
+        return [f"{label}: none"]
+    lines = [f"{label}:"]
+    for item in items:
+        if isinstance(item, dict):
+            compact = ", ".join(
+                f"{key}={value}"
+                for key, value in sorted(item.items())
+                if isinstance(value, (str, int, float, bool))
+            )
+            lines.append(
+                f"- {compact}" if compact else f"- {json.dumps(item, sort_keys=True)}"
+            )
+        else:
+            lines.append(f"- {item}")
+    return lines
+
+
+def condition_query_text_for_channel(
+    case: dict[str, Any],
+    *,
+    query_channel: str = "grounded_condition",
+) -> str:
+    """Build text for a condition-memory projection channel."""
+
+    channel = str(query_channel)
+    if channel not in QUERY_CHANNELS:
+        raise ValueError(
+            f"unknown query_channel {channel!r}; expected one of {QUERY_CHANNELS}"
+        )
+    story = str(case.get("story", "")).strip()
+    grounding = case.get("condition_only_grounding", {})
+    if not isinstance(grounding, dict):
+        grounding = {}
+    grounded_query = str(case.get("candidate_query_text", "")).strip()
+    if channel == "grounded_condition":
+        if not grounded_query:
+            raise ValueError("condition case missing candidate_query_text")
+        return grounded_query
+    if channel == "raw_narrative":
+        if not story:
+            raise ValueError("condition case missing story")
+        return "RAW_RISK_MANAGER_NARRATIVE:\n" + story
+
+    implication_rows = _condition_implication_rows(grounding)
+    implication_lines = [
+        "EXPLICIT_MARKET_IMPLICATIONS:",
+        *[f"- {_format_implication_for_query(row)}" for row in implication_rows],
+    ]
+    if len(implication_lines) == 1:
+        implication_lines.append("- none")
+    if channel == "implications_only":
+        return "\n".join(implication_lines)
+
+    if channel == "narrative_plus_implications":
+        return "\n".join(
+            [
+                "RAW_RISK_MANAGER_NARRATIVE:",
+                story or "missing",
+                "",
+                *implication_lines,
+            ]
+        )
+
+    lines = [
+        "RAW_RISK_MANAGER_NARRATIVE:",
+        story or "missing",
+        "",
+        "GROUNDING_SIDECAR:",
+        f"NARRATIVE_FRAME: {grounding.get('narrative_frame', '')}",
+        f"CURRENT_MARKET_STATE_SUMMARY: {grounding.get('current_market_state_summary', '')}",
+        f"RECENT_REGIME_SUMMARY: {grounding.get('recent_regime_summary', '')}",
+        f"CLEANED_CONDITIONING_TEXT: {grounding.get('cleaned_conditioning_text', '')}",
+        "",
+        *implication_lines,
+        "",
+        *_format_sidecar_items(
+            "GROUNDING_WARNINGS",
+            grounding.get("grounding_warnings", []),
+        ),
+        "",
+        *_format_sidecar_items(
+            "UNSUPPORTED_CLAIMS",
+            grounding.get("unsupported_claims", []),
+        ),
+        "",
+        *_format_sidecar_items(
+            "NON_CONDITIONING_FORWARD_LANGUAGE",
+            grounding.get("non_conditioning_forward_language", []),
+        ),
+    ]
+    return "\n".join(lines)
 
 
 def compatible_grounding_from_condition_case(case: dict[str, Any]) -> dict[str, Any]:
@@ -194,14 +313,20 @@ def build_condition_report(
     output_dir: str | Path,
     bridge_arrays: str | Path,
     bridge_adapter: str | Path,
+    query_text: str | None = None,
+    query_channel: str = "grounded_condition",
 ) -> dict[str, Any]:
     """Write a condition report and arrays file for story smoke."""
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    query_text = str(case.get("candidate_query_text", ""))
-    if not query_text:
-        raise ValueError("condition case missing candidate_query_text")
+    selected_query_text = (
+        str(query_text)
+        if query_text is not None
+        else condition_query_text_for_channel(case, query_channel=query_channel)
+    )
+    if not selected_query_text:
+        raise ValueError("condition case produced empty query text")
     query_condition = np.asarray(projection["query_condition"], dtype=np.float32)
     query_embedding = np.asarray(projection["query_embedding"], dtype=np.float32)
     arrays_path = output / "condition_only_report_arrays.npz"
@@ -227,10 +352,11 @@ def build_condition_report(
             "window_id": str(case.get("case_name", "condition_only_story")),
             "embedding_index": -1,
             "narrative_text": str(case.get("story", "")),
-            "query_text": query_text,
+            "query_text": selected_query_text,
             "grounding": grounding,
             "embedding_metadata": {
                 **dict(projection.get("embedding_metadata", {})),
+                "query_channel": str(query_channel),
                 "grounding_model": str(
                     case.get("metadata", {}).get("model", "")
                     if isinstance(case.get("metadata"), dict)
@@ -261,9 +387,8 @@ def run_condition_only_report(args: argparse.Namespace) -> dict[str, Any]:
         case_name=args.case_name,
         case_index=int(args.case_index),
     )
-    query_text = str(case.get("candidate_query_text", ""))
-    if not query_text:
-        raise ValueError("condition case missing candidate_query_text")
+    query_channel = str(getattr(args, "query_channel", "grounded_condition"))
+    query_text = condition_query_text_for_channel(case, query_channel=query_channel)
     arrays = load_bridge_arrays(args.bridge_arrays)
     condition_dim = int(np.asarray(arrays["memory_targets"]).shape[1])
     projection = project_condition_query_text(
@@ -279,6 +404,8 @@ def run_condition_only_report(args: argparse.Namespace) -> dict[str, Any]:
         output_dir=args.output_dir,
         bridge_arrays=args.bridge_arrays,
         bridge_adapter=args.bridge_adapter,
+        query_text=query_text,
+        query_channel=query_channel,
     )
 
 
@@ -292,6 +419,15 @@ def main() -> None:
     parser.add_argument("--bridge-arrays", default=DEFAULT_BRIDGE_ARRAYS)
     parser.add_argument("--bridge-adapter", default=DEFAULT_BRIDGE_ADAPTER)
     parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    parser.add_argument(
+        "--query-channel",
+        choices=QUERY_CHANNELS,
+        default="grounded_condition",
+        help=(
+            "Text channel to embed. Use narrative_plus_grounding to preserve "
+            "the full story with grounding as a sidecar."
+        ),
+    )
     parser.add_argument("--dotenv", default=".env")
     args = parser.parse_args()
     report = run_condition_only_report(args)

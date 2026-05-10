@@ -119431,3 +119431,97 @@ evaluation gate and next investigate state-content retention through
 architecture/scale diagnostics before any objective-family change.
 
 ---
+## 2026-05-10: HEAD nl-prefix-latent 88 grounding sidecar channel ablation
+
+### Context
+
+The workflow needed to reflect the user concern that grounding can collapse a
+rich risk-manager narrative into a few directional labels. The product
+contract is now full narrative plus grounding sidecar plus fixed start, not
+grounded-condition text as the only language condition.
+
+### Hypothesis
+
+If grounding is a bottleneck, implication-only or cleaned grounded-condition
+channels should dominate raw narrative channels. If the full narrative carries
+usable information, raw narrative or narrative-plus-implications should remain
+competitive while grounding remains useful for directionality, temporal
+discipline, and warnings.
+
+### Execution
+
+- Updated `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` so
+  grounding is explicitly a sidecar, not a replacement for the story.
+- Added query channels to
+  `experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py`:
+  `grounded_condition`, `raw_narrative`, `implications_only`,
+  `narrative_plus_implications`, and `narrative_plus_grounding`.
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_grounding_channel_ablation.py`
+  to reuse cached condition reports, re-embed each channel, and run the
+  existing fixed-start bakeoff without new grounding/chat calls.
+- Added focused tests in
+  `test_code/test_800a_nl_prefix_latent_condition_only_report.py` and
+  `test_code/test_819a_nl_prefix_latent_grounding_channel_ablation.py`.
+
+Representative runs:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_grounding_channel_ablation.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_grounding_channel_ablation_845b_9row_s4 \
+  --case-count 9 --samples 4 --steps 180 --chunk-size 4 --device cuda --dotenv .env
+
+uv run python experiments/backfill/block_ar/nl_prefix_latent_grounding_channel_ablation.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_grounding_channel_ablation_845c_narrative_implications_s4 \
+  --case-count 9 --query-channel narrative_plus_implications \
+  --samples 4 --steps 180 --chunk-size 4 --device cuda --dotenv .env
+```
+
+### Result
+
+The 9-row fixed-start ablation passed. All main channels were positive versus
+persistence and operational status was 8 pass / 1 warning:
+
+| Channel | Mean energy improvement | Mean CRPS improvement | Mean weighted start z |
+|---|---:|---:|---:|
+| raw narrative | 0.1178 | 0.0912 | 7.006 |
+| grounded condition | 0.1185 | 0.0905 | 7.179 |
+| implications only | 0.1179 | 0.0902 | 7.572 |
+| narrative plus implications | 0.1178 | 0.0903 | 6.984 |
+| narrative plus full grounding sidecar | 0.1128 | 0.0826 | 6.890 |
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_grounding_channel_ablation_845b_9row_s4/grounding_channel_ablation.md`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_grounding_channel_ablation_845c_narrative_implications_s4/grounding_channel_ablation.md`
+
+### Mechanism Read
+
+There is no evidence that grounding is a catastrophic bottleneck on this small
+representative grid. Raw narrative, grounded condition, implications-only, and
+narrative-plus-implications are tightly clustered. The weaker full-sidecar
+result suggests that warning and unsupported-claim text can add embedding noise
+when concatenated into the numerical condition, even though those fields remain
+important for auditability.
+
+### Decision / Next Step
+
+Do not collapse the product to implication labels. Keep the full narrative as a
+first-class support channel and keep grounding as an explicit sidecar for
+directionality, temporal leakage control, unsupported-causality warnings, and
+user-facing audit. The next principled step is a separated multi-channel scorer:
+raw narrative similarity for story nuance, explicit implication alignment for
+directionality, and fixed-start compatibility for generator support, instead
+of simple text concatenation.
+
+### Verification
+
+```bash
+uv run pytest test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_819a_nl_prefix_latent_grounding_channel_ablation.py -q
+uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_condition_only_report.py experiments/backfill/block_ar/nl_prefix_latent_grounding_channel_ablation.py test_code/test_800a_nl_prefix_latent_condition_only_report.py test_code/test_819a_nl_prefix_latent_grounding_channel_ablation.py
+git diff --check
+```
+
+All checks passed.
+
+---
