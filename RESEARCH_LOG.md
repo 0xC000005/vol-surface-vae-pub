@@ -117934,3 +117934,50 @@ adding model knobs or starting Part 2.
 - `python -m json.tool results/world/masked_multiview_mask_artifact_head083.json`
 
 ---
+## 2026-05-09: World model stratified mask-family audit
+
+### Context
+HEAD083 reduced the concern that HEAD070 embeddings simply encode synthetic
+mask-family artifacts. The next missing Part 1 acceptance gate was
+geometry/mask-family stratification: aggregate retrieval can hide one weak mask
+family.
+
+### Hypothesis
+If HEAD070 is robust under structured masking, retrieval/rank should not
+collapse for one mask family while aggregate metrics look healthy.
+
+### Execution
+Added `experiments/world/part1_jepa_latent/masked_multiview_stratified_audit.py`.
+The audit loads the frozen HEAD070 checkpoint, encodes validation masked views,
+and computes same-state alignment/retrieval/rank/offdiag metrics by
+`mask_family_a` and `mask_family_b`.
+
+Generated:
+
+- `experiments/world/reports/world_model_head084_stratified_mask_audit.md`;
+- ignored local output `results/world/masked_multiview_stratified_head084.json`.
+
+### Result
+No large stratified failure appeared at this smoke scale:
+
+- all mask-family strata have top10 retrieval above `0.826`;
+- effective ranks stay near `13.4-14.5`;
+- offdiag stays near `0.20-0.23`;
+- time-block masks are the weakest stratum by top5/top10, but still not a
+  collapse case.
+
+Decision hint: `no_large_stratified_failure`.
+
+### Decision / Next Step
+HEAD070 now has aggregate scorecard, health expansion, mask-artifact leakage,
+and mask-family stratified diagnostics. The next remaining Part 1 gap is broader
+downstream probe coverage: regime/state labels, jump/tail, drawdown, or
+dependence probes. Continue with a bounded probe-coverage audit before adding
+model knobs or starting Part 2.
+
+### Verification
+- `uv run pytest test_code/test_world_model_evaluation.py -q`
+- `python experiments/world/part1_jepa_latent/masked_multiview_stratified_audit.py --device cpu`
+- `python -m json.tool results/world/masked_multiview_stratified_head084.json`
+
+---

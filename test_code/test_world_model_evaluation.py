@@ -137,6 +137,9 @@ from experiments.world.part1_jepa_latent.masked_multiview_mask_artifact_audit im
     classification_metrics,
     fit_predict_multiclass_ridge,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_stratified_audit import (
+    stratified_same_state_metrics,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -357,6 +360,27 @@ def test_classification_metrics_include_majority_baseline_and_lift():
     assert metrics["majority_accuracy"] == pytest.approx(0.50)
     assert metrics["accuracy_lift"] == pytest.approx(0.25)
     assert metrics["n_classes"] == 3
+
+
+def test_stratified_same_state_metrics_groups_sequence_embeddings():
+    view_a = np.asarray(
+        [
+            [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+            [[0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            [[1.0, 1.0, 0.0, 0.0], [1.0, -1.0, 0.0, 0.0]],
+            [[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, -1.0]],
+        ],
+        dtype=np.float32,
+    )
+    view_b = view_a.copy()
+    labels = np.asarray(["surface", "surface", "time", "time"], dtype=object)
+
+    rows = stratified_same_state_metrics(view_a, view_b, labels, min_windows=2)
+
+    assert set(rows) == {"surface", "time"}
+    assert rows["surface"]["n_windows"] == 2
+    assert rows["surface"]["retrieval_top1"] == pytest.approx(1.0)
+    assert rows["time"]["alignment_mse"] == pytest.approx(0.0)
 
 
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):
