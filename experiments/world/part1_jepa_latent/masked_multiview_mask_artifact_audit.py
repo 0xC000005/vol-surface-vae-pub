@@ -251,7 +251,12 @@ def _decision_hint(probes: dict[str, dict[str, Any]]) -> str:
     return "ambiguous_mask_family_signal"
 
 
-def render_markdown(result: dict[str, Any], *, title: str) -> str:
+def render_markdown(
+    result: dict[str, Any],
+    *,
+    title: str,
+    candidate_label: str,
+) -> str:
     lines = [
         f"# {title}",
         "",
@@ -261,7 +266,7 @@ def render_markdown(result: dict[str, Any], *, title: str) -> str:
         "",
         "## Hypothesis",
         "",
-        "If HEAD070 learned market-state structure rather than corruption artifacts,",
+        f"If {candidate_label} learned market-state structure rather than corruption artifacts,",
         "a simple frozen-embedding probe should not predict synthetic mask family",
         "far above the majority-class baseline.",
         "",
@@ -307,6 +312,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-json", type=Path, default=Path("results/world/masked_multiview_mask_artifact_head083.json"))
     parser.add_argument("--output-md", type=Path, default=Path("experiments/world/reports/world_model_head083_mask_artifact_audit.md"))
     parser.add_argument("--report-title", default="World Model HEAD083: Mask-Artifact Leakage Audit")
+    parser.add_argument("--candidate-label", default="HEAD070")
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--max_train_windows", type=int, default=384)
@@ -325,7 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     args.output_md.parent.mkdir(parents=True, exist_ok=True)
-    args.output_md.write_text(render_markdown(result, title=args.report_title), encoding="utf-8")
+    args.output_md.write_text(
+        render_markdown(
+            result,
+            title=args.report_title,
+            candidate_label=args.candidate_label,
+        ),
+        encoding="utf-8",
+    )
     return 0
 
 

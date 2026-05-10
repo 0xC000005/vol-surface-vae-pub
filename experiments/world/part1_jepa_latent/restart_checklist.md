@@ -22,15 +22,18 @@ probe that consumes the Part 1 world-model reference candidate.
 13. `experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md`
 14. `experiments/world/reports/world_model_head127_scale_state_probe.md`
 15. `experiments/world/reports/world_model_head128_scale_downstream_quality.md`
-16. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-17. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-18. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-19. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-20. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-21. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-22. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-23. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-24. latest tail of `RESEARCH_LOG.md`
+16. `experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md`
+17. `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`
+18. `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`
+19. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+20. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+21. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+22. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+23. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+24. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+25. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+26. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+27. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -98,6 +101,14 @@ probe that consumes the Part 1 world-model reference candidate.
   needs the full Part 1 quality gate before any Part B work.
 - Treat HEAD128 as the current downstream audit for HEAD127: scale helps, but
   baseline superiority and regime probes still block Part B.
+- Treat HEAD129 as the current scaled corruption audit: the scaled candidate
+  shows no large mask-family leakage and no large stratified mask-family
+  failure.
+- Treat HEAD130 as the current scaled Part 1 gate: representation health and
+  corruption robustness pass, state content and scale/stability are partial,
+  and baseline superiority plus market-state regime probes fail. The scaled
+  checkpoint is the best candidate so far, but it is not promoted and is not
+  Part-B-ready.
 
 ## Do Not Do Without Explicit Authorization
 

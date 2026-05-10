@@ -149,6 +149,9 @@
       "scale_state_probe_report": "experiments/world/reports/world_model_head127_scale_state_probe.md",
       "scale_downstream_probe_report": "experiments/world/reports/world_model_head128_scale_downstream_probe.md",
       "scale_downstream_quality_report": "experiments/world/reports/world_model_head128_scale_downstream_quality.md",
+      "scale_mask_artifact_report": "experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md",
+      "scale_stratified_mask_report": "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
+      "scale_part1_quality_gate_report": "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -167,6 +170,9 @@
       "scale_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_head127.pt",
       "scale_downstream_probe_json": "results/world/masked_multiview_downstream_probe_scale_head128.json",
       "scale_downstream_quality_json": "results/world/scale_downstream_quality_head128.json",
+      "scale_mask_artifact_json": "results/world/masked_multiview_mask_artifact_scale_head129.json",
+      "scale_stratified_mask_json": "results/world/masked_multiview_stratified_scale_head129.json",
+      "scale_part1_quality_gate_json": "results/world/scale_part1_quality_gate_head130.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -251,6 +257,16 @@
           "regime_accuracy": 0.515625,
           "majority_accuracy": 0.597656,
           "scale_clears_baseline_superiority": false
+        },
+        "scale_part1_quality_gate": {
+          "quality_gate_passed": false,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "representation_health": "PASS",
+          "corruption_robustness": "PASS",
+          "state_content": "PARTIAL",
+          "baseline_superiority": "FAIL",
+          "market_state_regime_probe": "FAIL",
+          "scale_and_stability": "PARTIAL"
         }
       },
       "layer_status": {
@@ -300,7 +316,10 @@
     "experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md",
     "experiments/world/reports/world_model_head127_scale_state_probe.md",
     "experiments/world/reports/world_model_head128_scale_downstream_probe.md",
-    "experiments/world/reports/world_model_head128_scale_downstream_quality.md"
+    "experiments/world/reports/world_model_head128_scale_downstream_quality.md",
+    "experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md",
+    "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
+    "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md"
   ],
   "guardrail_doc_checks": [
     {

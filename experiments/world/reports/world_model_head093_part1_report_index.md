@@ -96,6 +96,15 @@ human-oriented resume guide, not the source of truth.
 - HEAD128: `world_model_head128_scale_downstream_quality.md` audits HEAD127 on
   frozen downstream probes. Scale helps, but standalone Barlow still wins only
   `2/5` IV future targets and regime accuracy remains below majority.
+- HEAD129: `world_model_head129_scale_mask_artifact_audit.md` and
+  `world_model_head129_scale_stratified_mask_audit.md` audit the scaled HEAD127
+  checkpoint for corruption robustness. They find no large mask-family leakage
+  and no large stratified mask-family failure.
+- HEAD130: `world_model_head130_scale_part1_quality_gate.md` runs the scaled
+  candidate through the formal Part 1 gate. Representation health and
+  corruption robustness pass, but state content and scale/stability remain
+  partial while baseline superiority and market-state regime probes fail, so
+  the decision remains `DO_NOT_PROMOTE`.
 
 ## Packaging And Restart Guardrails
 
@@ -167,17 +176,20 @@ Then read:
 12. `experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md`
 13. `experiments/world/reports/world_model_head127_scale_state_probe.md`
 14. `experiments/world/reports/world_model_head128_scale_downstream_quality.md`
-15. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-16. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-17. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-18. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-19. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-20. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-21. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-22. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-23. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-24. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-25. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+15. `experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md`
+16. `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`
+17. `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`
+18. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+19. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+20. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+21. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+22. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+23. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+24. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+25. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+26. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+27. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+28. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

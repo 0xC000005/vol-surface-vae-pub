@@ -119749,3 +119749,20 @@ certification. Continue with Part 1 gate work on the scaled checkpoint before
 any decoder training.
 
 ---
+## 2026-05-10: World Model HEAD129-130 Scale Gate
+
+### Context
+HEAD128 showed that scale improves the frozen downstream probes but does not clear Part 1. The next question was whether the scaled checkpoint at least clears corruption robustness and how it scores against the formal Part 1 gate.
+
+### Execution
+Ran the scaled mask-artifact audit and scaled stratified-mask audit for the HEAD127 checkpoint, then added and ran `assess_scale_part1_quality_gate.py`.
+
+### Result
+Corruption robustness passes for the scaled candidate: mask-artifact decision `no_large_mask_family_leakage`, stratified decision `no_large_stratified_failure`, weakest stratified top10 `0.804348`, and max stratified offdiag `0.170515`.
+
+The formal scaled gate returns `DO_NOT_PROMOTE`. Representation health and corruption robustness pass, state content and scale/stability are partial, and baseline superiority plus market-state regime probes fail. Standalone Barlow still wins only `2/5` IV downstream targets versus best raw surface baselines, and regime accuracy remains below majority.
+
+### Decision
+HEAD127 is the best Part 1 candidate so far, but it is not Part-B-ready. The next evidence should be multi-seed scale stability and exact-state/regime/baseline diagnostics, without adding new pretraining objective knobs.
+
+---

@@ -52,6 +52,12 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head127_scale_state_probe.md`.
 - Latest scale downstream audit:
   `experiments/world/reports/world_model_head128_scale_downstream_quality.md`.
+- Latest scale corruption audit:
+  `experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md`.
+- Latest scale stratified-mask audit:
+  `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`.
+- Latest scale Part 1 quality gate:
+  `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`.
 
 ## Fixed Contract
 
@@ -141,6 +147,15 @@ is a representation-learning package for same-market-state masked views.
   not clear Part 1. Standalone Barlow still beats the best raw surface baseline
   on only `2/5` IV future targets, raw-last+Barlow improves raw-last on `4/5`,
   and regime accuracy improves to `0.516` but remains below majority `0.598`.
+- Scale corruption audits: HEAD129 says the scaled HEAD127 checkpoint does not
+  show large synthetic-mask-family leakage and does not have a large stratified
+  mask-family failure. Mask-family prediction lift is at most `0.016` above
+  majority, and the weakest stratified same-state retrieval top10 is `0.804`.
+- Scale Part 1 quality gate: HEAD130 returns `DO_NOT_PROMOTE`. Representation
+  health and corruption robustness pass for the scaled candidate, state content
+  and scale/stability are partial, and baseline superiority plus market-state
+  regime probes fail. HEAD127 remains the best Part 1 candidate so far, but it
+  is not Part-B-ready.
 
 ## Caveats
 
@@ -183,12 +198,17 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD128 as evidence that scale helps but does not close the quality
   gate. Do not start Part B from HEAD127/128 without another explicit Part 1
   promotion decision.
+- Treat HEAD129/HEAD130 as evidence that the scaled candidate clears the
+  corruption-robustness layer, but still fails the formal Part 1 promotion gate.
+  Do not promote it until baseline superiority, regime probes, and exact-state
+  retention improve or are replaced by a better justified acceptance layer.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
+- multi-seed scale stability using the same objective and encoder family;
+- exact-state/regime/baseline diagnostics that consume the frozen
+  representation without mutating the pretraining objective;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
-  default;
-- downstream benchmark/probe work that consumes the frozen representation
-  without mutating the pretraining objective.
+  default.

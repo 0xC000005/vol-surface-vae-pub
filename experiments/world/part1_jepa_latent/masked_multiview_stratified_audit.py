@@ -154,7 +154,12 @@ def _append_table(lines: list[str], title: str, rows: dict[str, dict[str, Any]])
     lines.append("")
 
 
-def render_markdown(result: dict[str, Any], *, title: str) -> str:
+def render_markdown(
+    result: dict[str, Any],
+    *,
+    title: str,
+    candidate_label: str,
+) -> str:
     lines = [
         f"# {title}",
         "",
@@ -164,7 +169,7 @@ def render_markdown(result: dict[str, Any], *, title: str) -> str:
         "",
         "## Hypothesis",
         "",
-        "If HEAD070 is robust under structured masking, retrieval/rank should not",
+        f"If {candidate_label} is robust under structured masking, retrieval/rank should not",
         "collapse for one mask family while aggregate metrics look healthy.",
         "",
     ]
@@ -194,6 +199,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-json", type=Path, default=Path("results/world/masked_multiview_stratified_head084.json"))
     parser.add_argument("--output-md", type=Path, default=Path("experiments/world/reports/world_model_head084_stratified_mask_audit.md"))
     parser.add_argument("--report-title", default="World Model HEAD084: Stratified Mask-Family Audit")
+    parser.add_argument("--candidate-label", default="HEAD070")
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--max_val_windows", type=int, default=128)
@@ -210,7 +216,14 @@ def main(argv: list[str] | None = None) -> int:
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     args.output_md.parent.mkdir(parents=True, exist_ok=True)
-    args.output_md.write_text(render_markdown(result, title=args.report_title), encoding="utf-8")
+    args.output_md.write_text(
+        render_markdown(
+            result,
+            title=args.report_title,
+            candidate_label=args.candidate_label,
+        ),
+        encoding="utf-8",
+    )
     return 0
 
 
