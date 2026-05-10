@@ -59,7 +59,9 @@ is a representation-learning package for same-market-state masked views.
   relative to raw last-surface features, but raw last-surface features remain
   stronger for mean/terminal deltas and regime-label accuracy. The full-history
   raw surface baseline also beats Barlow on max-absolute-step MSE, so the
-  downstream utility claim is not "Barlow beats all raw baselines."
+  downstream utility claim is not "Barlow beats all raw baselines." These
+  downstream probes target IV-surface futures only; factor-panel future targets
+  have not been evaluated.
 
 ## Caveats
 

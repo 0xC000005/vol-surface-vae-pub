@@ -118704,3 +118704,37 @@ index remains a human navigation guide.
 Continue in manual-stop mode.
 
 ---
+## 2026-05-10: World model downstream target-scope audit
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Downstream-probe evidence audit.
+
+### Hypothesis
+The package should distinguish the representation input scope from the
+downstream target scope: HEAD070 encodes the 58-token geometry panel, but HEAD085
+probes evaluate IV-surface futures only.
+
+### Falsifier
+The audit would fail if the package implied factor-panel future targets were
+evaluated by the HEAD085 downstream probes.
+
+### Execution
+- Read `masked_multiview_downstream_probe_audit.py`.
+- Read `world_data.py` to confirm `build_iv_world_windows` targets normalized
+  IV-surface futures.
+- Updated the manifest and package summary with the downstream target-scope
+  caveat.
+- Added `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`.
+
+### Result
+HEAD085 probes evaluate IV-surface future summaries and regime labels only.
+They do not evaluate future factor-panel levels/returns, cross-asset factor
+futures, or factor-panel scenario targets.
+
+### Next Step
+Continue with bounded evidence-boundary audits or explicit user-directed work.
+
+---

@@ -133,6 +133,7 @@
         "future_max_abs_step_mse"
       ],
       "head085_markdown_scope": "selected_feature_rows_only_json_contains_barlow_mean_and_raw_surface_flat",
+      "target_scope": "iv_surface_future_targets_only_no_factor_future_targets",
       "regime_classifier_status": "not_ready_below_majority_accuracy"
     }
   },
