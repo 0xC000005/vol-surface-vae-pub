@@ -153,6 +153,7 @@
       "scale_stratified_mask_report": "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
       "scale_part1_quality_gate_report": "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
       "scale_seed_stability_report": "experiments/world/reports/world_model_head131_scale_seed_stability.md",
+      "scale_exact_state_gap_report": "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -179,6 +180,7 @@
       "scale_seed681_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_seed681_head131.pt",
       "scale_seed682_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_seed682_head131.pt",
       "scale_seed_stability_json": "results/world/scale_seed_stability_head131.json",
+      "scale_exact_state_gap_json": "results/world/scale_exact_state_gap_head132.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -294,6 +296,15 @@
             0.16374
           ],
           "decision": "representation_scale_stability_improves_but_part1_still_do_not_promote"
+        },
+        "scale_exact_state_gap": {
+          "status": "exact_state_retention_gap_confirmed",
+          "raw_surface_iv_mse": 0.00563,
+          "scale_barlow_iv_mse": 0.013756,
+          "scale_to_raw_iv_mse_ratio": 2.443584,
+          "scale_worse_iv_cells": "20/25",
+          "largest_gap_cell": "iv_m0_t0",
+          "decision": "next_blocker_is_exact_state_retention_and_baseline_certification_not_collapse_or_seed_instability"
         }
       },
       "layer_status": {
@@ -347,7 +358,8 @@
     "experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md",
     "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
     "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
-    "experiments/world/reports/world_model_head131_scale_seed_stability.md"
+    "experiments/world/reports/world_model_head131_scale_seed_stability.md",
+    "experiments/world/reports/world_model_head132_scale_exact_state_gap.md"
   ],
   "guardrail_doc_checks": [
     {

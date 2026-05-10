@@ -26,15 +26,16 @@ probe that consumes the Part 1 world-model reference candidate.
 17. `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`
 18. `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`
 19. `experiments/world/reports/world_model_head131_scale_seed_stability.md`
-20. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-21. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-22. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-23. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-24. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-25. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-26. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-27. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-28. latest tail of `RESEARCH_LOG.md`
+20. `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`
+21. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+22. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+23. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+24. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+25. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+26. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+27. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+28. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+29. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -114,6 +115,9 @@ probe that consumes the Part 1 world-model reference candidate.
   health is stable across seeds `680`, `681`, and `682`, but this only upgrades
   the scale/stability evidence for representation health. It does not promote
   Part 1 or unblock Part B.
+- Treat HEAD132 as the current exact-state gap diagnosis: scale does not fail
+  through collapse or seed instability; it fails because raw current-state
+  features still preserve IV-surface geometry better than the frozen embedding.
 
 ## Do Not Do Without Explicit Authorization
 

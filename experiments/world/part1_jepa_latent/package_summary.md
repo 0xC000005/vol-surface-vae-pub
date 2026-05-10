@@ -60,6 +60,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`.
 - Latest scale seed-stability smoke:
   `experiments/world/reports/world_model_head131_scale_seed_stability.md`.
+- Latest scale exact-state gap diagnostic:
+  `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`.
 
 ## Fixed Contract
 
@@ -163,6 +165,11 @@ is a representation-learning package for same-market-state masked views.
   top10 stays in `0.839-0.877`, effective rank stays in `22.18-22.35`, and
   offdiag stays in `0.160-0.164`. This is a representation-health stability
   smoke pass, not a Part 1 promotion signal.
+- Scale exact-state gap: HEAD132 confirms that the remaining raw-baseline gap
+  is mostly exact-state retention, not collapse or seed instability. The scaled
+  embedding's current-IV reconstruction MSE is `0.013756` versus raw
+  last-surface `0.005630`, a `2.44x` ratio, and it is worse on `20/25` IV
+  surface cells. The largest gap is the `iv_m0_t0` corner cell.
 
 ## Caveats
 
@@ -213,13 +220,16 @@ is a representation-learning package for same-market-state masked views.
   not a one-seed accident at smoke scale. It does not solve baseline
   superiority, market-state regime probes, exact-state retention, or full-data
   stability.
+- Treat HEAD132 as the active diagnosis of the exact-state blocker: the scaled
+  embedding has broad market-state signal, but raw current-state features still
+  preserve IV geometry that the frozen embedding compresses away.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- exact-state/regime/baseline diagnostics that consume the frozen
-  representation without mutating the pretraining objective;
+- regime/baseline diagnostics that consume the frozen representation without
+  mutating the pretraining objective;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

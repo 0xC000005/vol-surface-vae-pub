@@ -119781,3 +119781,18 @@ Representation-health metrics are stable over the three smoke-scale seeds. Same-
 This upgrades the scaled candidate's scale/stability evidence, but only for representation health. Part 1 remains `DO_NOT_PROMOTE` because baseline superiority, regime probes, exact-state retention, and full-data stability are still unresolved.
 
 ---
+## 2026-05-10: World Model HEAD132 Exact-State Gap
+
+### Context
+HEAD131 made the scaled representation-health result seed-stable at smoke scale, but the formal Part 1 gate still failed exact-state retention and baseline superiority. The next diagnostic was to decompose the exact current-state gap without changing the pretraining objective.
+
+### Execution
+Added and ran `analyze_scale_exact_state_gap.py` on the frozen scaled HEAD127 checkpoint. The script fits the same ridge present-state probes and compares raw last-surface, raw full-geometry upper-bound, and scaled Barlow features at the IV-cell and factor-family levels.
+
+### Result
+The exact IV-state gap is confirmed. Raw last-surface IV reconstruction MSE is `0.005630`; scaled Barlow IV MSE is `0.013756`, a `2.44x` ratio. Scaled Barlow is worse than raw last-surface on `20/25` IV cells, with the largest gap at `iv_m0_t0`. Factor-family diagnostics also show large remaining gaps to the raw full-geometry upper bound, especially rates and equity-risk factor levels.
+
+### Decision
+The scaled embedding is not failing through collapse or seed instability. It has broad market-state signal, but it compresses exact current-state geometry that raw/simple baselines preserve. The next blocker is regime/baseline certification or a principled exact-state-retention strategy, not another ad hoc mask or decoder step.
+
+---
