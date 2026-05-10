@@ -120291,3 +120291,18 @@ Raw current-state IV features are near-identity information for exact-state prob
 Do not patch JEPA with reconstruction just to make one compact embedding replace raw identity information. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked unless explicitly authorized or a later gate changes status.
 
 ---
+## 2026-05-10: World Model HEAD166 Additive-Signal Quality Gate
+
+### Context
+HEAD165 clarified that raw current state should remain an explicit exact-conditioning channel, while the learned embedding should prove additive abstract market-state value. The next loop needed to make that evaluation contract concrete without starting Part B or adding a reconstruction objective.
+
+### Execution
+Added `world_model_head166_additive_signal_gate.md` and synced the manifest, package summary, restart checklist, report index, and autoresearch state.
+
+### Result
+The gate evaluates frozen `raw-only`, `learned-only`, and `raw-plus-learned` surfaces. Exact-state/persistence targets are guardrails, path-shape/risk-width targets are the primary additive target family, regime probes must report balanced metrics, and factor/non-surface geometry should be included when available.
+
+### Decision
+This is a gate definition, not model promotion. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked. The next empirical step, if chosen, is an additive-signal frozen-probe audit, not decoder work or another Part 1 knob.
+
+---

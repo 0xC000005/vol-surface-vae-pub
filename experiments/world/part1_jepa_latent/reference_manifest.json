@@ -187,6 +187,7 @@
       "scale_stability_boundary_report": "experiments/world/reports/world_model_head163_scale_stability_boundary.md",
       "exact_state_literature_refresh_report": "experiments/world/reports/world_model_head164_exact_state_literature_refresh.md",
       "exact_state_conditioning_boundary_report": "experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md",
+      "additive_signal_gate_report": "experiments/world/reports/world_model_head166_additive_signal_gate.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -661,6 +662,17 @@
           "learned_embedding_should_be_evaluated_as_additive_abstract_state": true,
           "part1_promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "additive_signal_gate": {
+          "status": "gate_defined_no_model_change",
+          "feature_surfaces": [
+            "raw_only",
+            "learned_only",
+            "raw_plus_learned"
+          ],
+          "primary_pass_condition": "raw_plus_learned_adds_path_shape_risk_width_or_state_signal_without_materially_degrading_raw_exact_state",
+          "pretraining_change": false,
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -748,7 +760,8 @@
     "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md",
     "experiments/world/reports/world_model_head163_scale_stability_boundary.md",
     "experiments/world/reports/world_model_head164_exact_state_literature_refresh.md",
-    "experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md"
+    "experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md",
+    "experiments/world/reports/world_model_head166_additive_signal_gate.md"
   ],
   "guardrail_doc_checks": [
     {

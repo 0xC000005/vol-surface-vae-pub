@@ -223,6 +223,9 @@ human-oriented resume guide, not the source of truth.
   the literature boundary after context-to-target demotions.
 - HEAD165: `world_model_head165_exact_state_conditioning_boundary.md` separates
   raw exact-state conditioning from learned abstract market-state embeddings.
+- HEAD166: `world_model_head166_additive_signal_gate.md` defines the next
+  frozen-probe gate for raw-only, learned-only, and raw-plus-learned additive
+  market-state value.
 
 ## Packaging And Restart Guardrails
 

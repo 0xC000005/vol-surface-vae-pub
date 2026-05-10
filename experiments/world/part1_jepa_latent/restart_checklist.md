@@ -47,15 +47,29 @@ probe that consumes the Part 1 world-model reference candidate.
 38. `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`
 39. `experiments/world/reports/world_model_head151_surface_local_data_contract.md`
 40. `experiments/world/reports/world_model_head152_surface_local_target_coverage.md`
-41. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-42. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-43. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-44. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-45. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-46. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-47. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-48. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-49. latest tail of `RESEARCH_LOG.md`
+41. `experiments/world/reports/world_model_head153_surface_local_model_scaffold.md`
+42. `experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md`
+43. `experiments/world/reports/world_model_head155_surface_local_smoke_failure.md`
+44. `experiments/world/reports/world_model_head156_surface_local_target_geometry.md`
+45. `experiments/world/reports/world_model_head157_surface_local_route_decision.md`
+46. `experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md`
+47. `experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md`
+48. `experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md`
+49. `experiments/world/reports/world_model_head161_next_work_wording_refresh.md`
+50. `experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md`
+51. `experiments/world/reports/world_model_head163_scale_stability_boundary.md`
+52. `experiments/world/reports/world_model_head164_exact_state_literature_refresh.md`
+53. `experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md`
+54. `experiments/world/reports/world_model_head166_additive_signal_gate.md`
+55. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+56. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+57. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+58. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+59. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+60. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+61. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+62. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+63. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -223,6 +237,9 @@ probe that consumes the Part 1 world-model reference candidate.
   gate first.
 - Treat HEAD165 as the exact-state conditioning boundary: do not require one
   compact learned embedding to replace raw current-state identity information.
+- Treat HEAD166 as the additive-signal quality gate: evaluate raw-only,
+  learned-only, and raw-plus-learned frozen probes before treating learned
+  embeddings as useful abstract market-state information.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -247,6 +264,7 @@ probe that consumes the Part 1 world-model reference candidate.
   representation-surface audit is run and interpreted.
 - Implement context-to-target JEPA without comparing it against the scaled
   Barlow candidate and the formal Part 1 gate layers.
+- Treat an additive-signal probe as decoder evidence or Part B authorization.
 
 ## Required Reporting
 

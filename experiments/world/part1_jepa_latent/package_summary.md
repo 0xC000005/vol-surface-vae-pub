@@ -102,6 +102,34 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head151_surface_local_data_contract.md`.
 - Latest surface-local target coverage audit:
   `experiments/world/reports/world_model_head152_surface_local_target_coverage.md`.
+- Latest surface-local model scaffold:
+  `experiments/world/reports/world_model_head153_surface_local_model_scaffold.md`.
+- Latest surface-local training smoke:
+  `experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md`.
+- Latest surface-local smoke failure diagnosis:
+  `experiments/world/reports/world_model_head155_surface_local_smoke_failure.md`.
+- Latest surface-local target-geometry audit:
+  `experiments/world/reports/world_model_head156_surface_local_target_geometry.md`.
+- Latest surface-local route decision:
+  `experiments/world/reports/world_model_head157_surface_local_route_decision.md`.
+- Latest post surface-local candidate consolidation:
+  `experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md`.
+- Latest open-risk ledger refresh:
+  `experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md`.
+- Latest Part 1 gate reconciliation:
+  `experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md`.
+- Latest next-work wording refresh:
+  `experiments/world/reports/world_model_head161_next_work_wording_refresh.md`.
+- Latest active-doc stale-route scan:
+  `experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md`.
+- Latest scale stability boundary:
+  `experiments/world/reports/world_model_head163_scale_stability_boundary.md`.
+- Latest exact-state literature refresh:
+  `experiments/world/reports/world_model_head164_exact_state_literature_refresh.md`.
+- Latest exact-state conditioning boundary:
+  `experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md`.
+- Latest additive-signal quality gate:
+  `experiments/world/reports/world_model_head166_additive_signal_gate.md`.
 
 ## Fixed Contract
 
@@ -426,6 +454,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD165 as the exact-state conditioning boundary: raw exact state should
   remain an explicit conditioning channel; learned embeddings should prove
   additive abstract state rather than replace raw identity information.
+- Treat HEAD166 as the additive-signal quality gate: evaluate raw-only,
+  learned-only, and raw-plus-learned frozen probes before claiming the learned
+  representation adds abstract market-state value.
 
 ## Next Work Requires Direction
 
@@ -437,6 +468,8 @@ Future work should be one of:
   and baseline superiority as the active blockers;
 - bounded exact-state blocker analysis that does not silently add a raw-value
   reconstruction auxiliary loss;
+- an additive-signal audit over raw-only, learned-only, and raw-plus-learned
+  frozen probes, without changing Part 1 pretraining or starting Part B;
 - same-objective scale/stability evidence for the active scaled Barlow
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target
