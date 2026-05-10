@@ -117362,3 +117362,46 @@ From `results/world/masked_multiview_barlow_head068.json` validation metrics:
 The next experiment should make one correction only: add canonical mean-scaled Barlow loss, keeping paper lambda `0.005`, the same direct shared encoder, the same masks, the same train budget, and the same diagnostics. Falsifier: if canonical scaling improves redundancy/rank but destroys same-state retrieval, then the next issue is representation/projection separation or encoder geometry rather than simple loss scaling.
 
 ---
+## 2026-05-09: World model HEAD070 canonical direct Barlow scaling
+
+### Context
+HEAD069 found that HEAD068 underweighted Barlow off-diagonal redundancy because the implementation used mean reductions with the paper's small lambda. HEAD070 tested the single principled correction: canonical mean-scaled Barlow, with no architecture, mask, or training-budget change.
+
+### Implementation
+Updated `torch_barlow_cross_correlation_loss` with `canonical_mean_scale=True`, using:
+
+```text
+diag_mean + lambda * (D - 1) * offdiag_mean
+```
+
+Updated `experiments/world/part1_jepa_latent/masked_multiview_barlow_smoke.py` so the direct Barlow smoke uses canonical mean scaling by default and writes HEAD070 outputs. Added a focused unit test for the canonical scaling formula.
+
+### Validation
+Focused tests passed:
+
+```bash
+pytest test_code/test_world_model_evaluation.py::test_barlow_loss_supports_canonical_mean_scaled_offdiag test_code/test_world_model_evaluation.py::test_direct_masked_multiview_barlow_scores_encoder_embeddings -q
+```
+
+Result: `2 passed in 0.73s`.
+
+Real-data smoke command:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_barlow_smoke.py --device cpu
+```
+
+Training loss decreased from `0.067116` to `0.013533` over 8 epochs.
+
+### Result
+Validation comparison:
+
+- retrieval top1/top5/top10: HEAD070 `0.321354` / `0.662500` / `0.841927`, HEAD068 `0.394271` / `0.680990` / `0.853906`, raw `0.042969` / `0.204427` / `0.373177`, HEAD066 `0.000260` / `0.002344` / `0.006510`;
+- effective rank A/B: HEAD070 `14.501471` / `14.593816`, HEAD068 `4.484127` / `4.525738`, raw `12.820380` / `12.797703`;
+- offdiag abs mean: HEAD070 `0.216527`, HEAD068 `0.468407`, raw `0.112105`, HEAD066 `0.204527`;
+- alignment MSE: HEAD070 `0.007052`, HEAD068 `0.004775`, raw `0.056997`, HEAD066 `0.064487`.
+
+### Decision
+The falsifier did not fire. Canonical direct Barlow is the current Part 1 reference candidate: it keeps retrieval far above raw/HEAD066 while restoring healthy rank. It is not final because residual off-diagonal redundancy remains above raw. Next iteration should analyze whether that residual redundancy is acceptable or whether a single principled representation/projection split is warranted. Do not move to the flow decoder yet.
+
+---

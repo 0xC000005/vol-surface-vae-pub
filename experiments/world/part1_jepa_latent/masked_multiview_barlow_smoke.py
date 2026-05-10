@@ -74,11 +74,13 @@ def direct_masked_multiview_barlow_loss(
     outputs: dict[str, torch.Tensor],
     *,
     offdiag_weight: float = 0.005,
+    canonical_mean_scale: bool = True,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     barlow, parts = torch_barlow_cross_correlation_loss(
         outputs["view_a"],
         outputs["view_b"],
         offdiag_weight=offdiag_weight,
+        canonical_mean_scale=canonical_mean_scale,
     )
     return barlow, {
         "barlow": float(barlow.detach().cpu()),
@@ -265,6 +267,7 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     )
     result = {
         "literature_status": "supported_adjacent_direct_barlow_twins_for_same_state_masked_multiview",
+        "loss_scaling": "canonical_mean_scaled_barlow",
         "config": asdict(cfg),
         "args": vars(args),
         "device": str(device),
@@ -313,12 +316,12 @@ def main() -> None:
     parser.add_argument(
         "--output_json",
         type=str,
-        default="results/world/masked_multiview_barlow_head068.json",
+        default="results/world/masked_multiview_barlow_head070.json",
     )
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head068.pt",
+        default="models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head070.pt",
     )
     train_smoke(parser.parse_args())
 

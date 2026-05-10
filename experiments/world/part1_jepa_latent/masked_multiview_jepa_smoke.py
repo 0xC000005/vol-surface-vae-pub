@@ -120,6 +120,7 @@ def torch_barlow_cross_correlation_loss(
     view_b: torch.Tensor,
     *,
     offdiag_weight: float = 0.005,
+    canonical_mean_scale: bool = False,
     eps: float = 1e-4,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     a = _flatten_time(view_a)
@@ -136,7 +137,8 @@ def torch_barlow_cross_correlation_loss(
     offdiag = _off_diagonal(corr)
     diag_loss = torch.mean((diag - 1.0) ** 2)
     offdiag_loss = torch.mean(offdiag * offdiag) if offdiag.numel() else corr.new_tensor(0.0)
-    loss = diag_loss + offdiag_weight * offdiag_loss
+    effective_offdiag_weight = offdiag_weight * (a.shape[1] - 1 if canonical_mean_scale else 1.0)
+    loss = diag_loss + effective_offdiag_weight * offdiag_loss
     return loss, {
         "barlow_diag_loss": float(diag_loss.detach().cpu()),
         "barlow_offdiag_loss": float(offdiag_loss.detach().cpu()),

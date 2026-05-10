@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from experiments.world.part1_jepa_latent.masked_multiview_jepa_smoke import (
     MaskedMultiviewJEPAWorldModel,
     make_masked_view_features,
     masked_multiview_jepa_loss,
+    torch_barlow_cross_correlation_loss,
 )
 from experiments.world.part1_jepa_latent.masked_multiview_barlow_smoke import (
     DirectMaskedMultiviewBarlowConfig,
@@ -458,6 +460,32 @@ def test_direct_masked_multiview_barlow_scores_encoder_embeddings():
     loss, parts = direct_masked_multiview_barlow_loss(out)
     assert torch.isfinite(loss)
     assert set(parts) == {"barlow", "barlow_diag_loss", "barlow_offdiag_loss", "loss"}
+
+
+def test_barlow_loss_supports_canonical_mean_scaled_offdiag():
+    import torch
+
+    torch.manual_seed(69)
+    view_a = torch.randn(4, 3, 5)
+    view_b = view_a.roll(shifts=1, dims=1) + 0.05 * torch.randn(4, 3, 5)
+
+    current_loss, current_parts = torch_barlow_cross_correlation_loss(
+        view_a,
+        view_b,
+        offdiag_weight=0.005,
+    )
+    canonical_loss, _canonical_parts = torch_barlow_cross_correlation_loss(
+        view_a,
+        view_b,
+        offdiag_weight=0.005,
+        canonical_mean_scale=True,
+    )
+    expected = current_parts["barlow_diag_loss"] + 0.005 * (view_a.shape[-1] - 1) * current_parts[
+        "barlow_offdiag_loss"
+    ]
+
+    assert canonical_loss.item() > current_loss.item()
+    assert canonical_loss.item() == pytest.approx(expected)
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

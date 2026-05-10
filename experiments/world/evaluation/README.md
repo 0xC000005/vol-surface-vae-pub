@@ -21,7 +21,8 @@ the diagnostics from this folder; it does not use future prediction as a
 pretraining target.
 `masked_multiview_barlow_smoke.py` is the cleaner direct two-view Barlow
 baseline: one shared encoder, two structured masked views, and redundancy
-reduction applied directly to the evaluated embeddings.
+reduction applied directly to the evaluated embeddings. Its default loss uses
+canonical mean-scaled Barlow off-diagonal weighting.
 
 ## Part 1 Metrics
 
