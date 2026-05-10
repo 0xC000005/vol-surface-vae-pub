@@ -409,6 +409,9 @@ is a representation-learning package for same-market-state masked views.
   not exact rows.
 - Treat HEAD157 as the current route decision: demote the current surface-local
   context-to-target implementation and do not tune it with small knobs.
+- Treat HEAD158 as the current candidate consolidation: scaled Barlow remains
+  the active learned candidate, but it is still `DO_NOT_PROMOTE`; all current
+  context-to-target variants are demoted as implemented.
 
 ## Next Work Requires Direction
 
@@ -431,5 +434,8 @@ Future work should be one of:
 - after HEAD157, only revisit surface-local context-to-target JEPA through a new
   design gate that proves target latents carry state variation before predictor
   training;
+- after HEAD158, continue with gate reconciliation, risk/provenance refresh, or
+  a genuinely new design gate rather than resurrecting demoted context-to-target
+  variants;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

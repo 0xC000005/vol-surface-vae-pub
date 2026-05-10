@@ -205,6 +205,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD157 as the current route decision: the surface-local
   context-to-target implementation is demoted as implemented; do not tune small
   knobs on this route.
+- Treat HEAD158 as the current candidate consolidation: scaled Barlow is still
+  the active learned candidate but remains `DO_NOT_PROMOTE`; Part B remains
+  blocked.
 
 ## Do Not Do Without Explicit Authorization
 

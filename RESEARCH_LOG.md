@@ -120171,3 +120171,18 @@ The current surface-local context-to-target route is demoted as implemented. The
 Do not tune target coverage, hidden size, predictor depth, EMA decay, epochs, or Barlow weights on this route. If revisited, it needs a new design gate requiring intrinsic target latents to carry state variation before predictor training. Scaled Barlow remains the active learned candidate but is still `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD158 Post Surface-Local Candidate Consolidation
+
+### Context
+After HEAD157 demoted the current surface-local context-to-target route, the workflow needed a candidate-level consolidation before any new Part 1 design or Part B work.
+
+### Execution
+Added `world_model_head158_post_surface_local_candidate_consolidation.md`, summarizing the active baseline, active learned candidate, and demoted routes.
+
+### Result
+Raw current-state features remain the exact-state floor to beat. Scaled Barlow remains the active learned candidate, but it is still `DO_NOT_PROMOTE`. Hard-mask Barlow, minimal context-to-target, clean-target context-to-target, and surface-local token context-to-target are demoted as implemented.
+
+### Decision
+Part 1 remains blocked by exact-state retention and baseline superiority. Part B remains blocked. Next work should be gate reconciliation, risk/provenance refresh, or a genuinely new design gate that first proves target latents carry state variation before predictor training.
+
+---
