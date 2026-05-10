@@ -38,15 +38,16 @@ probe that consumes the Part 1 world-model reference candidate.
 29. `experiments/world/reports/world_model_head141_context_target_state_probe.md`
 30. `experiments/world/reports/world_model_head142_context_target_latent_health.md`
 31. `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`
-32. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-33. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-34. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-35. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-36. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-37. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-38. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-39. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-40. latest tail of `RESEARCH_LOG.md`
+32. `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`
+33. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+34. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+35. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+36. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+37. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+38. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+39. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+40. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+41. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -164,6 +165,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD143 as the current context-to-target correction gate: one
   clean-target smoke is allowed, where the target encoder sees the clean full
   window and target rows are selected from its output.
+- Treat HEAD144 as the current clean-target smoke result: it trains but worsens
+  clean context rank versus HEAD140 and remains far below scaled Barlow.
 
 ## Do Not Do Without Explicit Authorization
 

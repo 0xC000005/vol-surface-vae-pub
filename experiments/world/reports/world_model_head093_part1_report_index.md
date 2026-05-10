@@ -160,6 +160,9 @@ human-oriented resume guide, not the source of truth.
   HEAD142 failure to the canonical JEPA target rule. It authorizes one
   clean-target context-to-target smoke where the target encoder sees the clean
   full window and target rows are selected from its output.
+- HEAD144: `world_model_head144_context_target_clean_smoke.md` runs that
+  clean-target smoke. It trains, but clean context rank falls to `7.32`, worse
+  than HEAD140 and far below scaled Barlow, so it remains `DO_NOT_PROMOTE`.
 
 ## Packaging And Restart Guardrails
 
@@ -247,17 +250,18 @@ Then read:
 28. `experiments/world/reports/world_model_head141_context_target_state_probe.md`
 29. `experiments/world/reports/world_model_head142_context_target_latent_health.md`
 30. `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`
-31. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-32. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-33. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-34. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-35. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-36. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-37. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-38. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-39. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-40. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-41. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+31. `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`
+32. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+33. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+34. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+35. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+36. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+37. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+38. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+39. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+40. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+41. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+42. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

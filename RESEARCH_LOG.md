@@ -119961,3 +119961,18 @@ The canonical correction is to feed the clean full window through the target enc
 Proceed to one clean-target context-to-target smoke and compare it against HEAD140 and scaled Barlow. If it still has low rank, high-cosine/low-retrieval behavior, or weak exact-state probes, demote this branch rather than tuning knobs.
 
 ---
+## 2026-05-10: World Model HEAD144 Context-Target Clean-Target Smoke
+
+### Context
+HEAD143 authorized exactly one clean-target context-to-target smoke to correct the HEAD140 target construction. The target encoder should see the clean full window, with target rows selected from the target-encoder output.
+
+### Execution
+Added `context_target_jepa_clean_target_smoke.py` and `test_world_model_context_target_jepa_clean_target.py` using TDD. The new branch has no future targets, no value reconstruction, no decoder loss, and no target-input knob sweep. Ran the 8-epoch CPU smoke on 384 train and 128 validation windows with seed `2144`.
+
+### Result
+The branch trains: loss falls from `0.297109` to `0.017840`. But validation health is worse, not better. Val loss is `0.077226`, val alignment is `0.066922`, clean-last effective rank is `7.322453`, versus HEAD140 `9.414709` and scaled Barlow `22.323718`. Offdiag is also high at `0.340057`.
+
+### Decision
+`DO_NOT_PROMOTE`. Canonical clean-target construction alone does not fix Part 1. Next, run exact-state and latent-health comparison for the HEAD144 checkpoint; if still negative, demote this minimal context-to-target route rather than tuning knobs.
+
+---

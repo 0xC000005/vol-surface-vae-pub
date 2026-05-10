@@ -84,6 +84,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head142_context_target_latent_health.md`.
 - Latest context-target clean-target design gate:
   `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`.
+- Latest context-target clean-target smoke:
+  `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`.
 
 ## Fixed Contract
 
@@ -241,6 +243,10 @@ is a representation-learning package for same-market-state masked views.
   clean-target smoke where the target encoder sees the clean full window and
   target rows are selected from its output. No future targets, value
   reconstruction, decoder loss, or knob sweep are authorized by this gate.
+- Context-target clean-target smoke: HEAD144 implements the one authorized
+  correction. It trains, but clean context rank falls to `7.32`, worse than
+  HEAD140 target-only (`9.41`) and much worse than scaled Barlow (`22.32`).
+  The correction is not promoted.
 
 ## Caveats
 
@@ -326,6 +332,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD143 as the current design gate for that fix: run one clean-target
   context-to-target smoke, matching canonical JEPA target construction more
   closely, before considering any broader architecture change.
+- Treat HEAD144 as a negative result for the minimal clean-target correction:
+  canonical target construction alone does not fix clean context rank.
 
 ## Next Work Requires Direction
 
@@ -334,6 +342,7 @@ Future work should be one of:
 - multi-seed scale stability using the same objective and encoder family;
 - a target/predictor diagnostic fix for the HEAD140 context-to-target branch
   that avoids high-cosine/low-retrieval shortcuts before adding knobs;
-- one clean-target context-to-target smoke authorized by HEAD143;
+- one exact-state/latent-health comparison for the HEAD144 clean-target
+  checkpoint before deciding whether to demote this context-to-target route;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
