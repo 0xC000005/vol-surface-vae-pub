@@ -66,6 +66,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD119: `world_model_head119_part1_quality_gate_assessment.md` runs the
   gate and returns `DO_NOT_PROMOTE`: representation health passes at smoke
   scale, but the full Part 1 quality gate does not.
+- HEAD120: `world_model_head120_part1_failure_analysis.md` decomposes the
+  failure: it is not collapse, but a baseline-superiority, probe-coverage, and
+  scale/stability failure.
 
 ## Packaging And Restart Guardrails
 
@@ -128,17 +131,18 @@ Then read:
 3. `experiments/world/part1_jepa_latent/part1_quality_gate.md`
 4. `experiments/world/reports/world_model_head118_part1_literature_quality_gate.md`
 5. `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`
-6. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-7. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-8. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-9. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-10. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-11. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-12. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-13. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-14. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-15. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-16. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+6. `experiments/world/reports/world_model_head120_part1_failure_analysis.md`
+7. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+8. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+9. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+10. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+11. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+12. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+13. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+14. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+15. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+16. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+17. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

@@ -119194,3 +119194,46 @@ market-state/factor-panel probes and simple raw/PCA/rolling baselines before any
 decoder work.
 
 ---
+## 2026-05-10: World Model HEAD120 Part 1 Failure Analysis
+
+### Context
+
+HEAD119 executed the Part 1 quality gate and returned `DO_NOT_PROMOTE`. The next
+question was why it failed and whether the failure indicates representation
+collapse, a weak objective, missing evidence, or an overly broad claim.
+
+### Execution
+
+- Added and ran `experiments/world/part1_jepa_latent/analyze_part1_quality_failure.py`.
+- The script decomposes HEAD085/119 artifacts by regression target and feature
+  family: mean baseline, Barlow last embedding, raw last surface, raw flattened
+  surface, and raw last surface plus Barlow.
+- Added `experiments/world/reports/world_model_head120_part1_failure_analysis.md`.
+- Updated manifest/package/restart/index metadata to preserve the failure
+  interpretation.
+
+### Result
+
+- The failure is not a representation-collapse failure. HEAD119 representation
+  health already passed.
+- Barlow beats the mean baseline on `5/5` IV future regression targets.
+- Barlow is the best standalone feature on `2/5` targets: `future_range` and
+  `future_drawdown`.
+- Adding Barlow to raw last-surface features improves `3/5` targets:
+  `future_range`, `future_max_abs_step`, and `future_drawdown`.
+- Raw last-surface features still dominate persistence-like `future_mean_delta`
+  and `future_terminal_delta`.
+- The regime probe is not solved by any feature set: Barlow, raw last, raw flat,
+  and raw-plus-Barlow all remain below majority accuracy.
+
+### Decision
+
+The current Part 1 representation has real smoke-scale embedding signal and
+some complementary downstream information, but it is not a certified standalone
+market-state representation. The immediate blocker is baseline superiority and
+probe coverage, not collapse. Next diagnostics should add frozen present-state
+IV-shape probes, factor-panel probes, PCA/persistence/rolling baselines, richer
+mask robustness, and scale/seed checks before changing the pretraining
+objective.
+
+---

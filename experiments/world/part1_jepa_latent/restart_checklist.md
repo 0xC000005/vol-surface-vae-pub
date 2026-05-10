@@ -13,15 +13,16 @@ probe that consumes the Part 1 world-model reference candidate.
 4. `experiments/world/part1_jepa_latent/part1_quality_gate.md`
 5. `experiments/world/reports/world_model_head118_part1_literature_quality_gate.md`
 6. `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`
-7. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-8. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-9. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-10. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-11. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-12. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-13. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-14. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-15. latest tail of `RESEARCH_LOG.md`
+7. `experiments/world/reports/world_model_head120_part1_failure_analysis.md`
+8. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+9. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+10. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+11. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+12. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+13. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+14. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+15. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+16. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -61,6 +62,10 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD119 as the current executed assessment: Part 1 is not ready for
   Part B. The embedding-learning signal passes at smoke scale, but baseline
   superiority, market-state probes, and scale/stability are not solved.
+- Treat HEAD120 as the current failure analysis: this is not a collapse failure.
+  The representation is useful versus trivial baselines and sometimes
+  complementary to raw features, but it is not certified beyond raw/simple
+  market-state baselines.
 
 ## Do Not Do Without Explicit Authorization
 

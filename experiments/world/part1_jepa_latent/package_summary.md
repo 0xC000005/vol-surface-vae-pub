@@ -34,6 +34,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/part1_jepa_latent/part1_quality_gate.md`.
 - Latest executed Part 1 quality-gate assessment:
   `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`.
+- Latest failure analysis:
+  `experiments/world/reports/world_model_head120_part1_failure_analysis.md`.
 
 ## Fixed Contract
 
@@ -74,6 +76,12 @@ is a representation-learning package for same-market-state masked views.
   corruption robustness is partial, baseline superiority fails, market-state
   linear probes fail, temporal utility remains partial, and scale/stability
   fails.
+- Failure analysis: HEAD120 says the failure is not representation collapse.
+  Barlow beats the mean baseline on `5/5` IV future targets and is the best
+  standalone feature on `2/5`; adding Barlow to raw last-surface features
+  improves `3/5` targets. The main empirical failure is that raw/simple features
+  still dominate mean/terminal and max-step targets, while missing evidence
+  remains for factor-panel probes, richer masks, and scale/stability.
 
 ## Caveats
 
@@ -91,6 +99,9 @@ is a representation-learning package for same-market-state masked views.
 - The latest executed assessment says Part 1 is not ready for Part B. The
   corruption-based embedding learning signal works at smoke scale, but it is
   not yet a certified joint market-state representation.
+- Do not interpret the quality-gate failure as collapse. Interpret it as a
+  baseline-superiority and evidence-coverage failure until stronger frozen
+  probes and simple baselines are run.
 
 ## Next Work Requires Direction
 
