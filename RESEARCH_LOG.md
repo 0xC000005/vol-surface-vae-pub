@@ -119024,3 +119024,32 @@ and package docs.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model package checker regression test
+
+### Context
+
+HEAD110 expanded `reference_package_check.py` to enforce guardrail-doc caveat
+terms. That executable behavior needed a focused regression test.
+
+### Hypothesis
+
+The checker should pass when a required caveat term is present across Markdown
+line breaks and should fail when a required guardrail term is absent.
+
+### Execution
+
+- Added `test_code/test_world_model_reference_package_check.py`.
+- Fixed the test import path to match local test conventions.
+- Ran `pytest test_code/test_world_model_reference_package_check.py -q`.
+- Re-ran `python experiments/world/part1_jepa_latent/reference_package_check.py`.
+
+### Result
+
+The focused pytest passes: `2 passed in 0.02s`. The live package checker still
+passes with `16` reports, `4` guardrail docs, and `7` artifacts.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
