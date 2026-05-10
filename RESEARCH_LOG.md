@@ -117840,3 +117840,50 @@ mask-artifact leakage audit is required.
 - `python - <<'PY' ...` against `results/world/masked_multiview_part1_scorecard_head080.json`
 
 ---
+## 2026-05-09: World model Part 1 health scorecard expansion
+
+### Context
+HEAD081 found that the Part 1 scorecard covered aggregate retrieval/rank but
+did not surface variance min/max, singular-spectrum concentration, or health
+off-diagonal correlation that were already saved in the artifacts.
+
+### Hypothesis
+The saved artifacts contain enough representation-health fields to strengthen
+the scorecard without rerunning training or adding a model knob.
+
+### Execution
+Extended `score_masked_multiview_part1.py` to extract:
+
+- variance min/mean/max per view;
+- health off-diagonal mean/max per view;
+- singular-value top1 share and top4 share per view.
+
+Added tests for the new extraction and Markdown columns. Generated:
+
+- `experiments/world/reports/world_model_head082_part1_scorecard_health.md`;
+- ignored local output `results/world/masked_multiview_part1_scorecard_head082.json`.
+
+### Result
+The expanded health table strengthens the HEAD070 reference decision:
+
+- HEAD070 singular top1 share is `0.091/0.090`, much less concentrated than
+  HEAD068 (`0.228/0.227`) and HEAD076 (`0.330/0.329`);
+- HEAD070 singular top4 share is `0.301/0.301`, much less concentrated than
+  HEAD068 (`0.468/0.466`) and HEAD076 (`0.821/0.818`);
+- HEAD070 health offdiag is `0.224/0.223`, lower than HEAD068
+  (`0.473/0.471`) and HEAD076 (`0.440/0.439`).
+
+This supports the mechanism read: HEAD070 gives up some top1 retrieval versus
+HEAD068 but has a substantially healthier representation spectrum.
+
+### Decision / Next Step
+Do not add model knobs or start Part 2. Continue with the next missing
+acceptance gate: a bounded mask-artifact leakage audit that checks whether the
+learned embeddings encode corruption pattern/mask family too easily.
+
+### Verification
+- `uv run pytest test_code/test_world_model_evaluation.py -q`
+- `python experiments/world/part1_jepa_latent/score_masked_multiview_part1.py --report-title "World Model HEAD082: Part 1 Scorecard Health Expansion" --output-json results/world/masked_multiview_part1_scorecard_head082.json --output-md experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+- `python -m json.tool results/world/masked_multiview_part1_scorecard_head082.json`
+
+---

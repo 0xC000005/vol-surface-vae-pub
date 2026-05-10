@@ -32,6 +32,16 @@ def _float_or_none(value: Any) -> float | None:
     return float(value)
 
 
+def _singular_share(values: Any, *, top_k: int) -> float | None:
+    if not isinstance(values, list) or not values:
+        return None
+    singular = [float(v) for v in values]
+    total = sum(singular)
+    if total <= 0.0:
+        return None
+    return sum(singular[:top_k]) / total
+
+
 def _infer_run_name(path: str | Path) -> str:
     match = re.search(r"head(\d+)", str(path), flags=re.IGNORECASE)
     if match:
@@ -91,8 +101,20 @@ def extract_masked_multiview_scorecard_row(
         "effective_rank_b": _float_or_none(health_b.get("effective_rank")),
         "participation_ratio_a": _float_or_none(health_a.get("participation_ratio")),
         "participation_ratio_b": _float_or_none(health_b.get("participation_ratio")),
+        "variance_min_a": _float_or_none(health_a.get("variance_min")),
         "variance_mean_a": _float_or_none(health_a.get("variance_mean")),
+        "variance_max_a": _float_or_none(health_a.get("variance_max")),
+        "variance_min_b": _float_or_none(health_b.get("variance_min")),
         "variance_mean_b": _float_or_none(health_b.get("variance_mean")),
+        "variance_max_b": _float_or_none(health_b.get("variance_max")),
+        "health_offdiag_abs_mean_a": _float_or_none(health_a.get("offdiag_abs_mean")),
+        "health_offdiag_abs_mean_b": _float_or_none(health_b.get("offdiag_abs_mean")),
+        "health_offdiag_abs_max_a": _float_or_none(health_a.get("offdiag_abs_max")),
+        "health_offdiag_abs_max_b": _float_or_none(health_b.get("offdiag_abs_max")),
+        "singular_top1_share_a": _singular_share(health_a.get("singular_values"), top_k=1),
+        "singular_top1_share_b": _singular_share(health_b.get("singular_values"), top_k=1),
+        "singular_top4_share_a": _singular_share(health_a.get("singular_values"), top_k=4),
+        "singular_top4_share_b": _singular_share(health_b.get("singular_values"), top_k=4),
         "visible_rate_a": _float_or_none(visibility.get("view_a_visible_rate")),
         "visible_rate_b": _float_or_none(visibility.get("view_b_visible_rate")),
         "raw_top1": _float_or_none(raw_retrieval.get("top1")),
@@ -150,9 +172,10 @@ def render_scorecard_markdown(
     rows: list[dict[str, Any]],
     *,
     probe_summary: dict[str, dict[str, dict[str, float]]] | None = None,
+    title: str = "World Model Part 1 Scorecard",
 ) -> str:
     lines = [
-        "# World Model HEAD080: Part 1 Scorecard Consolidation",
+        f"# {title}",
         "",
         "## Objective Family",
         "",
@@ -165,13 +188,14 @@ def render_scorecard_markdown(
         "",
         "## Masked-Multiview Leaderboard",
         "",
-        "| run | family | block | top1 | top5 | top10 | eff rank A/B | offdiag | raw top10 |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| run | family | block | top1 | top5 | top10 | eff rank A/B | sv top1 A/B | health offdiag A/B | raw top10 |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
             "| {run} | `{family}` | `{block}` | {top1} | {top5} | {top10} | "
-            "{rank_a} / {rank_b} | {offdiag} | {raw_top10} |".format(
+            "{rank_a} / {rank_b} | {sv_top1_a} / {sv_top1_b} | "
+            "{health_offdiag_a} / {health_offdiag_b} | {raw_top10} |".format(
                 run=row["run"],
                 family=row["objective_family"],
                 block=row["metric_block"],
@@ -180,8 +204,34 @@ def render_scorecard_markdown(
                 top10=_fmt(row["top10"]),
                 rank_a=_fmt(row["effective_rank_a"], 3),
                 rank_b=_fmt(row["effective_rank_b"], 3),
-                offdiag=_fmt(row["offdiag_abs_mean"]),
+                sv_top1_a=_fmt(row["singular_top1_share_a"], 3),
+                sv_top1_b=_fmt(row["singular_top1_share_b"], 3),
+                health_offdiag_a=_fmt(row["health_offdiag_abs_mean_a"], 3),
+                health_offdiag_b=_fmt(row["health_offdiag_abs_mean_b"], 3),
                 raw_top10=_fmt(row["raw_top10"]),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Health Detail",
+            "",
+            "| run | variance min A/B | variance max A/B | sv top4 A/B | Barlow offdiag |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| {run} | {var_min_a} / {var_min_b} | {var_max_a} / {var_max_b} | "
+            "{sv_top4_a} / {sv_top4_b} | {barlow_offdiag} |".format(
+                run=row["run"],
+                var_min_a=_fmt(row["variance_min_a"], 6),
+                var_min_b=_fmt(row["variance_min_b"], 6),
+                var_max_a=_fmt(row["variance_max_a"], 6),
+                var_max_b=_fmt(row["variance_max_b"], 6),
+                sv_top4_a=_fmt(row["singular_top4_share_a"], 3),
+                sv_top4_b=_fmt(row["singular_top4_share_b"], 3),
+                barlow_offdiag=_fmt(row["offdiag_abs_mean"], 6),
             )
         )
     if probe_summary:
@@ -215,8 +265,8 @@ def render_scorecard_markdown(
             "same-state retrieval while repairing the low-rank failure seen in",
             "HEAD068 and avoiding the EMA/predictor collapse seen in HEAD066.",
             "",
-            "The next step should be a bounded metric-gap or probe-gap audit, not a",
-            "new model knob and not Part 2 decoder work.",
+            "The next step should be a bounded mask-artifact or geometry-stratified",
+            "audit, not a new model knob and not Part 2 decoder work.",
             "",
         ]
     )
@@ -240,6 +290,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--output-md", type=Path, default=None)
+    parser.add_argument(
+        "--report-title",
+        default="World Model Part 1 Scorecard",
+        help="Markdown H1 title.",
+    )
     return parser
 
 
@@ -259,7 +314,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         args.output_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    markdown = render_scorecard_markdown(rows, probe_summary=probe_summary)
+    markdown = render_scorecard_markdown(
+        rows,
+        probe_summary=probe_summary,
+        title=args.report_title,
+    )
     if args.output_md:
         args.output_md.parent.mkdir(parents=True, exist_ok=True)
         args.output_md.write_text(markdown, encoding="utf-8")

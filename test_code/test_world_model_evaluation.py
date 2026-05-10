@@ -224,14 +224,22 @@ def _minimal_masked_multiview_artifact(metric_key: str) -> dict[str, object]:
                     "offdiag_abs_mean": 0.10,
                 },
                 "view_a_health": {
+                    "variance_min": 0.01,
                     "variance_mean": 0.05,
+                    "variance_max": 0.09,
                     "effective_rank": 12.0,
                     "participation_ratio": 8.0,
+                    "offdiag_abs_mean": 0.15,
+                    "singular_values": [4.0, 3.0, 2.0, 1.0],
                 },
                 "view_b_health": {
+                    "variance_min": 0.02,
                     "variance_mean": 0.06,
+                    "variance_max": 0.10,
                     "effective_rank": 11.0,
                     "participation_ratio": 7.0,
+                    "offdiag_abs_mean": 0.16,
+                    "singular_values": [5.0, 3.0, 1.0, 1.0],
                 },
             },
             "visibility": {
@@ -263,6 +271,11 @@ def test_extract_masked_multiview_scorecard_row_handles_direct_barlow_artifact()
     assert row["effective_rank_a"] == pytest.approx(12.0)
     assert row["effective_rank_b"] == pytest.approx(11.0)
     assert row["offdiag_abs_mean"] == pytest.approx(0.10)
+    assert row["variance_min_a"] == pytest.approx(0.01)
+    assert row["variance_max_b"] == pytest.approx(0.10)
+    assert row["health_offdiag_abs_mean_a"] == pytest.approx(0.15)
+    assert row["singular_top1_share_a"] == pytest.approx(0.4)
+    assert row["singular_top4_share_b"] == pytest.approx(1.0)
     assert row["raw_top10"] == pytest.approx(0.35)
 
 
@@ -305,6 +318,7 @@ def test_render_scorecard_markdown_includes_reference_and_probe_rows():
 
     assert "| HEAD070 |" in text
     assert "`masked_multiview_invariance`" in text
+    assert "| run | family | block | top1 | top5 | top10 | eff rank A/B | sv top1 A/B | health offdiag A/B | raw top10 |" in text
     assert "| raw_surface_last |" in text
     assert "HEAD070 remains the Part 1 reference candidate" in text
 
