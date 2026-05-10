@@ -63,6 +63,29 @@ def summarize_exact_state_guardrail(
     }
 
 
+def summarize_iv_cell_deltas(
+    raw_mse: Any,
+    raw_plus_mse: Any,
+) -> dict[str, Any]:
+    raw = np.asarray(raw_mse, dtype=np.float64)
+    raw_plus = np.asarray(raw_plus_mse, dtype=np.float64)
+    delta = raw_plus - raw
+    return {
+        "n_surface_cells": int(delta.size),
+        "raw_plus_worse_cells": int(np.sum(delta > 0.0)),
+        "raw_plus_better_cells": int(np.sum(delta < 0.0)),
+        "mean_raw_plus_minus_raw": float(np.mean(delta)),
+        "max_raw_plus_minus_raw": round(float(np.max(delta)), 12),
+        "min_raw_plus_minus_raw": round(float(np.min(delta)), 12),
+    }
+
+
+def _per_dim_mse(pred: np.ndarray, truth: np.ndarray) -> np.ndarray:
+    pred_arr = np.asarray(pred, dtype=np.float64)
+    truth_arr = np.asarray(truth, dtype=np.float64)
+    return np.mean((pred_arr - truth_arr) ** 2, axis=0)
+
+
 def _probe_group_targets(
     train_features: dict[str, np.ndarray],
     val_features: dict[str, np.ndarray],
@@ -70,10 +93,12 @@ def _probe_group_targets(
     val_targets: dict[str, np.ndarray],
     *,
     alpha: float,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, dict[str, np.ndarray]]]:
     out = {}
+    predictions = {}
     for feature_name, train_x in train_features.items():
         rows = {}
+        predictions[feature_name] = {}
         for target_name, train_y in train_targets.items():
             pred = ridge_probe_predict(
                 train_x,
@@ -81,6 +106,7 @@ def _probe_group_targets(
                 val_features[feature_name],
                 alpha=alpha,
             )
+            predictions[feature_name][target_name] = pred
             rows[target_name] = regression_metrics(pred, val_targets[target_name])
         out[feature_name] = {
             "feature_shape": {
@@ -89,7 +115,7 @@ def _probe_group_targets(
             },
             "targets": rows,
         }
-    return out
+    return out, predictions
 
 
 def _target_rows(probe_metrics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -112,6 +138,36 @@ def _target_rows(probe_metrics: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _iv_cell_rows(
+    meta: Any,
+    raw_mse: np.ndarray,
+    learned_mse: np.ndarray,
+    raw_plus_mse: np.ndarray,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    surface_idx = np.flatnonzero(meta.geometry_id == "iv_surface")
+    rows = []
+    for local_idx, token_idx in enumerate(surface_idx.tolist()):
+        coord = meta.geometry_coord[token_idx]
+        raw = float(raw_mse[local_idx])
+        learned = float(learned_mse[local_idx])
+        raw_plus = float(raw_plus_mse[local_idx])
+        rows.append(
+            {
+                "factor_id": str(meta.factor_id[token_idx]),
+                "moneyness_index": int(coord[0]),
+                "maturity_index": int(coord[1]),
+                "raw_only_mse": raw,
+                "learned_only_mse": learned,
+                "raw_plus_learned_mse": raw_plus,
+                "raw_plus_minus_raw_mse": raw_plus - raw,
+            }
+        )
+    rows.sort(key=lambda row: float(row["raw_plus_minus_raw_mse"]), reverse=True)
+    return rows[:limit]
 
 
 def analyze_additive_exact_state_guardrail(args: argparse.Namespace) -> dict[str, Any]:
@@ -158,12 +214,21 @@ def analyze_additive_exact_state_guardrail(args: argparse.Namespace) -> dict[str
     }
     train_targets = _target_groups(train)
     val_targets = _target_groups(val)
-    probe_metrics = _probe_group_targets(
+    probe_metrics, predictions = _probe_group_targets(
         train_features,
         val_features,
         train_targets,
         val_targets,
         alpha=args.ridge_alpha,
+    )
+    raw_iv_dim = _per_dim_mse(predictions["raw_surface"]["iv_surface"], val_targets["iv_surface"])
+    learned_iv_dim = _per_dim_mse(
+        predictions["scale_barlow"]["iv_surface"],
+        val_targets["iv_surface"],
+    )
+    raw_plus_iv_dim = _per_dim_mse(
+        predictions["raw_surface_plus_scale_barlow"]["iv_surface"],
+        val_targets["iv_surface"],
     )
     guardrail = summarize_exact_state_guardrail(probe_metrics)
     return {
@@ -176,6 +241,17 @@ def analyze_additive_exact_state_guardrail(args: argparse.Namespace) -> dict[str
         "val_shape": list(val.clean_values.shape),
         "probe_metrics": probe_metrics,
         "target_rows": _target_rows(probe_metrics),
+        "iv_cell_delta_summary": summarize_iv_cell_deltas(
+            raw_iv_dim,
+            raw_plus_iv_dim,
+        ),
+        "largest_raw_plus_degradation_cells": _iv_cell_rows(
+            val.token_metadata,
+            raw_iv_dim,
+            learned_iv_dim,
+            raw_plus_iv_dim,
+            limit=args.top_cells,
+        ),
         "guardrail": guardrail,
         "decision": {
             "raw_plus_exact_state_guardrail": guardrail["status"],
@@ -248,6 +324,32 @@ def render_markdown(result: dict[str, Any], *, title: str) -> str:
                 delta=_fmt(row["raw_plus_delta_vs_raw"]),
             )
         )
+    cell_summary = result.get("iv_cell_delta_summary", {})
+    lines.extend(
+        [
+            "",
+            "## IV Cell Delta Topology",
+            "",
+            f"- Raw-plus worse cells: `{cell_summary.get('raw_plus_worse_cells')}/{cell_summary.get('n_surface_cells')}`.",
+            f"- Raw-plus better cells: `{cell_summary.get('raw_plus_better_cells')}/{cell_summary.get('n_surface_cells')}`.",
+            f"- Mean raw-plus minus raw MSE: `{_fmt(cell_summary.get('mean_raw_plus_minus_raw'))}`.",
+            "",
+            "| cell | moneyness | maturity | raw MSE | learned MSE | raw+learned MSE | raw+learned minus raw |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("largest_raw_plus_degradation_cells", []):
+        lines.append(
+            "| {cell} | {mon} | {mat} | {raw} | {learned} | {raw_plus} | {delta} |".format(
+                cell=row["factor_id"],
+                mon=row["moneyness_index"],
+                mat=row["maturity_index"],
+                raw=_fmt(row["raw_only_mse"]),
+                learned=_fmt(row["learned_only_mse"]),
+                raw_plus=_fmt(row["raw_plus_learned_mse"]),
+                delta=_fmt(row["raw_plus_minus_raw_mse"]),
+            )
+        )
     decision = result["decision"]
     lines.extend(
         [
@@ -277,6 +379,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=720)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--ridge-alpha", type=float, default=10.0)
+    parser.add_argument("--top-cells", type=int, default=10)
     parser.add_argument(
         "--output-json",
         type=Path,

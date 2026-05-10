@@ -232,6 +232,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD168: `world_model_head168_additive_exact_state_guardrail.md` checks the
   corrected raw-plus-learned exact-state guardrail and finds IV exact-state
   still slightly worse than raw-only.
+- HEAD169: `world_model_head169_additive_exact_state_topology.md` localizes
+  that exact-state miss across IV cells: raw-plus-learned worsens `14/25` and
+  improves `11/25`.
 
 ## Packaging And Restart Guardrails
 

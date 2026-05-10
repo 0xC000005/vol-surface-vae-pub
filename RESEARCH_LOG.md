@@ -120336,3 +120336,18 @@ Raw-plus-learned still fails the IV exact-state guardrail: raw-only IV MSE is `0
 `DO_NOT_PROMOTE`. The learned embedding adds non-surface abstract signal, but it still slightly harms exact IV state when combined with raw surface features under the current frozen probe. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD169 Additive Exact-State Topology
+
+### Context
+HEAD168 showed raw-plus-learned slightly worsens IV exact-state versus raw-only while improving non-surface targets. The next question was whether the IV miss is one localized artifact or broader across the surface.
+
+### Execution
+Extended `analyze_additive_exact_state_guardrail.py` with tested IV cell delta summaries and reran the frozen guardrail as `world_model_head169_additive_exact_state_topology.md`.
+
+### Result
+The raw-plus-learned IV degradation is modest but not isolated: raw-plus-learned is worse on `14/25` IV cells and better on `11/25`. Mean raw-plus minus raw IV MSE is `0.000271`; the largest degradation is `0.003973` at `iv_m0_t3`.
+
+### Decision
+`DO_NOT_PROMOTE`. The additive embedding helps non-surface geometry and path-shape/risk-width probes, but the exact IV guardrail remains failed in a broad enough pattern that it should not be dismissed as a single-cell artifact. Part B remains blocked.
+
+---

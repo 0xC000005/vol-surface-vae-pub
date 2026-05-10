@@ -134,6 +134,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`.
 - Latest additive exact-state guardrail:
   `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`.
+- Latest additive exact-state topology:
+  `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`.
 
 ## Fixed Contract
 
@@ -467,6 +469,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD168 as the current raw-plus-learned exact-state guardrail: adding
   the learned embedding to raw surface features still slightly worsens IV exact
   state (`1.048x` raw), though it helps non-surface geometry targets.
+- Treat HEAD169 as the current topology of that failure: raw-plus-learned is
+  worse on `14/25` IV cells and better on `11/25`; the degradation is modest
+  on average but broad enough to keep the exact-state guardrail failed.
 
 ## Next Work Requires Direction
 

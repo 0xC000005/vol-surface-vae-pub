@@ -63,15 +63,16 @@ probe that consumes the Part 1 world-model reference candidate.
 54. `experiments/world/reports/world_model_head166_additive_signal_gate.md`
 55. `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`
 56. `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`
-57. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-58. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-59. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-60. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-61. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-62. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-63. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-64. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-65. latest tail of `RESEARCH_LOG.md`
+57. `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`
+58. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+59. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+60. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+61. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+62. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+63. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+64. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+65. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+66. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -248,6 +249,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD168 as the current additive exact-state guardrail: raw-plus-learned
   still worsens IV exact-state slightly versus raw-only, so exact-state
   guardrail remains failed despite non-surface improvements.
+- Treat HEAD169 as the current topology diagnosis for that guardrail:
+  raw-plus-learned worsens `14/25` IV cells and improves `11/25`, so the
+  exact-state miss is not only one pathological cell.
 
 ## Do Not Do Without Explicit Authorization
 
