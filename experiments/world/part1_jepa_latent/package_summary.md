@@ -57,7 +57,9 @@ is a representation-learning package for same-market-state masked views.
   masks remain coverage caveats, not validated HEAD070 claims.
 - Downstream probe caveat: HEAD070 helps some risk-width/path-shape probes
   relative to raw last-surface features, but raw last-surface features remain
-  stronger for mean/terminal deltas and regime-label accuracy.
+  stronger for mean/terminal deltas and regime-label accuracy. The full-history
+  raw surface baseline also beats Barlow on max-absolute-step MSE, so the
+  downstream utility claim is not "Barlow beats all raw baselines."
 
 ## Caveats
 

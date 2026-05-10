@@ -118608,3 +118608,36 @@ artifacts.
 Continue in manual-stop mode.
 
 ---
+## 2026-05-09: World model downstream probe reporting audit
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Downstream-probe evidence audit.
+
+### Hypothesis
+The downstream-probe caveat should account for all feature rows present in the
+HEAD085 JSON, not only the selected rows shown in the HEAD085 markdown table.
+
+### Falsifier
+The audit would fail if omitted JSON rows changed the downstream interpretation
+and the package caveat did not mention that.
+
+### Execution
+- Parsed `results/world/masked_multiview_downstream_probe_head085.json`.
+- Compared `barlow_clean_last` against the omitted `raw_surface_flat` baseline.
+- Updated the manifest and package summary to avoid overclaiming downstream
+  utility.
+- Added `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`.
+
+### Result
+The prior statement that Barlow improves over `raw_surface_last` on
+range/max-step/drawdown is still true. The stronger statement "Barlow beats all
+raw baselines" is false because `raw_surface_flat` beats Barlow on
+max-absolute-step MSE and is stronger on mean/terminal deltas.
+
+### Next Step
+Continue with bounded evidence-boundary audits or explicit user-directed work.
+
+---

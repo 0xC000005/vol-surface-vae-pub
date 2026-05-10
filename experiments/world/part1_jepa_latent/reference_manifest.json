@@ -129,6 +129,10 @@
         "future_terminal_delta_r2",
         "regime_label_accuracy"
       ],
+      "raw_surface_flat_better_than_barlow_on": [
+        "future_max_abs_step_mse"
+      ],
+      "head085_markdown_scope": "selected_feature_rows_only_json_contains_barlow_mean_and_raw_surface_flat",
       "regime_classifier_status": "not_ready_below_majority_accuracy"
     }
   },
