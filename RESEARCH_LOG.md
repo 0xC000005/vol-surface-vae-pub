@@ -120141,3 +120141,18 @@ Top10 retrieval is `0.054688` versus random top10 `0.019531`, only `2.8x` random
 `DO_NOT_PROMOTE`. The surface-local failure is not target coverage. The selected target latent is already low-rank and the predictor further shrinks variance. Next safe work is a geometry/family intrinsic-separability audit before any architecture knob tuning. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD156 Surface-Local Target Geometry Audit
+
+### Context
+HEAD155 showed low-rank target latents and predictor variance shrinkage. The next step was to separate exact-row retrieval from coarse geometry/family retrieval before changing the model.
+
+### Execution
+Added and ran `analyze_surface_local_target_geometry.py`, rerunning the same small smoke deterministically and auditing a 512-row subset spread across all validation target positions.
+
+### Result
+Predictor exact-row top10 is only `0.042969`. The clean target latent is strongly token/factor organized: target factor-neighbor share is `10.542023x` random and target-family neighbor share is `2.369102x` random. Predictor target-family neighbor share is only `1.488216x` random, so it mostly recovers coarse geometry/family structure rather than exact rows.
+
+### Decision
+`DO_NOT_PROMOTE`. The surface-local target route is failing at representation geometry, not target coverage. Decide whether to demote or redesign the target surface around stronger state variation before any model-size or mask-policy tuning. Part B remains blocked.
+
+---

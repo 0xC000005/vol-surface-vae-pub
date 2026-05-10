@@ -199,6 +199,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD155 as the current surface-local diagnosis: target coverage is not
   the failure; selected target latents are already low-rank and the predictor
   shrinks variance further.
+- Treat HEAD156 as the current target-geometry audit: target latents cluster by
+  token/factor and target family, while predictor retrieval remains poor for
+  exact rows.
 
 ## Do Not Do Without Explicit Authorization
 

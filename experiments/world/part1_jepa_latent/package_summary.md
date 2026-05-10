@@ -404,6 +404,9 @@ is a representation-learning package for same-market-state masked views.
   the route.
 - Treat HEAD155 as the current surface-local failure diagnosis: the issue is
   low-rank target latent plus predictor variance shrinkage, not target coverage.
+- Treat HEAD156 as the current geometry/family audit: the target latent clusters
+  strongly by factor/geometry and the predictor mostly recovers coarse labels,
+  not exact rows.
 
 ## Next Work Requires Direction
 
@@ -423,7 +426,8 @@ Future work should be one of:
   route is pursued;
 - target coverage and metadata audit for the surface-local data contract before
   any encoder/loss implementation;
-- after HEAD155, audit selected target-token latents by geometry/family and
-  intrinsic separability before any architecture knob tuning;
+- after HEAD156, decide whether this surface-local target-latent route should be
+  demoted or redesigned around stronger state variation before any model-size or
+  mask-policy tuning;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
