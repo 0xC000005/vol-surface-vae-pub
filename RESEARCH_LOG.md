@@ -118641,3 +118641,34 @@ max-absolute-step MSE and is stronger on mean/terminal deltas.
 Continue with bounded evidence-boundary audits or explicit user-directed work.
 
 ---
+## 2026-05-09: World model manifest downstream-caveat source
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Package consistency for `masked_multiview_invariance`.
+
+### Hypothesis
+If HEAD102 tightens the downstream-probe caveat in the manifest, the manifest
+should list the HEAD102 report as a source report.
+
+### Falsifier
+The iteration would fail if `reference_manifest.json` carried the
+raw-surface-flat downstream caveat but did not list the report that justifies
+it.
+
+### Execution
+- Added `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+  to `reference_manifest.json` source reports.
+- Re-ran the reference package checker.
+- Added `experiments/world/reports/world_model_head103_manifest_downstream_caveat_source.md`.
+
+### Result
+`reference_package_check.py` now verifies `15` source reports and `7`
+artifacts.
+
+### Next Step
+Continue in manual-stop mode.
+
+---

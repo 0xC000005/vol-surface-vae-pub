@@ -157,7 +157,8 @@
     "experiments/world/reports/world_model_head085_downstream_probe_coverage.md",
     "experiments/world/reports/world_model_head086_downstream_probe_interpretation.md",
     "experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md",
-    "experiments/world/reports/world_model_head100_sample_scale_caveat.md"
+    "experiments/world/reports/world_model_head100_sample_scale_caveat.md",
+    "experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md"
   ],
   "legacy_note": "Earlier HEAD036/038 fixed delta-PCA manifests remain available in git history, but they are no longer the active Part 1 objective after the masked-multiview objective correction."
 }
