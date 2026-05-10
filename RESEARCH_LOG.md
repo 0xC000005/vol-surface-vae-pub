@@ -119353,3 +119353,43 @@ factor-panel geometry before changing architecture, loss, or adding more mask
 knobs.
 
 ---
+## 2026-05-10: World Model HEAD124 Present State Probe
+
+### Context
+
+HEAD123 falsified "just mask harder" as the fix for Part 1. The next question
+was whether the frozen Barlow embedding actually preserves present market-state
+content, especially non-surface factor geometry, before changing masks,
+architecture, or objectives.
+
+### Execution
+
+Added and ran
+`experiments/world/part1_jepa_latent/analyze_present_state_probe.py`. The audit
+loads the HEAD070 default and HEAD123 hard-mask checkpoints, encodes clean
+windows, and uses frozen ridge probes to recover current IV-surface,
+vol-side-channel, factor-level, factor-return, and full-geometry targets. It
+compares the embeddings with raw IV-surface-only features, a raw full-geometry
+upper-bound feature, and a constant baseline.
+
+### Result
+
+The default Barlow embedding is not empty and is not ignoring factors. It has
+strong factor-return signal (`R2=0.799291`) and beats raw IV-surface-only
+features on non-surface MSE. But it loses too much exact present-state geometry:
+raw IV-surface-only features beat it on current IV-surface reconstruction
+(`0.005630` MSE versus `0.014483`), and factor-level plus side-channel probes
+remain weak relative to the raw full-geometry upper bound. The hard-mask
+checkpoint does not fix this; it generally lowers rank and worsens
+present-state probes except for a small side-channel MSE improvement.
+
+### Decision
+
+This explains why simple market-state baselines remain strong on
+persistence-like future probes: they preserve exact current IV levels, while the
+Barlow embedding compresses those details for masked-view invariance. Keep
+present-state and factor-panel probes as evaluation gates, not pretraining
+losses, and do not tune mask severity again before resolving state-content
+retention.
+
+---

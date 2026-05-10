@@ -42,6 +42,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head122_hard_mask_preset.md`.
 - Latest hard-mask training smoke:
   `experiments/world/reports/world_model_head123_hard_mask_smoke.md`.
+- Latest present-state information audit:
+  `experiments/world/reports/world_model_head124_present_state_probe.md`.
 
 ## Fixed Contract
 
@@ -105,6 +107,13 @@ is a representation-learning package for same-market-state masked views.
   baseline-superiority falls from `2/5` to `0/5` IV future targets, and regime
   accuracy improves but remains below both raw last-surface features and the
   majority baseline.
+- Present-state probe: HEAD124 says the default Barlow embedding is not empty
+  and is not ignoring the factor panel: it has strong factor-return signal
+  (`R2=0.799`) and beats raw IV-surface-only features on non-surface MSE.
+  However, it loses too much exact present-state geometry: raw IV-surface-only
+  features beat it on current IV-surface reconstruction, and factor-level plus
+  side-channel probes remain weak. This explains why simple raw market-state
+  baselines remain strong on persistence-like future probes.
 
 ## Caveats
 
@@ -133,6 +142,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD123 as a negative result for "just mask harder." Do not make masks
   more aggressive again before auditing whether the frozen embedding captures
   present-state and factor-panel geometry.
+- Treat HEAD124 as evidence that the next Part 1 work should improve
+  state-content retention and evaluation coverage, not future-prediction
+  pretraining or mask-severity tuning by itself.
 
 ## Next Work Requires Direction
 

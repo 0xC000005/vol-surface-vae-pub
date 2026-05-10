@@ -79,6 +79,10 @@ human-oriented resume guide, not the source of truth.
   encoder/loss on that hard-mask preset and finds that mask aggression alone
   does not close the simple-baseline gap: standalone Barlow wins fall to `0/5`
   IV future targets versus best raw surface baselines.
+- HEAD124: `world_model_head124_present_state_probe.md` audits frozen
+  present-state information. It finds real factor-return signal, but also shows
+  that the embedding loses exact IV/current-state geometry that simple raw
+  baselines preserve.
 
 ## Packaging And Restart Guardrails
 
@@ -145,17 +149,18 @@ Then read:
 7. `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`
 8. `experiments/world/reports/world_model_head122_hard_mask_preset.md`
 9. `experiments/world/reports/world_model_head123_hard_mask_smoke.md`
-10. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-11. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-12. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-13. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-14. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-15. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-16. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-17. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-18. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-19. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-20. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+10. `experiments/world/reports/world_model_head124_present_state_probe.md`
+11. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+12. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+13. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+14. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+15. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+16. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+17. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+18. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+19. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+20. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+21. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 
