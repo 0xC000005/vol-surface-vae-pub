@@ -407,6 +407,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD156 as the current geometry/family audit: the target latent clusters
   strongly by factor/geometry and the predictor mostly recovers coarse labels,
   not exact rows.
+- Treat HEAD157 as the current route decision: demote the current surface-local
+  context-to-target implementation and do not tune it with small knobs.
 
 ## Next Work Requires Direction
 
@@ -426,8 +428,8 @@ Future work should be one of:
   route is pursued;
 - target coverage and metadata audit for the surface-local data contract before
   any encoder/loss implementation;
-- after HEAD156, decide whether this surface-local target-latent route should be
-  demoted or redesigned around stronger state variation before any model-size or
-  mask-policy tuning;
+- after HEAD157, only revisit surface-local context-to-target JEPA through a new
+  design gate that proves target latents carry state variation before predictor
+  training;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

@@ -202,6 +202,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD156 as the current target-geometry audit: target latents cluster by
   token/factor and target family, while predictor retrieval remains poor for
   exact rows.
+- Treat HEAD157 as the current route decision: the surface-local
+  context-to-target implementation is demoted as implemented; do not tune small
+  knobs on this route.
 
 ## Do Not Do Without Explicit Authorization
 

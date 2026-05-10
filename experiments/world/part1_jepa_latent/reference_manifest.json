@@ -178,6 +178,7 @@
       "surface_local_smoke_report": "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md",
       "surface_local_smoke_failure_report": "experiments/world/reports/world_model_head155_surface_local_smoke_failure.md",
       "surface_local_target_geometry_report": "experiments/world/reports/world_model_head156_surface_local_target_geometry.md",
+      "surface_local_route_decision_report": "experiments/world/reports/world_model_head157_surface_local_route_decision.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -568,6 +569,20 @@
           "predictor_target_family_neighbor_over_random": 1.488216,
           "promotion_decision": "DO_NOT_PROMOTE",
           "decision": "representation_geometry_not_target_coverage_is_next_failure_layer"
+        },
+        "surface_local_route_decision": {
+          "status": "current_surface_local_context_target_route_demoted",
+          "demotion_reason": "target_latent_low_rank_and_geometry_dominated",
+          "active_candidate_remains": "HEAD127_HEAD130_scaled_barlow_not_promoted",
+          "do_not_tune": [
+            "target_mask_coverage",
+            "hidden_size",
+            "predictor_depth",
+            "ema_decay",
+            "training_epochs",
+            "barlow_offdiag_weight"
+          ],
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -646,7 +661,8 @@
     "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md",
     "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md",
     "experiments/world/reports/world_model_head155_surface_local_smoke_failure.md",
-    "experiments/world/reports/world_model_head156_surface_local_target_geometry.md"
+    "experiments/world/reports/world_model_head156_surface_local_target_geometry.md",
+    "experiments/world/reports/world_model_head157_surface_local_route_decision.md"
   ],
   "guardrail_doc_checks": [
     {

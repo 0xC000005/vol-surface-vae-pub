@@ -120156,3 +120156,18 @@ Predictor exact-row top10 is only `0.042969`. The clean target latent is strongl
 `DO_NOT_PROMOTE`. The surface-local target route is failing at representation geometry, not target coverage. Decide whether to demote or redesign the target surface around stronger state variation before any model-size or mask-policy tuning. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD157 Surface-Local Route Decision
+
+### Context
+HEAD156 showed the surface-local target latent clusters by token/factor and target family, while exact-row retrieval remains weak. The next step was a route decision, not tuning.
+
+### Execution
+Added `world_model_head157_surface_local_route_decision.md`, consolidating HEAD149-156 evidence.
+
+### Result
+The current surface-local context-to-target route is demoted as implemented. The failure is representation geometry: target coverage is adequate, but the selected clean target latent is low-rank and token/factor dominated, and the predictor mostly recovers coarse labels instead of exact rows.
+
+### Decision
+Do not tune target coverage, hidden size, predictor depth, EMA decay, epochs, or Barlow weights on this route. If revisited, it needs a new design gate requiring intrinsic target latents to carry state variation before predictor training. Scaled Barlow remains the active learned candidate but is still `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---
