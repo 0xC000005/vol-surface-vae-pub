@@ -117100,3 +117100,31 @@ Artifacts:
 - The next autoresearch iteration should write a concrete geometry-aware masked multiview protocol before model training: token schema, geometry coordinates, typed mask families, positive-pair rule, Barlow/variance-covariance health checks, geometry-stratified diagnostics, and downstream probe gates.
 
 ---
+## 2026-05-09: World model HEAD063 geometry-aware masked multiview protocol
+
+### Context
+- Continued the world-model autoresearch loop after the workflow was reframed around masked multiview market-state pretraining and geometry-aware masking.
+- This was a research-ideation iteration to turn the discussion into a concrete protocol before any model training.
+
+### Hypothesis / Falsifier
+- Hypothesis: a protocol artifact can specify the first valid Part 1 data contract, mask families, positive-pair rule, Barlow-compatible loss, and diagnostics tightly enough that the next iteration can implement a reusable data builder without inventing objectives midstream.
+- Falsifier: the protocol omits real local data shapes, conflates real missingness with SSL masking, ignores heterogeneous geometry, leaves positive pairs ambiguous, or fails to define mask-artifact diagnostics.
+
+### Result
+- Added `experiments/world/reports/world_model_head063_geometry_masked_multiview_protocol.md`.
+- Local data inventory anchored the first smoke to `data/vol_surface_with_ret.npz` and `data/multi_factor_data.npz`.
+- First dense smoke token count is `58` daily observable tokens: `25` IV surface cells, `5` vol-surface side channels, `14` factor levels, and `14` factor returns.
+- Protocol defines token metadata: `value`, `observed_mask`, `synthetic_mask`, `absolute_index`, `relative_index`, `geometry_id`, `factor_id`, `factor_family`, and `geometry_coord`.
+- Positive pairs are same window, same absolute date, same relative index, same underlying panel state, with different structured masks.
+- Typed mask families cover IV surface bands/rectangles/wings, vol-summary side channels, factor families, contiguous time blocks, and later cross-geometry groups.
+- Loss is representation-only: same-state alignment plus Barlow/redundancy health controls. Future prediction/range remains a downstream probe.
+
+### Decision / Next Step
+- The protocol is specific enough for implementation.
+- Next iteration should build `experiments/world/evaluation/masked_multiview_data.py` with deterministic typed mask sampling and focused tests in `test_code/test_world_model_evaluation.py`.
+- Do not train a model until the masked-view data object and artifact diagnostics are verified.
+
+### Artifacts
+- `experiments/world/reports/world_model_head063_geometry_masked_multiview_protocol.md`
+
+---
