@@ -33,6 +33,12 @@ Part 1 should answer whether the encoder learns a useful market-state
 representation from two structured masked views of the same window and same
 relative time position, independent of generated scenario quality.
 
+Current packaged status: HEAD070 is a smoke-scale masked-multiview reference
+candidate, not a full-data convergence claim or ImageNet-level JEPA result. It
+is validated on the default structured mask families and limited downstream
+IV-surface future probes; factor-panel future targets and Part 2 scenario
+quality remain unevaluated by this Part 1 package.
+
 Primary checks:
 
 - Same-state masked-view alignment.
@@ -103,3 +109,5 @@ Start with a smoke-scale path:
 
 Do not use reconstruction or scenario generation as the main proof of Part 1.
 Use them as probes or downstream evaluations after collapse diagnostics pass.
+Do not claim Part 1 is a general predictor, a solved regime classifier, or a
+validated decoder condition until separate probes establish those claims.

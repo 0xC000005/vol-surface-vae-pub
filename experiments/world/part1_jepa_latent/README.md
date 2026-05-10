@@ -58,3 +58,15 @@ Current package pointers:
 - `reference_package_check.py`: verifies manifest report paths and local
   artifact byte/SHA-256 identities.
 - `package_summary.md` and `restart_checklist.md`: restart/handoff guardrails.
+
+Current caveat boundary:
+
+- HEAD070 is a smoke-scale reference candidate: `384` train windows, `128`
+  validation windows, `8` epochs.
+- The validated mask-policy claim covers the default structured mask families
+  only; richer wing/ATM/whole-surface/cross-family stress masks need separate
+  evidence.
+- Downstream probe evidence is mixed and targets IV-surface futures only.
+- Do not claim ImageNet-level JEPA behavior, full-data convergence, solved
+  regime classification, factor-panel future target performance, or Part 2
+  scenario-generation quality from this Part 1 package.

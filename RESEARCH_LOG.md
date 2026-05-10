@@ -118835,3 +118835,36 @@ target probes.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model active README caveat audit
+
+### Context
+
+The manifest, package summary, and restart checklist carried the current
+HEAD070 caveat boundary, but the active README entry points were less explicit.
+A future reader could start there and overclaim Part 1.
+
+### Hypothesis
+
+The world-model README and Part 1 README should state the same boundary:
+HEAD070 is a smoke-scale masked-multiview reference candidate, with validated
+default mask families, mixed IV-surface-only downstream probes, and no Part 2
+scenario claim.
+
+### Execution
+
+- Added a current packaged-status paragraph to `experiments/world/README.md`.
+- Added an explicit caveat boundary to
+  `experiments/world/part1_jepa_latent/README.md`.
+- Added `experiments/world/reports/world_model_head109_active_readme_caveat_audit.md`.
+
+### Result
+
+The active README entry points now warn against claiming full-data convergence,
+ImageNet-level JEPA behavior, solved regime classification, factor-panel future
+target performance, or decoder quality from the Part 1 package.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
