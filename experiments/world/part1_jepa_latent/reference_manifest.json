@@ -145,6 +145,7 @@
       "hard_mask_downstream_probe_report": "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
       "present_state_probe_report": "experiments/world/reports/world_model_head124_present_state_probe.md",
       "state_content_gate_report": "experiments/world/reports/world_model_head125_state_content_gate.md",
+      "grouped_geometry_state_probe_report": "experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -155,6 +156,9 @@
       "hard_mask_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_hardmask_head123.pt",
       "present_state_probe_json": "results/world/present_state_probe_head124.json",
       "state_content_gate_json": "results/world/state_content_gate_head125.json",
+      "grouped_geometry_training_result_json": "results/world/masked_multiview_grouped_geometry_barlow_head126.json",
+      "grouped_geometry_state_probe_json": "results/world/grouped_geometry_state_probe_head126.json",
+      "grouped_geometry_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_grouped_geometry_barlow_head126.pt",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -210,6 +214,15 @@
           "factor_level_gap": "FAIL",
           "mask_aggression_regression": "FAIL",
           "decision": "state_content_retention_not_yet_certified"
+        },
+        "grouped_geometry_diagnostic": {
+          "status": "do_not_promote",
+          "val_top10": 0.846094,
+          "val_effective_rank": 7.887283,
+          "state_probe_effective_rank": 5.021124,
+          "grouped_improves_factor_level_mse": false,
+          "grouped_improves_iv_surface_mse": false,
+          "decision": "retrieval_gain_is_not_state_content_gain"
         }
       },
       "layer_status": {
@@ -255,7 +268,8 @@
     "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
     "experiments/world/reports/world_model_head123_hard_mask_smoke.md",
     "experiments/world/reports/world_model_head124_present_state_probe.md",
-    "experiments/world/reports/world_model_head125_state_content_gate.md"
+    "experiments/world/reports/world_model_head125_state_content_gate.md",
+    "experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md"
   ],
   "guardrail_doc_checks": [
     {

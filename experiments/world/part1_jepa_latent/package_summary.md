@@ -46,6 +46,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head124_present_state_probe.md`.
 - Latest state-content gate:
   `experiments/world/reports/world_model_head125_state_content_gate.md`.
+- Latest grouped-geometry diagnostic:
+  `experiments/world/reports/world_model_head126_grouped_geometry_state_probe.md`.
 
 ## Fixed Contract
 
@@ -120,6 +122,11 @@ is a representation-learning package for same-market-state masked views.
   passes non-surface signal, but fails exact IV-state retention, factor-level
   fidelity against the raw full-geometry upper bound, and mask-aggression
   regression. The gate verdict is `FAIL`.
+- Grouped-geometry diagnostic: HEAD126 keeps geometry groups separate before
+  daily fusion and improves same-state retrieval (`top10=0.846`, `top1=0.512`),
+  but it is not a better market-state representation. Effective rank falls to
+  `7.89`, present-state probe rank falls to `5.02`, factor-return signal
+  weakens, and IV/factor-level state-content probes get worse versus HEAD070.
 
 ## Caveats
 
@@ -154,6 +161,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD125 as the active explanation for why simple market-state baselines
   remain strong: the representation learns useful factors but is not certified
   to preserve exact current-state geometry.
+- Treat HEAD126 as a negative result for shallow geometry grouping. Higher
+  same-state retrieval is not sufficient if state-content gates degrade.
 
 ## Next Work Requires Direction
 

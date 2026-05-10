@@ -119525,3 +119525,44 @@ git diff --check
 All checks passed.
 
 ---
+## 2026-05-10: World Model HEAD126 Grouped Geometry Diagnostic
+
+### Context
+
+HEAD125 showed that Part 1 fails a state-content gate: useful non-surface
+signal exists, but exact IV-state retention and factor-level fidelity are not
+certified. The next principled diagnostic was an architecture-only change, not
+a new objective: keep the masked-multiview Barlow loss but prevent IV surface,
+side channels, factor levels, and factor returns from being merged into one
+anonymous daily mean before temporal fusion.
+
+### Execution
+
+Added `experiments/world/part1_jepa_latent/masked_multiview_grouped_geometry_barlow_smoke.py`,
+which keeps four geometry groups separate through token pooling and fuses them
+only after group summaries are formed. Added
+`test_code/test_world_model_grouped_geometry_barlow.py`, trained the smoke
+checkpoint at
+`models/world/checkpoints/part1_jepa_latent/masked_multiview_grouped_geometry_barlow_head126.pt`,
+and ran
+`experiments/world/part1_jepa_latent/analyze_grouped_geometry_state_probe.py`.
+
+### Result
+
+The grouped model improves same-state retrieval versus HEAD070:
+`top1=0.512240`, `top10=0.846094`, `mrr=0.628952`, and median rank `1`.
+However, it is not a better market-state representation. Effective rank drops
+from `14.50` to `7.89`, present-state probe effective rank is only `5.02`, and
+state-content probes worsen: IV-surface MSE `0.020111` versus HEAD070
+`0.014483`, factor-level MSE `0.973286` versus `0.747878`, and factor-return
+R2 `0.133897` versus `0.799291`.
+
+### Decision
+
+Do not promote grouped geometry. This is a useful negative result: higher
+same-state retrieval can coexist with worse state-content retention. The
+state-content gate is doing necessary work and should remain a promotion
+barrier. The next principled diagnostic is scale/stability of the current
+HEAD070-style flat encoder before changing objective family.
+
+---
