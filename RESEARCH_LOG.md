@@ -119314,3 +119314,42 @@ it to the active reference and do not open a per-family mask-knob sweep until
 the controlled result is understood.
 
 ---
+## 2026-05-10: World Model HEAD123 Hard Mask Smoke
+
+### Context
+
+HEAD122 created one hard structured-mask preset to test whether the HEAD070
+Part 1 failure was mostly due to under-aggressive masks. The controlled
+experiment kept the same encoder, Barlow loss, seed family, and smoke scale,
+changing only the named mask preset and artifact paths.
+
+### Execution
+
+Added `--mask_preset {default,hard_head122}` to
+`experiments/world/part1_jepa_latent/masked_multiview_barlow_smoke.py` and
+verified it with `test_code/test_world_model_hard_mask_preset.py`. Trained the
+hard-mask checkpoint at
+`models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_hardmask_head123.pt`,
+ran the existing downstream probe audit, and packaged the comparison in
+`experiments/world/reports/world_model_head123_hard_mask_smoke.md`.
+
+### Result
+
+The hard-mask run is not collapsed: validation retrieval still beats the raw
+masked-view baseline (`top10=0.604688` versus raw `0.343750`). But it is weaker
+than HEAD070 (`top10=0.841927`) and lower-rank (`11.76` versus `14.50`). On
+downstream IV future probes, baseline superiority gets worse: default Barlow
+beats the best raw surface baseline on `2/5` targets, while hard-mask Barlow
+beats it on `0/5`. Regime accuracy improves from `0.109375` to `0.394531`, but
+still remains below raw last-surface features (`0.554688`) and majority
+(`0.597656`).
+
+### Decision
+
+Do not conclude that Part 1 only needs more aggressive masking. Default masks
+were too mild, but this hard-mask smoke falsifies mask aggression alone as the
+fix. Next, audit whether the frozen embedding captures present market state and
+factor-panel geometry before changing architecture, loss, or adding more mask
+knobs.
+
+---

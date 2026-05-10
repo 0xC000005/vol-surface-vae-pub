@@ -141,10 +141,16 @@
       "failure_analysis_report": "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
       "jepa_fit_diagnosis_report": "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md",
       "hard_mask_preset_report": "experiments/world/reports/world_model_head122_hard_mask_preset.md",
+      "hard_mask_training_smoke_report": "experiments/world/reports/world_model_head123_hard_mask_smoke.md",
+      "hard_mask_downstream_probe_report": "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
       "hard_mask_preset_json": "results/world/part1_hard_mask_preset_head122.json",
+      "hard_mask_training_result_json": "results/world/masked_multiview_barlow_hardmask_head123.json",
+      "hard_mask_downstream_json": "results/world/masked_multiview_downstream_probe_hardmask_head123.json",
+      "hard_mask_smoke_analysis_json": "results/world/hard_mask_smoke_analysis_head123.json",
+      "hard_mask_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_hardmask_head123.pt",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -173,6 +179,16 @@
           "val_view_b_hidden_rate": 0.235991,
           "val_both_visible_rate": 0.609335,
           "guardrail": "one_named_preset_no_per_family_knob_search"
+        },
+        "hard_mask_smoke": {
+          "status": "diagnostic_negative_for_mask_aggression_alone",
+          "promote_hard_mask_checkpoint": false,
+          "val_top10": 0.604688,
+          "val_effective_rank": 11.756882,
+          "barlow_best_raw_wins": "0/5",
+          "regime_accuracy": 0.394531,
+          "majority_accuracy": 0.597656,
+          "decision": "do_not_keep_making_masks_harder_without_present_state_and_factor_panel_audits"
         }
       },
       "layer_status": {
@@ -214,7 +230,9 @@
     "experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md",
     "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
     "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md",
-    "experiments/world/reports/world_model_head122_hard_mask_preset.md"
+    "experiments/world/reports/world_model_head122_hard_mask_preset.md",
+    "experiments/world/reports/world_model_head123_hard_mask_downstream_probe.md",
+    "experiments/world/reports/world_model_head123_hard_mask_smoke.md"
   ],
   "guardrail_doc_checks": [
     {

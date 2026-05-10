@@ -40,6 +40,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`.
 - Latest hard-mask diagnostic preset:
   `experiments/world/reports/world_model_head122_hard_mask_preset.md`.
+- Latest hard-mask training smoke:
+  `experiments/world/reports/world_model_head123_hard_mask_smoke.md`.
 
 ## Fixed Contract
 
@@ -96,6 +98,13 @@ is a representation-learning package for same-market-state masked views.
   view and lowers both-visible overlap to about `60.9%`, while preserving typed
   market geometry. Use it to test mask difficulty before objective/architecture
   changes.
+- Hard-mask training smoke: HEAD123 says mask aggression alone does not close
+  the simple-baseline gap. The hard-mask checkpoint still beats the raw
+  masked-view baseline on retrieval, but validation top10 falls from `0.842` to
+  `0.605`, effective rank falls from `14.5` to `11.8`, standalone Barlow
+  baseline-superiority falls from `2/5` to `0/5` IV future targets, and regime
+  accuracy improves but remains below both raw last-surface features and the
+  majority baseline.
 
 ## Caveats
 
@@ -121,6 +130,9 @@ is a representation-learning package for same-market-state masked views.
   rather than objective family or architecture, is the next bottleneck.
 - Treat the HEAD122 hard-mask preset as a diagnostic branch only until a
   training smoke and downstream/frozen-probe audit justify promoting it.
+- Treat HEAD123 as a negative result for "just mask harder." Do not make masks
+  more aggressive again before auditing whether the frozen embedding captures
+  present-state and factor-panel geometry.
 
 ## Next Work Requires Direction
 

@@ -20,6 +20,9 @@ from experiments.world.evaluation.masked_multiview_data import (  # noqa: E402
     MaskedMultiviewBatch,
     build_masked_multiview_batch,
 )
+from experiments.world.evaluation.hard_mask_presets import (  # noqa: E402
+    build_hard_masked_batch,
+)
 from experiments.world.evaluation.masked_multiview_metrics import (  # noqa: E402
     flattened_time_rows,
     mask_visibility_summary,
@@ -95,7 +98,9 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def _parameter_groups(model: DirectMaskedMultiviewBarlowModel) -> Iterator[nn.Parameter]:
+def _parameter_groups(
+    model: DirectMaskedMultiviewBarlowModel,
+) -> Iterator[nn.Parameter]:
     yield from model.encoder.parameters()
 
 
@@ -112,7 +117,9 @@ def _loader_from_batch(
         torch.from_numpy(batch.synthetic_mask_a),
         torch.from_numpy(batch.synthetic_mask_b),
     )
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=shuffle)
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=shuffle
+    )
 
 
 @torch.no_grad()
@@ -172,6 +179,35 @@ def raw_masked_view_baseline(batch: MaskedMultiviewBatch) -> dict[str, object]:
     )
 
 
+def build_batch_for_mask_preset(
+    *,
+    split: str,
+    history_len: int,
+    future_len: int,
+    max_windows: int,
+    seed: int,
+    mask_preset: str = "default",
+) -> MaskedMultiviewBatch:
+    if mask_preset == "default":
+        return build_masked_multiview_batch(
+            split=split,
+            history_len=history_len,
+            future_len=future_len,
+            max_windows=max_windows,
+            seed=seed,
+            normalize=True,
+        )
+    if mask_preset == "hard_head122":
+        return build_hard_masked_batch(
+            split=split,
+            history_len=history_len,
+            future_len=future_len,
+            max_windows=max_windows,
+            seed=seed,
+        )
+    raise ValueError(f"unknown mask_preset: {mask_preset!r}")
+
+
 def _serializable(obj):
     if isinstance(obj, dict):
         return {k: _serializable(v) for k, v in obj.items()}
@@ -190,22 +226,24 @@ def _serializable(obj):
 
 def train_smoke(args: argparse.Namespace) -> dict[str, object]:
     _set_seed(args.seed)
-    device = torch.device(args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu")
-    train = build_masked_multiview_batch(
+    device = torch.device(
+        args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu"
+    )
+    train = build_batch_for_mask_preset(
         split="train",
         history_len=args.history_len,
         future_len=args.future_len,
         max_windows=args.max_train_windows,
         seed=args.seed,
-        normalize=True,
+        mask_preset=args.mask_preset,
     )
-    val = build_masked_multiview_batch(
+    val = build_batch_for_mask_preset(
         split="val",
         history_len=args.history_len,
         future_len=args.future_len,
         max_windows=args.max_val_windows,
         seed=args.seed + 1000,
-        normalize=True,
+        mask_preset=args.mask_preset,
     )
     cfg = DirectMaskedMultiviewBarlowConfig(
         token_dim=train.token_metadata.n_tokens,
@@ -214,7 +252,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
         latent_dim=args.latent_dim,
     )
     model = DirectMaskedMultiviewBarlowModel(cfg).to(device)
-    opt = torch.optim.AdamW(_parameter_groups(model), lr=args.lr, weight_decay=args.weight_decay)
+    opt = torch.optim.AdamW(
+        _parameter_groups(model), lr=args.lr, weight_decay=args.weight_decay
+    )
     loader = _loader_from_batch(train, batch_size=args.batch_size, shuffle=True)
 
     history = []
@@ -240,7 +280,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
                 offdiag_weight=args.barlow_offdiag_weight,
             )
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(list(_parameter_groups(model)), args.grad_clip)
+            torch.nn.utils.clip_grad_norm_(
+                list(_parameter_groups(model)), args.grad_clip
+            )
             opt.step()
             losses.append(float(loss.detach().cpu()))
             for key, value in parts.items():
@@ -248,7 +290,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
         row = {
             "epoch": epoch,
             "loss": float(np.mean(losses)),
-            **{f"{k}_mean": float(np.mean(values)) for k, values in parts_accum.items()},
+            **{
+                f"{k}_mean": float(np.mean(values)) for k, values in parts_accum.items()
+            },
         }
         history.append(row)
         print(json.dumps(row))
@@ -282,7 +326,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
 
     output_json = Path(args.output_json)
     output_json.parent.mkdir(parents=True, exist_ok=True)
-    output_json.write_text(json.dumps(_serializable(result), indent=2), encoding="utf-8")
+    output_json.write_text(
+        json.dumps(_serializable(result), indent=2), encoding="utf-8"
+    )
 
     checkpoint = Path(args.checkpoint)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -298,7 +344,9 @@ def train_smoke(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Direct Barlow masked-multiview Part 1 smoke")
+    parser = argparse.ArgumentParser(
+        description="Direct Barlow masked-multiview Part 1 smoke"
+    )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--history_len", type=int, default=30)
@@ -313,6 +361,12 @@ def main() -> None:
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=680)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--mask_preset",
+        choices=("default", "hard_head122"),
+        default="default",
+        help="Named structured masking preset. hard_head122 is a diagnostic branch, not the active reference.",
+    )
     parser.add_argument(
         "--output_json",
         type=str,

@@ -16,15 +16,16 @@ probe that consumes the Part 1 world-model reference candidate.
 7. `experiments/world/reports/world_model_head120_part1_failure_analysis.md`
 8. `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`
 9. `experiments/world/reports/world_model_head122_hard_mask_preset.md`
-10. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-11. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-12. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-13. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-14. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-15. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-16. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-17. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-18. latest tail of `RESEARCH_LOG.md`
+10. `experiments/world/reports/world_model_head123_hard_mask_smoke.md`
+11. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+12. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+13. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+14. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+15. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+16. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+17. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+18. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+19. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -75,6 +76,10 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD122 as the one allowed hard-mask diagnostic preset. It is not an
   active reference and should not start a knob sweep; use it to test the mask
   difficulty failure class.
+- Treat HEAD123 as the current hard-mask outcome: mask aggression alone did not
+  close baseline superiority and the hard checkpoint should not be promoted.
+  Before tuning masks again, audit present-state and factor-panel information in
+  the frozen embedding.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -88,6 +93,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Claim full-data convergence from the HEAD070 smoke-scale checkpoint.
 - Claim the richer protocol mask ideas were validated by HEAD070 unless they
   have their own later report.
+- Claim that harder masks solved Part 1; HEAD123 is a negative diagnostic for
+  mask aggression alone.
 - Claim downstream factor-panel future target performance; HEAD085 targets are
   IV-surface futures only.
 - Use generation metrics as evidence of Part 1 representation health.
