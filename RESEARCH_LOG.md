@@ -118899,3 +118899,34 @@ should fail when those docs disappear or lose critical caveat terms.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model report index refresh
+
+### Context
+
+The human report index had not yet been refreshed after the target-scope,
+manual-stop, restart-checklist, README-caveat, and package-checker guardrail
+iterations.
+
+### Hypothesis
+
+The report index should remain a fast human resume guide while
+`reference_manifest.json` remains the authoritative machine-readable source.
+
+### Execution
+
+- Added HEAD105 to the validation/caveat section.
+- Added HEAD101, HEAD103, HEAD106, HEAD107, HEAD108, HEAD109, and HEAD110 to
+  the packaging/guardrail section.
+- Added HEAD105, HEAD107, and HEAD110 to the fast-resume read list.
+- Added `experiments/world/reports/world_model_head111_report_index_refresh.md`.
+
+### Result
+
+The report index is current through HEAD110 and points future runs to the
+target-scope caveat, manual-stop guardrail, and guardrail-doc checker.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---

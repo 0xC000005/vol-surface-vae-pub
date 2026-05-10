@@ -1,6 +1,6 @@
 # World Model HEAD093: Part 1 Report Index
 
-Date: 2026-05-09
+Date: 2026-05-10
 
 ## Iteration Type
 
@@ -58,6 +58,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD102: `world_model_head102_downstream_probe_reporting_audit.md` states
   that raw-surface-flat beats Barlow on max-absolute-step MSE, so downstream
   utility must not be overclaimed against all raw baselines.
+- HEAD105: `world_model_head105_downstream_target_scope_audit.md` states that
+  downstream probes target IV-surface futures only, not factor-panel future
+  targets.
 
 ## Packaging And Restart Guardrails
 
@@ -81,6 +84,21 @@ human-oriented resume guide, not the source of truth.
   current hard-stop list.
 - HEAD098: `world_model_head098_manifest_source_report_update.md` makes the
   package checker enforce the HEAD097 caveat report.
+- HEAD101: `world_model_head101_manifest_sample_scale_source.md` makes the
+  package checker enforce the HEAD100 sample-scale report.
+- HEAD103: `world_model_head103_manifest_downstream_caveat_source.md` makes the
+  package checker enforce the HEAD102 downstream caveat report.
+- HEAD106: `world_model_head106_manifest_target_scope_source.md` makes the
+  package checker enforce the HEAD105 target-scope report.
+- HEAD107: `world_model_head107_manual_stop_runtime_guardrail.md` removes
+  elapsed-time, turn-count, fatigue, diminishing-returns, and process-only-work
+  pause interpretations from manual-stop mode.
+- HEAD108: `world_model_head108_restart_checklist_caveat_sync.md` syncs the
+  restart checklist with the current caveat boundary.
+- HEAD109: `world_model_head109_active_readme_caveat_audit.md` syncs active
+  README entry points with the current caveat boundary.
+- HEAD110: `world_model_head110_package_checker_guardrail_docs.md` expands the
+  package checker to enforce guardrail-doc caveat terms.
 
 ## Fast Resume Command
 
@@ -98,6 +116,9 @@ Then read:
 6. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
 7. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
 8. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+9. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+10. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+11. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
 
 ## Decision
 
