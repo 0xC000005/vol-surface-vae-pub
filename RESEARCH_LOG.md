@@ -117737,3 +117737,59 @@ Part 1 scorecard reader/report over saved JSON artifacts.
 - `rg -n "manual-stop mode|Single-cycle mode|Manual-stop mode|do not stop until|single HEAD cycle|completed HEAD cycle is not a stop condition|scorecard consolidation" autoresearch-session/world_model_driver_prompt.md .agents/skills/world-model-autoresearch/SKILL.md docs/research_protocols/world_model_autoresearch_plan.md experiments/world/reports/world_model_head079_manual_stop_guardrail.md`
 
 ---
+## 2026-05-09: World model Part 1 scorecard consolidation
+
+### Context
+HEAD077/HEAD079 identified the next safe step as scorecard consolidation before
+any more Part 1 model changes. The risk was that the HEAD070 reference decision
+could remain a hand-copied table instead of a reproducible artifact reader.
+
+### Hypothesis
+The current Part 1 reference decision should be reproducible from saved JSON
+artifacts without hand-transcribing the HEAD066/068/070/076 leaderboard.
+
+### Execution
+Added `experiments/world/part1_jepa_latent/score_masked_multiview_part1.py`,
+which reads saved masked-multiview artifacts and extracts the common Part 1
+scorecard fields:
+
+- objective family and metric block;
+- same-state retrieval top1/top5/top10/MRR;
+- Barlow diagonal/off-diagonal terms;
+- effective rank and participation ratio for both views;
+- visibility rates and raw masked-view baseline retrieval;
+- HEAD074 frozen-probe snapshot.
+
+Added focused tests for direct Barlow artifacts, EMA/predictor artifacts, and
+Markdown rendering, then generated:
+
+- `experiments/world/reports/world_model_head080_part1_scorecard.md`;
+- ignored local output `results/world/masked_multiview_part1_scorecard_head080.json`.
+
+### Result
+The saved artifacts reproduce the prior interpretation:
+
+- HEAD066 EMA/predictor: top1/top5/top10 `0.000260/0.002344/0.006510`,
+  effective rank `4.134/9.048`;
+- HEAD068 direct Barlow: top1/top5/top10 `0.394271/0.680990/0.853906`,
+  effective rank `4.484/4.526`, offdiag abs mean `0.468407`;
+- HEAD070 canonical direct Barlow: top1/top5/top10
+  `0.321354/0.662500/0.841927`, effective rank `14.501/14.594`, offdiag abs
+  mean `0.216527`;
+- HEAD076 geometry mean-pooled Barlow: top1/top5/top10
+  `0.138802/0.257292/0.333073`, effective rank `3.323/3.321`.
+
+HEAD070 remains the current Part 1 reference candidate because it sacrifices
+some top1 versus HEAD068 but repairs the rank/redundancy failure.
+
+### Decision / Next Step
+Do not add model knobs or start Part 2. Continue with a bounded metric-gap audit:
+identify which Part 1 acceptance gates are now reproducible from saved artifacts
+and which remain missing or under-specified before future model work.
+
+### Verification
+- `uv run pytest test_code/test_world_model_evaluation.py -q`
+- `python experiments/world/part1_jepa_latent/score_masked_multiview_part1.py --output-json results/world/masked_multiview_part1_scorecard_head080.json --output-md experiments/world/reports/world_model_head080_part1_scorecard.md`
+- `python -m json.tool results/world/masked_multiview_part1_scorecard_head080.json`
+
+---

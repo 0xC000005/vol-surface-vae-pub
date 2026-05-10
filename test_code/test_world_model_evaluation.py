@@ -129,6 +129,10 @@ from experiments.world.part1_jepa_latent.context_probe_audit import (
     ridge_probe_predict,
 )
 from experiments.world.part1_jepa_latent.score_context_runs import composite_part1_score
+from experiments.world.part1_jepa_latent.score_masked_multiview_part1 import (
+    extract_masked_multiview_scorecard_row,
+    render_scorecard_markdown,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -199,6 +203,110 @@ def _write_multi_factor_npz(path, n_days: int = 20) -> tuple[np.ndarray, np.ndar
         return_columns=return_columns,
     )
     return levels, returns
+
+
+def _minimal_masked_multiview_artifact(metric_key: str) -> dict[str, object]:
+    return {
+        "literature_status": "supported_adjacent_direct_barlow_twins_for_same_state_masked_multiview",
+        "loss_scaling": "canonical_mean_scaled_barlow",
+        "val_metrics": {
+            metric_key: {
+                "alignment": {"mse": 0.25, "cosine_mean": 0.75},
+                "retrieval": {
+                    "mrr": 0.40,
+                    "median_rank": 3.0,
+                    "top1": 0.20,
+                    "top5": 0.50,
+                    "top10": 0.80,
+                },
+                "barlow": {
+                    "diag_mean": 0.90,
+                    "offdiag_abs_mean": 0.10,
+                },
+                "view_a_health": {
+                    "variance_mean": 0.05,
+                    "effective_rank": 12.0,
+                    "participation_ratio": 8.0,
+                },
+                "view_b_health": {
+                    "variance_mean": 0.06,
+                    "effective_rank": 11.0,
+                    "participation_ratio": 7.0,
+                },
+            },
+            "visibility": {
+                "overall": {
+                    "observed_rate": 1.0,
+                    "view_a_visible_rate": 0.91,
+                    "view_b_visible_rate": 0.92,
+                }
+            },
+        },
+        "raw_val_baseline": {
+            "retrieval": {"top1": 0.03, "top5": 0.19, "top10": 0.35}
+        },
+    }
+
+
+def test_extract_masked_multiview_scorecard_row_handles_direct_barlow_artifact():
+    row = extract_masked_multiview_scorecard_row(
+        _minimal_masked_multiview_artifact("view_alignment"),
+        artifact_path="results/world/masked_multiview_barlow_head070.json",
+    )
+
+    assert row["run"] == "HEAD070"
+    assert row["metric_block"] == "view_alignment"
+    assert row["objective_family"] == "masked_multiview_invariance"
+    assert row["top1"] == pytest.approx(0.20)
+    assert row["top5"] == pytest.approx(0.50)
+    assert row["top10"] == pytest.approx(0.80)
+    assert row["effective_rank_a"] == pytest.approx(12.0)
+    assert row["effective_rank_b"] == pytest.approx(11.0)
+    assert row["offdiag_abs_mean"] == pytest.approx(0.10)
+    assert row["raw_top10"] == pytest.approx(0.35)
+
+
+def test_extract_masked_multiview_scorecard_row_handles_ema_predictor_artifact():
+    row = extract_masked_multiview_scorecard_row(
+        _minimal_masked_multiview_artifact("predicted_target"),
+        artifact_path="results/world/masked_multiview_jepa_head066.json",
+    )
+
+    assert row["run"] == "HEAD066"
+    assert row["metric_block"] == "predicted_target"
+    assert row["objective_family"] == "context_to_target_jepa"
+    assert row["top1"] == pytest.approx(0.20)
+    assert row["visible_rate_a"] == pytest.approx(0.91)
+
+
+def test_render_scorecard_markdown_includes_reference_and_probe_rows():
+    rows = [
+        extract_masked_multiview_scorecard_row(
+            _minimal_masked_multiview_artifact("predicted_target"),
+            artifact_path="results/world/masked_multiview_jepa_head066.json",
+        ),
+        extract_masked_multiview_scorecard_row(
+            _minimal_masked_multiview_artifact("view_alignment"),
+            artifact_path="results/world/masked_multiview_barlow_head070.json",
+        ),
+    ]
+    probe_summary = {
+        "raw_surface_last": {
+            "future_mean_delta": {"mse": 0.006, "r2": 0.53},
+            "future_range": {"mse": 0.055, "r2": -2.97},
+        },
+        "barlow_clean_last": {
+            "future_mean_delta": {"mse": 0.012, "r2": 0.16},
+            "future_range": {"mse": 0.047, "r2": -2.43},
+        },
+    }
+
+    text = render_scorecard_markdown(rows, probe_summary=probe_summary)
+
+    assert "| HEAD070 |" in text
+    assert "`masked_multiview_invariance`" in text
+    assert "| raw_surface_last |" in text
+    assert "HEAD070 remains the Part 1 reference candidate" in text
 
 
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):
