@@ -118801,3 +118801,37 @@ into bounded process iterations rather than a pause.
 Continue autoresearch. This guardrail iteration is not a stop condition.
 
 ---
+## 2026-05-10: World model restart checklist caveat sync
+
+### Context
+
+The Part 1 manifest/package had newer caveats than the restart checklist. A
+future resumed run could read the checklist and miss the mask-policy coverage,
+sample-scale, downstream raw-baseline, or IV-surface-only target-scope limits.
+
+### Hypothesis
+
+The restart checklist should force future experiments and downstream probes to
+read the same caveat boundary now carried by the reference manifest and package
+summary.
+
+### Execution
+
+- Added HEAD097, HEAD100, HEAD102, and HEAD105 to the checklist read-first list.
+- Marked HEAD070 as a smoke-scale reference directly in the fixed-reference
+  section.
+- Added explicit "do not claim" items for full-data convergence, unvalidated
+  richer mask families, and factor-panel future target performance.
+
+### Result
+
+The restart checklist now matches the current Part 1 package boundary:
+HEAD070 is a smoke-scale masked-multiview reference candidate with validated
+default mask families, mixed downstream utility, and IV-surface-only future
+target probes.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---

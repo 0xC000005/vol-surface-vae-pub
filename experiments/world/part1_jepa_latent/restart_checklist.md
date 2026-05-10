@@ -1,6 +1,6 @@
 # World Model Part 1 Restart Checklist
 
-Date: 2026-05-09
+Date: 2026-05-10
 
 Use this before any future model change, decoder experiment, or downstream
 probe that consumes the Part 1 world-model reference candidate.
@@ -14,7 +14,11 @@ probe that consumes the Part 1 world-model reference candidate.
 5. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
 6. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
 7. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-8. latest tail of `RESEARCH_LOG.md`
+8. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+9. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+10. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+11. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+12. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -27,6 +31,8 @@ probe that consumes the Part 1 world-model reference candidate.
   `build_masked_multiview_batch`.
 - Token dimension: `58`.
 - Latent dimension: `64`.
+- Reference scale: smoke-scale, `384` train windows, `128` validation windows,
+  `8` epochs.
 - Objective: direct masked-multiview same-state encoder alignment with
   Barlow-style redundancy control.
 
@@ -43,6 +49,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Keep future prediction, range estimation, regime labels, and generation as
   downstream probes unless the workflow is explicitly changed.
 - Copy the acceptance boundary from `reference_manifest.json`.
+- Copy the caveats from `package_summary.md`: smoke-scale evidence only,
+  validated default mask families only, mixed downstream utility, and
+  IV-surface future targets only.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -52,6 +61,11 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat fixed delta-PCA prediction as the current active reference.
 - Promote regime classification as solved.
 - Claim ImageNet-level JEPA behavior.
+- Claim full-data convergence from the HEAD070 smoke-scale checkpoint.
+- Claim the richer protocol mask ideas were validated by HEAD070 unless they
+  have their own later report.
+- Claim downstream factor-panel future target performance; HEAD085 targets are
+  IV-surface futures only.
 - Use generation metrics as evidence of Part 1 representation health.
 
 ## Required Reporting
