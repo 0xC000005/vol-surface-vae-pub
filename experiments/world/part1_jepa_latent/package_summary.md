@@ -138,6 +138,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`.
 - Latest additive probe standardization diagnostic:
   `experiments/world/reports/world_model_head170_additive_probe_standardization.md`.
+- Latest additive gate reconciliation:
+  `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`.
 
 ## Fixed Contract
 
@@ -477,6 +479,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD170 as the current probe-hygiene diagnostic: standardizing feature
   blocks does not fix the IV exact-state guardrail, so the failure is not only
   an unstandardized ridge-scale artifact.
+- Treat HEAD171 as the current additive-gate reconciliation: additive abstract
+  signal is present, but exact-state and persistence guardrails still block
+  Part 1 promotion and Part B.
 
 ## Next Work Requires Direction
 

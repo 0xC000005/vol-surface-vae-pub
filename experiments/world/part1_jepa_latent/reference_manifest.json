@@ -192,6 +192,7 @@
       "additive_exact_state_guardrail_report": "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
       "additive_exact_state_topology_report": "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
       "additive_probe_standardization_report": "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
+      "additive_gate_reconciliation_report": "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -716,6 +717,15 @@
           "standardization_fixes_iv_guardrail": false,
           "promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "additive_gate_reconciliation": {
+          "status": "additive_signal_present_but_gate_failed",
+          "abstract_path_shape_utility": "PASS",
+          "balanced_regime_signal": "PARTIAL",
+          "persistence_guardrail": "PARTIAL",
+          "iv_exact_state_guardrail": "FAIL",
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -808,7 +818,8 @@
     "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md",
     "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
     "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
-    "experiments/world/reports/world_model_head170_additive_probe_standardization.md"
+    "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
+    "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md"
   ],
   "guardrail_doc_checks": [
     {

@@ -120366,3 +120366,18 @@ Standardization does not fix the IV guardrail. The unstandardized raw-plus/raw I
 `DO_NOT_PROMOTE`. The raw-plus IV exact-state miss should not be dismissed as only an unstandardized ridge-scale artifact. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD171 Additive Gate Reconciliation
+
+### Context
+HEAD166-170 clarified the additive-signal framing and then tested the raw-plus-learned exact-state guardrail, IV topology, and standardized probe artifact hypothesis. The current task was to reconcile those results so future resumes do not confuse additive signal with Part 1 promotion.
+
+### Execution
+Added `world_model_head171_additive_gate_reconciliation.md` and synced the manifest, package summary, restart checklist, report index, and autoresearch state.
+
+### Result
+The reconciled status is: additive abstract/path-shape utility passes, balanced regime signal is partial, persistence is partial, IV exact-state guardrail fails, IV topology shows a broad modest miss, and feature standardization does not clear the blocker.
+
+### Decision
+`DO_NOT_PROMOTE`. Scaled Barlow is not empty and should not be demoted as useless, but it is not a certified joint Part 1 representation. Part B remains blocked.
+
+---

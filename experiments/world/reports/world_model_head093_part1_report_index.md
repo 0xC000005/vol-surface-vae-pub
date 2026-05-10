@@ -238,6 +238,8 @@ human-oriented resume guide, not the source of truth.
 - HEAD170: `world_model_head170_additive_probe_standardization.md` checks
   feature-standardized ridge probes and finds standardization does not fix the
   raw-plus IV guardrail.
+- HEAD171: `world_model_head171_additive_gate_reconciliation.md` reconciles
+  HEAD166-170: additive signal is present, but Part 1 remains blocked.
 
 ## Packaging And Restart Guardrails
 

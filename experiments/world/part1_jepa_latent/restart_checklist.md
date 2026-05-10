@@ -65,15 +65,16 @@ probe that consumes the Part 1 world-model reference candidate.
 56. `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`
 57. `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`
 58. `experiments/world/reports/world_model_head170_additive_probe_standardization.md`
-59. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-60. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-61. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-62. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-63. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-64. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-65. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-66. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-67. latest tail of `RESEARCH_LOG.md`
+59. `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`
+60. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+61. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+62. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+63. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+64. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+65. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+66. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+67. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+68. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -256,6 +257,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD170 as the current probe-standardization diagnostic: feature
   standardization does not fix the raw-plus IV exact-state guardrail, so do not
   dismiss HEAD169 as only a scale artifact.
+- Treat HEAD171 as the current additive-gate reconciliation: the embedding has
+  additive abstract signal, but Part 1 remains blocked by exact-state and
+  persistence guardrails.
 
 ## Do Not Do Without Explicit Authorization
 
