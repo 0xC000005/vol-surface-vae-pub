@@ -13,6 +13,10 @@ from experiments.world.evaluation.part1_metrics import (
 )
 from experiments.world.evaluation.part2_metrics import compact_path_sample_metrics
 from experiments.world.evaluation.world_data import build_iv_world_windows
+from experiments.world.evaluation.masked_multiview_data import (
+    build_masked_multiview_batch,
+    load_geometry_panel_values,
+)
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
@@ -110,6 +114,62 @@ def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
     return surface
 
 
+def _write_multi_factor_npz(path, n_days: int = 20) -> tuple[np.ndarray, np.ndarray]:
+    level_columns = np.array(
+        [
+            "spx",
+            "usdcad",
+            "usdjpy",
+            "dxy",
+            "copper",
+            "wheat",
+            "crude_oil",
+            "us2y",
+            "us10y",
+            "aaa_oas",
+            "bbb_oas",
+            "nikkei",
+            "gold",
+            "vix",
+        ]
+    )
+    return_columns = np.array(
+        [
+            "spx_logret",
+            "usdcad_logret",
+            "usdjpy_logret",
+            "dxy_logret",
+            "copper_logret",
+            "wheat_logret",
+            "crude_oil_logret",
+            "us2y_diff",
+            "us10y_diff",
+            "aaa_oas_diff",
+            "bbb_oas_diff",
+            "nikkei_logret",
+            "gold_logret",
+            "vix_logret",
+        ]
+    )
+    levels = np.arange(n_days * len(level_columns), dtype=np.float32).reshape(
+        n_days, len(level_columns)
+    )
+    returns = (1000.0 + levels).astype(np.float32)
+    dates = np.arange(
+        np.datetime64("2020-01-01"),
+        np.datetime64("2020-01-01") + np.timedelta64(n_days, "D"),
+    )
+    np.savez(
+        path,
+        dates=dates,
+        levels=levels,
+        level_columns=level_columns,
+        returns=returns,
+        return_columns=return_columns,
+    )
+    return levels, returns
+
+
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):
     data_path = tmp_path / "surface.npz"
     surface = _write_surface_npz(data_path)
@@ -150,6 +210,129 @@ def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):
     assert val.future_window.shape == (3, 2, 25)
     assert val.start_index.tolist() == [8, 9, 10]
     assert val.regime_label.tolist() == [8, 9, 10]
+
+
+def test_masked_multiview_batch_preserves_geometry_and_masks(tmp_path):
+    surface_path = tmp_path / "surface.npz"
+    factor_path = tmp_path / "factors.npz"
+    _write_surface_npz(surface_path, n_days=24)
+    _write_multi_factor_npz(factor_path, n_days=24)
+
+    batch = build_masked_multiview_batch(
+        surface_path=surface_path,
+        multi_factor_path=factor_path,
+        split="train",
+        history_len=4,
+        future_len=2,
+        test_start=20,
+        val_size=3,
+        max_windows=2,
+        normalize=False,
+        seed=63,
+        mask_families=("surface_maturity",),
+    )
+
+    assert batch.clean_values.shape == (2, 4, 58)
+    assert batch.view_a_values.shape == batch.clean_values.shape
+    assert batch.observed_mask.shape == batch.clean_values.shape
+    assert batch.synthetic_mask_a.shape == batch.clean_values.shape
+    assert batch.token_metadata.n_tokens == 58
+    assert np.sum(batch.token_metadata.geometry_id == "iv_surface") == 25
+    assert np.sum(batch.token_metadata.geometry_id == "vol_side_channel") == 5
+    assert np.sum(batch.token_metadata.geometry_id == "factor_level") == 14
+    assert np.sum(batch.token_metadata.geometry_id == "factor_return") == 14
+    assert set(batch.mask_family_a.tolist()) == {"surface_maturity"}
+
+    hidden = batch.observed_mask & ~batch.synthetic_mask_a
+    assert hidden.sum() == 2 * 4 * 5
+    np.testing.assert_array_equal(batch.view_a_values[hidden], np.zeros(hidden.sum()))
+    visible = batch.observed_mask & batch.synthetic_mask_a
+    np.testing.assert_allclose(batch.view_a_values[visible], batch.clean_values[visible])
+    np.testing.assert_array_equal(batch.relative_index, np.arange(4))
+    np.testing.assert_array_equal(batch.absolute_index[0], np.arange(4))
+    assert batch.positive_index.shape == (2, 4)
+
+
+def test_masked_multiview_keeps_real_missingness_separate(tmp_path):
+    surface_path = tmp_path / "surface.npz"
+    factor_path = tmp_path / "factors.npz"
+    _write_surface_npz(surface_path, n_days=24)
+    levels, returns = _write_multi_factor_npz(factor_path, n_days=24)
+    levels[0, 0] = np.nan
+    np.savez(
+        factor_path,
+        dates=np.arange(
+            np.datetime64("2020-01-01"),
+            np.datetime64("2020-01-01") + np.timedelta64(24, "D"),
+        ),
+        levels=levels,
+        level_columns=np.array(
+            [
+                "spx",
+                "usdcad",
+                "usdjpy",
+                "dxy",
+                "copper",
+                "wheat",
+                "crude_oil",
+                "us2y",
+                "us10y",
+                "aaa_oas",
+                "bbb_oas",
+                "nikkei",
+                "gold",
+                "vix",
+            ]
+        ),
+        returns=returns,
+        return_columns=np.array(
+            [
+                "spx_logret",
+                "usdcad_logret",
+                "usdjpy_logret",
+                "dxy_logret",
+                "copper_logret",
+                "wheat_logret",
+                "crude_oil_logret",
+                "us2y_diff",
+                "us10y_diff",
+                "aaa_oas_diff",
+                "bbb_oas_diff",
+                "nikkei_logret",
+                "gold_logret",
+                "vix_logret",
+            ]
+        ),
+    )
+
+    values, observed, meta = load_geometry_panel_values(
+        surface_path=surface_path,
+        multi_factor_path=factor_path,
+        normalize=False,
+    )
+    spx_level = np.where((meta.geometry_id == "factor_level") & (meta.factor_id == "spx"))[0][0]
+    assert not observed[0, spx_level]
+    assert values[0, spx_level] == 0.0
+
+    batch = build_masked_multiview_batch(
+        surface_path=surface_path,
+        multi_factor_path=factor_path,
+        split="train",
+        history_len=4,
+        future_len=2,
+        test_start=20,
+        val_size=3,
+        max_windows=1,
+        normalize=False,
+        seed=64,
+        mask_families=("factor_family",),
+    )
+    assert not batch.observed_mask[0, 0, spx_level]
+    factor_hidden = (
+        np.isin(batch.token_metadata.geometry_id, ["factor_level", "factor_return"])[None, None, :]
+        & ~batch.synthetic_mask_a
+    )
+    assert factor_hidden.any()
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

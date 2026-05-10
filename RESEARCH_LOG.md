@@ -117128,3 +117128,41 @@ Artifacts:
 - `experiments/world/reports/world_model_head063_geometry_masked_multiview_protocol.md`
 
 ---
+## 2026-05-09: World model HEAD064 masked multiview data builder
+
+### Context
+- Continued after HEAD063 specified the geometry-aware masked multiview protocol.
+- This iteration implemented the reusable data object needed before any masked-multiview model training.
+
+### Hypothesis / Falsifier
+- Hypothesis: the protocol can be implemented as a deterministic data builder that preserves geometry metadata and keeps real observedness separate from synthetic SSL masks.
+- Falsifier: the builder flattens geometry away, conflates real missingness with synthetic corruption, cannot sample typed masks, or cannot produce same-window/same-relative-index positive metadata.
+
+### Implementation
+- Added `experiments/world/evaluation/masked_multiview_data.py`.
+- Added `GeometryTokenMetadata` and `MaskedMultiviewBatch`.
+- Implemented `load_geometry_panel_values`, `sample_typed_synthetic_mask`, `apply_synthetic_mask`, and `build_masked_multiview_batch`.
+- The first dense token schema has `58` daily tokens: `25` IV surface cells, `5` vol side channels, `14` factor levels, and `14` factor returns.
+- Implemented typed masks: `surface_maturity`, `surface_moneyness`, `surface_rectangle`, `vol_side_channel`, `factor_family`, `time_block`, and `sparse`.
+- Updated `experiments/world/evaluation/README.md` for the new Part 1 data object.
+
+### Validation
+- Focused tests: `2 passed in 0.77s`.
+- Full world-model evaluation slice: `34 passed in 0.81s`.
+- Compile check passed for `masked_multiview_data.py` and `test_world_model_evaluation.py`.
+- Real-data smoke saved `results/world/masked_multiview_head064_smoke.json`.
+- Real-data smoke shape: `8 x 30 x 58`; observed rate `0.896552`; view-A visible rate `0.858477`; view-B visible rate `0.927874`.
+
+### Decision / Next Step
+- The masked multiview data contract is ready for diagnostics.
+- Do not train a model yet.
+- Next iteration should implement same-state alignment, Barlow cross-correlation, same-state retrieval, representation health, and geometry-stratified mask summaries for these batches.
+
+### Artifacts
+- `experiments/world/evaluation/masked_multiview_data.py`
+- `test_code/test_world_model_evaluation.py`
+- `experiments/world/evaluation/README.md`
+- `experiments/world/reports/world_model_head064_masked_multiview_data_builder.md`
+- `results/world/masked_multiview_head064_smoke.json`
+
+---
