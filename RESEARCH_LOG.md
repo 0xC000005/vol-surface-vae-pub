@@ -117039,3 +117039,37 @@ Artifacts:
 - `results/world/part1_joint_path_pca_probe_audit_head062_val.json`
 
 ---
+## 2026-05-09: World model Part 1 masked multiview objective clarification
+
+### Context
+- Discussion clarified that Part 1 pretraining should not be framed as future prediction.
+- The intended pretraining object is a robust market-state representation: similar market phenomena and the same underlying panel/window under valid partial observations should map to nearby embeddings.
+- Future range estimation, forecasting, retrieval, and scenario generation are downstream probes or consumers of the representation, not the pretraining objective itself.
+
+### Objective Clarification
+- Replace the active mental model `past -> predict future latent` as the main pretraining story with `same market state under structured partial views -> aligned latent state`.
+- Use two valid views of the same window/time position: clean vs masked, or two differently masked views.
+- Align embeddings for the same absolute date and same relative position under different corruptions.
+- Do not force embeddings to match when the same absolute date appears at different relative indices, because a causal/contextual encoder may legitimately have different information and therefore a different belief state.
+
+### Masking / Corruption Principle
+- Use structured masking that respects the data object: mask days, factors, IV-surface regions, moneyness/maturity bands, or factor families.
+- Provide an observed/missing mask channel so the model can distinguish a real zero delta from a synthetically hidden value.
+- Avoid corruptions that destroy factor identity or temporal meaning, such as arbitrary factor permutations or rotations that remove the inductive bias.
+- Avoid visible Gaussian/uniform sentinel corruption as content; the model should not win by detecting mask artifacts.
+
+### Barlow / Redundancy Control
+- Barlow Twins-style redundancy control is more appropriate in this revised setup because there are true positive pairs: two partial views of the same underlying market state.
+- The alignment term should make same-position embeddings across views agree.
+- The redundancy term should discourage duplicated dimensions and collapse.
+- This should be treated as representation pretraining, not as a replacement for downstream forecast probes.
+
+### Decision
+- Part 1 should be reframed as masked multiview market-state representation learning.
+- Future prediction or range estimation should be used after pretraining as a probe of whether the learned state is useful.
+- The previous direct future-latent prediction branch remains useful diagnostic evidence, but it should not define the intended pretraining objective.
+
+### Next Step
+- Before another Part 1 model experiment, write a concrete masked multiview pretraining protocol: view construction, mask channels, positive-pair alignment rule, Barlow/variance-covariance health checks, and downstream probe gates.
+
+---
