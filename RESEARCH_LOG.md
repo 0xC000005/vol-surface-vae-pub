@@ -120261,3 +120261,18 @@ Across seeds `680`, `681`, and `682`, top10 stays in `[0.839453, 0.877083]`, eff
 Do not spend the next default loop on additional seed runs. The current blockers remain exact-state retention and baseline superiority; Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD164 Exact-State Literature Refresh
+
+### Context
+After row-level and surface-local context-to-target routes were demoted, the workflow needed a literature refresh before any new exact-state design idea.
+
+### Execution
+Reviewed primary JEPA/adjacent sources for I-JEPA, V-JEPA, VICReg, and MAE, then added `world_model_head164_exact_state_literature_refresh.md`.
+
+### Result
+I-JEPA/V-JEPA support feature prediction only when the target representation and masking/context design produce meaningful features. VICReg/Barlow support collapse and redundancy control but do not solve target representation choice. MAE-style value reconstruction is a separate objective family, not a small JEPA auxiliary patch.
+
+### Decision
+No implementation is authorized. Any JEPA revival must first prove target latents carry market-state variation before predictor training. Raw-value reconstruction must be labeled as a separate MAE-style diagnostic. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---

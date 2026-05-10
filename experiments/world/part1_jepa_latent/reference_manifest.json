@@ -185,6 +185,7 @@
       "next_work_wording_refresh_report": "experiments/world/reports/world_model_head161_next_work_wording_refresh.md",
       "active_doc_stale_route_scan_report": "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md",
       "scale_stability_boundary_report": "experiments/world/reports/world_model_head163_scale_stability_boundary.md",
+      "exact_state_literature_refresh_report": "experiments/world/reports/world_model_head164_exact_state_literature_refresh.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -647,6 +648,12 @@
           ],
           "primary_blocker": "exact_state_retention_and_baseline_superiority",
           "part_b_blocked": true
+        },
+        "exact_state_literature_refresh": {
+          "status": "literature_boundary_refreshed_after_context_target_demotions",
+          "jepa_next_design_requires_target_latent_state_variation": true,
+          "raw_value_reconstruction_requires_separate_mae_diagnostic_label": true,
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -732,7 +739,8 @@
     "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md",
     "experiments/world/reports/world_model_head161_next_work_wording_refresh.md",
     "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md",
-    "experiments/world/reports/world_model_head163_scale_stability_boundary.md"
+    "experiments/world/reports/world_model_head163_scale_stability_boundary.md",
+    "experiments/world/reports/world_model_head164_exact_state_literature_refresh.md"
   ],
   "guardrail_doc_checks": [
     {

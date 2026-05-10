@@ -218,6 +218,9 @@ probe that consumes the Part 1 world-model reference candidate.
   are intended demotion/blocker statements.
 - Treat HEAD163 as the scale-stability boundary: do not run more seed stability
   as the next default step; it does not address exact-state/baseline blockers.
+- Treat HEAD164 as the exact-state literature refresh: do not add raw-value
+  reconstruction under the JEPA label; any new JEPA target needs a state-variation
+  gate first.
 
 ## Do Not Do Without Explicit Authorization
 

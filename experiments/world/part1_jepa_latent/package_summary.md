@@ -420,6 +420,9 @@ is a representation-learning package for same-market-state masked views.
   refreshed and scanned for stale routes into demoted context-to-target tasks.
 - Treat HEAD163 as the scale-stability boundary: same-objective seed stability
   is not the active blocker; exact-state retention and baseline superiority are.
+- Treat HEAD164 as the exact-state literature refresh: any JEPA revival needs a
+  target-latent state-variation gate, while raw-value reconstruction is a
+  separate MAE-style diagnostic family.
 
 ## Next Work Requires Direction
 
