@@ -33,15 +33,16 @@ probe that consumes the Part 1 world-model reference candidate.
 24. `experiments/world/reports/world_model_head136_scale_representation_surface.md`
 25. `experiments/world/reports/world_model_head137_context_target_jepa_design.md`
 26. `experiments/world/reports/world_model_head138_context_target_data_scaffold.md`
-27. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-28. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-29. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-30. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-31. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-32. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-33. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-34. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-35. latest tail of `RESEARCH_LOG.md`
+27. `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`
+28. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+29. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+30. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+31. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+32. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+33. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+34. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+35. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+36. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -145,6 +146,8 @@ probe that consumes the Part 1 world-model reference candidate.
   the Barlow reference.
 - Treat HEAD138 as the current context-to-target data surface: it is a scaffold
   for a future model smoke, not a promoted Part 1 branch.
+- Treat HEAD139 as the current context-to-target model/loss surface: it is a
+  scaffold for a future training smoke, not a trained or promoted branch.
 
 ## Do Not Do Without Explicit Authorization
 

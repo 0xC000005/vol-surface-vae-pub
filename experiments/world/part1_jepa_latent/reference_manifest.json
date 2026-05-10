@@ -160,6 +160,7 @@
       "scale_representation_surface_report": "experiments/world/reports/world_model_head136_scale_representation_surface.md",
       "context_target_jepa_design_report": "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
       "context_target_data_scaffold_report": "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
+      "context_target_model_scaffold_report": "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -364,6 +365,14 @@
           "test": "test_code/test_world_model_context_target_jepa_data.py",
           "uses_future_targets": false,
           "next_step": "minimal_context_to_target_model_smoke"
+        },
+        "context_target_model_scaffold": {
+          "status": "model_loss_surface_ready_no_training_yet",
+          "module": "experiments/world/part1_jepa_latent/context_target_jepa_smoke.py",
+          "test": "test_code/test_world_model_context_target_jepa_smoke.py",
+          "uses_future_targets": false,
+          "uses_value_reconstruction": false,
+          "next_step": "smoke_training_and_scaled_barlow_comparison"
         }
       },
       "layer_status": {
@@ -424,7 +433,8 @@
     "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
     "experiments/world/reports/world_model_head136_scale_representation_surface.md",
     "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
-    "experiments/world/reports/world_model_head138_context_target_data_scaffold.md"
+    "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
+    "experiments/world/reports/world_model_head139_context_target_model_scaffold.md"
   ],
   "guardrail_doc_checks": [
     {

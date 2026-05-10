@@ -74,6 +74,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head137_context_target_jepa_design.md`.
 - Latest context-target data scaffold:
   `experiments/world/reports/world_model_head138_context_target_data_scaffold.md`.
+- Latest context-target model scaffold:
+  `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`.
 
 ## Fixed Contract
 
@@ -209,6 +211,9 @@ is a representation-learning package for same-market-state masked views.
   the context-to-target diagnostic. It exposes context values, target-only
   values, observed/context/target masks, geometry metadata, and target family
   labels without introducing future targets.
+- Context-target model scaffold: HEAD139 adds the minimal latent model and
+  target-time masked loss. It has a trainable context encoder, frozen target
+  encoder, and predictor, but no future targets and no value reconstruction.
 
 ## Caveats
 
@@ -280,13 +285,15 @@ is a representation-learning package for same-market-state masked views.
   Barlow; do not silently mix it into the two-view invariance reference.
 - Treat HEAD138 as data-surface scaffolding only. It does not promote the
   context-to-target branch and does not change the active Barlow reference.
+- Treat HEAD139 as model/loss scaffolding only. It has not been trained or
+  compared to scaled Barlow.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a minimal same-window context-to-target JEPA model smoke using the HEAD138
-  data surface;
+- a minimal same-window context-to-target JEPA training smoke using HEAD138 and
+  HEAD139 scaffolds;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

@@ -119886,3 +119886,18 @@ The scaffold reuses the existing geometry loader and typed mask sampler. It retu
 The same-window context-target data surface is ready for a minimal model smoke. This does not promote the branch, does not add future prediction, and does not mutate the scaled Barlow reference.
 
 ---
+## 2026-05-10: World Model HEAD139 Context-Target Model Scaffold
+
+### Context
+HEAD138 created the same-window context-target data surface. The next scaffold step was a minimal latent model/loss surface before any training smoke.
+
+### Execution
+Added `experiments/world/part1_jepa_latent/context_target_jepa_smoke.py` and `test_code/test_world_model_context_target_jepa_smoke.py` using TDD. The test first failed on the missing module, then passed after implementing the model and loss.
+
+### Result
+The scaffold provides a trainable context encoder, frozen target encoder initialized from the context encoder, predictor, context/target feature builder, and target-time masked latent loss. It aligns latent target rows only where the same-window current/history target mask hides at least one token. It uses no future targets and no raw-value reconstruction.
+
+### Decision
+The context-to-target branch now has data and model/loss scaffolds ready for a minimal training smoke. It remains a separate diagnostic branch and does not promote Part 1.
+
+---
