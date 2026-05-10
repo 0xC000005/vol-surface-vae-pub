@@ -118376,3 +118376,35 @@ continue with bounded guardrail, provenance, metric reconciliation, report
 indexing, or risk-ledger work.
 
 ---
+## 2026-05-09: World model target-stage guardrail
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Workflow guardrail for manual-stop autoresearch.
+
+### Hypothesis
+The protocol should not allow `world_model_goal.json` target-stage completion
+to stop manual-stop mode unless `goal_reached` is explicitly set true.
+
+### Falsifier
+The iteration would fail if target-stage completion could still be interpreted
+as a manual-stop stop condition after HEAD094.
+
+### Execution
+- Inspected the tracked protocol stop conditions.
+- Found that `the target stage in world_model_goal.json is reached` remained as
+  a stop condition.
+- Narrowed that condition to single-cycle mode or bounded target-stage runs.
+- Preserved `goal_reached` as the explicit state-level stop flag.
+
+### Result
+Manual-stop mode no longer stops merely because the local goal names the
+current packaged status.
+
+### Next Step
+Continue autoresearch in manual-stop mode with bounded process work if no model
+or decoder experiment is justified.
+
+---

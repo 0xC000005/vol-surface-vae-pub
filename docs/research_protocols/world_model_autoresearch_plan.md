@@ -545,7 +545,9 @@ research-log tail append, verification, and one focused commit.
 The workflow stops only when one of these is true:
 
 - `goal_reached` is true in local state;
-- the target stage in `world_model_goal.json` is reached;
+- the target stage in `world_model_goal.json` is reached in single-cycle mode
+  or a bounded target-stage run; in manual-stop mode this must not stop the
+  loop unless `goal_reached` is explicitly set true;
 - `autoresearch-session/WORLD_MODEL_STOP` exists;
 - the requested iteration budget is exhausted;
 - an actual unrecoverable tool/platform failure prevents further commands.
