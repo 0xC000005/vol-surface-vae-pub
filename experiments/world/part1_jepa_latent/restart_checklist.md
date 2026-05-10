@@ -25,15 +25,16 @@ probe that consumes the Part 1 world-model reference candidate.
 16. `experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md`
 17. `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`
 18. `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`
-19. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-20. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-21. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-22. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-23. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-24. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-25. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-26. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-27. latest tail of `RESEARCH_LOG.md`
+19. `experiments/world/reports/world_model_head131_scale_seed_stability.md`
+20. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+21. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+22. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+23. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+24. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+25. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+26. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+27. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+28. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -109,6 +110,10 @@ probe that consumes the Part 1 world-model reference candidate.
   and baseline superiority plus market-state regime probes fail. The scaled
   checkpoint is the best candidate so far, but it is not promoted and is not
   Part-B-ready.
+- Treat HEAD131 as the current scaled seed-stability smoke: representation
+  health is stable across seeds `680`, `681`, and `682`, but this only upgrades
+  the scale/stability evidence for representation health. It does not promote
+  Part 1 or unblock Part B.
 
 ## Do Not Do Without Explicit Authorization
 

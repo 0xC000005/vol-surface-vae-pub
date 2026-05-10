@@ -152,6 +152,7 @@
       "scale_mask_artifact_report": "experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md",
       "scale_stratified_mask_report": "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
       "scale_part1_quality_gate_report": "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
+      "scale_seed_stability_report": "experiments/world/reports/world_model_head131_scale_seed_stability.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -173,6 +174,11 @@
       "scale_mask_artifact_json": "results/world/masked_multiview_mask_artifact_scale_head129.json",
       "scale_stratified_mask_json": "results/world/masked_multiview_stratified_scale_head129.json",
       "scale_part1_quality_gate_json": "results/world/scale_part1_quality_gate_head130.json",
+      "scale_seed681_training_result_json": "results/world/masked_multiview_barlow_scale_seed681_head131.json",
+      "scale_seed682_training_result_json": "results/world/masked_multiview_barlow_scale_seed682_head131.json",
+      "scale_seed681_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_seed681_head131.pt",
+      "scale_seed682_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_seed682_head131.pt",
+      "scale_seed_stability_json": "results/world/scale_seed_stability_head131.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -267,6 +273,27 @@
           "baseline_superiority": "FAIL",
           "market_state_regime_probe": "FAIL",
           "scale_and_stability": "PARTIAL"
+        },
+        "scale_seed_stability": {
+          "status": "representation_health_seed_stability_smoke_passed_not_promotion",
+          "seeds": [
+            680,
+            681,
+            682
+          ],
+          "top10_range": [
+            0.839453,
+            0.877083
+          ],
+          "effective_rank_range": [
+            22.176785,
+            22.353826
+          ],
+          "offdiag_abs_mean_range": [
+            0.159666,
+            0.16374
+          ],
+          "decision": "representation_scale_stability_improves_but_part1_still_do_not_promote"
         }
       },
       "layer_status": {
@@ -319,7 +346,8 @@
     "experiments/world/reports/world_model_head128_scale_downstream_quality.md",
     "experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md",
     "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
-    "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md"
+    "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
+    "experiments/world/reports/world_model_head131_scale_seed_stability.md"
   ],
   "guardrail_doc_checks": [
     {

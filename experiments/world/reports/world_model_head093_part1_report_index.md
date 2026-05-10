@@ -105,6 +105,11 @@ human-oriented resume guide, not the source of truth.
   corruption robustness pass, but state content and scale/stability remain
   partial while baseline superiority and market-state regime probes fail, so
   the decision remains `DO_NOT_PROMOTE`.
+- HEAD131: `world_model_head131_scale_seed_stability.md` repeats the scaled
+  flat Barlow setup for seeds `681` and `682`, compares them to HEAD127 seed
+  `680`, and finds smoke-scale representation-health stability. This improves
+  scale/stability evidence for representation health only; Part 1 still is not
+  promoted.
 
 ## Packaging And Restart Guardrails
 
@@ -179,17 +184,18 @@ Then read:
 15. `experiments/world/reports/world_model_head129_scale_mask_artifact_audit.md`
 16. `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`
 17. `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`
-18. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-19. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-20. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-21. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-22. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-23. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-24. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-25. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-26. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-27. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-28. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+18. `experiments/world/reports/world_model_head131_scale_seed_stability.md`
+19. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+20. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+21. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+22. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+23. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+24. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+25. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+26. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+27. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+28. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+29. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

@@ -119766,3 +119766,18 @@ The formal scaled gate returns `DO_NOT_PROMOTE`. Representation health and corru
 HEAD127 is the best Part 1 candidate so far, but it is not Part-B-ready. The next evidence should be multi-seed scale stability and exact-state/regime/baseline diagnostics, without adding new pretraining objective knobs.
 
 ---
+## 2026-05-10: World Model HEAD131 Scale Seed Stability
+
+### Context
+HEAD130 left scale/stability partial because the scaled candidate had only one seed. The next principled test was to repeat the same scaled flat Barlow configuration without adding objective or architecture knobs.
+
+### Execution
+Trained same-config scaled seeds `681` and `682` with `1024` train windows, `256` validation windows, `8` epochs, and CPU execution. Added `analyze_scale_seed_stability.py` to compare those runs with HEAD127 seed `680`.
+
+### Result
+Representation-health metrics are stable over the three smoke-scale seeds. Same-state top10 is `0.839453-0.877083`, MRR is `0.485981-0.520146`, effective rank is `22.176785-22.353826`, variance minimum stays above `0.015873`, and offdiag mean is `0.159666-0.163740`. The stability smoke passes for representation health.
+
+### Decision
+This upgrades the scaled candidate's scale/stability evidence, but only for representation health. Part 1 remains `DO_NOT_PROMOTE` because baseline superiority, regime probes, exact-state retention, and full-data stability are still unresolved.
+
+---

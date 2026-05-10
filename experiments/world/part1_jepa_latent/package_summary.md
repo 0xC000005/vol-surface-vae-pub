@@ -58,6 +58,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md`.
 - Latest scale Part 1 quality gate:
   `experiments/world/reports/world_model_head130_scale_part1_quality_gate.md`.
+- Latest scale seed-stability smoke:
+  `experiments/world/reports/world_model_head131_scale_seed_stability.md`.
 
 ## Fixed Contract
 
@@ -156,6 +158,11 @@ is a representation-learning package for same-market-state masked views.
   and scale/stability are partial, and baseline superiority plus market-state
   regime probes fail. HEAD127 remains the best Part 1 candidate so far, but it
   is not Part-B-ready.
+- Scale seed stability: HEAD131 repeats the same scaled flat Barlow setup for
+  seeds `681` and `682` and compares them with HEAD127 seed `680`. Same-state
+  top10 stays in `0.839-0.877`, effective rank stays in `22.18-22.35`, and
+  offdiag stays in `0.160-0.164`. This is a representation-health stability
+  smoke pass, not a Part 1 promotion signal.
 
 ## Caveats
 
@@ -202,6 +209,10 @@ is a representation-learning package for same-market-state masked views.
   corruption-robustness layer, but still fails the formal Part 1 promotion gate.
   Do not promote it until baseline superiority, regime probes, and exact-state
   retention improve or are replaced by a better justified acceptance layer.
+- Treat HEAD131 as evidence that the scaled representation-health metrics are
+  not a one-seed accident at smoke scale. It does not solve baseline
+  superiority, market-state regime probes, exact-state retention, or full-data
+  stability.
 
 ## Next Work Requires Direction
 
