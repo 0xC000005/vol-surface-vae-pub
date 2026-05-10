@@ -118511,3 +118511,35 @@ artifacts.
 Continue with bounded package consistency or evidence-boundary work.
 
 ---
+## 2026-05-09: World model report index refresh
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Navigation guardrail for `masked_multiview_invariance`.
+
+### Hypothesis
+The Part 1 report index should include the HEAD094-HEAD098 guardrail and
+coverage updates so future resumes do not miss the current hard-stop policy or
+mask-policy caveat.
+
+### Falsifier
+The iteration would fail if the index still stopped at HEAD092 or omitted the
+HEAD097 coverage audit and HEAD096 stop-condition verification.
+
+### Execution
+- Updated `world_model_head093_part1_report_index.md`.
+- Added HEAD097 under validation/caveats.
+- Added HEAD094, HEAD095, HEAD096, and HEAD098 under packaging/restart
+  guardrails.
+- Added HEAD097 and HEAD096 to the fast-resume reading list.
+
+### Result
+The report index now points to the current package, caveat, and manual-stop
+guardrail evidence chain.
+
+### Next Step
+Continue autoresearch in manual-stop mode.
+
+---

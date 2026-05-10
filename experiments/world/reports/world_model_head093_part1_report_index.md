@@ -47,6 +47,9 @@ masked-multiview Part 1 package without reading the full historical sequence.
   downstream probes.
 - HEAD086: `world_model_head086_downstream_probe_interpretation.md` states the
   mixed downstream-probe caveat boundary.
+- HEAD097: `world_model_head097_mask_policy_coverage_audit.md` states that
+  HEAD070 is validated only for the default six mask families and treats
+  sparse/wing/ATM/whole-surface/cross-family stress masks as future diagnostics.
 
 ## Packaging And Restart Guardrails
 
@@ -62,6 +65,14 @@ masked-multiview Part 1 package without reading the full historical sequence.
   package checker.
 - HEAD092: `world_model_head092_goal_state_reconciliation.md` reconciles local
   ignored goal/state files.
+- HEAD094: `world_model_head094_manual_stop_guardrail.md` removes the vague
+  practical-runtime discretionary pause path.
+- HEAD095: `world_model_head095_target_stage_guardrail.md` prevents target-stage
+  completion from stopping manual-stop mode unless `goal_reached` is explicit.
+- HEAD096: `world_model_head096_stop_condition_verification.md` verifies the
+  current hard-stop list.
+- HEAD098: `world_model_head098_manifest_source_report_update.md` makes the
+  package checker enforce the HEAD097 caveat report.
 
 ## Fast Resume Command
 
@@ -75,6 +86,8 @@ Then read:
 2. `experiments/world/part1_jepa_latent/restart_checklist.md`
 3. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
 4. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+5. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+6. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
 
 ## Decision
 
