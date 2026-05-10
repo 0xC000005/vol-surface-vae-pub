@@ -45,15 +45,16 @@ probe that consumes the Part 1 world-model reference candidate.
 36. `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`
 37. `experiments/world/reports/world_model_head149_scale_exact_state_topology.md`
 38. `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`
-39. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-40. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-41. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-42. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-43. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-44. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-45. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-46. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-47. latest tail of `RESEARCH_LOG.md`
+39. `experiments/world/reports/world_model_head151_surface_local_data_contract.md`
+40. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+41. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+42. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+43. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+44. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+45. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+46. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+47. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+48. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -185,6 +186,8 @@ probe that consumes the Part 1 world-model reference candidate.
   is broad but especially concentrated in wing moneyness and edge maturities.
 - Treat HEAD150 as a design gate only for token/geometry-level JEPA. It does not
   implement a model, promote Part 1, or unblock Part B.
+- Treat HEAD151 as the token/geometry-level data contract scaffold only. Audit
+  target coverage before adding an encoder or loss.
 
 ## Do Not Do Without Explicit Authorization
 

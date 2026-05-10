@@ -98,6 +98,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head149_scale_exact_state_topology.md`.
 - Latest surface-local JEPA design gate:
   `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`.
+- Latest surface-local data contract:
+  `experiments/world/reports/world_model_head151_surface_local_data_contract.md`.
 
 ## Fixed Contract
 
@@ -281,6 +283,9 @@ is a representation-learning package for same-market-state masked views.
 - Surface-local JEPA design gate: HEAD150 opens, but does not implement, a
   token/geometry-level context-to-target route. Any implementation must start
   with a TDD data contract for target-token identity and geometry coordinates.
+- Surface-local data contract: HEAD151 adds the token/geometry target data
+  scaffold and focused test. It exposes `(window, relative_time, token)` target
+  positions and surface-local families, but does not train a model.
 
 ## Caveats
 
@@ -382,6 +387,8 @@ is a representation-learning package for same-market-state masked views.
   target surface-local geometry, not only a global row-level objective.
 - Treat HEAD150 as a design gate only. It does not authorize Part B and does
   not promote any candidate.
+- Treat HEAD151 as data-contract scaffolding only. It is not model evidence and
+  does not change Part 1 promotion status.
 
 ## Next Work Requires Direction
 
@@ -399,5 +406,7 @@ Future work should be one of:
 - surface-local exact-state design gate if pursuing another Part 1 model;
 - TDD data-contract work for token/geometry-level targets only if this design
   route is pursued;
+- target coverage and metadata audit for the surface-local data contract before
+  any encoder/loss implementation;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

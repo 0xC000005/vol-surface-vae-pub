@@ -120066,3 +120066,18 @@ The report defines a stricter route: tokenize by relative time and geometry toke
 This is a design gate only. It does not implement a model, promote Part 1, or unblock Part B. If pursued, the next implementation step must be a TDD data contract for token/geometry-level target blocks.
 
 ---
+## 2026-05-10: World Model HEAD151 Surface-Local Data Contract
+
+### Context
+HEAD150 opened a design-gated token/geometry-level JEPA route, but required a data contract before any encoder or loss. This iteration implemented only that first safe scaffold.
+
+### Execution
+Added `experiments/world/evaluation/surface_local_jepa_data.py` and `test_code/test_world_model_surface_local_jepa_data.py` using TDD. The test first failed on the missing module, then passed after implementing surface-local target masks, `(window, relative_time, token)` target positions, and metadata.
+
+### Result
+The scaffold creates same-window target blocks for `surface_wing_moneyness`, `surface_edge_maturity`, `surface_atm_strip`, `surface_rectangle`, and `factor_family`. A 128-window validation sample has shape `[128, 30, 58]`, `15184` target token positions, hidden rate `0.068175`, and no future targets.
+
+### Decision
+Data contract scaffold only. No model was trained, no candidate was promoted, and Part B remains blocked. Next safe step is target coverage and metadata audit before adding any encoder or loss.
+
+---

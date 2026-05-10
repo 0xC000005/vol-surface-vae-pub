@@ -172,6 +172,7 @@
       "scaled_gate_reconciliation_report": "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
       "scale_exact_state_topology_report": "experiments/world/reports/world_model_head149_scale_exact_state_topology.md",
       "surface_local_jepa_design_gate_report": "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md",
+      "surface_local_data_contract_report": "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -501,6 +502,15 @@
           "literature_status": "canonical_jepa_translated_to_time_series_geometry",
           "next_implementation_if_pursued": "tdd_data_contract_for_token_geometry_target_blocks",
           "part_b_blocked": true
+        },
+        "surface_local_data_contract": {
+          "status": "data_contract_ready_for_diagnostics",
+          "module": "experiments/world/evaluation/surface_local_jepa_data.py",
+          "test": "test_code/test_world_model_surface_local_jepa_data.py",
+          "target_positions_val128_seed2150": 15184,
+          "hidden_rate_val128_seed2150": 0.068175,
+          "uses_future_targets": false,
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -573,7 +583,8 @@
     "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
     "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
     "experiments/world/reports/world_model_head149_scale_exact_state_topology.md",
-    "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md"
+    "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md",
+    "experiments/world/reports/world_model_head151_surface_local_data_contract.md"
   ],
   "guardrail_doc_checks": [
     {
