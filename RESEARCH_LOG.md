@@ -117981,3 +117981,54 @@ model knobs or starting Part 2.
 - `python -m json.tool results/world/masked_multiview_stratified_head084.json`
 
 ---
+## 2026-05-09: World model downstream probe coverage audit
+
+### Objective Family
+`downstream_probe` only. This audit evaluates frozen Part 1 representations and
+does not turn future prediction, range, or regime labeling into a pretraining
+objective.
+
+### Hypothesis
+If the HEAD070 masked-multiview Barlow representation is learning useful market
+state information, it should show some downstream probe utility beyond the
+earlier mean-delta/range probe without needing a new model knob.
+
+### Falsifier
+The probe would falsify this narrower claim if frozen HEAD070 embeddings were
+worse than simple raw-surface baselines on all extended targets, or if the audit
+required reclassifying a downstream target as a Part 1 objective to look useful.
+
+### Execution
+- Added `experiments/world/part1_jepa_latent/masked_multiview_downstream_probe_audit.py`.
+- Added regression targets: future mean delta, future range, terminal delta,
+  max absolute step, and drawdown.
+- Added an optional regime-label classification probe.
+- Compared frozen HEAD070 `barlow_clean_last` features against `raw_surface_last`
+  and `raw_surface_last_plus_barlow_clean_last`.
+
+### Findings
+- `barlow_clean_last` improves several risk-width style probes over
+  `raw_surface_last`: range MSE `0.047185` vs `0.054625`, max-absolute-step MSE
+  `0.039526` vs `0.041928`, and drawdown MSE `0.042269` vs `0.050058`.
+- `raw_surface_last` remains stronger for directional/terminal probes:
+  mean-delta R2 `0.533258` vs `0.162420`, and terminal-delta R2 `0.409125` vs
+  `0.020872`.
+- Regime classification is not yet a strength: `barlow_clean_last` accuracy
+  `0.109375` versus majority `0.597656`; raw last-surface accuracy is closer to
+  majority at `0.554688`.
+- Concatenating raw and Barlow features does not provide a clean universal gain,
+  so complementarity should not be overclaimed.
+
+### Verification
+- `uv run pytest test_code/test_world_model_evaluation.py -q` passed:
+  `49 passed`.
+- `git diff --check` passed.
+
+### Decision
+HEAD070 remains a plausible Part 1 reference candidate for masked-multiview
+invariance and risk-width representation quality, but the downstream probe story
+is mixed. The next iteration should interpret the probe coverage and set
+acceptance/caveat boundaries before adding any new training knobs or starting
+Part 2.
+
+---

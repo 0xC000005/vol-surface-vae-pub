@@ -140,6 +140,9 @@ from experiments.world.part1_jepa_latent.masked_multiview_mask_artifact_audit im
 from experiments.world.part1_jepa_latent.masked_multiview_stratified_audit import (
     stratified_same_state_metrics,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_downstream_probe_audit import (
+    make_extended_future_targets,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -381,6 +384,23 @@ def test_stratified_same_state_metrics_groups_sequence_embeddings():
     assert rows["surface"]["n_windows"] == 2
     assert rows["surface"]["retrieval_top1"] == pytest.approx(1.0)
     assert rows["time"]["alignment_mse"] == pytest.approx(0.0)
+
+
+def test_make_extended_future_targets_includes_tail_and_drawdown_tasks():
+    past = np.asarray([[[1.0, 2.0], [2.0, 1.0]]], dtype=np.float32)
+    future = np.asarray([[[3.0, 0.5], [1.0, 4.0], [4.0, 3.0]]], dtype=np.float32)
+    labels = np.asarray([2], dtype=np.int64)
+
+    targets = make_extended_future_targets(past, future, regime_labels=labels)
+
+    np.testing.assert_allclose(
+        targets["regression"]["future_terminal_delta"], [[2.0, 2.0]]
+    )
+    np.testing.assert_allclose(
+        targets["regression"]["future_max_abs_step"], [[3.0, 3.5]]
+    )
+    np.testing.assert_allclose(targets["regression"]["future_drawdown"], [[2.0, 1.0]])
+    np.testing.assert_array_equal(targets["classification"]["regime_label"], labels)
 
 
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):
