@@ -1,21 +1,26 @@
-# World Model Part 1 Frozen Package Summary
+# World Model Part 1 Package Summary
 
 Date: 2026-05-09
 
 ## Status
 
-The current Part 1 world-model reference is frozen for this workflow. It should
-be consumed as a fixed upstream representation object unless a future Part 1
-failure is explicitly documented and the literature gate is satisfied.
+The current Part 1 world-model reference candidate is the HEAD070 direct
+masked-multiview Barlow representation. It replaces the earlier fixed
+delta-PCA predictor package as the active objective after the masked-multiview
+objective correction.
+
+This package is not a decoder and not a future-prediction pretraining model. It
+is a representation-learning package for same-market-state masked views.
 
 ## Reference
 
-- Model family: fused-context fixed delta-PCA predictor.
-- Literature status: `supported_adjacent`.
-- Primary seed/checkpoint:
-  `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt`.
-- Support seed/checkpoint:
-  `models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt`.
+- Objective family: `masked_multiview_invariance`.
+- Literature status:
+  `supported_adjacent_direct_barlow_twins_for_same_state_masked_multiview`.
+- Checkpoint:
+  `models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head070.pt`.
+- Training result:
+  `results/world/masked_multiview_barlow_head070.json`.
 - Manifest:
   `experiments/world/part1_jepa_latent/reference_manifest.json`.
 - Artifact digests:
@@ -27,38 +32,43 @@ failure is explicitly documented and the literature gate is satisfied.
 
 - Data: `data/vol_surface_with_ret.npz`.
 - Windowing: history `30`, future `30`.
-- Split: `test_start=4511`, `val_size=441`.
-- Coordinates: normalized IV-surface coordinates.
-- Target: fixed whitened train-fit horizon delta-PCA.
-- Horizons: `(1, 5, 10, 20, 30)`.
-- Target dimension: `8`.
-- Loss: MSE to fixed future-latent targets.
+- Token dimension: `58`.
+- Latent dimension: `64`.
+- Reference training windows: `384`.
+- Reference validation windows: `128`.
+- Positive pair: same market window and same relative index under two
+  structured synthetic masks.
+- Loss: direct encoder-output Barlow alignment with canonical mean-scaled
+  off-diagonal term.
 
 ## Evidence
 
-- Validation and test metrics are recorded in
-  `experiments/world/part1_jepa_latent/reference_manifest.json`.
-- Provenance was checked in:
-  `experiments/world/reports/world_model_head046_manifest_provenance_sanity.md`.
-- Local artifact identity was recorded and verified in:
-  `experiments/world/reports/world_model_head050_reference_artifact_digests.md`.
-- Open risks and authorization boundaries were recorded in:
-  `experiments/world/reports/world_model_head051_part1_open_risk_ledger.md`.
+- Same-state retrieval: top1/top5/top10
+  `0.321354/0.662500/0.841927`.
+- Rank health: effective rank about `14.5` for both views.
+- Redundancy: health offdiag about `0.224`, substantially lower than the
+  high-retrieval but low-rank HEAD068 branch.
+- Mask-artifact audit: mask-family prediction is below majority baselines.
+- Stratified audit: no mask family has top10 below `0.826`.
+- Downstream probe caveat: HEAD070 helps some risk-width/path-shape probes
+  relative to raw last-surface features, but raw last-surface features remain
+  stronger for mean/terminal deltas and regime-label accuracy.
 
 ## Caveats
 
-- This is JEPA-style time-series representation prediction, not canonical
-  ImageNet I-JEPA.
-- Barlow Twins is not the active objective.
-- Raw-delta retrieval is not uniformly dominant versus older diagnostic
-  retrieval contexts.
+- This is not canonical ImageNet I-JEPA.
+- Future prediction, range estimation, regime labels, and scenario generation
+  remain downstream probes or consumers, not pretraining objectives.
+- The representation should not be described as a general predictor.
+- Regime classification is not ready as an acceptance criterion.
 - Part 1 success does not prove Part 2 scenario-generation quality.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
-- explicitly authorized Part 2 decoder work using the frozen reference;
-- explicitly authorized Part 1 research after a new documented failure;
-- downstream benchmark/probe work that consumes the frozen reference without
-  mutating it.
+- explicitly authorized Part 2 decoder work using this frozen reference
+  candidate;
+- a documented Part 1 diagnostic that does not add model knobs by default;
+- downstream benchmark/probe work that consumes the frozen representation
+  without mutating the pretraining objective.

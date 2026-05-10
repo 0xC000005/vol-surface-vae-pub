@@ -118078,3 +118078,42 @@ Consolidate a Part 1 readiness checklist and artifact manifest before starting
 any Part 2 decoder work or adding new Part 1 model knobs.
 
 ---
+## 2026-05-09: World model Part 1 readiness manifest
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+`masked_multiview_invariance` readiness consolidation.
+
+### Hypothesis
+The active Part 1 package should route future work to the corrected
+masked-multiview objective and should not leave the old fixed delta-PCA
+reference package as the apparent current reference.
+
+### Falsifier
+The iteration would fail if the package still pointed future work to fixed
+delta-PCA prediction as the active Part 1 objective, omitted the HEAD070
+checkpoint, or omitted the HEAD085/HEAD086 caveats.
+
+### Execution
+- Updated `experiments/world/part1_jepa_latent/reference_manifest.json` to make
+  HEAD070 the current masked-multiview reference candidate.
+- Updated `reference_artifact_digests.json` with digests for the HEAD070
+  checkpoint and current masked-multiview audit artifacts.
+- Updated `package_summary.md` and `restart_checklist.md` so future runs do not
+  resume from the stale fixed delta-PCA objective.
+- Added `experiments/world/reports/world_model_head087_part1_readiness_manifest.md`.
+
+### Decision
+Part 1 is ready as a frozen reference candidate for additional diagnostics or
+explicitly authorized downstream consumers, with caveats. It is not ready to be
+claimed as a general predictor, regime classifier, or ImageNet-level JEPA
+equivalent.
+
+### Next Step
+Continue with non-modeling workflow guardrails or explicit user-directed work.
+Do not add Part 1 model knobs from HEAD085 alone, and do not start Part 2 unless
+the user authorizes decoder work.
+
+---

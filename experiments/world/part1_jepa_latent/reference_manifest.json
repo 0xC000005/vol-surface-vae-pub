@@ -1,120 +1,131 @@
 {
-  "manifest_name": "world_model_part1_jepa_reference",
+  "manifest_name": "world_model_part1_masked_multiview_reference",
   "date": "2026-05-09",
-  "status": "validated_part1_reference",
-  "created_after_commit": "599898f",
-  "model_family": "fused_context_fixed_delta_pca_predictor",
-  "literature_status": "supported_adjacent",
-  "framing": "JEPA-style time-series representation prediction with a fixed whitened delta-PCA target contract; not a canonical ImageNet I-JEPA EMA-target reproduction.",
+  "status": "reference_candidate_with_caveats",
+  "created_after_commit": "b2fec47c",
+  "model_family": "direct_masked_multiview_barlow",
+  "objective_family": "masked_multiview_invariance",
+  "literature_status": "supported_adjacent_direct_barlow_twins_for_same_state_masked_multiview",
+  "framing": "Two structured masked views of the same market window and same relative index are encoded by a shared encoder and aligned directly in representation space with Barlow-style redundancy control. Forecasting, range, regime labels, and scenario generation are downstream probes or consumers, not Part 1 pretraining objectives.",
+  "active_method": {
+    "encoder": "experiments.world.part1_jepa_latent.masked_multiview_barlow_smoke.DirectMaskedMultiviewBarlowModel",
+    "checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head070.pt",
+    "training_result_json": "results/world/masked_multiview_barlow_head070.json",
+    "loss": "canonical mean-scaled Barlow loss on direct encoder embeddings",
+    "positive_pair": "same market window and same relative index under two structured synthetic masks",
+    "masking": "structured market-state masking with observed/missing channels; no sentinel value objective"
+  },
   "not_active_methods": [
-    "barlow_twins_loss",
-    "retrieval_or_neighborhood_loss",
+    "context_to_target_ema_jepa_for_same_state_views",
+    "future_prediction_pretraining",
+    "fixed_delta_pca_target_prediction_as_active_reference",
+    "retrieval_or_neighborhood_loss_as_training_objective",
     "decoder_training",
-    "target_dimension_sweep"
+    "gaussian_or_student_t_mixture_decoder_heads"
   ],
   "data_contract": {
     "data_path": "data/vol_surface_with_ret.npz",
     "history_len": 30,
     "future_len": 30,
-    "horizons": [1, 5, 10, 20, 30],
+    "token_dim": 58,
+    "latent_dim": 64,
+    "train_windows": 384,
+    "val_windows": 128,
     "normalize": true,
+    "synthetic_mask_channels": true,
     "split_function": "experiments.world.evaluation.world_data.manifest_style_split_indices",
-    "test_start": 4511,
-    "val_size": 441,
-    "train_probe_max_windows": 2048,
-    "eval_probe_max_windows": 256
+    "masked_view_builder": "experiments.world.evaluation.masked_multiview_data.build_masked_multiview_batch"
   },
-  "target_contract": {
-    "target": "fixed whitened horizon delta PCA",
-    "target_dim": 8,
-    "fit_split": "train",
-    "source_module": "experiments.world.part1_jepa_latent.fixed_delta_pca_jepa",
-    "prediction_loss": "MSE"
+  "training_contract": {
+    "epochs": 8,
+    "batch_size": 64,
+    "hidden_dim": 128,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "barlow_offdiag_weight": 0.005,
+    "seed": 680,
+    "device": "cpu"
   },
-  "reference_checkpoints": {
-    "primary_seed_7711": {
-      "checkpoint": "models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head038_seed7711.pt",
-      "training_result_json": "results/world/part1_fused_context_delta_pca_head038_seed7711.json",
-      "validation_probe_json": "results/world/part1_fused_context_probe_audit_head039.json",
-      "test_probe_json": "results/world/part1_fused_context_probe_audit_head042_test_seed7711.json"
+  "reference_metrics": {
+    "same_state_retrieval": {
+      "top1": 0.321354,
+      "top5": 0.6625,
+      "top10": 0.841927,
+      "median_rank": 3.0,
+      "mrr": 0.478177
     },
-    "support_seed_7710": {
-      "checkpoint": "models/world/checkpoints/part1_jepa_latent/fused_context_delta_pca_head036.pt",
-      "training_result_json": "results/world/part1_fused_context_delta_pca_head036.json",
-      "validation_probe_json": "results/world/part1_fused_context_probe_audit_head041_seed7710.json",
-      "test_probe_json": "results/world/part1_fused_context_probe_audit_head043_test_seed7710.json"
+    "alignment": {
+      "mse": 0.007052,
+      "cosine_mean": 0.992878,
+      "cosine_min": 0.76868
+    },
+    "barlow_cross_correlation": {
+      "diag_mean": 0.930924,
+      "offdiag_abs_mean": 0.216527,
+      "offdiag_abs_max": 0.792477
+    },
+    "representation_health": {
+      "view_a_effective_rank": 14.501471,
+      "view_b_effective_rank": 14.593816,
+      "view_a_variance_min": 0.020293,
+      "view_b_variance_min": 0.020221,
+      "view_a_health_offdiag_abs_mean": 0.224284,
+      "view_b_health_offdiag_abs_mean": 0.223059,
+      "view_a_singular_top1_share": 0.091,
+      "view_b_singular_top1_share": 0.09,
+      "view_a_singular_top4_share": 0.301,
+      "view_b_singular_top4_share": 0.301
+    },
+    "raw_masked_baseline": {
+      "top10": 0.373177,
+      "mrr": 0.149323
+    },
+    "mask_artifact_audit": {
+      "view_a_mask_family_accuracy": 0.179688,
+      "view_a_majority_accuracy": 0.210938,
+      "view_b_mask_family_accuracy": 0.203125,
+      "view_b_majority_accuracy": 0.257812,
+      "decision_hint": "no_large_mask_family_leakage"
+    },
+    "stratified_mask_audit": {
+      "minimum_top10": 0.82619,
+      "weakest_family": "time_block",
+      "decision_hint": "no_large_stratified_failure"
+    },
+    "downstream_probe_caveat": {
+      "barlow_better_than_raw_last_on": [
+        "future_range_mse",
+        "future_max_abs_step_mse",
+        "future_drawdown_mse"
+      ],
+      "raw_last_better_than_barlow_on": [
+        "future_mean_delta_r2",
+        "future_terminal_delta_r2",
+        "regime_label_accuracy"
+      ],
+      "regime_classifier_status": "not_ready_below_majority_accuracy"
     }
   },
-  "summary_metrics": {
-    "validation_seed_7711": {
-      "context_effective_rank": 6.648142,
-      "context_offdiag_abs_mean": 0.323006,
-      "context_variance_mean": 0.153847,
-      "trained_decoded_delta_mse": 0.015176,
-      "trained_fixed_pca_mrr": 0.103029,
-      "trained_fixed_pca_top5": 0.133594,
-      "ridge_fixed_pca_mrr": 0.103763,
-      "ridge_fixed_pca_top5": 0.136719,
-      "ridge_raw_delta_mse": 0.015701,
-      "ridge_raw_delta_mrr": 0.096147,
-      "ridge_raw_delta_top5": 0.128125,
-      "ridge_raw_delta_mse_improvement_over_zero": 0.298315
-    },
-    "validation_seed_7710": {
-      "context_effective_rank": 6.551514,
-      "context_offdiag_abs_mean": 0.347958,
-      "context_variance_mean": 0.153385,
-      "trained_decoded_delta_mse": 0.015363,
-      "trained_fixed_pca_mrr": 0.117733,
-      "trained_fixed_pca_top5": 0.157812,
-      "ridge_fixed_pca_mrr": 0.118667,
-      "ridge_fixed_pca_top5": 0.157031,
-      "ridge_raw_delta_mse": 0.01588,
-      "ridge_raw_delta_mrr": 0.106107,
-      "ridge_raw_delta_top5": 0.125,
-      "ridge_raw_delta_mse_improvement_over_zero": 0.290307
-    },
-    "test_seed_7711": {
-      "context_effective_rank": 7.534067,
-      "context_offdiag_abs_mean": 0.310717,
-      "context_variance_mean": 0.121553,
-      "trained_decoded_delta_mse": 0.017769,
-      "trained_fixed_pca_mrr": 0.119919,
-      "trained_fixed_pca_top5": 0.155469,
-      "ridge_fixed_pca_mrr": 0.116466,
-      "ridge_fixed_pca_top5": 0.148438,
-      "ridge_raw_delta_mse": 0.017923,
-      "ridge_raw_delta_mrr": 0.110315,
-      "ridge_raw_delta_top5": 0.142969,
-      "ridge_raw_delta_mse_improvement_over_zero": 0.295762
-    },
-    "test_seed_7710": {
-      "context_effective_rank": 7.508093,
-      "context_offdiag_abs_mean": 0.32109,
-      "context_variance_mean": 0.142549,
-      "trained_decoded_delta_mse": 0.017537,
-      "trained_fixed_pca_mrr": 0.124176,
-      "trained_fixed_pca_top5": 0.175781,
-      "ridge_fixed_pca_mrr": 0.131317,
-      "ridge_fixed_pca_top5": 0.191406,
-      "ridge_raw_delta_mse": 0.018021,
-      "ridge_raw_delta_mrr": 0.115288,
-      "ridge_raw_delta_top5": 0.160156,
-      "ridge_raw_delta_mse_improvement_over_zero": 0.291907
-    }
-  },
-  "handoff_rules": [
-    "Use the primary seed 7711 checkpoint unless a decoder experiment explicitly needs the stronger support-seed fixed-PCA retrieval profile.",
-    "Train downstream probes or decoders on train split only; report validation and held-out test separately.",
-    "Carry the raw-delta retrieval caveat: this reference is strongest on coordinate/decoded-surface quality, not uniformly dominant on raw-delta top-k retrieval versus old diagnostic retrieval contexts.",
-    "Do not alter the Part 1 objective inside decoder experiments unless a new Part 1 failure is explicitly documented."
+  "acceptance_boundary": [
+    "Use this checkpoint as the current Part 1 reference candidate for masked-multiview invariance, representation-health checks, and limited risk-width/path-shape downstream probes.",
+    "Do not claim ImageNet-level JEPA performance.",
+    "Do not claim general future-prediction or reliable regime-classification performance.",
+    "Do not use downstream probes as Part 1 pretraining losses.",
+    "Do not start Part 2 decoder work unless explicitly authorized or a later workflow state says decoder work is in scope."
   ],
   "source_reports": [
-    "experiments/world/reports/world_model_head039_fused_context_probe_audit.md",
-    "experiments/world/reports/world_model_head040_probe_baseline_comparison.md",
-    "experiments/world/reports/world_model_head041_fused_context_probe_seed_check.md",
-    "experiments/world/reports/world_model_head042_split_aware_probe_audit.md",
-    "experiments/world/reports/world_model_head043_support_seed_test_probe.md",
-    "experiments/world/reports/world_model_head044_part1_reference_closeout.md"
-  ]
+    "experiments/world/reports/world_model_head063_geometry_masked_multiview_protocol.md",
+    "experiments/world/reports/world_model_head064_masked_multiview_data_builder.md",
+    "experiments/world/reports/world_model_head065_masked_multiview_diagnostics.md",
+    "experiments/world/reports/world_model_head068_direct_barlow_smoke.md",
+    "experiments/world/reports/world_model_head070_canonical_barlow_scaling.md",
+    "experiments/world/reports/world_model_head071_canonical_barlow_reference_decision.md",
+    "experiments/world/reports/world_model_head080_part1_scorecard.md",
+    "experiments/world/reports/world_model_head082_part1_scorecard_health.md",
+    "experiments/world/reports/world_model_head083_mask_artifact_audit.md",
+    "experiments/world/reports/world_model_head084_stratified_mask_audit.md",
+    "experiments/world/reports/world_model_head085_downstream_probe_coverage.md",
+    "experiments/world/reports/world_model_head086_downstream_probe_interpretation.md"
+  ],
+  "legacy_note": "Earlier HEAD036/038 fixed delta-PCA manifests remain available in git history, but they are no longer the active Part 1 objective after the masked-multiview objective correction."
 }
