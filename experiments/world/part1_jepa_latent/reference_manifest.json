@@ -155,6 +155,7 @@
       "scale_seed_stability_report": "experiments/world/reports/world_model_head131_scale_seed_stability.md",
       "scale_exact_state_gap_report": "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
       "scale_regime_probe_gap_report": "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
+      "scale_baseline_target_taxonomy_report": "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -183,6 +184,7 @@
       "scale_seed_stability_json": "results/world/scale_seed_stability_head131.json",
       "scale_exact_state_gap_json": "results/world/scale_exact_state_gap_head132.json",
       "scale_regime_probe_gap_json": "results/world/scale_regime_probe_gap_head133.json",
+      "scale_baseline_target_taxonomy_json": "results/world/scale_baseline_target_taxonomy_head134.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -322,6 +324,14 @@
           "scale_barlow_class4_recall": 0.727273,
           "raw_last_class4_recall": 0.0,
           "decision": "regime_accuracy_fails_promotion_but_macro_recall_should_be_tracked_as_diagnostic"
+        },
+        "scale_baseline_target_taxonomy": {
+          "status": "structured_target_family_gap",
+          "path_shape_or_risk_width_wins": "2/2",
+          "persistence_or_exact_state_wins": "0/2",
+          "mixed_path_shape_wins": "0/1",
+          "raw_last_plus_barlow_improvements": "4/5",
+          "decision": "baseline_superiority_should_be_reported_by_target_family_part1_still_do_not_promote"
         }
       },
       "layer_status": {
@@ -377,7 +387,8 @@
     "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
     "experiments/world/reports/world_model_head131_scale_seed_stability.md",
     "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
-    "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md"
+    "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
+    "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md"
   ],
   "guardrail_doc_checks": [
     {

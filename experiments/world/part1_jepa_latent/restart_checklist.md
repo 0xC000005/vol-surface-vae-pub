@@ -28,15 +28,16 @@ probe that consumes the Part 1 world-model reference candidate.
 19. `experiments/world/reports/world_model_head131_scale_seed_stability.md`
 20. `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`
 21. `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`
-22. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-23. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-24. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-25. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-26. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-27. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-28. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-29. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-30. latest tail of `RESEARCH_LOG.md`
+22. `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`
+23. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+24. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+25. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+26. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+27. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+28. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+29. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+30. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+31. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -123,6 +124,10 @@ probe that consumes the Part 1 world-model reference candidate.
   fails majority accuracy, but it has better macro recall and rare-class recall
   than raw surface features, so balanced metrics should inform future regime
   diagnostics.
+- Treat HEAD134 as the current baseline-superiority diagnosis: scaled Barlow
+  helps path-shape/risk-width targets and often adds to raw-last features, but
+  loses persistence/exact-state targets, so broad Part 1 promotion remains
+  blocked.
 
 ## Do Not Do Without Explicit Authorization
 

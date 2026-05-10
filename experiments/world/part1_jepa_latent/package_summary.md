@@ -64,6 +64,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`.
 - Latest scale regime-probe diagnostic:
   `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`.
+- Latest scale baseline target-family diagnostic:
+  `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`.
 
 ## Fixed Contract
 
@@ -177,6 +179,10 @@ is a representation-learning package for same-market-state masked views.
   (`153/256` validation rows). Scaled Barlow accuracy is `0.516` versus
   majority `0.598`, but macro recall is `0.521` versus raw-last `0.353`, and
   class-4 recall is `0.727` versus raw-last `0.000`.
+- Scale baseline target taxonomy: HEAD134 says the downstream baseline failure
+  is structured by target family. Scaled Barlow wins `2/2` path-shape/risk-width
+  targets and adds to raw-last on `4/5` targets, but wins `0/2`
+  persistence/exact-state targets and remains `DO_NOT_PROMOTE`.
 
 ## Caveats
 
@@ -233,13 +239,16 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD133 as the active diagnosis of the regime blocker: accuracy remains
   a failed promotion layer, but balanced/class-specific recall should be tracked
   before concluding the embedding has no regime information.
+- Treat HEAD134 as the active diagnosis of baseline superiority: report
+  downstream utility by target family, because the scaled embedding helps
+  path-shape/risk-width probes while losing exact-state/persistence probes.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- baseline-superiority diagnostics that consume the frozen representation
-  without mutating the pretraining objective;
+- a principled exact-state-retention design or diagnostic that consumes the
+  frozen representation before changing the pretraining objective;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

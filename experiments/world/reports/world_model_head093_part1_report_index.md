@@ -120,6 +120,10 @@ human-oriented resume guide, not the source of truth.
   it has better macro recall and rare class-4 recall than raw surface features,
   so the regime failure is partly an imbalanced-label diagnostic issue rather
   than pure no-signal.
+- HEAD134: `world_model_head134_scale_baseline_target_taxonomy.md` decomposes
+  baseline superiority by downstream target family. Scaled Barlow wins the
+  path-shape/risk-width targets and often adds to raw-last features, but loses
+  persistence/exact-state targets, so the blocker is target-family coverage.
 
 ## Packaging And Restart Guardrails
 
@@ -197,17 +201,18 @@ Then read:
 18. `experiments/world/reports/world_model_head131_scale_seed_stability.md`
 19. `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`
 20. `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`
-21. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-22. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-23. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-24. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-25. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-26. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-27. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-28. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-29. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-30. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-31. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+21. `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`
+22. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+23. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+24. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+25. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+26. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+27. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+28. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+29. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+30. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+31. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+32. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

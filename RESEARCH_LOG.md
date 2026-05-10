@@ -119811,3 +119811,18 @@ The accuracy gate still fails: scaled Barlow accuracy is `0.515625` versus major
 Regime accuracy remains a failed promotion layer, so Part 1 is still `DO_NOT_PROMOTE`. But the failure should not be read as pure absence of regime information; future regime diagnostics should track balanced accuracy and class-specific recall before changing the representation objective.
 
 ---
+## 2026-05-10: World Model HEAD134 Baseline Target Taxonomy
+
+### Context
+HEAD133 showed that the regime failure is not pure no-signal, but the broad baseline-superiority gate still failed. The next diagnostic was to classify the downstream failures by target family rather than treating all IV future probes as one homogeneous score.
+
+### Execution
+Added and ran `analyze_scale_baseline_target_taxonomy.py`, which reads the scale downstream quality artifact and labels targets as persistence/exact-state dominated, path-shape/risk-width, or mixed path-shape.
+
+### Result
+The baseline-superiority failure is structured. Scaled Barlow wins `2/2` path-shape/risk-width targets (`future_range`, `future_drawdown`) and adds to raw-last features on `4/5` targets. It loses `0/2` persistence/exact-state targets (`future_mean_delta`, `future_terminal_delta`). The mixed max-absolute-step target is near the best raw baseline and still adds to raw-last.
+
+### Decision
+Part 1 remains `DO_NOT_PROMOTE`, but the failure is not uniform downstream uselessness. The representation is useful for path-shape/risk-width information, while exact-state/persistence target coverage remains the blocker.
+
+---
