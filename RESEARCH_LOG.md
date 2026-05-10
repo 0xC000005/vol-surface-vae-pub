@@ -117499,3 +117499,45 @@ Raw surface last-day features dominate future mean-delta, while HEAD070 clean la
 Do not change pretraining yet. First test feature complementarity in the frozen probe by adding a small number of combined features, especially `raw_surface_last + HEAD070 clean last latent`, with the same checkpoint, ridge alpha, targets, and train/validation windows.
 
 ---
+## 2026-05-09: World model HEAD074 probe complementarity check
+
+### Context
+HEAD073 proposed testing whether HEAD070 latents are complementary to raw surface features before changing pretraining. HEAD074 added combined frozen probe feature sets.
+
+### Implementation
+Updated `masked_multiview_barlow_probe_audit.py` with:
+
+- `raw_surface_last_plus_barlow_clean_last`;
+- `raw_surface_flat_plus_barlow_clean_last`;
+- `raw_geometry_last_plus_barlow_clean_last`.
+
+Added `concatenate_feature_blocks` and a focused row-count validation test.
+
+### Validation
+Focused test passed:
+
+```bash
+pytest test_code/test_world_model_evaluation.py::test_probe_feature_block_concatenation_checks_rows -q
+```
+
+Result: `1 passed in 0.75s`.
+
+Audit command:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_barlow_probe_audit.py --device cpu --output_json results/world/masked_multiview_barlow_probe_head074.json
+```
+
+### Result
+Validation, ridge alpha `10.0`:
+
+- raw surface last: mean-delta MSE/R2 `0.006484` / `0.533258`; range MSE/R2 `0.054625` / `-2.969679`;
+- HEAD070 clean last latent: mean-delta MSE/R2 `0.011635` / `0.162420`; range MSE/R2 `0.047185` / `-2.428997`;
+- raw surface last + HEAD070: mean-delta MSE/R2 `0.006584` / `0.526010`; range MSE/R2 `0.047705` / `-2.466780`;
+- raw surface flat + HEAD070: mean-delta MSE/R2 `0.009258` / `0.333521`; range MSE/R2 `0.053574` / `-2.893356`;
+- raw geometry last + HEAD070: mean-delta MSE/R2 `0.012985` / `0.065231`; range MSE/R2 `0.060980` / `-3.431566`.
+
+### Decision
+The main complementarity falsifier fired. Combined features do not beat raw surface last for mean-delta or HEAD070 clean last for range. This suggests the next Part 1 issue is likely encoder geometry: the current flattened daily GRU representation may be too lossy for surface-local state. Next iteration should analyze a geometry-aware token encoder as a principled architecture change, not add objective knobs.
+
+---

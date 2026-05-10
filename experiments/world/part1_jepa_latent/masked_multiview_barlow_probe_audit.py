@@ -107,18 +107,48 @@ def encode_clean_masked_windows(
     return np.concatenate(rows, axis=0)
 
 
+def concatenate_feature_blocks(*blocks: np.ndarray) -> np.ndarray:
+    arrays = [np.asarray(block, dtype=np.float32) for block in blocks]
+    if not arrays:
+        raise ValueError("At least one feature block is required")
+    row_count = arrays[0].shape[0]
+    if any(arr.ndim != 2 for arr in arrays):
+        raise ValueError("All feature blocks must have shape (N, D)")
+    if any(arr.shape[0] != row_count for arr in arrays):
+        raise ValueError("All feature blocks must have the same row count")
+    return np.concatenate(arrays, axis=1).astype(np.float32)
+
+
 def _feature_sets(
     encoded: np.ndarray,
     masked_batch: MaskedMultiviewBatch,
     iv_batch: WorldWindowBatch,
 ) -> dict[str, np.ndarray]:
+    barlow_last = encoded[:, -1, :]
+    barlow_mean = encoded.mean(axis=1)
+    raw_geometry_last = masked_batch.clean_values[:, -1, :]
+    raw_geometry_flat = masked_batch.clean_values.reshape(masked_batch.clean_values.shape[0], -1)
+    raw_surface_last = iv_batch.past_window[:, -1, :]
+    raw_surface_flat = iv_batch.past_window.reshape(iv_batch.past_window.shape[0], -1)
     return {
-        "barlow_clean_last": encoded[:, -1, :],
-        "barlow_clean_mean": encoded.mean(axis=1),
-        "raw_geometry_last": masked_batch.clean_values[:, -1, :],
-        "raw_geometry_flat": masked_batch.clean_values.reshape(masked_batch.clean_values.shape[0], -1),
-        "raw_surface_last": iv_batch.past_window[:, -1, :],
-        "raw_surface_flat": iv_batch.past_window.reshape(iv_batch.past_window.shape[0], -1),
+        "barlow_clean_last": barlow_last,
+        "barlow_clean_mean": barlow_mean,
+        "raw_geometry_last": raw_geometry_last,
+        "raw_geometry_flat": raw_geometry_flat,
+        "raw_surface_last": raw_surface_last,
+        "raw_surface_flat": raw_surface_flat,
+        "raw_surface_last_plus_barlow_clean_last": concatenate_feature_blocks(
+            raw_surface_last,
+            barlow_last,
+        ),
+        "raw_surface_flat_plus_barlow_clean_last": concatenate_feature_blocks(
+            raw_surface_flat,
+            barlow_last,
+        ),
+        "raw_geometry_last_plus_barlow_clean_last": concatenate_feature_blocks(
+            raw_geometry_last,
+            barlow_last,
+        ),
     }
 
 
@@ -279,7 +309,7 @@ def main() -> None:
     parser.add_argument(
         "--output_json",
         type=str,
-        default="results/world/masked_multiview_barlow_probe_head072.json",
+        default="results/world/masked_multiview_barlow_probe_head074.json",
     )
     audit_barlow_probe(parser.parse_args())
 

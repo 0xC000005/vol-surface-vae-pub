@@ -37,6 +37,7 @@ from experiments.world.part1_jepa_latent.masked_multiview_barlow_smoke import (
     direct_masked_multiview_barlow_loss,
 )
 from experiments.world.part1_jepa_latent.masked_multiview_barlow_probe_audit import (
+    concatenate_feature_blocks,
     make_future_summary_targets,
     regression_metrics,
 )
@@ -522,6 +523,18 @@ def test_masked_multiview_probe_targets_and_regression_metrics():
     assert perfect["r2"] == pytest.approx(1.0)
     assert shifted["mse"] > perfect["mse"]
     assert shifted["r2"] < perfect["r2"]
+
+
+def test_probe_feature_block_concatenation_checks_rows():
+    left = np.ones((3, 2), dtype=np.float32)
+    right = 2.0 * np.ones((3, 4), dtype=np.float32)
+    combined = concatenate_feature_blocks(left, right)
+
+    assert combined.shape == (3, 6)
+    np.testing.assert_allclose(combined[:, :2], left)
+    np.testing.assert_allclose(combined[:, 2:], right)
+    with pytest.raises(ValueError, match="same row count"):
+        concatenate_feature_blocks(left, right[:2])
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():
