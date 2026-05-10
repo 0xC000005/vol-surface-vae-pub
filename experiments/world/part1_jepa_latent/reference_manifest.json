@@ -166,6 +166,7 @@
       "context_target_latent_health_report": "experiments/world/reports/world_model_head142_context_target_latent_health.md",
       "context_target_clean_target_gate_report": "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
       "context_target_clean_smoke_report": "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
+      "context_target_clean_quality_report": "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -202,6 +203,7 @@
       "context_target_latent_health_json": "results/world/context_target_latent_health_head142.json",
       "context_target_clean_smoke_json": "results/world/context_target_jepa_clean_head144.json",
       "context_target_clean_checkpoint": "models/world/checkpoints/part1_jepa_latent/context_target_jepa_clean_head144.pt",
+      "context_target_clean_quality_json": "results/world/context_target_clean_quality_head145.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -435,6 +437,18 @@
           "scale_barlow_effective_rank": 22.323718,
           "promotion_decision": "DO_NOT_PROMOTE",
           "decision": "clean_target_correction_trains_but_worsens_clean_context_rank"
+        },
+        "context_target_clean_quality": {
+          "status": "clean_target_worse_than_target_only_and_scaled_barlow",
+          "clean_target_iv_mse": 0.015907,
+          "target_only_iv_mse": 0.015289,
+          "scale_barlow_iv_mse": 0.013756,
+          "raw_surface_iv_mse": 0.00563,
+          "clean_target_effective_rank": 8.059559,
+          "target_only_effective_rank": 11.592254,
+          "scale_barlow_effective_rank": 18.761132,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "decision": "minimal_context_to_target_route_remains_worse_than_scaled_barlow"
         }
       },
       "layer_status": {
@@ -501,7 +515,8 @@
     "experiments/world/reports/world_model_head141_context_target_state_probe.md",
     "experiments/world/reports/world_model_head142_context_target_latent_health.md",
     "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
-    "experiments/world/reports/world_model_head144_context_target_clean_smoke.md"
+    "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
+    "experiments/world/reports/world_model_head145_context_target_clean_quality.md"
   ],
   "guardrail_doc_checks": [
     {

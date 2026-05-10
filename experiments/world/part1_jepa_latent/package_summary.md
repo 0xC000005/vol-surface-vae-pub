@@ -86,6 +86,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`.
 - Latest context-target clean-target smoke:
   `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`.
+- Latest context-target clean-target quality comparison:
+  `experiments/world/reports/world_model_head145_context_target_clean_quality.md`.
 
 ## Fixed Contract
 
@@ -247,6 +249,11 @@ is a representation-learning package for same-market-state masked views.
   correction. It trains, but clean context rank falls to `7.32`, worse than
   HEAD140 target-only (`9.41`) and much worse than scaled Barlow (`22.32`).
   The correction is not promoted.
+- Context-target clean-target quality comparison: HEAD145 confirms the
+  correction does not improve exact-state probes. Clean-target IV MSE is
+  `0.015907`, worse than HEAD140 target-only `0.015289`, scaled Barlow
+  `0.013756`, and raw surface `0.005630`; rank is `8.06` versus scaled Barlow
+  `18.76`.
 
 ## Caveats
 
@@ -334,6 +341,8 @@ is a representation-learning package for same-market-state masked views.
   closely, before considering any broader architecture change.
 - Treat HEAD144 as a negative result for the minimal clean-target correction:
   canonical target construction alone does not fix clean context rank.
+- Treat HEAD145 as the current comparison result: both minimal context-to-target
+  variants are worse than scaled Barlow on exact-state probes and rank.
 
 ## Next Work Requires Direction
 
@@ -342,7 +351,7 @@ Future work should be one of:
 - multi-seed scale stability using the same objective and encoder family;
 - a target/predictor diagnostic fix for the HEAD140 context-to-target branch
   that avoids high-cosine/low-retrieval shortcuts before adding knobs;
-- one exact-state/latent-health comparison for the HEAD144 clean-target
-  checkpoint before deciding whether to demote this context-to-target route;
+- a demotion/decision report for the minimal context-to-target route before any
+  deeper architecture change;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

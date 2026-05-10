@@ -119976,3 +119976,18 @@ The branch trains: loss falls from `0.297109` to `0.017840`. But validation heal
 `DO_NOT_PROMOTE`. Canonical clean-target construction alone does not fix Part 1. Next, run exact-state and latent-health comparison for the HEAD144 checkpoint; if still negative, demote this minimal context-to-target route rather than tuning knobs.
 
 ---
+## 2026-05-10: World Model HEAD145 Context-Target Clean Quality
+
+### Context
+HEAD144 clean-target training was negative on representation health. The next required check was an exact-state comparison against HEAD140 target-only, HEAD127 scaled Barlow, and raw baselines before deciding whether the minimal context-to-target route should continue.
+
+### Execution
+Added and ran `analyze_context_target_clean_quality.py` on the same frozen present-state probe contract used by HEAD141: 1024 train windows, 256 validation windows, seed `720`, CPU.
+
+### Result
+The clean-target correction is worse than the target-only branch and scaled Barlow. Clean-target IV MSE is `0.015907` versus target-only `0.015289`, scaled Barlow `0.013756`, and raw surface `0.005630`. Clean-target rank is `8.059559` versus target-only `11.592254` and scaled Barlow `18.761132`.
+
+### Decision
+`DO_NOT_PROMOTE`. Both minimal context-to-target variants are worse than scaled Barlow on exact-state probes and rank. Next, write a demotion/decision report before any deeper architecture change or knob tuning.
+
+---
