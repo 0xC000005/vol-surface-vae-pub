@@ -117202,3 +117202,46 @@ This is a raw masked-tensor baseline, not a trained encoder result:
 The data and diagnostic layers are ready for the first small masked-multiview encoder smoke. The next iteration should train same-state view embeddings with value plus observed/synthetic mask channels, alignment plus Barlow-style redundancy control, and report train/val diagnostics. Future prediction remains a downstream probe, not the pretraining objective.
 
 ---
+## 2026-05-09: World model HEAD066 masked multiview JEPA smoke
+
+### Context
+HEAD066 implemented the first actual Part 1 masked-multiview encoder smoke after the objective shift away from future prediction. The goal was to test whether a small EMA/stop-gradient JEPA encoder with value plus observed/synthetic mask channels can learn same-state embeddings under structured corruptions.
+
+### Literature Status
+`canonical_jepa` for the EMA/stop-gradient target encoder and latent same-state alignment. `supported_adjacent` for Barlow-style redundancy control, which is allowed here only because the positive pairs are true masked views of the same market window and same relative index.
+
+### Implementation
+Added `experiments/world/part1_jepa_latent/masked_multiview_jepa_smoke.py` with:
+
+- masked-view features: value, real observed mask, synthetic SSL mask;
+- GRU context encoder returning one latent per relative time row;
+- EMA target encoder and per-row predictor;
+- alignment plus Barlow diagonal/off-diagonal loss;
+- train/val diagnostics using HEAD065 metrics.
+
+Updated `test_code/test_world_model_evaluation.py` and `experiments/world/evaluation/README.md`.
+
+### Validation
+TDD red test first failed with `ModuleNotFoundError` for the missing module. After implementation, the focused test passed: `1 passed in 0.71s`.
+
+Real-data smoke command:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_jepa_smoke.py --epochs 6 --batch_size 64 --max_train_windows 512 --max_val_windows 128 --device cpu --output_json results/world/masked_multiview_jepa_head066.json --checkpoint models/world/checkpoints/part1_jepa_latent/masked_multiview_jepa_head066.pt
+```
+
+Training loss decreased from `0.327894` to `0.044515`.
+
+### Result
+The smoke is useful but falsifies the simple version as sufficient:
+
+- validation alignment MSE improved slightly versus raw masked views: `0.064487` vs `0.067611`;
+- validation cosine improved: `0.939162` vs `0.891644`;
+- validation retrieval collapsed: top1/top5/top10 `0.000260` / `0.002344` / `0.006510` vs raw baseline `0.035156` / `0.190885` / `0.357031`;
+- validation Barlow offdiag abs mean worsened: `0.204527` vs raw `0.106873`;
+- validation predicted effective rank was low: `4.134431` vs raw `12.916789`.
+
+### Decision
+Do not add ad hoc research knobs yet. The next iteration should be post-experiment analysis: inspect whether the EMA/predictor alignment path is optimizing a low-rank smoothing solution that gives high cosine but discards instance/date identity needed for same-state retrieval.
+
+---

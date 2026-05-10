@@ -23,6 +23,12 @@ from experiments.world.evaluation.masked_multiview_metrics import (
     mask_visibility_summary,
     same_state_multiview_metrics,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_jepa_smoke import (
+    MaskedMultiviewJEPAConfig,
+    MaskedMultiviewJEPAWorldModel,
+    make_masked_view_features,
+    masked_multiview_jepa_loss,
+)
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
@@ -383,6 +389,40 @@ def test_barlow_cross_correlation_penalizes_mismatched_views():
 
     assert matching["diag_loss"] < mismatched["diag_loss"]
     assert matching["diag_mean"] > mismatched["diag_mean"]
+
+
+def test_masked_multiview_jepa_uses_mask_channels_and_scores_time_rows():
+    import torch
+
+    values = torch.arange(2 * 3 * 4, dtype=torch.float32).reshape(2, 3, 4)
+    observed = torch.ones_like(values, dtype=torch.bool)
+    synthetic = torch.ones_like(values, dtype=torch.bool)
+    synthetic[:, 1, 2] = False
+    view_values = torch.where(observed & synthetic, values, torch.zeros_like(values))
+
+    features = make_masked_view_features(view_values, observed, synthetic)
+    assert features.shape == (2, 3, 12)
+    torch.testing.assert_close(features[..., :4], view_values)
+    torch.testing.assert_close(features[..., 4:8], observed.float())
+    torch.testing.assert_close(features[..., 8:], synthetic.float())
+
+    cfg = MaskedMultiviewJEPAConfig(
+        token_dim=4,
+        input_dim=12,
+        hidden_dim=8,
+        latent_dim=4,
+        predictor_hidden_dim=8,
+        ema_decay=0.9,
+    )
+    model = MaskedMultiviewJEPAWorldModel(cfg)
+    out = model(features, features)
+    assert out["context"].shape == (2, 3, 4)
+    assert out["predicted"].shape == (2, 3, 4)
+    assert out["target"].shape == (2, 3, 4)
+
+    loss, parts = masked_multiview_jepa_loss(out, barlow_weight=0.1)
+    assert torch.isfinite(loss)
+    assert set(parts) == {"alignment", "barlow", "barlow_diag_loss", "barlow_offdiag_loss", "loss"}
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

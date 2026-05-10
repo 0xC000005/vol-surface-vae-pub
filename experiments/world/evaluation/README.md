@@ -14,6 +14,12 @@ Keep the two claims separate.
   diagnostics.
 - `part2_metrics.py`: compact path-sample diagnostics for decoder smokes.
 
+Part 1 smoke scripts live under `experiments/world/part1_jepa_latent/`.
+`masked_multiview_jepa_smoke.py` is the first geometry-aware masked-multiview
+encoder smoke. It uses value plus observed/synthetic mask channels and reports
+the diagnostics from this folder; it does not use future prediction as a
+pretraining target.
+
 ## Part 1 Metrics
 
 These test whether Part 1 learned a robust market-state representation before
