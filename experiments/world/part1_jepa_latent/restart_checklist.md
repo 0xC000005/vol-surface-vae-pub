@@ -208,6 +208,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD158 as the current candidate consolidation: scaled Barlow is still
   the active learned candidate but remains `DO_NOT_PROMOTE`; Part B remains
   blocked.
+- Treat HEAD159 as the current open-risk ledger refresh after surface-local
+  demotion; do not continue by tuning demoted context-to-target routes.
 
 ## Do Not Do Without Explicit Authorization
 

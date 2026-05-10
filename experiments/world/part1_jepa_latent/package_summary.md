@@ -412,6 +412,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD158 as the current candidate consolidation: scaled Barlow remains
   the active learned candidate, but it is still `DO_NOT_PROMOTE`; all current
   context-to-target variants are demoted as implemented.
+- Treat HEAD159 as the current open-risk ledger refresh after surface-local
+  demotion.
 
 ## Next Work Requires Direction
 
@@ -437,5 +439,7 @@ Future work should be one of:
 - after HEAD158, continue with gate reconciliation, risk/provenance refresh, or
   a genuinely new design gate rather than resurrecting demoted context-to-target
   variants;
+- after HEAD159, do not resurrect demoted context-to-target routes through small
+  knobs; only use gate/risk reconciliation or a genuinely new design gate;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

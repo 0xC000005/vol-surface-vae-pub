@@ -120186,3 +120186,18 @@ Raw current-state features remain the exact-state floor to beat. Scaled Barlow r
 Part 1 remains blocked by exact-state retention and baseline superiority. Part B remains blocked. Next work should be gate reconciliation, risk/provenance refresh, or a genuinely new design gate that first proves target latents carry state variation before predictor training.
 
 ---
+## 2026-05-10: World Model HEAD159 Open-Risk Ledger Surface-Local Refresh
+
+### Context
+HEAD158 consolidated the candidate table after surface-local demotion. The fast-resume risk ledger also needed to reflect that demotion so future loops do not tune rejected routes.
+
+### Execution
+Added `world_model_head159_open_risk_ledger_surface_local_refresh.md` and updated the package manifest, summary, restart checklist, and report index.
+
+### Result
+The refreshed ledger states that scaled Barlow remains active but unpromoted; hard-mask, row-level context-to-target, clean-target context-to-target, and surface-local token context-to-target routes are demoted as implemented; target coverage is not the surface-local failure; and Part B remains blocked.
+
+### Decision
+Do not continue by tuning demoted context-to-target routes, increasing target coverage, making masks harder, or starting Part B. Continue only with gate/risk reconciliation or a genuinely new design gate that first proves target latents carry state variation.
+
+---

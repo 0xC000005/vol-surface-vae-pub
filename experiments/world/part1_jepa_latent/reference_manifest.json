@@ -180,6 +180,7 @@
       "surface_local_target_geometry_report": "experiments/world/reports/world_model_head156_surface_local_target_geometry.md",
       "surface_local_route_decision_report": "experiments/world/reports/world_model_head157_surface_local_route_decision.md",
       "post_surface_local_candidate_consolidation_report": "experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md",
+      "open_risk_ledger_surface_local_refresh_report": "experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -596,6 +597,21 @@
             "surface_local_token_context_to_target"
           ],
           "part_b_blocked": true
+        },
+        "open_risk_ledger_surface_local_refresh": {
+          "status": "risk_ledger_refreshed_after_surface_local_demotion",
+          "active_learned_candidate": "HEAD127_HEAD130_scaled_barlow",
+          "demoted_context_target_routes": [
+            "minimal_row_level",
+            "clean_target_row_level",
+            "surface_local_token_geometry"
+          ],
+          "forbidden_routine_continuation": [
+            "context_target_knob_tuning",
+            "surface_local_target_coverage_increase",
+            "part_b_decoder_work"
+          ],
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -676,7 +692,8 @@
     "experiments/world/reports/world_model_head155_surface_local_smoke_failure.md",
     "experiments/world/reports/world_model_head156_surface_local_target_geometry.md",
     "experiments/world/reports/world_model_head157_surface_local_route_decision.md",
-    "experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md"
+    "experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md",
+    "experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md"
   ],
   "guardrail_doc_checks": [
     {
