@@ -168,6 +168,7 @@
       "context_target_clean_smoke_report": "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
       "context_target_clean_quality_report": "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
       "context_target_route_decision_report": "experiments/world/reports/world_model_head146_context_target_route_decision.md",
+      "part1_candidate_decision_matrix_report": "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -205,6 +206,7 @@
       "context_target_clean_smoke_json": "results/world/context_target_jepa_clean_head144.json",
       "context_target_clean_checkpoint": "models/world/checkpoints/part1_jepa_latent/context_target_jepa_clean_head144.pt",
       "context_target_clean_quality_json": "results/world/context_target_clean_quality_head145.json",
+      "part1_candidate_decision_matrix_json": "results/world/part1_candidate_decision_matrix_head147.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -461,6 +463,17 @@
             "predictor_depth"
           ],
           "next_work": "bounded_evidence_consolidation_or_new_design_gate_not_ad_hoc_knob"
+        },
+        "part1_candidate_decision_matrix": {
+          "active_candidate": "scale_barlow_head127",
+          "part1_ready_for_part_b": false,
+          "minimal_context_to_target_demoted": true,
+          "primary_blocker": "exact_state_retention_and_baseline_superiority",
+          "blocked_next_work": [
+            "Part 2 decoder training",
+            "minimal context-to-target knob sweep",
+            "future prediction as pretraining objective"
+          ]
         }
       },
       "layer_status": {
@@ -529,7 +542,8 @@
     "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
     "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
     "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
-    "experiments/world/reports/world_model_head146_context_target_route_decision.md"
+    "experiments/world/reports/world_model_head146_context_target_route_decision.md",
+    "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md"
   ],
   "guardrail_doc_checks": [
     {

@@ -120006,3 +120006,18 @@ The minimal GRU row-level context-to-target route has two negative variants. HEA
 Demote the minimal context-to-target route. Do not tune context-to-target masks, EMA, hidden size, or predictor depth. A stronger canonical JEPA attempt would require a new token/geometry-level design gate, not a small patch. Continue with bounded evidence consolidation or a new design gate; do not start decoder work.
 
 ---
+## 2026-05-10: World Model HEAD147 Part 1 Candidate Decision Matrix
+
+### Context
+After demoting the minimal context-to-target route, the loop needed a compact candidate matrix so the next step is grounded in the actual score surfaces rather than another model tweak.
+
+### Execution
+Added and ran `analyze_part1_candidate_decision_matrix.py`, reading the scaled Part 1 gate, target-family taxonomy, context-target latent diagnosis, and clean-target quality comparison.
+
+### Result
+The active learned candidate is still `scale_barlow_head127`, but it is not promoted. Raw surface remains the exact-state floor (`current-IV MSE=0.005630`). Scaled Barlow has current-IV MSE `0.013756` and rank `18.761132`; context-target HEAD140 and HEAD144 are demoted with worse IV MSE/rank. The formal scale gate still has representation health and corruption robustness passing, but baseline superiority and regime probes failing.
+
+### Decision
+Part 1 is not ready for Part B. Continue with bounded evidence consolidation or a new token/geometry-level JEPA design gate. Blocked next work remains Part 2 decoder training, minimal context-to-target knob sweeps, and future prediction as a pretraining objective.
+
+---
