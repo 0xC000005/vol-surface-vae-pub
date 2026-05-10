@@ -119673,3 +119673,42 @@ git diff --check
 All checks passed.
 
 ---
+## 2026-05-10: World Model HEAD127 Scale State Probe
+
+### Context
+
+HEAD126 showed that shallow grouped geometry improves retrieval but worsens
+state-content retention and rank. The next principled diagnostic was scale, not
+another architecture or objective change: keep the HEAD070-style flat encoder,
+same masks, and same direct Barlow objective, but train on a larger slice.
+
+### Execution
+
+Trained
+`models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_head127.pt`
+with `1024` train windows, `256` validation windows, `8` epochs, seed `680`,
+and no future-target loss. Added and ran
+`experiments/world/part1_jepa_latent/analyze_scale_state_probe.py`, comparing
+HEAD127 against HEAD070 on same-state representation metrics and frozen
+present-state probes.
+
+### Result
+
+Scale is the first positive diagnostic after the state-content gate. Compared
+with HEAD070, HEAD127 improves validation retrieval (`top10=0.849740` versus
+`0.841927`), effective rank (`22.32` versus `14.50`), and redundancy
+(`offdiag=0.168` versus `0.224`). Present-state probes also improve: IV-surface
+MSE `0.013756` versus `0.014483`, side-channel MSE `0.343138` versus
+`0.428133`, factor-level MSE `0.663298` versus `0.747878`, and all-geometry
+MSE `0.239427` versus `0.261496`. Factor-return signal is mostly preserved
+(`R2=0.767517` versus `0.799291`).
+
+### Decision
+
+Promote HEAD127 only as the next Part 1 quality-gate candidate, not as
+Part-B-ready evidence. It still does not beat raw surface features on exact
+current-IV reconstruction (`0.013756` versus raw surface `0.005630`), so the
+baseline gap is reduced but not solved. Next run the broader Part 1 gate and
+downstream/simple-baseline audits on HEAD127 before any decoder work.
+
+---
