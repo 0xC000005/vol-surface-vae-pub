@@ -133,6 +133,10 @@ from experiments.world.part1_jepa_latent.score_masked_multiview_part1 import (
     extract_masked_multiview_scorecard_row,
     render_scorecard_markdown,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_mask_artifact_audit import (
+    classification_metrics,
+    fit_predict_multiclass_ridge,
+)
 
 
 def _write_surface_npz(path, n_days: int = 20) -> np.ndarray:
@@ -321,6 +325,38 @@ def test_render_scorecard_markdown_includes_reference_and_probe_rows():
     assert "| run | family | block | top1 | top5 | top10 | eff rank A/B | sv top1 A/B | health offdiag A/B | raw top10 |" in text
     assert "| raw_surface_last |" in text
     assert "HEAD070 remains the Part 1 reference candidate" in text
+
+
+def test_multiclass_ridge_predicts_linearly_separable_labels():
+    train_x = np.asarray(
+        [
+            [2.0, 0.0],
+            [3.0, 0.0],
+            [0.0, 2.0],
+            [0.0, 3.0],
+            [-2.0, -2.0],
+            [-3.0, -3.0],
+        ],
+        dtype=np.float32,
+    )
+    train_y = np.asarray(["a", "a", "b", "b", "c", "c"], dtype=object)
+    val_x = np.asarray([[4.0, 0.0], [0.0, 4.0], [-4.0, -4.0]], dtype=np.float32)
+
+    pred = fit_predict_multiclass_ridge(train_x, train_y, val_x, alpha=1e-3)
+
+    assert pred.tolist() == ["a", "b", "c"]
+
+
+def test_classification_metrics_include_majority_baseline_and_lift():
+    truth = np.asarray(["a", "a", "b", "c"], dtype=object)
+    pred = np.asarray(["a", "b", "b", "c"], dtype=object)
+
+    metrics = classification_metrics(pred, truth)
+
+    assert metrics["accuracy"] == pytest.approx(0.75)
+    assert metrics["majority_accuracy"] == pytest.approx(0.50)
+    assert metrics["accuracy_lift"] == pytest.approx(0.25)
+    assert metrics["n_classes"] == 3
 
 
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):

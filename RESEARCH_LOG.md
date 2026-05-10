@@ -117887,3 +117887,50 @@ learned embeddings encode corruption pattern/mask family too easily.
 - `python -m json.tool results/world/masked_multiview_part1_scorecard_head082.json`
 
 ---
+## 2026-05-09: World model mask-artifact leakage audit
+
+### Context
+HEAD082 expanded the scorecard health metrics. The next missing Part 1
+acceptance gate was mask-artifact diagnostics: the representation should not win
+by encoding the synthetic corruption pattern.
+
+### Hypothesis
+If HEAD070 is primarily encoding market state rather than mask artifacts, then a
+simple frozen-embedding multiclass ridge probe should not predict the synthetic
+mask family far above the majority-class baseline.
+
+### Execution
+Added `experiments/world/part1_jepa_latent/masked_multiview_mask_artifact_audit.py`.
+The audit loads the frozen HEAD070 checkpoint, encodes train/validation masked
+views, pools embeddings over time, and trains a simple multiclass ridge probe to
+predict `mask_family_a` or `mask_family_b`. Clean embeddings are included as a
+reference.
+
+Generated:
+
+- `experiments/world/reports/world_model_head083_mask_artifact_audit.md`;
+- ignored local output `results/world/masked_multiview_mask_artifact_head083.json`.
+
+### Result
+The mask-family leakage probe did not beat the majority baseline:
+
+- view A -> mask family A: accuracy `0.179688`, majority `0.210938`, lift
+  `-0.031250`;
+- view B -> mask family B: accuracy `0.203125`, majority `0.257812`, lift
+  `-0.054688`;
+- clean -> mask family A/B also stayed below majority.
+
+Decision hint: `no_large_mask_family_leakage`.
+
+### Decision / Next Step
+This reduces the concern that HEAD070's same-state retrieval is mostly driven by
+synthetic mask-family artifacts. It does not finish the geometry-stratified
+gate. Continue with a bounded geometry/mask-family stratified diagnostic before
+adding model knobs or starting Part 2.
+
+### Verification
+- `uv run pytest test_code/test_world_model_evaluation.py -q`
+- `python experiments/world/part1_jepa_latent/masked_multiview_mask_artifact_audit.py --device cpu`
+- `python -m json.tool results/world/masked_multiview_mask_artifact_head083.json`
+
+---
