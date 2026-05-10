@@ -50,6 +50,11 @@ is a representation-learning package for same-market-state masked views.
   high-retrieval but low-rank HEAD068 branch.
 - Mask-artifact audit: mask-family prediction is below majority baselines.
 - Stratified audit: no mask family has top10 below `0.826`.
+- Mask-policy coverage: HEAD070 trained and was audited on
+  `surface_maturity`, `surface_moneyness`, `surface_rectangle`,
+  `vol_side_channel`, `factor_family`, and `time_block`; richer protocol ideas
+  such as wing, ATM-strip, whole-surface day dropout, and cross-family stress
+  masks remain coverage caveats, not validated HEAD070 claims.
 - Downstream probe caveat: HEAD070 helps some risk-width/path-shape probes
   relative to raw last-surface features, but raw last-surface features remain
   stronger for mean/terminal deltas and regime-label accuracy.

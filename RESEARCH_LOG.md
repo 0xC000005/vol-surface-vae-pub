@@ -118442,3 +118442,41 @@ actual unrecoverable tool/platform failure preventing further commands.
 Continue autoresearch under those hard stops.
 
 ---
+## 2026-05-09: World model mask-policy coverage audit
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Coverage audit for `masked_multiview_invariance`.
+
+### Hypothesis
+The HEAD070 package should state exactly which structured mask families were
+trained/evaluated and which protocol ideas remain unvalidated coverage caveats.
+
+### Falsifier
+The audit would fail if the package implied HEAD070 covers all mask families
+proposed in HEAD063, including wing, ATM-strip, whole-surface day dropout, or
+cross-family stress masks.
+
+### Execution
+- Read `experiments/world/evaluation/masked_multiview_data.py`.
+- Read HEAD063 and HEAD084 reports.
+- Parsed `results/world/masked_multiview_barlow_head070.json` visibility and
+  mask-family counts.
+- Updated the Part 1 manifest and package summary with explicit mask-policy
+  coverage boundaries.
+- Added `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`.
+
+### Result
+HEAD070 is validated only for the default six mask families:
+`surface_maturity`, `surface_moneyness`, `surface_rectangle`,
+`vol_side_channel`, `factor_family`, and `time_block`. `sparse` is implemented
+but not part of the HEAD070 default reference. Wing, ATM-strip, whole-surface
+day dropout, and cross-family stress masks remain future diagnostics.
+
+### Next Step
+Continue with bounded evidence-boundary audits or explicit user-directed work;
+do not add new mask families or retrain from this audit alone.
+
+---

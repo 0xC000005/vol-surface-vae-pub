@@ -92,6 +92,26 @@
       "weakest_family": "time_block",
       "decision_hint": "no_large_stratified_failure"
     },
+    "mask_policy_coverage": {
+      "trained_and_audited_families": [
+        "surface_maturity",
+        "surface_moneyness",
+        "surface_rectangle",
+        "vol_side_channel",
+        "factor_family",
+        "time_block"
+      ],
+      "implemented_but_not_default_reference_family": [
+        "sparse"
+      ],
+      "protocol_ideas_not_in_head070_reference": [
+        "surface_wing_mask",
+        "surface_atm_strip_mask",
+        "whole_surface_day_dropout",
+        "cross_family_stress_mask"
+      ],
+      "decision": "coverage_caveat_not_model_failure"
+    },
     "downstream_probe_caveat": {
       "barlow_better_than_raw_last_on": [
         "future_range_mse",
