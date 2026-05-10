@@ -80,6 +80,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head140_context_target_smoke.md`.
 - Latest context-target present-state probe:
   `experiments/world/reports/world_model_head141_context_target_state_probe.md`.
+- Latest context-target latent-health diagnosis:
+  `experiments/world/reports/world_model_head142_context_target_latent_health.md`.
 
 ## Fixed Contract
 
@@ -227,6 +229,11 @@ is a representation-learning package for same-market-state masked views.
   present-state probes. It does not fix exact-state retention: context-target IV
   MSE is `0.015289` versus scaled Barlow `0.013756` and raw surface `0.005630`,
   and rank is `11.59` versus scaled Barlow `18.76`. It is not promoted.
+- Context-target latent-health diagnosis: HEAD142 localizes the HEAD140 failure.
+  The target latent is strongly target-family identifiable (`+0.468` accuracy
+  lift), while the predicted target latent is low-rank (`5.91`). Predicted-to-
+  target cosine is high (`0.979`), but row retrieval is poor (`top10=0.043`), so
+  the low loss is not evidence of a useful market-state representation.
 
 ## Caveats
 
@@ -305,13 +312,17 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD141 as the frozen exact-state result for HEAD140: the minimal
   context-to-target branch is worse than scaled Barlow on current-IV state
   probes and has weaker rank, so diagnose the branch before adding knobs.
+- Treat HEAD142 as the current context-to-target root-cause diagnosis: the
+  supervised target latent is mask-family heavy and the predictor collapses to a
+  low-rank surface with high cosine but poor retrieval. Do not tune knobs before
+  fixing that target/predictor diagnostic.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a diagnosis of why the HEAD140 context-to-target smoke has weak rank and
-  worse exact-state probes before adding model knobs;
+- a target/predictor diagnostic fix for the HEAD140 context-to-target branch
+  that avoids high-cosine/low-retrieval shortcuts before adding knobs;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

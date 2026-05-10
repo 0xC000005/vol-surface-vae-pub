@@ -36,15 +36,16 @@ probe that consumes the Part 1 world-model reference candidate.
 27. `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`
 28. `experiments/world/reports/world_model_head140_context_target_smoke.md`
 29. `experiments/world/reports/world_model_head141_context_target_state_probe.md`
-30. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-31. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-32. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-33. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-34. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-35. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-36. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-37. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-38. latest tail of `RESEARCH_LOG.md`
+30. `experiments/world/reports/world_model_head142_context_target_latent_health.md`
+31. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+32. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+33. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+34. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+35. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+36. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+37. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+38. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+39. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -156,6 +157,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD141 as the current context-to-target state probe: the minimal
   context-to-target smoke is worse than scaled Barlow on current-IV exact-state
   probes and has weaker rank, so diagnose the branch before adding model knobs.
+- Treat HEAD142 as the current context-to-target latent-health diagnosis: the
+  target latent is mask-family heavy and the predictor is low-rank despite high
+  cosine, so do not tune model knobs before fixing that diagnostic failure.
 
 ## Do Not Do Without Explicit Authorization
 

@@ -119931,3 +119931,18 @@ Context-target IV MSE is `0.015289`, worse than scaled Barlow `0.013756` and raw
 `DO_NOT_PROMOTE`. The minimal context-to-target branch does not fix exact-state retention or representation rank. Next, diagnose why this branch is weak before adding objectives, architecture knobs, or decoder work.
 
 ---
+## 2026-05-10: World Model HEAD142 Context-Target Latent Health
+
+### Context
+HEAD141 showed the minimal context-to-target branch is worse than scaled Barlow on exact-state probes. The next step was root-cause diagnosis, not a model knob change.
+
+### Execution
+Added and ran `analyze_context_target_latent_health.py`, separating clean context, masked context, predicted target, target latent, and target-value surfaces for the HEAD140 checkpoint. The diagnostic also measured target-mask coverage, row retrieval, and target-family leakage from each latent surface.
+
+### Result
+The target latent is strongly target-family identifiable: target-family accuracy lift is `0.467955` from selected target latents. The predicted target surface is low-rank (`5.908201`) even though predicted-to-target cosine is high (`0.979068`). Row-level retrieval is poor (`top10=0.042969`), while clean context last-rank remains only `9.414709`.
+
+### Decision
+`DO_NOT_PROMOTE`. The low context-to-target loss is a high-cosine/low-retrieval shortcut, not evidence of a stronger market-state representation. Do not tune model knobs or start decoder work before fixing the target/predictor diagnostic.
+
+---

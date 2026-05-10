@@ -163,6 +163,7 @@
       "context_target_model_scaffold_report": "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
       "context_target_smoke_report": "experiments/world/reports/world_model_head140_context_target_smoke.md",
       "context_target_state_probe_report": "experiments/world/reports/world_model_head141_context_target_state_probe.md",
+      "context_target_latent_health_report": "experiments/world/reports/world_model_head142_context_target_latent_health.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -196,6 +197,7 @@
       "context_target_smoke_json": "results/world/context_target_jepa_smoke_head140.json",
       "context_target_smoke_checkpoint": "models/world/checkpoints/part1_jepa_latent/context_target_jepa_smoke_head140.pt",
       "context_target_state_probe_json": "results/world/context_target_state_probe_head141.json",
+      "context_target_latent_health_json": "results/world/context_target_latent_health_head142.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -397,6 +399,17 @@
           "scale_barlow_effective_rank": 18.761132,
           "promotion_decision": "DO_NOT_PROMOTE",
           "decision": "minimal_context_target_smoke_does_not_fix_exact_state_or_rank"
+        },
+        "context_target_latent_health": {
+          "status": "target_predictor_surface_mismatch",
+          "clean_context_last_effective_rank": 9.414709,
+          "selected_target_effective_rank": 13.96428,
+          "selected_predicted_effective_rank": 5.908201,
+          "predicted_to_target_cosine_mean": 0.979068,
+          "predicted_to_target_retrieval_top10": 0.042969,
+          "target_family_accuracy_lift_from_target_latent": 0.467955,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "decision": "high_cosine_low_retrieval_and_mask_family_target_latent_explain_head140_weakness"
         }
       },
       "layer_status": {
@@ -460,7 +473,8 @@
     "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
     "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
     "experiments/world/reports/world_model_head140_context_target_smoke.md",
-    "experiments/world/reports/world_model_head141_context_target_state_probe.md"
+    "experiments/world/reports/world_model_head141_context_target_state_probe.md",
+    "experiments/world/reports/world_model_head142_context_target_latent_health.md"
   ],
   "guardrail_doc_checks": [
     {
