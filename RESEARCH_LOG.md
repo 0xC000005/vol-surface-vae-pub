@@ -118408,3 +118408,37 @@ Continue autoresearch in manual-stop mode with bounded process work if no model
 or decoder experiment is justified.
 
 ---
+## 2026-05-09: World model stop-condition verification
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Workflow verification for manual-stop autoresearch.
+
+### Hypothesis
+After HEAD094 and HEAD095, active workflow surfaces should no longer permit
+discretionary stopping in manual-stop mode.
+
+### Falsifier
+The iteration would fail if active tracked workflow docs still said to stop
+because of diminishing returns, completed cycles, gated model work, no
+justified model knob, remaining process-only work, or target-stage completion
+in manual-stop mode.
+
+### Execution
+- Scanned the active protocol, HEAD09 reports, and `RESEARCH_LOG.md` for stop
+  language.
+- Classified old `RESEARCH_LOG.md` stop wording as archival and superseded.
+- Added `experiments/world/reports/world_model_head096_stop_condition_verification.md`.
+
+### Result
+The discretionary-pause bug is fixed in the active workflow. Manual-stop mode
+may stop only for user interruption/stop instruction, `WORLD_MODEL_STOP`,
+explicit requested iteration budget exhaustion, `goal_reached=true`, or an
+actual unrecoverable tool/platform failure preventing further commands.
+
+### Next Step
+Continue autoresearch under those hard stops.
+
+---
