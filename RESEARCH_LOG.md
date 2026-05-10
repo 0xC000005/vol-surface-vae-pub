@@ -120096,3 +120096,18 @@ Validation has `31130` target positions, hidden rate `0.070007`, all IV cells ta
 `DATA_AUDIT_ONLY`. The data contract covers the relevant regions but is not model evidence. The next safe step is a minimal token/geometry encoder scaffold with tests; do not claim Part 1 improvement or start decoder work.
 
 ---
+## 2026-05-10: World Model HEAD153 Surface-Local Model Scaffold
+
+### Context
+HEAD152 showed the surface-local target sampler covers the wing and edge maturity regions behind the exact-state gap. The next bounded step was a model/loss scaffold, not a training claim or decoder move.
+
+### Execution
+Used TDD. The new focused test first failed on the missing `surface_local_jepa_model` module, then passed after adding `SurfaceLocalTokenJepaModel`, explicit target token-row selection, a clean frozen target encoder, and `surface_local_context_target_loss`.
+
+### Result
+`pytest test_code/test_world_model_surface_local_jepa_model.py -q` passed with `2 passed`. The scaffold selects latent targets by `(window, relative_time, token)`, conditions token embeddings on value, observed flag, visible flag, relative time, and token descriptors, and applies alignment plus Barlow-style redundancy control on selected latent target tokens.
+
+### Decision
+Scaffold only. No model was trained, no Part 1 candidate was promoted, and Part B remains blocked. The next safe step is one small surface-local token JEPA smoke with representation and target-token health diagnostics, without architecture knob tuning.
+
+---

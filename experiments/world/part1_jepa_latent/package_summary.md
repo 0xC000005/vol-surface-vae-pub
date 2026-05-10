@@ -396,6 +396,9 @@ is a representation-learning package for same-market-state masked views.
   does not change Part 1 promotion status.
 - Treat HEAD152 as data coverage evidence only. It says an encoder can be tested
   on the right target regions, not that the representation is improved.
+- Treat HEAD153 as model/loss scaffolding only. It adds explicit
+  token-position target selection and a clean target-encoder surface, but it is
+  not trained model evidence and does not promote Part 1.
 
 ## Next Work Requires Direction
 
@@ -415,7 +418,7 @@ Future work should be one of:
   route is pursued;
 - target coverage and metadata audit for the surface-local data contract before
   any encoder/loss implementation;
-- only after HEAD152, a minimal token/geometry encoder scaffold may be designed
-  with tests;
+- after HEAD153, one small surface-local token JEPA smoke may be run with
+  representation/target-token health diagnostics;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

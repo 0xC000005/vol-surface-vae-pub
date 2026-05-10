@@ -191,6 +191,8 @@ probe that consumes the Part 1 world-model reference candidate.
   target coverage before adding an encoder or loss.
 - Treat HEAD152 as the target coverage audit for that scaffold. It is not model
   evidence.
+- Treat HEAD153 as the token/geometry-level model/loss scaffold. It is not a
+  trained checkpoint, not a Part 1 promotion, and not permission to start Part B.
 
 ## Do Not Do Without Explicit Authorization
 
