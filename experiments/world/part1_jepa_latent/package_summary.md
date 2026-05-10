@@ -70,6 +70,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`.
 - Latest scale representation-surface audit:
   `experiments/world/reports/world_model_head136_scale_representation_surface.md`.
+- Latest context-to-target JEPA design:
+  `experiments/world/reports/world_model_head137_context_target_jepa_design.md`.
 
 ## Fixed Contract
 
@@ -197,6 +199,10 @@ is a representation-learning package for same-market-state masked views.
   last-state embeddings remain best for IV, side-channel, factor-level, and
   all-geometry probes, and the best scaled IV MSE remains `0.013756` versus raw
   last-surface `0.005630`.
+- Context-to-target JEPA design: HEAD137 defines the principled fallback family
+  after the invariance branch capped out. It is same-window missing-state latent
+  prediction for masked current/history blocks, not future prediction and not a
+  value-reconstruction decoder.
 
 ## Caveats
 
@@ -263,14 +269,16 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD136 as the completed representation-surface audit: the exact-state
   blocker is probably in the learned representation/objective, not merely the
   downstream pooling surface.
+- Treat HEAD137 as the design boundary for any next model code: implement a
+  separate context-to-target diagnostic branch and compare it against scaled
+  Barlow; do not silently mix it into the two-view invariance reference.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a same-window context-to-target JEPA design report or minimal diagnostic,
-  explicitly scoped to masked current/history blocks rather than future
-  prediction;
+- a minimal same-window context-to-target JEPA diagnostic branch, explicitly
+  scoped to masked current/history blocks rather than future prediction;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

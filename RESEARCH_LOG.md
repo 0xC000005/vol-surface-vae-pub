@@ -119856,3 +119856,18 @@ The surface audit does not fix exact-state retention. Last-state scaled embeddin
 Part 1 remains `DO_NOT_PROMOTE`. The exact-state blocker is probably in the learned representation/objective, not merely in the downstream pooling/readout choice. The next principled direction is a same-window context-to-target JEPA diagnostic for masked current/history blocks, not future prediction and not an ad hoc reconstruction loss.
 
 ---
+## 2026-05-10: World Model HEAD137 Context-To-Target JEPA Design
+
+### Context
+HEAD136 showed that the exact-state gap is not fixed by changing the frozen readout surface. That means the masked-multiview invariance branch is likely capped for exact-state retention, so the next move needs an explicit objective-family boundary.
+
+### Execution
+Created `world_model_head137_context_target_jepa_design.md`, a design report for a separate same-window context-to-target JEPA diagnostic branch.
+
+### Result
+The proposed diagnostic predicts latent target blocks inside the same market history/current window from masked context. It uses typed target blocks such as IV regions, factor families, side-channel groups, and contiguous history days. It explicitly excludes future targets, scenario decoder losses, and value reconstruction.
+
+### Decision
+Proceed next to a minimal context-to-target JEPA scaffold only as a separate diagnostic branch. Compare it against scaled Barlow and the formal Part 1 gate; do not silently mutate the existing two-view invariance reference.
+
+---

@@ -31,15 +31,16 @@ probe that consumes the Part 1 world-model reference candidate.
 22. `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`
 23. `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`
 24. `experiments/world/reports/world_model_head136_scale_representation_surface.md`
-25. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-26. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-27. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-28. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-29. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-30. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-31. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-32. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-33. latest tail of `RESEARCH_LOG.md`
+25. `experiments/world/reports/world_model_head137_context_target_jepa_design.md`
+26. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+27. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+28. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+29. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+30. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+31. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+32. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+33. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+34. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -137,6 +138,10 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD136 as the current representation-surface result: last-state
   scaled embeddings remain best for most present-state probes, and alternative
   pooling/flattening does not beat raw IV-surface exact-state baselines.
+- Treat HEAD137 as the current context-to-target JEPA design boundary: any next
+  model branch must be same-window masked current/history latent prediction,
+  not future prediction, not value reconstruction, and not a silent mutation of
+  the Barlow reference.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -159,6 +164,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Use generation metrics as evidence of Part 1 representation health.
 - Add an exact-value reconstruction auxiliary loss before the HEAD135
   representation-surface audit is run and interpreted.
+- Implement context-to-target JEPA without comparing it against the scaled
+  Barlow candidate and the formal Part 1 gate layers.
 
 ## Required Reporting
 
