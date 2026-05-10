@@ -78,6 +78,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`.
 - Latest context-target training smoke:
   `experiments/world/reports/world_model_head140_context_target_smoke.md`.
+- Latest context-target present-state probe:
+  `experiments/world/reports/world_model_head141_context_target_state_probe.md`.
 
 ## Fixed Contract
 
@@ -220,6 +222,11 @@ is a representation-learning package for same-market-state masked views.
   context-to-target training smoke. The loss decreases, but clean representation
   health is weak versus scaled Barlow: clean-last effective rank is `9.41` and
   offdiag is `0.304`. It is runnable, not promoted.
+- Context-target present-state probe: HEAD141 compares the HEAD140 context
+  encoder against scaled Barlow and raw state baselines on identical frozen
+  present-state probes. It does not fix exact-state retention: context-target IV
+  MSE is `0.015289` versus scaled Barlow `0.013756` and raw surface `0.005630`,
+  and rank is `11.59` versus scaled Barlow `18.76`. It is not promoted.
 
 ## Caveats
 
@@ -295,13 +302,16 @@ is a representation-learning package for same-market-state masked views.
   compared to scaled Barlow.
 - Treat HEAD140 as a runnable negative/weak smoke until frozen exact-state and
   representation-health probes show otherwise.
+- Treat HEAD141 as the frozen exact-state result for HEAD140: the minimal
+  context-to-target branch is worse than scaled Barlow on current-IV state
+  probes and has weaker rank, so diagnose the branch before adding knobs.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a frozen exact-state probe comparing HEAD140 context embeddings against
-  scaled Barlow;
+- a diagnosis of why the HEAD140 context-to-target smoke has weak rank and
+  worse exact-state probes before adding model knobs;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

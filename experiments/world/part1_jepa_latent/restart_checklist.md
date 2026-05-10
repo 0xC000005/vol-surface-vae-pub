@@ -35,15 +35,16 @@ probe that consumes the Part 1 world-model reference candidate.
 26. `experiments/world/reports/world_model_head138_context_target_data_scaffold.md`
 27. `experiments/world/reports/world_model_head139_context_target_model_scaffold.md`
 28. `experiments/world/reports/world_model_head140_context_target_smoke.md`
-29. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-30. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-31. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-32. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-33. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-34. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-35. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-36. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-37. latest tail of `RESEARCH_LOG.md`
+29. `experiments/world/reports/world_model_head141_context_target_state_probe.md`
+30. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+31. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+32. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+33. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+34. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+35. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+36. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+37. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+38. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -152,6 +153,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD140 as the current context-to-target training smoke: it trains, but
   representation health is weak, so it must not be promoted before frozen state
   probes and health correction.
+- Treat HEAD141 as the current context-to-target state probe: the minimal
+  context-to-target smoke is worse than scaled Barlow on current-IV exact-state
+  probes and has weaker rank, so diagnose the branch before adding model knobs.
 
 ## Do Not Do Without Explicit Authorization
 

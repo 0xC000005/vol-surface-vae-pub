@@ -119916,3 +119916,18 @@ The training loss decreases from `0.291315` to `0.027290`, so the branch is runn
 `DO_NOT_PROMOTE`. The context-to-target branch can train, but it is not yet a better Part 1 candidate. Next, run frozen exact-state probes for the HEAD140 context encoder before any model correction.
 
 ---
+## 2026-05-10: World Model HEAD141 Context-Target State Probe
+
+### Context
+HEAD140 made the same-window context-to-target branch runnable, but its clean representation health was weak. The next step was to check whether it actually improved the exact-state blocker before any model correction.
+
+### Execution
+Added and ran `analyze_context_target_state_probe.py`, comparing raw surface, raw full-geometry, scaled Barlow, and HEAD140 context-target clean-last embeddings on identical frozen present-state probes.
+
+### Result
+Context-target IV MSE is `0.015289`, worse than scaled Barlow `0.013756` and raw surface `0.005630`. Context-target effective rank is `11.592254` versus scaled Barlow `18.761132`, and factor-return/all-geometry probes also degrade versus scaled Barlow.
+
+### Decision
+`DO_NOT_PROMOTE`. The minimal context-to-target branch does not fix exact-state retention or representation rank. Next, diagnose why this branch is weak before adding objectives, architecture knobs, or decoder work.
+
+---
