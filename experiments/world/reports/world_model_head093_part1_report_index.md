@@ -14,6 +14,9 @@ Navigation guardrail for `masked_multiview_invariance`.
 
 This index identifies the reports that matter for resuming the current HEAD070
 masked-multiview Part 1 package without reading the full historical sequence.
+The authoritative source-report list is
+`experiments/world/part1_jepa_latent/reference_manifest.json`; this file is a
+human-oriented resume guide, not the source of truth.
 
 ## Core Protocol And Data Object
 
@@ -50,6 +53,11 @@ masked-multiview Part 1 package without reading the full historical sequence.
 - HEAD097: `world_model_head097_mask_policy_coverage_audit.md` states that
   HEAD070 is validated only for the default six mask families and treats
   sparse/wing/ATM/whole-surface/cross-family stress masks as future diagnostics.
+- HEAD100: `world_model_head100_sample_scale_caveat.md` states that HEAD070 is
+  a smoke-scale reference candidate, not a full-data convergence result.
+- HEAD102: `world_model_head102_downstream_probe_reporting_audit.md` states
+  that raw-surface-flat beats Barlow on max-absolute-step MSE, so downstream
+  utility must not be overclaimed against all raw baselines.
 
 ## Packaging And Restart Guardrails
 
@@ -88,6 +96,8 @@ Then read:
 4. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
 5. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
 6. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+7. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+8. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
 
 ## Decision
 
