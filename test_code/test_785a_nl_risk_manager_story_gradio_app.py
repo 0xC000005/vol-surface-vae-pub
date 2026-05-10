@@ -719,7 +719,7 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     assert args.samples == 12
     assert args.output_dir == "tmp/prefix"
     assert args.device == "cuda"
-    assert args.memory_prior_mode == "soft_topk_combined"
+    assert args.memory_prior_mode == "soft_topk_narrative_start_checked"
     assert args.memory_prior_top_k == 8
     assert args.temperature == 0.5
 

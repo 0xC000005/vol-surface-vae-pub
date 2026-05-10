@@ -87,6 +87,38 @@ the richer story channel. If raw narrative wins but produces temporal leakage
 or poor warnings, the product should keep grounding as a guardrail while using
 full narrative for support scoring.
 
+For the production path, the preferred default is stricter than a single
+concatenated score:
+
+```text
+full narrative embedding + fixed start -> support mixture selection
+grounded implications -> selected-support direction check
+grounded implications -> final mixed-prefix direction check
+```
+
+That means the narrative should be allowed to select nuanced support by itself,
+with start compatibility included because the frozen generator needs a valid
+initial level. Grounding should then check whether the selected historical
+prefixes and their weighted mixed prefix actually move in the extracted
+directions. For example, if grounding says volatility is compressing, the
+support audit should report the weighted fraction of selected support windows
+whose IV/VIX proxy is down, and the final mixed-prefix audit should report
+whether the mixture itself has a negative volatility terminal delta. If the
+final mixed prefix violates a checkable high-confidence direction, the run is a
+reject. If individual support is weak but the mixed prefix passes, the run is a
+warning. Embedding-only conditions are therefore insufficient for production
+unless they are tied back to an auditable prefix/support object or a validated
+decoder/probe.
+
+The current production default for the demo path is
+`soft_topk_narrative_start_checked`: rank candidate support by full-narrative
+memory similarity plus fixed-start compatibility, then keep only directionally
+passing candidates when checkable grounded motion claims exist. This differs
+from `soft_topk_combined`, which lets implication alignment continuously change
+the score. The checked mode is the preferred trust contract because the
+narrative remains the ranking channel and grounding acts as a pass/reject
+audit gate.
+
 Warnings and unsupported claims should remain visible audit fields. They should
 be embedded only when the experiment is explicitly testing a full-sidecar
 channel, because concatenating warning text into the retrieval embedding can

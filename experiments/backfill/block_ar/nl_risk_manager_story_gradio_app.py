@@ -1926,7 +1926,7 @@ def build_prefix_latent_run_args(
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
         implication_alignment_weight=0.25,
-        memory_prior_mode="soft_topk_combined",
+        memory_prior_mode="soft_topk_narrative_start_checked",
         memory_prior_top_k=8,
         memory_prior_temperature=0.2,
         memory_prior_diverse_max_pairwise_cosine=0.98,

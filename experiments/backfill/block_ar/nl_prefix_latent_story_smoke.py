@@ -106,7 +106,10 @@ StartMode = Literal[
 MemoryPriorMode = Literal[
     "query_memory",
     "soft_topk_memory",
+    "soft_topk_narrative_start",
+    "soft_topk_narrative_start_checked",
     "soft_topk_combined",
+    "diverse_topk_narrative_start",
     "diverse_topk_combined",
 ]
 PrefixPriorMode = Literal[
@@ -952,6 +955,26 @@ def annotate_variant_with_memory_prior(
             ),
         }
     )
+    direction_check = memory_prior.get("direction_check", {})
+    if isinstance(direction_check, dict):
+        annotated.update(
+            {
+                "memory_prior_direction_status": str(
+                    direction_check.get("status", "")
+                ),
+                "memory_prior_direction_reason": str(
+                    direction_check.get("reason", "")
+                ),
+                "memory_prior_support_weighted_match_rate": (
+                    None
+                    if direction_check.get("support_weighted_match_rate") is None
+                    else float(direction_check.get("support_weighted_match_rate", 0.0))
+                ),
+                "memory_prior_final_mixture_mismatch_count": int(
+                    direction_check.get("final_mixture_mismatch_count", 0) or 0
+                ),
+            }
+        )
     return annotated
 
 
@@ -1883,7 +1906,10 @@ def main() -> None:
         choices=[
             "query_memory",
             "soft_topk_memory",
+            "soft_topk_narrative_start",
+            "soft_topk_narrative_start_checked",
             "soft_topk_combined",
+            "diverse_topk_narrative_start",
             "diverse_topk_combined",
         ],
         default="query_memory",

@@ -119566,3 +119566,110 @@ barrier. The next principled diagnostic is scale/stability of the current
 HEAD070-style flat encoder before changing objective family.
 
 ---
+## 2026-05-10: HEAD nl-prefix-latent 89 narrative-first direction-checked support
+
+### Context
+
+The user accepted the separated scorer idea but clarified the production rule:
+the full narrative should drive support selection, while grounding should act as
+a factual direction check. The system should therefore verify selected support
+and the final mixed prefix against grounded motion claims, and warn or reject
+when those checks fail.
+
+### Hypothesis
+
+A narrative-first support prior can keep the richer story signal if it ranks
+candidate analogues by full-narrative memory similarity plus fixed-start
+compatibility, then applies grounding as a hard audit gate rather than a
+continuous scoring replacement. If this is viable, the checked prior should
+remove direction mismatches without destroying scenario quality.
+
+### Execution
+
+- Added `soft_topk_narrative_start_checked` to
+  `nl_prefix_latent_analogue_mixture_prior.py`.
+- The new mode ranks by narrative/start score, filters selected support through
+  checkable grounded terminal-direction claims, and audits both individual
+  support and the final weighted mixed prefix.
+- Added `direction_check` diagnostics with support weighted match rate, final
+  mixed-prefix mismatches, and pass/warning/reject status.
+- Wired `memory_prior_direction_status=reject` into
+  `nl_prefix_latent_validation_gate.py` as an operational failure.
+- Added a static-current-state skip in `nl_prefix_latent_market_alignment.py`,
+  so phrases like "volatility remains elevated" are not incorrectly treated as
+  30-day terminal-delta direction claims.
+- Switched the Gradio/demo default support prior from `soft_topk_combined` to
+  `soft_topk_narrative_start_checked`.
+
+Representative commands:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_direction_checked_mixture_prior_846c_static_skip \
+  --top-k 8 --temperature 0.2 --start-distance-threshold-z 15.0 \
+  --start-distance-penalty 0.02 --implication-alignment-weight 0.25
+
+uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_direction_checked_bakeoff_846e_9row_s4_static_gate \
+  --case-spec-json autoresearch-session/new_condition_fixed_start_grid_823c.json \
+  --case-count 9 --variant-set direction_check --samples 4 --steps 180 \
+  --chunk-size 4 --device cuda
+```
+
+### Result
+
+The cheap offline prior evaluator showed the core mechanism:
+
+- unchecked `soft_topk_narrative_start`: 50.0% mismatch rate and 2/3 direction
+  rejects;
+- checked `soft_topk_narrative_start_checked`: 0.0% mismatch rate and 3/3
+  direction passes;
+- `soft_topk_memory`: 0.0% mismatch rate but weaker start compatibility and no
+  explicit narrative/start gate.
+
+The 9-row generator-level fixed-start bakeoff with the final validation gate
+showed:
+
+| Variant | Direction status | Operational status | Mean energy improvement | Mean CRPS improvement | Final mixed-prefix mismatches |
+|---|---|---|---:|---:|---:|
+| narrative-start checked | 9 pass | 8 pass / 1 warning | 0.115 | 0.085 | 0 |
+| combined implication score | 7 pass / 2 reject | 6 pass / 1 warning / 2 fail | 0.112 | 0.080 | 2 |
+| memory only | 9 reject | 9 fail | 0.116 | 0.087 | 12 |
+| unchecked narrative-start | 9 reject | 9 fail | 0.107 | 0.075 | 17 |
+
+Main artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_direction_checked_bakeoff_846e_9row_s4_static_gate/start_conditioned_bakeoff.md`
+
+### Mechanism Read
+
+The unchecked narrative/start ranking can choose support that looks plausible
+in latent space but violates checkable market directions. The new checked mode
+keeps narrative as the ranking channel but uses grounding to reject support
+that contradicts direct motion claims. This is closer to the product contract:
+grounding does not replace the narrative, but it can veto inconsistent support.
+
+The static-current-state skip matters because some grounded language describes
+levels rather than recent moves. "Volatility remains elevated" is not the same
+claim as "volatility is rising." Terminal-delta checks should apply to motion
+claims; a later level-state audit should handle high/low/elevated/depressed
+state language.
+
+### Decision / Next Step
+
+Promote `soft_topk_narrative_start_checked` as the demo default. The next
+principled step is to add a separate level-state support audit, so static
+claims like elevated volatility or low yields can be checked against endpoint
+level z-scores instead of being skipped or misread as terminal-delta moves.
+
+### Verification
+
+```bash
+uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_790a_nl_prefix_latent_validation_gate.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_794a_nl_prefix_latent_gradio_live_casebook.py -q
+uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_market_alignment.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py experiments/backfill/block_ar/nl_prefix_latent_validation_gate.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py
+git diff --check
+```
+
+All checks passed.
+
+---

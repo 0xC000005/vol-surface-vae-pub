@@ -120,10 +120,15 @@ def evaluate_start_case_gates(
         start_distance = float(row.get("start_distance_z", 0.0))
         mean_shift = float(rollout_shifts[idx].get("mean_abs_delta_z", 0.0))
         terminal_shift = float(rollout_shifts[idx].get("terminal_mean_abs_delta_z", 0.0))
+        direction_status = str(row.get("memory_prior_direction_status", "")).lower()
         if memory_cosine < float(th["memory_cosine_fail"]):
             failures.append("memory_compatibility_fail")
         elif memory_cosine < float(th["memory_cosine_warn"]):
             warnings.append("low_memory_compatibility")
+        if direction_status == "reject":
+            failures.append("memory_prior_direction_reject")
+        elif direction_status == "warning":
+            warnings.append("memory_prior_direction_warning")
         if start_distance > float(th["start_distance_fail"]):
             failures.append("start_distance_fail")
         elif start_distance > float(th["start_distance_warn"]):
@@ -139,6 +144,7 @@ def evaluate_start_case_gates(
             + max(0.0, start_distance / max(float(th["start_distance_warn"]), 1e-8) - 1.0)
             + max(0.0, max(mean_shift, terminal_shift) / max(float(th["rollout_shift_warn"]), 1e-8) - 1.0)
             + 2.0 * len(failures)
+            + (0.5 if direction_status == "warning" else 0.0)
         )
         cases.append(
             {
@@ -157,6 +163,7 @@ def evaluate_start_case_gates(
                 "input_memory_cosine": memory_cosine,
                 "mean_abs_delta_z": mean_shift,
                 "terminal_mean_abs_delta_z": terminal_shift,
+                "memory_prior_direction_status": direction_status,
                 "warnings": warnings,
                 "failures": failures,
                 "status": _status_from_flags(bool(failures), len(warnings)),

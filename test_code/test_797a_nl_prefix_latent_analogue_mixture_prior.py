@@ -10,11 +10,13 @@ sys.path.insert(0, ".")
 from experiments.backfill.block_ar.nl_prefix_latent_analogue_mixture_prior import (
     build_mixture_memory_prior,
     candidate_support_table,
+    direction_check_for_mixture,
     run_analogue_mixture_prior,
     start_distances_to_query_start,
     weighted_prefix_terminal_rows,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_market_alignment import (
+    is_terminal_direction_checkable,
     market_implication_alignment,
 )
 
@@ -82,6 +84,8 @@ def test_candidate_support_table_combines_memory_and_implication_alignment() -> 
 
     assert by_idx[0]["recent_prefix_alignment_score"] == 1.0
     assert by_idx[1]["recent_prefix_alignment_score"] == -1.0
+    assert by_idx[1]["narrative_start_score"] > by_idx[0]["narrative_start_score"]
+    assert by_idx[1]["recent_prefix_alignment"]["mismatch_count"] == 2
     assert by_idx[0]["combined_score"] > by_idx[1]["combined_score"]
 
 
@@ -145,7 +149,89 @@ def test_build_mixture_memory_prior_returns_weighted_memory_and_support() -> Non
     assert result["analogue_count"] == 2
     assert abs(sum(result["weights"]) - 1.0) < 1e-6
     assert result["support_alignment"]["checked_count"] == 2
+    assert result["direction_check"]["status"] == "pass"
     assert result["query_start_source"] == "query_window_index"
+
+
+def test_narrative_start_mode_keeps_grounding_as_direction_check_only() -> None:
+    result = build_mixture_memory_prior(
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=np.asarray(
+            [[0.7, 0.3], [1.0, 0.0], [0.2, 0.8]],
+            dtype=np.float32,
+        ),
+        history_level=_history(),
+        train_indices=np.asarray([0, 1, 2]),
+        query_window_index=0,
+        grounding=_grounding(),
+        spec_names=_spec_names(),
+        mode="soft_topk_narrative_start",
+        top_k=1,
+        temperature=0.2,
+        start_distance_threshold_z=100.0,
+        start_distance_penalty=0.0,
+        implication_alignment_weight=100.0,
+        diverse_max_pairwise_cosine=0.99,
+    )
+
+    assert result["window_indices"] == [1]
+    assert result["candidate_details"][0]["recent_prefix_mismatches"] == 2
+    assert result["direction_check"]["status"] == "reject"
+    assert (
+        result["direction_check"]["reason"]
+        == "final_mixed_prefix_direction_mismatch"
+    )
+
+
+def test_narrative_start_checked_mode_uses_grounding_as_hard_gate() -> None:
+    result = build_mixture_memory_prior(
+        query_memory=np.asarray([1.0, 0.0], dtype=np.float32),
+        memory_targets=np.asarray(
+            [[0.7, 0.3], [1.0, 0.0], [0.2, 0.8]],
+            dtype=np.float32,
+        ),
+        history_level=_history(),
+        train_indices=np.asarray([0, 1, 2]),
+        query_window_index=0,
+        grounding=_grounding(),
+        spec_names=_spec_names(),
+        mode="soft_topk_narrative_start_checked",
+        top_k=1,
+        temperature=0.2,
+        start_distance_threshold_z=100.0,
+        start_distance_penalty=0.0,
+        implication_alignment_weight=100.0,
+        diverse_max_pairwise_cosine=0.99,
+    )
+
+    assert result["window_indices"] == [0]
+    assert result["candidate_details"][0]["recent_prefix_mismatches"] == 0
+    assert result["direction_check"]["status"] == "pass"
+
+
+def test_direction_check_warns_on_weak_support_before_final_mismatch() -> None:
+    check = direction_check_for_mixture(
+        candidate_details=[
+            {
+                "window_index": 0,
+                "recent_prefix_checked": 2,
+                "recent_prefix_match_count": 1,
+                "recent_prefix_mismatches": 1,
+                "recent_prefix_alignment_status": "warning",
+            }
+        ],
+        weights=np.asarray([1.0], dtype=np.float32),
+        final_mixture_alignment={
+            "checked_count": 2,
+            "match_count": 2,
+            "mismatch_count": 0,
+            "status": "pass",
+        },
+        min_support_match_rate=0.75,
+    )
+
+    assert check["status"] == "warning"
+    assert check["reason"] == "selected_support_direction_weak"
 
 
 def test_weighted_rows_are_compatible_with_alignment_helper() -> None:
@@ -163,6 +249,43 @@ def test_weighted_rows_are_compatible_with_alignment_helper() -> None:
 
     assert alignment["status"] == "pass"
     assert alignment["mismatch_count"] == 0
+
+
+def test_market_alignment_skips_static_current_state_level_language() -> None:
+    assert not is_terminal_direction_checkable(
+        {
+            "market": "VIX",
+            "direction": "up",
+            "horizon": "current_state",
+            "evidence": ["volatility remains elevated"],
+        }
+    )
+    alignment = market_implication_alignment(
+        grounding={
+            "market_implications": [
+                {
+                    "market": "VIX",
+                    "direction": "up",
+                    "horizon": "current_state",
+                    "evidence": ["volatility remains elevated"],
+                },
+                {
+                    "market": "USDJPY",
+                    "direction": "up",
+                    "horizon": "current_state",
+                    "evidence": ["USDJPY is moving higher"],
+                },
+            ]
+        },
+        scenario_rows=[
+            {"Market": "VIX", "Mean Terminal Delta": -1.0},
+            {"Market": "USDJPY", "Mean Terminal Delta": 1.0},
+        ],
+    )
+
+    assert alignment["checked_count"] == 1
+    assert alignment["skipped_count"] == 1
+    assert alignment["status"] == "pass"
 
 
 def test_run_analogue_mixture_prior_writes_summary(tmp_path) -> None:

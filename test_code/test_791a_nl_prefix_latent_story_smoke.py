@@ -400,6 +400,12 @@ def test_annotate_variant_with_memory_prior_records_start_conditioned_mixture() 
             "query_start_source": "provided_start_state",
             "analogue_count": 2,
             "weights": [0.75, 0.25],
+            "direction_check": {
+                "status": "pass",
+                "reason": "selected_support_and_mixed_prefix_directionally_consistent",
+                "support_weighted_match_rate": 0.9,
+                "final_mixture_mismatch_count": 0,
+            },
             "candidate_details": [
                 {"window_index": 10, "start_distance_z": 2.0},
                 {"window_index": 11, "start_distance_z": 4.0},
@@ -411,6 +417,8 @@ def test_annotate_variant_with_memory_prior_records_start_conditioned_mixture() 
     assert row["memory_prior_analogue_count"] == 2
     assert row["memory_prior_top_window_index"] == 10
     assert row["memory_prior_weighted_start_distance_z"] == 2.5
+    assert row["memory_prior_direction_status"] == "pass"
+    assert row["memory_prior_support_weighted_match_rate"] == 0.9
 
 
 def test_generated_delta_samples_to_states_adds_current_state_per_variant() -> None:

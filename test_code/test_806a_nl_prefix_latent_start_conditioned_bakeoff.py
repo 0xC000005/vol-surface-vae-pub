@@ -74,6 +74,13 @@ def test_selected_variants_supports_temperature_calibration_set() -> None:
     assert rows[1]["generator_temperature"] == 0.75
 
 
+def test_selected_variants_supports_direction_check_set() -> None:
+    rows = selected_variants(1, variant_set="direction_check")
+
+    assert rows[0]["memory_prior_mode"] == "soft_topk_narrative_start_checked"
+    assert rows[0]["generator_temperature"] == 0.5
+
+
 def test_row_from_report_extracts_operational_metrics() -> None:
     row = row_from_report(
         case={
@@ -103,6 +110,10 @@ def test_row_from_report_extracts_operational_metrics() -> None:
                     "start_distance_z": 1.5,
                     "memory_prior_weighted_start_distance_z": 2.5,
                     "memory_prior_analogue_count": 8,
+                    "memory_prior_direction_status": "pass",
+                    "memory_prior_direction_reason": "ok",
+                    "memory_prior_support_weighted_match_rate": 0.875,
+                    "memory_prior_final_mixture_mismatch_count": 0,
                 }
             ],
             "generation": {
@@ -129,6 +140,8 @@ def test_row_from_report_extracts_operational_metrics() -> None:
     assert row["target_available"] is True
     assert row["run_report"] == "run.json"
     assert row["generator_temperature"] == 0.75
+    assert row["memory_prior_direction_status"] == "pass"
+    assert row["memory_prior_support_weighted_match_rate"] == 0.875
     assert np.isclose(row["scenario_metrics"]["energy_score_z"], 4.0)
     assert np.isclose(
         row["scenario_metrics"]["ensemble_crps_z_improvement_vs_persistence"], 0.5
@@ -141,6 +154,9 @@ def test_summarize_by_variant_sorts_by_crps() -> None:
             {
                 "variant_name": "b",
                 "validation_operational": "pass",
+                "memory_prior_direction_status": "pass",
+                "memory_prior_support_weighted_match_rate": 0.9,
+                "memory_prior_final_mixture_mismatch_count": 0,
                 "target_available": True,
                 "memory_prior_weighted_start_distance_z": 2.0,
                 "scenario_metrics": {
@@ -153,6 +169,9 @@ def test_summarize_by_variant_sorts_by_crps() -> None:
             {
                 "variant_name": "a",
                 "validation_operational": "pass",
+                "memory_prior_direction_status": "reject",
+                "memory_prior_support_weighted_match_rate": 0.4,
+                "memory_prior_final_mixture_mismatch_count": 1,
                 "target_available": True,
                 "memory_prior_weighted_start_distance_z": 1.0,
                 "scenario_metrics": {
@@ -167,6 +186,8 @@ def test_summarize_by_variant_sorts_by_crps() -> None:
 
     assert [row["variant_name"] for row in summary] == ["a", "b"]
     assert summary[0]["operational_status_counts"] == {"pass": 1}
+    assert summary[0]["direction_status_counts"] == {"reject": 1}
+    assert summary[0]["total_final_mixture_mismatches"] == 1
 
 
 def test_oracle_select_best_rows_chooses_lowest_crps_per_case_start() -> None:
@@ -256,11 +277,14 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
                     "run_count": 1,
                     "target_count": 1,
                     "operational_status_counts": {"pass": 1},
+                    "direction_status_counts": {"pass": 1},
                     "mean_energy_score_z": 1.0,
                     "mean_ensemble_crps_z": 0.5,
                     "mean_energy_improvement_vs_persistence": 0.1,
                     "mean_crps_improvement_vs_persistence": 0.2,
                     "mean_weighted_start_distance_z": 2.0,
+                    "mean_support_weighted_match_rate": 0.875,
+                    "total_final_mixture_mismatches": 0,
                 }
             ],
             "oracle_selection_summary": {
@@ -279,6 +303,9 @@ def test_render_markdown_lists_variant_and_case_rows() -> None:
                     "start_name": "recommended",
                     "variant_name": "decoder_soft_topk_combined",
                     "validation_operational": "pass",
+                    "memory_prior_direction_status": "pass",
+                    "memory_prior_support_weighted_match_rate": 0.875,
+                    "memory_prior_final_mixture_mismatch_count": 0,
                     "target_available": True,
                     "memory_prior_weighted_start_distance_z": 2.0,
                     "scenario_metrics": {

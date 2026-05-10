@@ -161,10 +161,46 @@ TEMPERATURE_CALIBRATION_VARIANTS = [
     },
 ]
 
+DIRECTION_CHECK_VARIANTS = [
+    {
+        "variant_name": "decoder_soft_topk_narrative_start_checked_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+    {
+        "variant_name": "decoder_soft_topk_narrative_start_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_narrative_start",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+    {
+        "variant_name": "decoder_soft_topk_combined_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_combined",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+    {
+        "variant_name": "decoder_soft_topk_memory_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_memory",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+]
+
 
 VARIANT_SETS = {
     "prior": DEFAULT_VARIANTS,
     "temperature": TEMPERATURE_CALIBRATION_VARIANTS,
+    "direction_check": DIRECTION_CHECK_VARIANTS,
 }
 
 
@@ -271,6 +307,20 @@ def row_from_report(
         "memory_prior_analogue_count": int(
             operational.get("memory_prior_analogue_count", 0) or 0
         ),
+        "memory_prior_direction_status": str(
+            operational.get("memory_prior_direction_status", "")
+        ),
+        "memory_prior_direction_reason": str(
+            operational.get("memory_prior_direction_reason", "")
+        ),
+        "memory_prior_support_weighted_match_rate": (
+            None
+            if operational.get("memory_prior_support_weighted_match_rate") is None
+            else float(operational.get("memory_prior_support_weighted_match_rate", 0.0))
+        ),
+        "memory_prior_final_mixture_mismatch_count": int(
+            operational.get("memory_prior_final_mixture_mismatch_count", 0) or 0
+        ),
         "run_report": str(report.get("artifact_paths", {}).get("report", "")),
     }
 
@@ -288,15 +338,21 @@ def summarize_by_variant(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if isinstance(row.get("scenario_metrics"), dict)
         ]
         status_counts: dict[str, int] = {}
+        direction_status_counts: dict[str, int] = {}
         for row in variant_rows:
             status = str(row.get("validation_operational", ""))
             status_counts[status] = status_counts.get(status, 0) + 1
+            direction_status = str(row.get("memory_prior_direction_status", ""))
+            direction_status_counts[direction_status] = (
+                direction_status_counts.get(direction_status, 0) + 1
+            )
         summary_rows.append(
             {
                 "variant_name": variant_name,
                 "run_count": int(len(variant_rows)),
                 "target_count": int(len(target_rows)),
                 "operational_status_counts": status_counts,
+                "direction_status_counts": direction_status_counts,
                 "mean_energy_score_z": _safe_mean(
                     [
                         metric.get("energy_score_z")
@@ -332,6 +388,23 @@ def summarize_by_variant(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         row.get("memory_prior_weighted_start_distance_z")
                         for row in variant_rows
                     ]
+                ),
+                "mean_support_weighted_match_rate": _safe_mean(
+                    [
+                        row.get("memory_prior_support_weighted_match_rate")
+                        for row in variant_rows
+                        if row.get("memory_prior_support_weighted_match_rate")
+                        is not None
+                    ]
+                ),
+                "total_final_mixture_mismatches": int(
+                    sum(
+                        int(
+                            row.get("memory_prior_final_mixture_mismatch_count", 0)
+                            or 0
+                        )
+                        for row in variant_rows
+                    )
                 ),
             }
         )
@@ -474,23 +547,29 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Variant Summary",
         "",
-        "| Variant | Runs | Targets | Status Counts | Mean Energy z | Mean CRPS z | Mean Energy Imp | Mean CRPS Imp | Mean Weighted Start z |",
-        "|---|---:|---:|---|---:|---:|---:|---:|---:|",
+        "| Variant | Runs | Targets | Status Counts | Direction Counts | Mean Energy z | Mean CRPS z | Mean Energy Imp | Mean CRPS Imp | Mean Weighted Start z | Mean Support Match | Final Mix Mismatches |",
+        "|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary.get("variant_summary", []):
         status_counts = json.dumps(
             row.get("operational_status_counts", {}), sort_keys=True
+        )
+        direction_counts = json.dumps(
+            row.get("direction_status_counts", {}), sort_keys=True
         )
         lines.append(
             f"| `{row.get('variant_name')}` | "
             f"`{row.get('run_count')}` | "
             f"`{row.get('target_count')}` | "
             f"`{status_counts}` | "
+            f"`{direction_counts}` | "
             f"`{_format_optional(row.get('mean_energy_score_z'))}` | "
             f"`{_format_optional(row.get('mean_ensemble_crps_z'))}` | "
             f"`{_format_optional(row.get('mean_energy_improvement_vs_persistence'))}` | "
             f"`{_format_optional(row.get('mean_crps_improvement_vs_persistence'))}` | "
-            f"`{_format_optional(row.get('mean_weighted_start_distance_z'))}` |"
+            f"`{_format_optional(row.get('mean_weighted_start_distance_z'))}` | "
+            f"`{_format_optional(row.get('mean_support_weighted_match_rate'))}` | "
+            f"`{row.get('total_final_mixture_mismatches')}` |"
         )
     oracle = summary.get("oracle_selection_summary", {})
     if isinstance(oracle, dict) and oracle:
@@ -514,8 +593,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "## Case Rows",
             "",
-            "| Case | Start | Variant | Status | Target | Energy z | CRPS z | Energy Imp | CRPS Imp | Weighted Start z | Report |",
-            "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|",
+            "| Case | Start | Variant | Status | Direction | Target | Energy z | CRPS z | Energy Imp | CRPS Imp | Weighted Start z | Support Match | Final Mix Mismatches | Report |",
+            "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
     for row in summary.get("rows", []):
@@ -527,12 +606,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"`{row.get('start_name')}` | "
             f"`{row.get('variant_name')}` | "
             f"`{row.get('validation_operational')}` | "
+            f"`{row.get('memory_prior_direction_status')}` | "
             f"`{bool(row.get('target_available'))}` | "
             f"`{_format_optional(metrics.get('energy_score_z'))}` | "
             f"`{_format_optional(metrics.get('ensemble_crps_z'))}` | "
             f"`{_format_optional(metrics.get('energy_score_z_improvement_vs_persistence'))}` | "
             f"`{_format_optional(metrics.get('ensemble_crps_z_improvement_vs_persistence'))}` | "
             f"`{_format_optional(row.get('memory_prior_weighted_start_distance_z'))}` | "
+            f"`{_format_optional(row.get('memory_prior_support_weighted_match_rate'))}` | "
+            f"`{row.get('memory_prior_final_mixture_mismatch_count')}` | "
             f"`{row.get('run_report')}` |"
         )
     return "\n".join(lines)

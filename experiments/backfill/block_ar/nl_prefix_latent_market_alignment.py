@@ -39,6 +39,64 @@ def expected_delta_sign(direction: Any) -> int | None:
     return None
 
 
+def _evidence_text(item: dict[str, Any]) -> str:
+    evidence = item.get("evidence", "")
+    if isinstance(evidence, list):
+        return " ".join(str(part) for part in evidence).lower()
+    return str(evidence).lower()
+
+
+def is_terminal_direction_checkable(item: dict[str, Any]) -> bool:
+    """Return whether an implication should be checked as a prefix delta.
+
+    Grounding can describe either a recent move ("VIX is rising") or a current
+    level state ("VIX is elevated"). The former can be checked against a
+    30-day terminal delta; the latter needs a level/support check and should not
+    be treated as a directional path claim.
+    """
+
+    horizon = str(item.get("horizon", "")).lower()
+    evidence = _evidence_text(item)
+    if not evidence:
+        return True
+    motion_terms = {
+        "bid",
+        "compressing",
+        "drifting",
+        "dropping",
+        "falling",
+        "firmer",
+        "firming",
+        "going",
+        "higher",
+        "lower",
+        "moving",
+        "rallying",
+        "rising",
+        "selling",
+        "selloff",
+        "sliding",
+        "softening",
+        "strengthening",
+        "tightening",
+        "weakening",
+        "widening",
+    }
+    static_terms = {
+        "choppy",
+        "elevated",
+        "flat",
+        "not providing",
+        "remains elevated",
+        "under pressure",
+    }
+    has_motion = any(term in evidence for term in motion_terms)
+    has_static = any(term in evidence for term in static_terms)
+    if horizon == "current_state" and has_static and not has_motion:
+        return False
+    return True
+
+
 def market_implication_alignment(
     *,
     grounding: dict[str, Any],
@@ -62,6 +120,16 @@ def market_implication_alignment(
             continue
         market = str(item.get("market", "")).upper()
         direction = str(item.get("direction", ""))
+        if not is_terminal_direction_checkable(item):
+            skipped.append(
+                {
+                    "market": market,
+                    "direction": direction,
+                    "reason": "static_current_state_not_terminal_direction",
+                    "evidence": item.get("evidence"),
+                }
+            )
+            continue
         expected = expected_delta_sign(direction)
         scenario = scenario_by_market.get(market)
         if expected is None or scenario is None:
@@ -107,6 +175,7 @@ def market_implication_alignment(
         "match_count": len(checked) - len(mismatches),
         "mismatch_count": len(mismatches),
         "skipped_count": len(skipped),
+        "checked": checked,
         "mismatches": mismatches,
         "skipped": skipped,
     }

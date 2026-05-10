@@ -260,12 +260,12 @@ def candidate_support_table(
         )
         start_distance_cost = float(start_distance_penalty) * float(distances[pos])
         excess_distance_cost = float(start_distance_penalty) * excess_distance
-        combined_score = (
-            float(cosines[pos])
-            + float(implication_alignment_weight) * recent_score
-            - start_distance_cost
-            - excess_distance_cost
+        narrative_start_score = (
+            float(cosines[pos]) - start_distance_cost - excess_distance_cost
         )
+        combined_score = narrative_start_score + float(
+            implication_alignment_weight
+        ) * recent_score
         rows.append(
             {
                 "window_index": int(window_idx),
@@ -273,11 +273,21 @@ def candidate_support_table(
                 "start_distance_z": float(distances[pos]),
                 "start_distance_cost": float(start_distance_cost),
                 "excess_start_distance_cost": float(excess_distance_cost),
+                "narrative_start_score": float(narrative_start_score),
                 "recent_prefix_alignment_score": float(recent_score),
                 "recent_prefix_checked": int(alignment.get("checked_count", 0) or 0),
+                "recent_prefix_match_count": int(
+                    alignment.get("match_count", 0) or 0
+                ),
                 "recent_prefix_mismatches": int(
                     alignment.get("mismatch_count", 0) or 0
                 ),
+                "recent_prefix_match_rate": (
+                    float(alignment.get("match_count", 0) or 0)
+                    / float(alignment.get("checked_count", 1) or 1)
+                ),
+                "recent_prefix_alignment_status": str(alignment.get("status", "")),
+                "recent_prefix_alignment": alignment,
                 "combined_score": float(combined_score),
             }
         )
@@ -305,6 +315,32 @@ def _scores_for_indices(
     return np.asarray(
         [float(by_idx[int(idx)].get(key, 0.0)) for idx in window_indices],
         dtype=np.float32,
+    )
+
+
+def direction_passing_top_indices(
+    rows: list[dict[str, Any]],
+    *,
+    key: str,
+    k: int,
+) -> np.ndarray:
+    """Select by narrative/start score after applying a hard direction gate."""
+
+    ordered = sorted(
+        rows,
+        key=lambda row: float(row.get(key, -1e9)),
+        reverse=True,
+    )
+    passing = [
+        row
+        for row in ordered
+        if int(row.get("recent_prefix_checked", 0) or 0) > 0
+        and int(row.get("recent_prefix_mismatches", 0) or 0) == 0
+    ]
+    source = passing if passing else ordered
+    return np.asarray(
+        [int(row["window_index"]) for row in source[: max(int(k), 1)]],
+        dtype=np.int64,
     )
 
 
@@ -383,6 +419,92 @@ def evaluate_mixture_variant(
     }
 
 
+def direction_check_for_mixture(
+    *,
+    candidate_details: list[dict[str, Any]],
+    weights: list[float] | np.ndarray,
+    final_mixture_alignment: dict[str, Any],
+    min_support_match_rate: float = 0.60,
+) -> dict[str, Any]:
+    """Audit grounding directions against selected support and mixed prefix.
+
+    This is deliberately not a scoring function. The narrative/start scorer can
+    choose support, then this check decides whether the support and final mixed
+    prefix are directionally consistent with the grounded claims.
+    """
+
+    selected = [row for row in candidate_details if isinstance(row, dict)]
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if selected and w.shape[0] != len(selected):
+        raise ValueError("weights must match candidate_details")
+    if selected:
+        denom = float(np.sum(w))
+        if not np.isfinite(denom) or denom <= 0.0:
+            w = np.ones(len(selected), dtype=np.float64) / float(len(selected))
+        else:
+            w = w / denom
+    support_checked_weight = 0.0
+    weighted_match_rate = 0.0
+    weighted_mismatch_rate = 0.0
+    candidate_rows: list[dict[str, Any]] = []
+    for candidate, weight in zip(selected, w, strict=False):
+        checked = int(candidate.get("recent_prefix_checked", 0) or 0)
+        matches = int(candidate.get("recent_prefix_match_count", 0) or 0)
+        mismatches = int(candidate.get("recent_prefix_mismatches", 0) or 0)
+        match_rate = float(matches / checked) if checked else None
+        mismatch_rate = float(mismatches / checked) if checked else None
+        if checked:
+            support_checked_weight += float(weight)
+            weighted_match_rate += float(weight) * float(match_rate or 0.0)
+            weighted_mismatch_rate += float(weight) * float(mismatch_rate or 0.0)
+        candidate_rows.append(
+            {
+                "window_index": int(candidate.get("window_index", -1)),
+                "weight": float(weight),
+                "checked_count": checked,
+                "match_count": matches,
+                "mismatch_count": mismatches,
+                "match_rate": match_rate,
+                "mismatch_rate": mismatch_rate,
+                "status": str(candidate.get("recent_prefix_alignment_status", "")),
+            }
+        )
+    if support_checked_weight > 0.0:
+        weighted_match_rate = float(weighted_match_rate / support_checked_weight)
+        weighted_mismatch_rate = float(
+            weighted_mismatch_rate / support_checked_weight
+        )
+    else:
+        weighted_match_rate = None
+        weighted_mismatch_rate = None
+    final_checked = int(final_mixture_alignment.get("checked_count", 0) or 0)
+    final_mismatches = int(final_mixture_alignment.get("mismatch_count", 0) or 0)
+    if final_checked > 0 and final_mismatches > 0:
+        status = "reject"
+        reason = "final_mixed_prefix_direction_mismatch"
+    elif weighted_match_rate is None:
+        status = "warning"
+        reason = "no_checkable_grounding_direction"
+    elif weighted_match_rate < float(min_support_match_rate):
+        status = "warning"
+        reason = "selected_support_direction_weak"
+    else:
+        status = "pass"
+        reason = "selected_support_and_mixed_prefix_directionally_consistent"
+    return {
+        "status": status,
+        "reason": reason,
+        "support_checked_weight": float(support_checked_weight),
+        "support_weighted_match_rate": weighted_match_rate,
+        "support_weighted_mismatch_rate": weighted_mismatch_rate,
+        "min_support_match_rate": float(min_support_match_rate),
+        "candidate_direction_rows": candidate_rows,
+        "final_mixture_alignment": final_mixture_alignment,
+        "final_mixture_checked_count": final_checked,
+        "final_mixture_mismatch_count": final_mismatches,
+    }
+
+
 def build_mixture_memory_prior(
     *,
     query_memory: np.ndarray,
@@ -437,9 +559,28 @@ def build_mixture_memory_prior(
     if prior_mode == "soft_topk_memory":
         indices = _top_indices(candidates, "memory_support_cosine", top_k)
         scores = _scores_for_indices(candidates, indices, "memory_support_cosine")
+    elif prior_mode == "soft_topk_narrative_start":
+        indices = _top_indices(candidates, "narrative_start_score", top_k)
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "soft_topk_narrative_start_checked":
+        indices = direction_passing_top_indices(
+            candidates,
+            key="narrative_start_score",
+            k=top_k,
+        )
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
     elif prior_mode == "soft_topk_combined":
         indices = _top_indices(candidates, "combined_score", top_k)
         scores = _scores_for_indices(candidates, indices, "combined_score")
+    elif prior_mode == "diverse_topk_narrative_start":
+        indices = diverse_top_indices(
+            candidates,
+            memory_targets=memory,
+            key="narrative_start_score",
+            k=top_k,
+            max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+        )
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
     elif prior_mode == "diverse_topk_combined":
         indices = diverse_top_indices(
             candidates,
@@ -466,6 +607,12 @@ def build_mixture_memory_prior(
         scenario_rows=terminal_rows,
     )
     by_idx = {int(row["window_index"]): row for row in candidates}
+    candidate_details = [by_idx[int(idx)] for idx in indices]
+    direction_check = direction_check_for_mixture(
+        candidate_details=candidate_details,
+        weights=weights,
+        final_mixture_alignment=support_alignment,
+    )
     return {
         "mode": prior_mode,
         "memory": mixture_memory,
@@ -473,8 +620,9 @@ def build_mixture_memory_prior(
         "window_indices": [int(idx) for idx in indices],
         "weights": [float(weight) for weight in weights],
         "support_alignment": support_alignment,
+        "direction_check": direction_check,
         "terminal_rows": terminal_rows,
-        "candidate_details": [by_idx[int(idx)] for idx in indices],
+        "candidate_details": candidate_details,
         "query_start_source": (
             "provided_start_state"
             if query_start_state is not None
@@ -551,7 +699,20 @@ def evaluate_case(
         implication_alignment_weight=float(implication_alignment_weight),
     )
     memory_top = _top_indices(candidates, "memory_support_cosine", top_k)
+    narrative_start_top = _top_indices(candidates, "narrative_start_score", top_k)
+    narrative_start_checked_top = direction_passing_top_indices(
+        candidates,
+        key="narrative_start_score",
+        k=top_k,
+    )
     combined_top = _top_indices(candidates, "combined_score", top_k)
+    diverse_narrative_start_top = diverse_top_indices(
+        candidates,
+        memory_targets=memory_targets,
+        key="narrative_start_score",
+        k=top_k,
+        max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+    )
     diverse_top = diverse_top_indices(
         candidates,
         memory_targets=memory_targets,
@@ -590,10 +751,49 @@ def evaluate_case(
             temperature=temperature,
         ),
         evaluate_mixture_variant(
+            name="soft_topk_narrative_start",
+            history_level=history_level,
+            window_indices=narrative_start_top,
+            scores=_scores_for_indices(
+                candidates,
+                narrative_start_top,
+                "narrative_start_score",
+            ),
+            grounding=grounding,
+            spec_names=spec_names,
+            temperature=temperature,
+        ),
+        evaluate_mixture_variant(
+            name="soft_topk_narrative_start_checked",
+            history_level=history_level,
+            window_indices=narrative_start_checked_top,
+            scores=_scores_for_indices(
+                candidates,
+                narrative_start_checked_top,
+                "narrative_start_score",
+            ),
+            grounding=grounding,
+            spec_names=spec_names,
+            temperature=temperature,
+        ),
+        evaluate_mixture_variant(
             name="soft_topk_combined",
             history_level=history_level,
             window_indices=combined_top,
             scores=_scores_for_indices(candidates, combined_top, "combined_score"),
+            grounding=grounding,
+            spec_names=spec_names,
+            temperature=temperature,
+        ),
+        evaluate_mixture_variant(
+            name="diverse_topk_narrative_start",
+            history_level=history_level,
+            window_indices=diverse_narrative_start_top,
+            scores=_scores_for_indices(
+                candidates,
+                diverse_narrative_start_top,
+                "narrative_start_score",
+            ),
             grounding=grounding,
             spec_names=spec_names,
             temperature=temperature,
@@ -618,11 +818,17 @@ def evaluate_case(
             row = candidate_by_idx[int(idx)]
             weighted_support += float(weight) * float(row["memory_support_cosine"])
             weighted_distance += float(weight) * float(row["start_distance_z"])
-        variant["weighted_memory_support_cosine"] = float(weighted_support)
-        variant["weighted_start_distance_z"] = float(weighted_distance)
-        variant["candidate_details"] = [
+        selected_details = [
             candidate_by_idx[int(idx)] for idx in variant["window_indices"]
         ]
+        variant["weighted_memory_support_cosine"] = float(weighted_support)
+        variant["weighted_start_distance_z"] = float(weighted_distance)
+        variant["candidate_details"] = selected_details
+        variant["direction_check"] = direction_check_for_mixture(
+            candidate_details=selected_details,
+            weights=variant["weights"],
+            final_mixture_alignment=variant["alignment"],
+        )
     generated_alignment = case_input.get("generated_alignment", {})
     if not isinstance(generated_alignment, dict):
         generated_alignment = {}
@@ -667,6 +873,7 @@ def summarize_cases(
                     "status_counts": {},
                     "mean_weighted_memory_support_cosine": 0.0,
                     "mean_weighted_start_distance_z": 0.0,
+                    "direction_status_counts": {},
                 },
             )
             total["case_count"] += 1
@@ -674,6 +881,12 @@ def summarize_cases(
             total["mismatch_count"] += int(variant.get("mismatch_count", 0) or 0)
             status = str(variant.get("status", "unknown"))
             total["status_counts"][status] = total["status_counts"].get(status, 0) + 1
+            direction_check = variant.get("direction_check", {})
+            if isinstance(direction_check, dict):
+                direction_status = str(direction_check.get("status", "unknown"))
+                total["direction_status_counts"][direction_status] = (
+                    total["direction_status_counts"].get(direction_status, 0) + 1
+                )
             total["mean_weighted_memory_support_cosine"] += float(
                 variant.get("weighted_memory_support_cosine", 0.0) or 0.0
             )

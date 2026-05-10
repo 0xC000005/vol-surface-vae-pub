@@ -158,3 +158,31 @@ def test_evaluate_start_case_gates_fails_on_endpoint_error() -> None:
 
     assert report["overall_status"] == "fail"
     assert "endpoint_not_pinned" in report["hard_fail_reasons"]
+
+
+def test_evaluate_start_case_gates_rejects_direction_mismatch() -> None:
+    rows = [
+        {
+            "query_window_index": 1,
+            "start_window_index": 1,
+            "variant": "explicit_start",
+            "is_operational": True,
+            "memory_prior_direction_status": "reject",
+        }
+    ]
+    memory = np.ones((1, 2), dtype=np.float32)
+    shifts = [{"mean_abs_delta_z": 0.0, "terminal_mean_abs_delta_z": 0.0}]
+
+    report = evaluate_start_case_gates(
+        variant_rows=rows,
+        decoded_memory=memory,
+        text_memory=memory,
+        rollout_shifts=shifts,
+        endpoint_max_abs_error=0.0,
+        thresholds=DEFAULT_GATE_THRESHOLDS,
+    )
+
+    assert report["overall_status"] == "fail"
+    assert report["operational_status"] == "fail"
+    assert report["fail_counts"]["memory_prior_direction_reject"] == 1
+    assert report["cases"][0]["memory_prior_direction_status"] == "reject"
