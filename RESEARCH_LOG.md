@@ -118576,3 +118576,35 @@ should not be silently assumed.
 Continue with bounded evidence-boundary audits or explicit user-directed work.
 
 ---
+## 2026-05-09: World model manifest sample-scale source
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Package consistency for `masked_multiview_invariance`.
+
+### Hypothesis
+If HEAD100 adds a sample-scale caveat to the manifest, the manifest should list
+the HEAD100 report as a source report so the package checker enforces that
+evidence file.
+
+### Falsifier
+The iteration would fail if `reference_manifest.json` carried
+`sample_scale_caveat` but did not list
+`world_model_head100_sample_scale_caveat.md`.
+
+### Execution
+- Added `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+  to `reference_manifest.json` source reports.
+- Re-ran the reference package checker.
+- Added `experiments/world/reports/world_model_head101_manifest_sample_scale_source.md`.
+
+### Result
+`reference_package_check.py` now verifies `14` source reports and `7`
+artifacts.
+
+### Next Step
+Continue in manual-stop mode.
+
+---
