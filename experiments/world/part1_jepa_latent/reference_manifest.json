@@ -182,6 +182,7 @@
       "post_surface_local_candidate_consolidation_report": "experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md",
       "open_risk_ledger_surface_local_refresh_report": "experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md",
       "part1_gate_reconciliation_after_surface_local_report": "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md",
+      "next_work_wording_refresh_report": "experiments/world/reports/world_model_head161_next_work_wording_refresh.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -621,6 +622,11 @@
           "active_learned_candidate": "HEAD127_HEAD130_scaled_barlow",
           "surface_local_changes_gate_status": false,
           "primary_blocker": "exact_state_retention_and_baseline_superiority"
+        },
+        "next_work_wording_refresh": {
+          "status": "package_summary_next_work_guardrail_refreshed",
+          "blocks_demoted_context_target_knob_tuning": true,
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -703,7 +709,8 @@
     "experiments/world/reports/world_model_head157_surface_local_route_decision.md",
     "experiments/world/reports/world_model_head158_post_surface_local_candidate_consolidation.md",
     "experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md",
-    "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md"
+    "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md",
+    "experiments/world/reports/world_model_head161_next_work_wording_refresh.md"
   ],
   "guardrail_doc_checks": [
     {

@@ -120216,3 +120216,18 @@ The surface-local branch changes no promotion layer. Data coverage passes, but t
 Part 1 remains `DO_NOT_PROMOTE` and not ready for Part B. Any future Part 1 design must target exact-state retention and baseline superiority directly; context-to-target revival requires proving target latents carry state variation before predictor training.
 
 ---
+## 2026-05-10: World Model HEAD161 Next-Work Wording Refresh
+
+### Context
+After HEAD160, `package_summary.md` still contained stale next-work bullets for completed or demoted context-to-target and surface-local steps, including one malformed bullet.
+
+### Execution
+Refreshed the `Next Work Requires Direction` section and added `world_model_head161_next_work_wording_refresh.md`.
+
+### Result
+The active next-work list now points to package/provenance checks, gate/risk reconciliation, bounded exact-state blocker analysis without default reconstruction loss, same-objective scale/stability evidence, or a genuinely new design gate requiring target latents to carry state variation. It explicitly blocks resurrecting demoted context-to-target routes through small knobs.
+
+### Decision
+Documentation guardrail only. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---

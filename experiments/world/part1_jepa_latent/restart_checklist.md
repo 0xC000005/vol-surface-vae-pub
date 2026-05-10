@@ -212,6 +212,8 @@ probe that consumes the Part 1 world-model reference candidate.
   demotion; do not continue by tuning demoted context-to-target routes.
 - Treat HEAD160 as the current gate reconciliation after surface-local demotion:
   Part 1 remains `DO_NOT_PROMOTE`, and Part B remains blocked.
+- Treat HEAD161 as the next-work wording refresh: active docs no longer point
+  future resumes into completed or demoted context-to-target tuning tasks.
 
 ## Do Not Do Without Explicit Authorization
 

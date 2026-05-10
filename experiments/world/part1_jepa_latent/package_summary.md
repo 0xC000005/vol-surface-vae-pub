@@ -421,29 +421,17 @@ is a representation-learning package for same-market-state masked views.
 
 Future work should be one of:
 
-- multi-seed scale stability using the same objective and encoder family;
-- a target/predictor diagnostic fix for the HEAD140 context-to-target branch
-  that avoids high-cosine/low-retrieval shortcuts before adding knobs;
-- a demotion/decision report for the minimal context-to-target route before any
-- bounded evidence consolidation around the remaining exact-state gap, or a new
-  design gate for a token/geometry-level JEPA architecture;
-- quality-gate reconciliation for scaled Barlow without promoting it;
-- bounded exact-state-gap evidence audit or token/geometry-level JEPA design
-  gate;
-- surface-local exact-state design gate if pursuing another Part 1 model;
-- TDD data-contract work for token/geometry-level targets only if this design
-  route is pursued;
-- target coverage and metadata audit for the surface-local data contract before
-  any encoder/loss implementation;
-- after HEAD157, only revisit surface-local context-to-target JEPA through a new
-  design gate that proves target latents carry state variation before predictor
-  training;
-- after HEAD158, continue with gate reconciliation, risk/provenance refresh, or
-  a genuinely new design gate rather than resurrecting demoted context-to-target
-  variants;
-- after HEAD159, do not resurrect demoted context-to-target routes through small
-  knobs; only use gate/risk reconciliation or a genuinely new design gate;
-- after HEAD160, keep exact-state retention and baseline superiority as the
-  primary blockers unless new evidence changes the gate;
-- a documented Part 1 quality-gate diagnostic that does not add model knobs by
-  default.
+- provenance, manifest, digest, package-checker, and report-index consistency
+  checks;
+- gate reconciliation or risk-ledger refreshes that keep exact-state retention
+  and baseline superiority as the active blockers;
+- bounded exact-state blocker analysis that does not silently add a raw-value
+  reconstruction auxiliary loss;
+- same-objective scale/stability evidence for the active scaled Barlow
+  candidate, without changing the objective;
+- a genuinely new Part 1 design gate only if it first explains how target
+  latents will carry state variation before predictor training.
+
+Do not resurrect demoted context-to-target routes through target coverage,
+hidden-size, predictor-depth, EMA, epoch, mask-aggression, or Barlow-weight
+tuning.
