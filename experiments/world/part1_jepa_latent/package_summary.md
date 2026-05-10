@@ -25,6 +25,9 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/part1_jepa_latent/reference_manifest.json`.
 - Artifact digests:
   `experiments/world/part1_jepa_latent/reference_artifact_digests.json`.
+- Package checker:
+  `experiments/world/part1_jepa_latent/reference_package_check.py`, covering
+  source reports, guardrail-doc caveat terms, and ignored artifact identities.
 - Restart checklist:
   `experiments/world/part1_jepa_latent/restart_checklist.md`.
 

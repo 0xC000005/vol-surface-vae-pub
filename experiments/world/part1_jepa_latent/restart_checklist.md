@@ -40,7 +40,8 @@ probe that consumes the Part 1 world-model reference candidate.
 
 - Verify `autoresearch-session/WORLD_MODEL_STOP` is absent.
 - Verify artifact digests if the experiment consumes ignored checkpoint,
-  result, or data files.
+  result, or data files, and verify guardrail-doc caveat terms are still
+  present.
   Use:
   `python experiments/world/part1_jepa_latent/reference_package_check.py`.
 - State whether the experiment is Part 1, Part 2, or a downstream probe.

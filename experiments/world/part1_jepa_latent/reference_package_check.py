@@ -12,6 +12,10 @@ def _resolve_path(root: Path, path_value: str | Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def _normalize_doc_text(text: str) -> str:
+    return " ".join(text.split())
+
+
 def check_reference_package(
     *,
     root: str | Path = ".",
@@ -29,6 +33,24 @@ def check_reference_package(
         resolved = _resolve_path(root_path, report_path)
         if not resolved.exists():
             missing_reports.append(str(report_path))
+
+    guardrail_doc_failures = []
+    for doc_check in manifest.get("guardrail_doc_checks", []):
+        doc_path = doc_check["path"]
+        resolved = _resolve_path(root_path, doc_path)
+        if not resolved.exists():
+            guardrail_doc_failures.append({"path": doc_path, "reason": "missing"})
+            continue
+        text = _normalize_doc_text(resolved.read_text(encoding="utf-8"))
+        missing_terms = [
+            term
+            for term in doc_check.get("required_terms", [])
+            if _normalize_doc_text(term) not in text
+        ]
+        if missing_terms:
+            guardrail_doc_failures.append(
+                {"path": doc_path, "reason": "missing_terms", "terms": missing_terms}
+            )
 
     artifact_mismatches = []
     checked_artifacts = 0
@@ -62,12 +84,14 @@ def check_reference_package(
             )
 
     return {
-        "ok": not missing_reports and not artifact_mismatches,
+        "ok": not missing_reports and not guardrail_doc_failures and not artifact_mismatches,
         "manifest_path": str(manifest_file),
         "digest_path": str(digest_file),
         "missing_reports": missing_reports,
+        "guardrail_doc_failures": guardrail_doc_failures,
         "artifact_mismatches": artifact_mismatches,
         "checked_reports": len(manifest.get("source_reports", [])),
+        "checked_guardrail_docs": len(manifest.get("guardrail_doc_checks", [])),
         "checked_artifacts": checked_artifacts,
     }
 

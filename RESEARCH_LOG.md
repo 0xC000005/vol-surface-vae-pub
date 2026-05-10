@@ -118868,3 +118868,34 @@ target performance, or decoder quality from the Part 1 package.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model package checker guardrail docs
+
+### Context
+
+`reference_package_check.py` verified source reports and ignored artifact
+digests, but it did not enforce the active README/checklist/package documents
+that carry the current acceptance boundary.
+
+### Hypothesis
+
+If guardrail docs are part of the Part 1 reference package, the package checker
+should fail when those docs disappear or lose critical caveat terms.
+
+### Execution
+
+- Added `guardrail_doc_checks` to `reference_manifest.json`.
+- Extended `reference_package_check.py` to verify guardrail doc existence and
+  required caveat terms with whitespace-normalized matching.
+- Updated package docs to describe the broader checker scope.
+- Added `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`.
+
+### Result
+
+`reference_package_check.py` now reports `checked_reports=16`,
+`checked_guardrail_docs=4`, and `checked_artifacts=7`.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---

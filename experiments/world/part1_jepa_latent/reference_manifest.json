@@ -162,5 +162,43 @@
     "experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md",
     "experiments/world/reports/world_model_head105_downstream_target_scope_audit.md"
   ],
+  "guardrail_doc_checks": [
+    {
+      "path": "experiments/world/README.md",
+      "required_terms": [
+        "smoke-scale",
+        "ImageNet-level JEPA",
+        "factor-panel future targets",
+        "Part 2 scenario quality"
+      ]
+    },
+    {
+      "path": "experiments/world/part1_jepa_latent/README.md",
+      "required_terms": [
+        "smoke-scale reference candidate",
+        "default structured mask families",
+        "IV-surface futures only",
+        "Part 2 scenario-generation quality"
+      ]
+    },
+    {
+      "path": "experiments/world/part1_jepa_latent/package_summary.md",
+      "required_terms": [
+        "smoke-scale reference candidate",
+        "raw surface baseline",
+        "IV-surface futures only",
+        "not canonical ImageNet I-JEPA"
+      ]
+    },
+    {
+      "path": "experiments/world/part1_jepa_latent/restart_checklist.md",
+      "required_terms": [
+        "full-data convergence",
+        "validated default mask families only",
+        "factor-panel future target performance",
+        "IV-surface futures only"
+      ]
+    }
+  ],
   "legacy_note": "Earlier HEAD036/038 fixed delta-PCA manifests remain available in git history, but they are no longer the active Part 1 objective after the masked-multiview objective correction."
 }
