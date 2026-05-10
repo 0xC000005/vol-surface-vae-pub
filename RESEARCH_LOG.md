@@ -119149,3 +119149,48 @@ Do not proceed to Part B. Next work should implement or run the Part 1
 quality-gate probes without changing the pretraining objective.
 
 ---
+## 2026-05-10: World Model HEAD119 Part 1 Quality Gate Assessment
+
+### Context
+
+The literature-aligned Part 1 quality gate had been defined, but the gate still
+needed to be executed against the current HEAD070 masked-multiview Barlow
+reference package.
+
+### Execution
+
+- Added and ran `experiments/world/part1_jepa_latent/assess_part1_quality_gate.py`.
+- The runner checks package integrity, reads HEAD070/082/083/084/085 artifacts,
+  and emits `results/world/part1_quality_gate_assessment_head119.json` plus
+  `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`.
+- Updated the reference manifest, package summary, restart checklist, and report
+  index to make the executed gate result visible on resume.
+
+### Result
+
+- Package integrity: PASS.
+- Representation health: PASS. Same-state retrieval remains materially above
+  raw masked baselines, with top10 `0.841927` versus raw `0.373177`, MRR
+  `0.478177` versus raw `0.149323`, and effective rank about `14.5`.
+- Corruption robustness: PARTIAL. Default mask-family leakage is below majority
+  and default-family min top10 is `0.826190`, but richer masks and seed
+  stability remain unvalidated.
+- Baseline superiority: FAIL. `barlow_clean_last` beats the best raw baseline on
+  only `2/5` IV future targets; raw features win `3/5`.
+- Market-state linear probes: FAIL. The regime probe is below majority
+  (`0.109375` versus `0.597656`) and factor-panel/IV-shape state probes are not
+  complete.
+- Temporal utility: PARTIAL. IV-surface future probes exist, but results are
+  mixed and factor-panel future targets/horizon sensitivity are missing.
+- Scale and stability: FAIL. The reference is still one-seed smoke scale
+  (`384` train windows, `128` validation windows, `8` epochs).
+
+### Decision
+
+Part 1 is not ready for Part B. The corruption-based embedding-learning signal
+works at smoke scale, but the current representation is not yet a certified
+joint market-state representation. The next work should add frozen
+market-state/factor-panel probes and simple raw/PCA/rolling baselines before any
+decoder work.
+
+---

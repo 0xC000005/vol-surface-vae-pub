@@ -32,6 +32,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/part1_jepa_latent/restart_checklist.md`.
 - Part 1 quality gate:
   `experiments/world/part1_jepa_latent/part1_quality_gate.md`.
+- Latest executed Part 1 quality-gate assessment:
+  `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`.
 
 ## Fixed Contract
 
@@ -67,6 +69,11 @@ is a representation-learning package for same-market-state masked views.
   downstream utility claim is not "Barlow beats all raw baselines." These
   downstream probes target IV-surface futures only; factor-panel future targets
   have not been evaluated.
+- Executed quality-gate assessment: HEAD119 returns
+  `DO_NOT_PROMOTE`. Package integrity and representation health pass, default
+  corruption robustness is partial, baseline superiority fails, market-state
+  linear probes fail, temporal utility remains partial, and scale/stability
+  fails.
 
 ## Caveats
 
@@ -81,6 +88,9 @@ is a representation-learning package for same-market-state masked views.
 - Part B remains gated until the literature-aligned Part 1 quality gate passes:
   representation health, corruption robustness, baseline superiority,
   market-state frozen probes, temporal utility probes, and scale/stability.
+- The latest executed assessment says Part 1 is not ready for Part B. The
+  corruption-based embedding learning signal works at smoke scale, but it is
+  not yet a certified joint market-state representation.
 
 ## Next Work Requires Direction
 
