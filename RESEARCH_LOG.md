@@ -117166,3 +117166,39 @@ Artifacts:
 - `results/world/masked_multiview_head064_smoke.json`
 
 ---
+## 2026-05-09: World model HEAD065 masked multiview diagnostics
+
+### Context
+HEAD064 built the geometry-aware masked multiview data layer. HEAD065 added the diagnostic layer needed before any new Part 1 training: same-state alignment, retrieval, Barlow-style cross-correlation, representation health, and geometry/family visibility summaries.
+
+### Implementation
+Added `experiments/world/evaluation/masked_multiview_metrics.py` with:
+
+- `same_state_multiview_metrics` for alignment, retrieval, Barlow, and health checks;
+- `barlow_cross_correlation_metrics` for diagonal/off-diagonal redundancy diagnostics;
+- `mask_visibility_summary` for observed/synthetic visibility by geometry and factor family;
+- `flattened_time_rows` for scoring per-window, per-relative-index positives.
+
+Updated the world-model evaluation tests and README to cover the new diagnostics.
+
+### Validation
+- Focused diagnostics tests: `2 passed in 0.76s`.
+- Full world-model evaluation test slice: `36 passed in 0.77s`.
+- Compile check passed for the new metric module and test file.
+- Real-data raw masked-view smoke saved to `results/world/masked_multiview_head065_metric_smoke.json`.
+
+### Real-Data Baseline
+This is a raw masked-tensor baseline, not a trained encoder result:
+
+- alignment MSE: `0.046740`;
+- alignment cosine mean: `0.958239`;
+- retrieval MRR: `0.246423`;
+- retrieval top1/top5/top10: `0.085417` / `0.383333` / `0.762500`;
+- Barlow diag mean / diag loss: `0.407648` / `0.536486`;
+- Barlow offdiag abs mean: `0.086700`;
+- view A/B effective rank: `11.981477` / `10.913984`.
+
+### Decision
+The data and diagnostic layers are ready for the first small masked-multiview encoder smoke. The next iteration should train same-state view embeddings with value plus observed/synthetic mask channels, alignment plus Barlow-style redundancy control, and report train/val diagnostics. Future prediction remains a downstream probe, not the pretraining objective.
+
+---

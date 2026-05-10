@@ -17,6 +17,12 @@ from experiments.world.evaluation.masked_multiview_data import (
     build_masked_multiview_batch,
     load_geometry_panel_values,
 )
+from experiments.world.evaluation.masked_multiview_metrics import (
+    barlow_cross_correlation_metrics,
+    flattened_time_rows,
+    mask_visibility_summary,
+    same_state_multiview_metrics,
+)
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
@@ -333,6 +339,50 @@ def test_masked_multiview_keeps_real_missingness_separate(tmp_path):
         & ~batch.synthetic_mask_a
     )
     assert factor_hidden.any()
+
+
+def test_masked_multiview_metrics_score_alignment_and_visibility(tmp_path):
+    surface_path = tmp_path / "surface.npz"
+    factor_path = tmp_path / "factors.npz"
+    _write_surface_npz(surface_path, n_days=24)
+    _write_multi_factor_npz(factor_path, n_days=24)
+    batch = build_masked_multiview_batch(
+        surface_path=surface_path,
+        multi_factor_path=factor_path,
+        split="train",
+        history_len=4,
+        future_len=2,
+        test_start=20,
+        val_size=3,
+        max_windows=3,
+        normalize=False,
+        seed=65,
+        mask_families=("surface_moneyness", "factor_family"),
+    )
+    clean_rows = flattened_time_rows(batch.clean_values)
+    embeddings = np.eye(clean_rows.shape[0], dtype=np.float32)
+    metrics = same_state_multiview_metrics(embeddings, embeddings.copy())
+    visibility = mask_visibility_summary(batch)
+
+    assert metrics["alignment"]["mse"] < 0.001
+    assert metrics["retrieval"]["top1"] == 1.0
+    assert metrics["barlow"]["diag_mean"] > 0.99
+    assert visibility["overall"]["observed_rate"] == 1.0
+    assert "iv_surface" in visibility["by_geometry"]
+    assert "equity_risk" in visibility["by_family"]
+    assert visibility["by_geometry"]["iv_surface"]["n_tokens"] == 25
+
+
+def test_barlow_cross_correlation_penalizes_mismatched_views():
+    x = np.eye(6, dtype=np.float32)
+    y = x.copy()
+    shuffled = x[[1, 0, 3, 2, 5, 4]]
+
+    matching = barlow_cross_correlation_metrics(x, y)
+    mismatched = barlow_cross_correlation_metrics(x, shuffled)
+
+    assert matching["diag_loss"] < mismatched["diag_loss"]
+    assert matching["diag_mean"] > mismatched["diag_mean"]
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

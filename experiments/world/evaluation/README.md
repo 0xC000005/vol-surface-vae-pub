@@ -7,6 +7,9 @@ Keep the two claims separate.
 - `world_data.py`: manifest-aligned IV 30/30 window builder.
 - `masked_multiview_data.py`: geometry-aware masked multiview window builder
   with separate observed and synthetic mask channels.
+- `masked_multiview_metrics.py`: same-state alignment, retrieval,
+  Barlow-style cross-correlation, representation health, and mask-visibility
+  summaries for masked multiview batches.
 - `part1_metrics.py`: latent prediction, retrieval, and representation-health
   diagnostics.
 - `part2_metrics.py`: compact path-sample diagnostics for decoder smokes.
