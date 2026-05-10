@@ -418,6 +418,8 @@ is a representation-learning package for same-market-state masked views.
   demotion: Part 1 is still `DO_NOT_PROMOTE` and Part B remains blocked.
 - Treat HEAD161/HEAD162 as active-doc guardrails: next-work wording has been
   refreshed and scanned for stale routes into demoted context-to-target tasks.
+- Treat HEAD163 as the scale-stability boundary: same-objective seed stability
+  is not the active blocker; exact-state retention and baseline superiority are.
 
 ## Next Work Requires Direction
 

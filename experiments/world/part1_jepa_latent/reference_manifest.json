@@ -184,6 +184,7 @@
       "part1_gate_reconciliation_after_surface_local_report": "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md",
       "next_work_wording_refresh_report": "experiments/world/reports/world_model_head161_next_work_wording_refresh.md",
       "active_doc_stale_route_scan_report": "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md",
+      "scale_stability_boundary_report": "experiments/world/reports/world_model_head163_scale_stability_boundary.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -633,6 +634,19 @@
           "status": "active_docs_consistent_after_next_work_refresh",
           "stale_active_next_step_found": false,
           "part_b_blocked": true
+        },
+        "scale_stability_boundary": {
+          "status": "seed_stability_not_active_blocker",
+          "head131_top10_range": [
+            0.839453,
+            0.877083
+          ],
+          "head131_effective_rank_range": [
+            22.176785,
+            22.353826
+          ],
+          "primary_blocker": "exact_state_retention_and_baseline_superiority",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -717,7 +731,8 @@
     "experiments/world/reports/world_model_head159_open_risk_ledger_surface_local_refresh.md",
     "experiments/world/reports/world_model_head160_part1_gate_reconciliation_after_surface_local.md",
     "experiments/world/reports/world_model_head161_next_work_wording_refresh.md",
-    "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md"
+    "experiments/world/reports/world_model_head162_active_doc_stale_route_scan.md",
+    "experiments/world/reports/world_model_head163_scale_stability_boundary.md"
   ],
   "guardrail_doc_checks": [
     {

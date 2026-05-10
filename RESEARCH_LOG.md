@@ -120246,3 +120246,18 @@ No active stale next-step instruction was found in the active package/workflow d
 Active docs are consistent with HEAD160/HEAD161. No model status changes. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD163 Scale Stability Boundary
+
+### Context
+HEAD162 left same-objective scale/stability as one allowed evidence type, but HEAD131 already tested scaled Barlow across seeds. The workflow needed to clarify whether more seed runs are the active blocker.
+
+### Execution
+Added `world_model_head163_scale_stability_boundary.md`, summarizing the existing HEAD131 seed-stability evidence.
+
+### Result
+Across seeds `680`, `681`, and `682`, top10 stays in `[0.839453, 0.877083]`, effective rank in `[22.176785, 22.353826]`, variance min in `[0.015874, 0.021701]`, and final loss in `[0.006819, 0.007328]`. Representation-health stability is not the active failure.
+
+### Decision
+Do not spend the next default loop on additional seed runs. The current blockers remain exact-state retention and baseline superiority; Part B remains blocked.
+
+---

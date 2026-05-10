@@ -216,6 +216,8 @@ probe that consumes the Part 1 world-model reference candidate.
   future resumes into completed or demoted context-to-target tuning tasks.
 - Treat HEAD162 as the active-doc stale-route scan: remaining active-doc hits
   are intended demotion/blocker statements.
+- Treat HEAD163 as the scale-stability boundary: do not run more seed stability
+  as the next default step; it does not address exact-state/baseline blockers.
 
 ## Do Not Do Without Explicit Authorization
 
