@@ -117793,3 +117793,50 @@ and which remain missing or under-specified before future model work.
 - `python -m json.tool results/world/masked_multiview_part1_scorecard_head080.json`
 
 ---
+## 2026-05-09: World model Part 1 metric-gap audit
+
+### Context
+HEAD080 made the Part 1 reference leaderboard reproducible from saved artifacts.
+The next question was whether that scorecard already covers the full Part 1
+acceptance contract or only the aggregate reference decision.
+
+### Hypothesis
+The core Part 1 leaderboard is reproducible, but the full Part 1 acceptance
+contract is not yet fully covered by saved artifacts and reports.
+
+### Execution
+Audited the Part 1 gates in `docs/research_protocols/world_model_autoresearch_plan.md`
+against HEAD080's scorecard and the HEAD063/064/065/070/072/074/077 reports.
+Wrote `experiments/world/reports/world_model_head081_part1_metric_gap_audit.md`.
+
+### Result
+Covered gates:
+
+- aggregate same-state alignment MSE/cosine/cross-correlation;
+- aggregate same-state retrieval top-k/MRR;
+- effective rank and participation ratio;
+- aggregate Barlow off-diagonal redundancy;
+- partial frozen downstream probes for future mean-delta and future range.
+
+Partial or missing gates:
+
+- variance min/max and singular-spectrum concentration are saved but not yet
+  surfaced in the scorecard;
+- mask-artifact diagnostics currently cover visibility/mask-family summaries
+  but not an explicit shortcut/leakage probe;
+- geometry-stratified diagnostics cover visibility, not representation failure
+  by geometry or mask family;
+- downstream probes do not yet cover regime/state labels, jump/tail, drawdown,
+  or correlation/dependence tasks.
+
+### Decision / Next Step
+Do not add a new encoder or decoder next. Continue with scorecard health
+expansion first: surface variance min/max, singular-spectrum concentration, and
+health offdiag from already-saved artifacts before deciding whether a separate
+mask-artifact leakage audit is required.
+
+### Verification
+- `sed -n '250,385p' docs/research_protocols/world_model_autoresearch_plan.md`
+- `python - <<'PY' ...` against `results/world/masked_multiview_part1_scorecard_head080.json`
+
+---
