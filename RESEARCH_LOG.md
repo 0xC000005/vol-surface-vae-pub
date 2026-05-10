@@ -117405,3 +117405,35 @@ Validation comparison:
 The falsifier did not fire. Canonical direct Barlow is the current Part 1 reference candidate: it keeps retrieval far above raw/HEAD066 while restoring healthy rank. It is not final because residual off-diagonal redundancy remains above raw. Next iteration should analyze whether that residual redundancy is acceptable or whether a single principled representation/projection split is warranted. Do not move to the flow decoder yet.
 
 ---
+## 2026-05-09: World model HEAD071 canonical Barlow reference decision
+
+### Context
+HEAD070 produced the first credible Part 1 reference candidate: canonical direct Barlow, high same-state retrieval, and restored rank. HEAD071 asked whether residual redundancy should trigger another pretraining tweak or whether the right next step is downstream probing.
+
+### Evidence
+Validation singular spectrum comparison:
+
+- HEAD070 view A/B effective rank: `14.501471` / `14.593816`;
+- raw view A/B effective rank: `12.820380` / `12.797703`;
+- HEAD070 view A/B top5 singular share: `0.353656` / `0.353157`;
+- raw view A/B top5 singular share: `0.372180` / `0.371881`;
+- HEAD070 view A/B offdiag abs mean: `0.224284` / `0.223059`;
+- raw view A/B offdiag abs mean: `0.163462` / `0.190238`.
+
+The remaining redundancy is measurable, but not a collapse signature: effective rank is above raw, top singular concentration is below raw, and same-state retrieval is far above raw and HEAD066.
+
+### Decision
+Do not add a projection head or another pretraining tweak yet. Treat HEAD070 as the current Part 1 reference candidate.
+
+### Next Step
+Implement a frozen downstream probe audit:
+
+- load `models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head070.pt`;
+- encode train/validation windows with the frozen shared encoder;
+- compare ridge probes from HEAD070 embeddings against raw last-day or flattened-window baselines;
+- use future mean delta/range only as downstream probes, not pretraining objectives;
+- report probe MSE/R2 plus representation health and same-state retrieval.
+
+Falsifier: if HEAD070 embeddings beat raw masked-view retrieval but fail simple downstream probes relative to raw baselines, the representation may be mostly mask-invariant rather than market-state useful.
+
+---
