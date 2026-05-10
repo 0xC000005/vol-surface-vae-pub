@@ -119826,3 +119826,18 @@ The baseline-superiority failure is structured. Scaled Barlow wins `2/2` path-sh
 Part 1 remains `DO_NOT_PROMOTE`, but the failure is not uniform downstream uselessness. The representation is useful for path-shape/risk-width information, while exact-state/persistence target coverage remains the blocker.
 
 ---
+## 2026-05-10: World Model HEAD135 Exact-State Retention Literature Gate
+
+### Context
+HEAD134 narrowed the blocker to exact-state/persistence target coverage. Before changing the Part 1 objective, the workflow requires a literature gate so we do not add an ad hoc reconstruction or prediction knob.
+
+### Execution
+Created `world_model_head135_exact_state_retention_literature_gate.md` after checking I-JEPA, V-JEPA, Barlow Twins, VICReg, TS2Vec, MAE, and Ti-MAE/MAE-style time-series masking sources.
+
+### Result
+The literature split is clear. Barlow/VICReg-style two-view invariance controls collapse and redundancy but does not guarantee retention of every exact state detail. Canonical JEPA supports same-window context-to-target latent prediction for masked target blocks, not future prediction. MAE-style value reconstruction is principled but belongs to a separate reconstruction branch. TS2Vec supports auditing timestamp-level/sequence representation surfaces before changing the objective.
+
+### Decision
+Do not add an exact-value auxiliary reconstruction loss next. The next step is a frozen representation-surface audit: compare last, mean, and flattened per-time scaled embeddings on exact-state probes. If that fails, the principled objective change is same-window context-to-target JEPA for masked current/history blocks, not future prediction.
+
+---

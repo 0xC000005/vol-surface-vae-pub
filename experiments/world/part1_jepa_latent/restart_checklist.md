@@ -29,15 +29,16 @@ probe that consumes the Part 1 world-model reference candidate.
 20. `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`
 21. `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`
 22. `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`
-23. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-24. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-25. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-26. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-27. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-28. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-29. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-30. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-31. latest tail of `RESEARCH_LOG.md`
+23. `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`
+24. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+25. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+26. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+27. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+28. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+29. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+30. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+31. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+32. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -128,6 +129,10 @@ probe that consumes the Part 1 world-model reference candidate.
   helps path-shape/risk-width targets and often adds to raw-last features, but
   loses persistence/exact-state targets, so broad Part 1 promotion remains
   blocked.
+- Treat HEAD135 as the current exact-state-retention design gate: do not add an
+  ad hoc value-reconstruction knob next; first audit whether per-time or
+  flattened sequence embeddings preserve exact state better than the current
+  last-state readout.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -148,6 +153,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Claim downstream factor-panel future target performance; HEAD085 targets are
   IV-surface futures only.
 - Use generation metrics as evidence of Part 1 representation health.
+- Add an exact-value reconstruction auxiliary loss before the HEAD135
+  representation-surface audit is run and interpreted.
 
 ## Required Reporting
 

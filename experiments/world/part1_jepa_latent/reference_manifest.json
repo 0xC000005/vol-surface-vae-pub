@@ -156,6 +156,7 @@
       "scale_exact_state_gap_report": "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
       "scale_regime_probe_gap_report": "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
       "scale_baseline_target_taxonomy_report": "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
+      "exact_state_retention_literature_gate_report": "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -332,6 +333,12 @@
           "mixed_path_shape_wins": "0/1",
           "raw_last_plus_barlow_improvements": "4/5",
           "decision": "baseline_superiority_should_be_reported_by_target_family_part1_still_do_not_promote"
+        },
+        "exact_state_retention_literature_gate": {
+          "status": "do_not_add_ad_hoc_exact_value_auxiliary_loss",
+          "next_step": "representation_surface_audit_before_objective_change",
+          "fallback_principled_change": "same_window_context_to_target_jepa_for_masked_current_history_blocks",
+          "mae_reconstruction_status": "separate_adjacent_diagnostic_not_default_jepa_route"
         }
       },
       "layer_status": {
@@ -388,7 +395,8 @@
     "experiments/world/reports/world_model_head131_scale_seed_stability.md",
     "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
     "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
-    "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md"
+    "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
+    "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md"
   ],
   "guardrail_doc_checks": [
     {

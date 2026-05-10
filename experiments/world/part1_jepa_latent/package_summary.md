@@ -66,6 +66,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`.
 - Latest scale baseline target-family diagnostic:
   `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`.
+- Latest exact-state retention literature gate:
+  `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`.
 
 ## Fixed Contract
 
@@ -183,6 +185,11 @@ is a representation-learning package for same-market-state masked views.
   is structured by target family. Scaled Barlow wins `2/2` path-shape/risk-width
   targets and adds to raw-last on `4/5` targets, but wins `0/2`
   persistence/exact-state targets and remains `DO_NOT_PROMOTE`.
+- Exact-state retention literature gate: HEAD135 says not to add an ad hoc
+  exact-value auxiliary loss next. First audit the representation surface
+  (per-time or flattened sequence embeddings). If that fails, the principled
+  objective change is same-window context-to-target JEPA for masked
+  current/history blocks, not future prediction.
 
 ## Caveats
 
@@ -242,13 +249,17 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD134 as the active diagnosis of baseline superiority: report
   downstream utility by target family, because the scaled embedding helps
   path-shape/risk-width probes while losing exact-state/persistence probes.
+- Treat HEAD135 as the guardrail for the next design move: run a
+  representation-surface audit before changing the objective; keep MAE-style
+  value reconstruction as a separate diagnostic branch, not the default JEPA
+  route.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a principled exact-state-retention design or diagnostic that consumes the
-  frozen representation before changing the pretraining objective;
+- the HEAD135 representation-surface audit that consumes the frozen scaled
+  representation before changing the pretraining objective;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
