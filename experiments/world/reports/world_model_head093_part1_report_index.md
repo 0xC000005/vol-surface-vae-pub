@@ -99,6 +99,16 @@ human-oriented resume guide, not the source of truth.
   README entry points with the current caveat boundary.
 - HEAD110: `world_model_head110_package_checker_guardrail_docs.md` expands the
   package checker to enforce guardrail-doc caveat terms.
+- HEAD112: `world_model_head112_open_risk_ledger_refresh.md` refreshes the
+  open-risk ledger with current caveats and manual-stop constraints.
+- HEAD113: `world_model_head113_stale_stop_wording_audit.md` audits active
+  resume documents for stale discretionary-stop wording.
+- HEAD114: `world_model_head114_score_summary_caveat_sync.md` syncs generated
+  Part 1 score-summary caveats.
+- HEAD115: `world_model_head115_package_checker_regression_test.md` adds focused
+  pytest coverage for guardrail-doc package checking.
+- HEAD116: `world_model_head116_goal_checker_manual_stop.md` documents the
+  local goal-checker manual-stop guardrail.
 
 ## Fast Resume Command
 
@@ -119,6 +129,8 @@ Then read:
 9. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
 10. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
 11. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+12. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+13. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

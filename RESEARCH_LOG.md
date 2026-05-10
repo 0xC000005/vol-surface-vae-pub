@@ -119085,3 +119085,31 @@ manual-stop stop condition by itself.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model report index refresh
+
+### Context
+
+The report index was current through HEAD110, but the open-risk, stale-stop,
+score-summary, package-checker-test, and goal-checker guardrail reports were
+newer.
+
+### Hypothesis
+
+Fast-resume readers should be able to discover HEAD112-HEAD116 from the report
+index.
+
+### Execution
+
+- Added HEAD112 through HEAD116 to the packaging/guardrail section.
+- Added HEAD112 and HEAD116 to the fast-resume read list.
+- Added `experiments/world/reports/world_model_head117_report_index_refresh.md`.
+
+### Result
+
+The human report index is current through HEAD116.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
