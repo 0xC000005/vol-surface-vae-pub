@@ -117073,3 +117073,30 @@ Artifacts:
 - Before another Part 1 model experiment, write a concrete masked multiview pretraining protocol: view construction, mask channels, positive-pair alignment rule, Barlow/variance-covariance health checks, and downstream probe gates.
 
 ---
+## 2026-05-09: World model geometry-aware masking requirement
+
+### Context
+- Follow-up research clarified that masking for Part 1 pretraining cannot be a flat anonymous Bernoulli mask over heterogeneous time-series features.
+- IV surfaces, factor/anchor panels, returns, rates, and time blocks have different geometry. If the mask policy ignores that geometry, the model can learn mask artifacts or flattened feature positions instead of robust market-state structure.
+
+### Decision
+- The masked-multiview Part 1 protocol must be geometry-aware.
+- Every candidate data object should separate `observed_mask` for real source-data availability from `synthetic_mask` for SSL corruption.
+- Missing/corrupted values should also carry metadata such as `time_index`, `relative_index`, `factor_id`, `factor_family`, `geometry_id`, and `geometry_coord`.
+- Typed masking policies should be defined before training: IV-surface bands/rectangles/wings, factor-family masks, contiguous time-block masks, and cross-geometry group masks.
+
+### Guardrails
+- Do not use one flat Bernoulli mask as the main corruption policy.
+- Do not conflate real missingness with synthetic SSL masking.
+- Do not let zero-filled missing values stand alone without mask channels.
+- Do not shuffle factor identities unless factor identity is explicitly encoded and the task is deliberately permutation-invariant.
+- Do not use sentinel corruption values that make mask detection easier than market-state learning.
+
+### Workflow Update
+- Updated `docs/research_protocols/world_model_autoresearch_plan.md` to make geometry-aware masking a first-class Part 1 requirement.
+- Updated local ignored workflow state/skill files so future autoresearch starts from heterogeneous token schema and typed mask policy design.
+
+### Next Step
+- The next autoresearch iteration should write a concrete geometry-aware masked multiview protocol before model training: token schema, geometry coordinates, typed mask families, positive-pair rule, Barlow/variance-covariance health checks, geometry-stratified diagnostics, and downstream probe gates.
+
+---

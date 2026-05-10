@@ -86,10 +86,57 @@ The first data milestone is a small reusable world-model dataset builder under
 - past context windows;
 - future target windows for one or more horizons;
 - structured masked views with observed/missing mask channels;
+- geometry-aware mask metadata for heterogeneous variables;
 - same-window/same-relative-index positive-pair metadata;
 - normalized/state-mapped or SNI-compatible coordinates;
 - deterministic train/validation/test split identifiers;
 - metadata needed for retrieval, frozen probes, and decoder evaluation.
+
+## Geometry-Aware Masking Requirement
+
+The masked-multiview objective must not treat the data as one anonymous flat
+matrix. IV surfaces, anchor variables, returns, rates, macro/factor panels, and
+other channels have different geometry and should expose that geometry to the
+model and to the masking policy.
+
+Every masked-view data object should separate at least these concepts:
+
+```text
+value
+observed_mask       # real availability in the source data
+synthetic_mask      # hidden by SSL corruption
+time_index
+relative_index
+factor_id
+factor_family
+geometry_id
+geometry_coord
+```
+
+Mask policies should be typed:
+
+- **IV surface:** mask moneyness bands, maturity bands, local rectangles, wings,
+  ATM strips, or whole surface regions.
+- **Factor/anchor panel:** mask individual factors, factor families, or whole
+  factor histories over contiguous days.
+- **Time:** mask contiguous day blocks or sparse days, while preserving temporal
+  order.
+- **Cross-geometry:** occasionally mask meaningful groups, such as all rate
+  factors, all equity anchors, or all surface wing points.
+
+Forbidden masking shortcuts:
+
+- do not use one flat Bernoulli mask over all entries as the main policy;
+- do not conflate real missingness with synthetic SSL masking;
+- do not let zero-filled missing values stand alone without mask channels;
+- do not shuffle factor identities unless factor identity is explicitly encoded
+  and the task is deliberately permutation-invariant;
+- do not use sentinel corruption values that make mask detection easier than
+  learning market-state structure.
+
+Reports for masked-multiview experiments must state which geometries were
+masked, which metadata tokens were supplied, and how mask-artifact shortcuts
+were tested.
 
 ## HEAD Loop
 
@@ -156,15 +203,19 @@ Promotion rules:
 
 For the revised JEPA Part 1 branch, the preferred order of attack is:
 
-1. define structured masked views and observed/missing mask channels;
-2. define the positive-pair rule: same window, same relative index, same
+1. define the heterogeneous token schema and geometry metadata;
+2. define structured masked views plus separate observed and synthetic mask
+   channels;
+3. define geometry-specific masking policies for IV surfaces, factor/anchor
+   panels, time blocks, and cross-geometry groups;
+4. define the positive-pair rule: same window, same relative index, same
    underlying panel state;
-3. use EMA or stop-gradient target encoders where appropriate;
-4. add Barlow Twins, variance/covariance, or related redundancy control only
+5. use EMA or stop-gradient target encoders where appropriate;
+6. add Barlow Twins, variance/covariance, or related redundancy control only
    after true masked/multiview positives are defined;
-5. treat future prediction, range estimation, and scenario generation as
+7. treat future prediction, range estimation, and scenario generation as
    downstream probes, not as pretraining losses;
-6. treat neighborhood/contrastive/relational losses as secondary diagnostics
+8. treat neighborhood/contrastive/relational losses as secondary diagnostics
    unless primary sources and local metrics both support promotion.
 
 ## Part 1: Latent Market-State Gates
@@ -213,6 +264,8 @@ Required Part 1 metrics:
 - off-diagonal covariance/correlation norm;
 - mask-artifact diagnostics: the model must not win by detecting sentinel
   corruption;
+- geometry-stratified diagnostics by surface region, factor family, and time
+  block;
 - frozen downstream probes for future volatility range, jump/tail indicator,
   drawdown, cross-cell/cross-factor correlation, regime/state labels, or
   forecast/classification tasks.
@@ -222,6 +275,7 @@ Forbidden Part 1 shortcuts:
 - do not align arbitrary time windows as positives;
 - do not align the same absolute date across different relative indices unless
   the representation is explicitly non-contextual;
+- do not flatten heterogeneous geometry away before the mask policy is defined;
 - do not use visible Gaussian/uniform sentinel values as missing content without
   an observed/missing mask channel;
 - do not shuffle factor identity or time order unless the model and task are
@@ -328,7 +382,8 @@ Execute:
 1. Inventory candidate local data files and existing split conventions.
 2. Identify the minimum smoke dataset shape for Part 1:
    `window`, `masked_view_a`, `mask_a`, `masked_view_b`, `mask_b`,
-   `relative_index`, `absolute_index`, `metadata`.
+   `observed_mask`, `synthetic_mask`, `relative_index`, `absolute_index`,
+   `factor_id`, `factor_family`, `geometry_id`, `geometry_coord`, `metadata`.
 3. Identify which existing metrics can be reused directly and which need new
    wrappers under `experiments/world/evaluation/`.
 4. Write a concise report under `experiments/world/reports/`.
