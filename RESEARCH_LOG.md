@@ -118308,3 +118308,35 @@ Continue in manual-stop mode with only bounded guardrail/provenance work unless
 the user redirects the research objective.
 
 ---
+## 2026-05-09: World model Part 1 report index
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Navigation guardrail for `masked_multiview_invariance`.
+
+### Hypothesis
+A compact report index should reduce resume risk by pointing future runs to the
+current HEAD070 evidence chain instead of requiring a scan of the full HEAD
+history.
+
+### Falsifier
+The iteration would fail if the index omitted the core protocol, reference
+candidate, validation, caveat, packaging, or restart guardrail reports.
+
+### Execution
+- Read the current `reference_manifest.json` source-report list.
+- Added `experiments/world/reports/world_model_head093_part1_report_index.md`.
+- Grouped the evidence chain into protocol/data, reference candidate,
+  validation/caveats, and packaging/restart guardrails.
+
+### Result
+The current Part 1 evidence chain now has a compact resume index and a fast
+package-check command.
+
+### Next Step
+Continue only with bounded guardrail/provenance work or explicit user-directed
+work. This index does not justify model changes or decoder work.
+
+---
