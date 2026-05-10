@@ -173,6 +173,7 @@
       "scale_exact_state_topology_report": "experiments/world/reports/world_model_head149_scale_exact_state_topology.md",
       "surface_local_jepa_design_gate_report": "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md",
       "surface_local_data_contract_report": "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
+      "surface_local_target_coverage_report": "experiments/world/reports/world_model_head152_surface_local_target_coverage.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -212,6 +213,7 @@
       "context_target_clean_quality_json": "results/world/context_target_clean_quality_head145.json",
       "part1_candidate_decision_matrix_json": "results/world/part1_candidate_decision_matrix_head147.json",
       "scale_exact_state_topology_json": "results/world/scale_exact_state_topology_head149.json",
+      "surface_local_target_coverage_json": "results/world/surface_local_target_coverage_head152.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -511,6 +513,15 @@
           "hidden_rate_val128_seed2150": 0.068175,
           "uses_future_targets": false,
           "part_b_blocked": true
+        },
+        "surface_local_target_coverage": {
+          "status": "data_contract_covers_head149_problem_regions",
+          "iv_m0_t0_target_positions": 1410,
+          "all_iv_cells_targeted": true,
+          "wing_positions": 13140,
+          "edge_maturity_positions": 14130,
+          "promotion_decision": "DATA_AUDIT_ONLY",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -584,7 +595,8 @@
     "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
     "experiments/world/reports/world_model_head149_scale_exact_state_topology.md",
     "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md",
-    "experiments/world/reports/world_model_head151_surface_local_data_contract.md"
+    "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
+    "experiments/world/reports/world_model_head152_surface_local_target_coverage.md"
   ],
   "guardrail_doc_checks": [
     {

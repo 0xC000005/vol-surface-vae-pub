@@ -100,6 +100,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`.
 - Latest surface-local data contract:
   `experiments/world/reports/world_model_head151_surface_local_data_contract.md`.
+- Latest surface-local target coverage audit:
+  `experiments/world/reports/world_model_head152_surface_local_target_coverage.md`.
 
 ## Fixed Contract
 
@@ -286,6 +288,9 @@ is a representation-learning package for same-market-state masked views.
 - Surface-local data contract: HEAD151 adds the token/geometry target data
   scaffold and focused test. It exposes `(window, relative_time, token)` target
   positions and surface-local families, but does not train a model.
+- Surface-local target coverage audit: HEAD152 verifies the data contract covers
+  the HEAD149 problem regions. All IV cells are targeted and `iv_m0_t0` has
+  `1410` validation target positions.
 
 ## Caveats
 
@@ -389,6 +394,8 @@ is a representation-learning package for same-market-state masked views.
   not promote any candidate.
 - Treat HEAD151 as data-contract scaffolding only. It is not model evidence and
   does not change Part 1 promotion status.
+- Treat HEAD152 as data coverage evidence only. It says an encoder can be tested
+  on the right target regions, not that the representation is improved.
 
 ## Next Work Requires Direction
 
@@ -408,5 +415,7 @@ Future work should be one of:
   route is pursued;
 - target coverage and metadata audit for the surface-local data contract before
   any encoder/loss implementation;
+- only after HEAD152, a minimal token/geometry encoder scaffold may be designed
+  with tests;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

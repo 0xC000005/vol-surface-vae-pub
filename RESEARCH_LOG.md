@@ -120081,3 +120081,18 @@ The scaffold creates same-window target blocks for `surface_wing_moneyness`, `su
 Data contract scaffold only. No model was trained, no candidate was promoted, and Part B remains blocked. Next safe step is target coverage and metadata audit before adding any encoder or loss.
 
 ---
+## 2026-05-10: World Model HEAD152 Surface-Local Target Coverage
+
+### Context
+HEAD151 added the token/geometry data contract. Before adding any encoder or loss, the workflow needed to verify that the targets actually cover HEAD149's wing and edge exact-state problem regions.
+
+### Execution
+Added and ran `analyze_surface_local_target_coverage.py` over `1024` train and `256` validation windows.
+
+### Result
+Validation has `31130` target positions, hidden rate `0.070007`, all IV cells targeted, `iv_m0_t0` has `1410` target positions, wing positions are `13140`, and edge maturity positions are `14130`. Surface families cover wing, edge maturity, ATM strip, rectangle, and factor-family targets.
+
+### Decision
+`DATA_AUDIT_ONLY`. The data contract covers the relevant regions but is not model evidence. The next safe step is a minimal token/geometry encoder scaffold with tests; do not claim Part 1 improvement or start decoder work.
+
+---
