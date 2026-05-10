@@ -548,7 +548,10 @@ The workflow stops only when one of these is true:
 - the target stage in `world_model_goal.json` is reached;
 - `autoresearch-session/WORLD_MODEL_STOP` exists;
 - the requested iteration budget is exhausted;
-- runtime/tool limits make further work unreasonable.
+- an actual unrecoverable tool/platform failure prevents further commands.
 
 Research/model blockers are not stop conditions by default. Convert blockers
 into analysis, ideation, or paradigm-shift iterations.
+Do not stop because a modeling branch is gated, a completed cycle reached a
+clean checkpoint, no model knob is justified, or the remaining safe work is
+process-oriented.

@@ -118340,3 +118340,39 @@ Continue only with bounded guardrail/provenance work or explicit user-directed
 work. This index does not justify model changes or decoder work.
 
 ---
+## 2026-05-09: World model manual-stop guardrail
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Workflow guardrail for manual-stop autoresearch.
+
+### Hypothesis
+The workflow should not allow a broad "practical runtime/tool limit" phrase to
+be used as a discretionary pause reason in manual-stop mode.
+
+### Falsifier
+The iteration would fail if the world-model skill or protocol still allowed
+stopping because bounded safe work was mostly exhausted, a cycle reached a
+clean checkpoint, no model knob was justified, or the remaining work was
+process-oriented.
+
+### Execution
+- Updated `.agents/skills/world-model-autoresearch/SKILL.md`.
+- Updated `docs/research_protocols/world_model_autoresearch_plan.md`.
+- Replaced broad practical runtime/tool-limit language with a narrower stop
+  condition: an actual unrecoverable tool/platform failure that prevents
+  further commands.
+- Added explicit continuation guidance for gated or underdetermined work.
+
+### Result
+Manual-stop mode now forbids discretionary pauses from diminishing returns,
+completed cycles, capped modeling branches, or process-only remaining work.
+
+### Next Step
+Continue autoresearch in manual-stop mode. If no model change is justified,
+continue with bounded guardrail, provenance, metric reconciliation, report
+indexing, or risk-ledger work.
+
+---
