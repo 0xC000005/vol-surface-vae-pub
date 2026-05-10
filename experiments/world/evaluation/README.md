@@ -23,6 +23,8 @@ pretraining target.
 baseline: one shared encoder, two structured masked views, and redundancy
 reduction applied directly to the evaluated embeddings. Its default loss uses
 canonical mean-scaled Barlow off-diagonal weighting.
+`masked_multiview_barlow_probe_audit.py` freezes that encoder and evaluates
+simple future-summary probes against raw surface and geometry baselines.
 
 ## Part 1 Metrics
 

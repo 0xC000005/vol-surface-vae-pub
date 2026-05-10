@@ -36,6 +36,10 @@ from experiments.world.part1_jepa_latent.masked_multiview_barlow_smoke import (
     DirectMaskedMultiviewBarlowModel,
     direct_masked_multiview_barlow_loss,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_barlow_probe_audit import (
+    make_future_summary_targets,
+    regression_metrics,
+)
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
@@ -486,6 +490,38 @@ def test_barlow_loss_supports_canonical_mean_scaled_offdiag():
 
     assert canonical_loss.item() > current_loss.item()
     assert canonical_loss.item() == pytest.approx(expected)
+
+
+def test_masked_multiview_probe_targets_and_regression_metrics():
+    past = np.array(
+        [
+            [[1.0, 2.0], [2.0, 3.0]],
+            [[0.0, 1.0], [1.0, 1.5]],
+        ],
+        dtype=np.float32,
+    )
+    future = np.array(
+        [
+            [[3.0, 5.0], [5.0, 7.0], [4.0, 6.0]],
+            [[2.0, 3.0], [3.0, 5.0], [4.0, 4.0]],
+        ],
+        dtype=np.float32,
+    )
+
+    targets = make_future_summary_targets(past, future)
+    assert set(targets) == {"future_mean_delta", "future_range"}
+    np.testing.assert_allclose(targets["future_mean_delta"][0], [2.0, 3.0])
+    np.testing.assert_allclose(targets["future_range"][1], [2.0, 2.0])
+
+    perfect = regression_metrics(targets["future_mean_delta"], targets["future_mean_delta"])
+    shifted = regression_metrics(
+        targets["future_mean_delta"] + 1.0,
+        targets["future_mean_delta"],
+    )
+    assert perfect["mse"] == pytest.approx(0.0)
+    assert perfect["r2"] == pytest.approx(1.0)
+    assert shifted["mse"] > perfect["mse"]
+    assert shifted["r2"] < perfect["r2"]
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

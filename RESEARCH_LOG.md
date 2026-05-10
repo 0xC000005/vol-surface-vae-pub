@@ -117437,3 +117437,44 @@ Implement a frozen downstream probe audit:
 Falsifier: if HEAD070 embeddings beat raw masked-view retrieval but fail simple downstream probes relative to raw baselines, the representation may be mostly mask-invariant rather than market-state useful.
 
 ---
+## 2026-05-09: World model HEAD072 frozen probe audit
+
+### Context
+HEAD071 promoted HEAD070 canonical direct Barlow to the current Part 1 reference candidate and called for a frozen downstream probe. HEAD072 implemented that probe. Prediction remains a downstream evaluation, not a pretraining objective.
+
+### Implementation
+Added `experiments/world/part1_jepa_latent/masked_multiview_barlow_probe_audit.py`.
+
+The audit loads `models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_head070.pt`, encodes clean histories with synthetic masks set visible, and compares ridge probes from HEAD070 clean latents against raw surface and full-geometry baselines. Targets are simple IV future summaries: `future_mean_delta` and `future_range`.
+
+The default ridge alpha is `10.0`; a small sensitivity check showed that `1e-2` overfit raw high-dimensional baselines and made the audit hard to interpret.
+
+### Validation
+Focused test passed:
+
+```bash
+pytest test_code/test_world_model_evaluation.py::test_masked_multiview_probe_targets_and_regression_metrics -q
+```
+
+Result: `1 passed in 0.74s`.
+
+Audit command:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_barlow_probe_audit.py --device cpu
+```
+
+Saved result: `results/world/masked_multiview_barlow_probe_head072.json`.
+
+### Probe Result
+Validation, ridge alpha `10.0`:
+
+- mean target baseline: mean-delta MSE/R2 `0.013939` / `-0.003432`; range MSE/R2 `0.063851` / `-3.640187`;
+- HEAD070 clean last latent: mean-delta MSE/R2 `0.011635` / `0.162420`; range MSE/R2 `0.047185` / `-2.428997`;
+- raw surface last: mean-delta MSE/R2 `0.006484` / `0.533258`; range MSE/R2 `0.054625` / `-2.969679`;
+- raw surface flat: mean-delta MSE/R2 `0.009746` / `0.298396`; range MSE/R2 `0.050972` / `-2.704215`.
+
+### Decision
+HEAD070 embeddings are not empty mask-invariance features: they beat the mean baseline on both probe targets and are the best tested feature for future range. But they are not a dominant forecasting representation, because raw last-day surface features are much stronger for future mean delta. Next iteration should analyze whether the next principled Part 1 move is geometry-aware encoder structure, representation/projection separation, or a more stable probe protocol. Do not move to the flow decoder yet.
+
+---
