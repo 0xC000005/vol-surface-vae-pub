@@ -118157,3 +118157,39 @@ Continue with bounded provenance or open-risk cleanup if manual-stop mode
 continues. Do not add new Part 1 knobs from the downstream probe audit alone.
 
 ---
+## 2026-05-09: World model Part 1 open-risk ledger refresh
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Open-risk ledger for `masked_multiview_invariance`.
+
+### Hypothesis
+After the objective correction and HEAD070 packaging, the open-risk ledger
+should reflect the masked-multiview reference candidate rather than the earlier
+fixed delta-PCA package.
+
+### Falsifier
+The ledger would fail if it preserved stale fixed delta-PCA claims as settled
+facts, or if it left ambiguity about what can be claimed, what is caveated, and
+what requires user authorization.
+
+### Execution
+- Read the stale HEAD051 open-risk ledger.
+- Wrote `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+  as the current masked-multiview risk ledger.
+- Separated settled claims, caveated claims, authorization-required work, and
+  remaining safe continuation.
+
+### Result
+The current ledger now states that HEAD070 is a packaged reference candidate,
+not a general predictor, not ImageNet-level JEPA, and not a solved regime
+classifier. It also keeps Part 2 decoder training behind explicit
+authorization.
+
+### Next Step
+Continue only with provenance/report reconciliation or explicit user-directed
+work while manual-stop mode remains active.
+
+---
