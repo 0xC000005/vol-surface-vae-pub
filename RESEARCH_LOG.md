@@ -119280,3 +119280,37 @@ probes, and incremental value over raw/PCA/persistence baselines before adding
 architecture or objective knobs.
 
 ---
+## 2026-05-10: World Model HEAD122 Hard Mask Preset
+
+### Context
+
+HEAD121 diagnosed the current HEAD070 Part 1 package as a useful
+collapse-controlled smoke test but weaker than a canonical JEPA-style
+market-state learning recipe. The key local evidence was mask difficulty:
+validation masks hid only about `6.6-7.8%` per view and kept about `86.6%`
+of observed entries visible in both views.
+
+### Execution
+
+Added and ran `experiments/world/part1_jepa_latent/analyze_hard_mask_preset.py`.
+The script defines one named hard structured-mask diagnostic preset across
+typed market geometries: large IV-surface rectangles, whole-surface day
+blocks, long factor-family blocks, cross-family stress blocks, and long time
+blocks. It does not change the active HEAD070 reference checkpoint.
+
+### Result
+
+The preset raises validation hidden rates to `22.65%` for view A and `23.60%`
+for view B, lowers same-entry two-view visibility to `60.93%`, and gives a
+union-hidden rate of `39.07%`. The corresponding report is
+`experiments/world/reports/world_model_head122_hard_mask_preset.md`.
+
+### Decision
+
+Use this one preset for the next training smoke to test whether mask
+difficulty is the next Part 1 bottleneck before changing the encoder,
+objective family, or loss. Treat it as a diagnostic branch only; do not promote
+it to the active reference and do not open a per-family mask-knob sweep until
+the controlled result is understood.
+
+---

@@ -72,6 +72,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD121: `world_model_head121_jepa_fit_diagnosis.md` compares HEAD070 against
   JEPA literature and local mask difficulty; default validation masks hide only
   about `6.6-7.8%` per view and keep about `86.6%` visible in both views.
+- HEAD122: `world_model_head122_hard_mask_preset.md` defines one hard-mask
+  diagnostic preset that lowers validation both-visible overlap to about
+  `60.9%` without starting a knob sweep.
 
 ## Packaging And Restart Guardrails
 
@@ -136,17 +139,18 @@ Then read:
 5. `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`
 6. `experiments/world/reports/world_model_head120_part1_failure_analysis.md`
 7. `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`
-8. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-9. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-10. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-11. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-12. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-13. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-14. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-15. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-16. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-17. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-18. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+8. `experiments/world/reports/world_model_head122_hard_mask_preset.md`
+9. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+10. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+11. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+12. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+13. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+14. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+15. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+16. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+17. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+18. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+19. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

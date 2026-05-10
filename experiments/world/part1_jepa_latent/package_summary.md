@@ -38,6 +38,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head120_part1_failure_analysis.md`.
 - Latest JEPA-fit diagnosis:
   `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`.
+- Latest hard-mask diagnostic preset:
+  `experiments/world/reports/world_model_head122_hard_mask_preset.md`.
 
 ## Fixed Contract
 
@@ -89,6 +91,11 @@ is a representation-learning package for same-market-state masked views.
   market-state learning recipe. Validation masks hide only about `6.6-7.8%` per
   view and keep about `86.6%` visible in both views, so the task is likely too
   easy and too close to raw-state preservation.
+- Hard-mask preset: HEAD122 defines one named diagnostic preset, not a new
+  active reference. It raises validation hidden rates to about `22.6-23.6%` per
+  view and lowers both-visible overlap to about `60.9%`, while preserving typed
+  market geometry. Use it to test mask difficulty before objective/architecture
+  changes.
 
 ## Caveats
 
@@ -112,6 +119,8 @@ is a representation-learning package for same-market-state masked views.
 - Do not jump straight to many new knobs. First run one controlled hard-mask
   diagnostic preset with the same encoder/loss to test whether mask difficulty,
   rather than objective family or architecture, is the next bottleneck.
+- Treat the HEAD122 hard-mask preset as a diagnostic branch only until a
+  training smoke and downstream/frozen-probe audit justify promoting it.
 
 ## Next Work Requires Direction
 

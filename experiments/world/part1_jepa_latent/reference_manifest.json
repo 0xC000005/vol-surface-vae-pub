@@ -140,9 +140,11 @@
       "report": "experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md",
       "failure_analysis_report": "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
       "jepa_fit_diagnosis_report": "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md",
+      "hard_mask_preset_report": "experiments/world/reports/world_model_head122_hard_mask_preset.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
+      "hard_mask_preset_json": "results/world/part1_hard_mask_preset_head122.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -164,6 +166,13 @@
           "val_view_b_hidden_rate": 0.077649,
           "val_both_visible_rate": 0.866034,
           "next_diagnostic": "controlled_hard_mask_preset_before_objective_or_architecture_change"
+        },
+        "hard_mask_preset": {
+          "status": "diagnostic_preset_not_active_reference",
+          "val_view_a_hidden_rate": 0.2265,
+          "val_view_b_hidden_rate": 0.235991,
+          "val_both_visible_rate": 0.609335,
+          "guardrail": "one_named_preset_no_per_family_knob_search"
         }
       },
       "layer_status": {
@@ -204,7 +213,8 @@
     "experiments/world/reports/world_model_head118_part1_literature_quality_gate.md",
     "experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md",
     "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
-    "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md"
+    "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md",
+    "experiments/world/reports/world_model_head122_hard_mask_preset.md"
   ],
   "guardrail_doc_checks": [
     {
