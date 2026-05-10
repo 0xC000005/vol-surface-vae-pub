@@ -117613,3 +117613,29 @@ Validation comparison:
 The falsifier fired. Minimal token descriptors plus mean pooling are not enough; they improve pointwise alignment but collapse rank and same-state retrieval. HEAD070 remains the current Part 1 reference candidate. Next iteration should analyze whether to pause architecture changes and consolidate HEAD070, or whether a better geometry-aware architecture can be justified without adding objective knobs.
 
 ---
+## 2026-05-09: World model HEAD077 Part 1 reference summary
+
+### Context
+HEAD076 falsified the minimal geometry-aware mean-pooled token encoder. HEAD077 consolidates the current Part 1 reference candidate before any further model changes.
+
+### Leaderboard
+Validation masked-multiview representation metrics:
+
+- HEAD066 EMA/predictor hybrid: top1/top5/top10 `0.000260` / `0.002344` / `0.006510`; effective rank A/B `4.134` / `9.048`; offdiag abs mean `0.204527`.
+- HEAD068 direct Barlow weak offdiag: top1/top5/top10 `0.394271` / `0.680990` / `0.853906`; effective rank A/B `4.484` / `4.526`; offdiag abs mean `0.468407`.
+- HEAD070 canonical direct Barlow: top1/top5/top10 `0.321354` / `0.662500` / `0.841927`; effective rank A/B `14.501` / `14.594`; offdiag abs mean `0.216527`.
+- HEAD076 geometry mean-pooled Barlow: top1/top5/top10 `0.138802` / `0.257292` / `0.333073`; effective rank A/B `3.323` / `3.321`; offdiag abs mean `0.402751`.
+
+Frozen probe snapshot:
+
+- HEAD070 clean last latent: mean-delta MSE/R2 `0.011635` / `0.162420`; range MSE/R2 `0.047185` / `-2.428997`.
+- Raw surface last: mean-delta MSE/R2 `0.006484` / `0.533258`; range MSE/R2 `0.054625` / `-2.969679`.
+- Raw surface last + HEAD070: mean-delta MSE/R2 `0.006584` / `0.526010`; range MSE/R2 `0.047705` / `-2.466780`.
+
+### Decision
+HEAD070 canonical direct Barlow remains the current Part 1 reference candidate. Direct two-view Barlow is the right objective family for this corruption-based objective; canonical off-diagonal scaling matters; and the first geometry-aware encoder was too lossy.
+
+### Next Step
+Do not start Part 2/flow decoder yet. The next safe step is consolidation: add a compact scorecard script/report that reads saved JSON artifacts and reproduces the Part 1 leaderboard before any additional model changes.
+
+---
