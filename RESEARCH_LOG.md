@@ -117639,3 +117639,50 @@ HEAD070 canonical direct Barlow remains the current Part 1 reference candidate. 
 Do not start Part 2/flow decoder yet. The next safe step is consolidation: add a compact scorecard script/report that reads saved JSON artifacts and reproduces the Part 1 leaderboard before any additional model changes.
 
 ---
+## 2026-05-09: World model objective-family gate
+
+### Context
+The prior Part 1 discussion exposed a workflow failure: a two-corruption
+same-state representation objective was routed through an EMA/predictor JEPA
+path, so predictor-target agreement looked healthy while the evaluated encoder
+surface showed retrieval/rank collapse. The workflow needed a structural guard
+against repeating that mistake.
+
+### Hypothesis
+If the workflow requires an objective-family gate before Part 1 code changes,
+then future autoresearch iterations will route the current branch to direct
+masked-multiview encoder-output learning and reserve EMA/predictor JEPA for an
+explicit context-to-target experiment.
+
+### Execution
+Updated the world-model protocol docs, Part 1 experiment README, reports README,
+local ignored `world-model-autoresearch` skill, and local ignored goal state.
+Added `experiments/world/reports/world_model_head078_objective_family_gate.md`.
+
+The new guardrails are:
+
+- `masked_multiview_invariance` is the current default Part 1 family;
+- `context_to_target_jepa` is a separate explicitly gated family;
+- downstream future/range/scenario tasks are probes, not pretraining losses;
+- Barlow/VICReg/variance/covariance terms must act on the representation
+  surface being evaluated;
+- high cosine or low MSE cannot count as Part 1 success without retrieval,
+  effective rank, variance, singular spectrum, redundancy, and mask-artifact
+  checks.
+
+### Result
+The stale tracked READMEs no longer describe Part 1 as future-latent
+prediction. The main protocol now says direct two-view encoder-output
+comparison is the current route, while EMA/stop-gradient predictors require an
+explicit `context_to_target_jepa` report.
+
+### Decision / Next Step
+Keep HEAD070 as the current Part 1 reference candidate. The next autoresearch
+step remains a compact Part 1 scorecard reader/report over saved JSON artifacts
+before adding more model changes.
+
+### Verification
+- `python -m json.tool autoresearch-session/world_model_goal.json`
+- `rg -n "Part 1 should answer whether the encoder/predictor|L_JEPA_future_latent|future-latent prediction|Expected training form|encoder / EMA encoder|target/EMA encoder|use EMA or stop-gradient target encoders where appropriate|Train Part 1 .*future latent|predictive latent state" .agents/skills/world-model-autoresearch docs/research_protocols/world_model_autoresearch_plan.md experiments/world autoresearch-session/world_model_goal.json`
+
+---

@@ -13,10 +13,10 @@ The revised Part 1 pretraining architecture is:
 ```text
 same market window / same relative time position
 -> structured partial view A + observed-mask channel
--> structured partial view B or clean target view + observed-mask channel
--> encoder / EMA encoder
--> aligned latent market-state embeddings
--> redundancy and collapse control
+-> structured partial view B + observed-mask channel
+-> shared encoder unless a target branch is explicitly justified
+-> directly aligned latent market-state embeddings
+-> redundancy and collapse control on the evaluated representation
 ```
 
 The downstream scenario architecture remains:
@@ -42,6 +42,47 @@ Part 2 success. Reports must keep the two tables separate.
 Future prediction, range estimation, retrieval, and scenario generation are
 downstream probes or consumers of Part 1. They are not the Part 1 pretraining
 objective.
+
+## Objective-Family Gate
+
+Every Part 1 proposal must be routed through this gate before implementation or
+promotion:
+
+- **Masked-multiview invariance.** Two corrupted views of the same market
+  window and same relative index should produce the same market-state
+  representation. This is the current branch default. Use a shared encoder,
+  direct encoder-output comparison, and Barlow/VICReg-style
+  variance/covariance/redundancy control on the exact embeddings that will be
+  evaluated.
+- **Context-to-target JEPA.** A context block predicts a masked target block in
+  latent space. EMA/stop-gradient target encoders and predictor heads are valid
+  only when this family is explicitly selected and justified.
+- **Downstream probe.** Future range, future mean, regime labels, retrieval, and
+  scenario-generation tasks evaluate a frozen or semi-frozen representation
+  after pretraining. They are not Part 1 pretraining losses.
+
+Do not route the current two-corruption same-state objective through an
+EMA/predictor path just because it is called JEPA. That indirection is a
+different objective family and must be treated as a separate experiment.
+
+## Representation-Surface Rule
+
+The loss must act on the representation being evaluated. If the report scores
+encoder embeddings, invariance and redundancy controls must attach directly to
+encoder embeddings. Predictor-to-target cosine or MSE may be logged for a
+context-to-target experiment, but it cannot by itself certify the encoder state.
+
+Minimum representation-health evidence is:
+
+- same-state retrieval top-k or MRR;
+- effective rank / participation ratio;
+- per-dimension variance;
+- singular-value spectrum;
+- Barlow/cross-correlation diagonal and off-diagonal terms;
+- mask-artifact diagnostics.
+
+High cosine or low MSE without those checks is an incomplete result, not a
+successful Part 1.
 
 ## Long-Term Research Target
 
@@ -176,12 +217,14 @@ Use three labels:
 
 - `canonical_jepa`: the change directly follows established JEPA practice,
   including masking or target-block design, EMA/stop-gradient target encoders,
-  context-to-target latent prediction inside a masked view, horizon/position
-  tokens, and simple latent L1/L2 alignment losses.
+  predictor heads, context-to-target latent prediction inside a masked view,
+  horizon/position tokens, and simple latent L1/L2 alignment losses.
 - `supported_adjacent`: the change is not canonical JEPA, but is supported by
   adjacent self-supervised learning, contrastive learning, relational learning,
   variance/covariance regularization, distribution matching, or probabilistic
-  latent-variable literature.
+  latent-variable literature. Direct Barlow/VICReg two-view masked invariance
+  lives here and is the current branch default because it matches the stated
+  Part 1 objective.
 - `speculative_local_heuristic`: the change is motivated mainly by local
   diagnostics, metrics, or failure modes in this repository.
 
@@ -200,6 +243,8 @@ Promotion rules:
 4. Every report involving a nonstandard objective must include a
    `Literature Status` section with the classification, sources, and whether the
    objective is being treated as canonical, adjacent, or speculative.
+5. Every Part 1 report must include an `Objective Family` field using the gate
+   above.
 
 For the revised JEPA Part 1 branch, the preferred order of attack is:
 
@@ -210,9 +255,11 @@ For the revised JEPA Part 1 branch, the preferred order of attack is:
    panels, time blocks, and cross-geometry groups;
 4. define the positive-pair rule: same window, same relative index, same
    underlying panel state;
-5. use EMA or stop-gradient target encoders where appropriate;
-6. add Barlow Twins, variance/covariance, or related redundancy control only
+5. for the current branch, use direct two-view encoder-output comparison with
+   Barlow Twins, VICReg, variance/covariance, or related redundancy control only
    after true masked/multiview positives are defined;
+6. use EMA, stop-gradient target encoders, or predictor heads only after
+   explicitly switching to `context_to_target_jepa`;
 7. treat future prediction, range estimation, and scenario generation as
    downstream probes, not as pretraining losses;
 8. treat neighborhood/contrastive/relational losses as secondary diagnostics
@@ -227,30 +274,33 @@ Primary objective:
 ```text
 same market window and relative index
 -> structured masked view A + observed-mask channel
--> online encoder -> z_a
+-> shared encoder -> z_a
 same market window and relative index
--> structured masked view B or clean target view + observed-mask channel
--> target/EMA encoder -> stopgrad(z_b)
+-> structured masked view B + observed-mask channel
+-> shared encoder -> z_b
 ```
 
 Core loss:
 
 ```text
 L_part1 =
-    L_multiview_alignment(z_a, stopgrad(z_b))
+    L_multiview_invariance(z_a, z_b)
   + lambda_redundancy L_redundancy_or_barlow
   + optional lambda_var L_variance
   + optional lambda_cov L_covariance
 ```
 
-The alignment term is the main pretraining task. Redundancy, variance, and
-covariance terms are representation-health controls:
+The invariance term is the main pretraining task for the current branch.
+Redundancy, variance, and covariance terms are representation-health controls:
 
 - variance prevents constant collapse;
 - covariance/off-diagonal correlation prevents duplicated latent dimensions;
 - Barlow-style cross-correlation terms are appropriate only for true
   same-state masked/multiview positives;
 - none of these terms should be treated as a future-prediction objective.
+- EMA/stop-gradient target branches are allowed only for explicit
+  `context_to_target_jepa` experiments, not as the default implementation of
+  masked-multiview invariance.
 
 Required Part 1 metrics:
 
@@ -445,6 +495,12 @@ Barlow/VICReg-style terms are not forbidden in the masked-multiview branch, but
 they require true same-state positive pairs, observed/missing mask channels, and
 mask-artifact diagnostics. Do not add them as a patch to a poorly specified
 prediction target.
+
+EMA/stop-gradient predictors are not forbidden in general, but they are not the
+default route for the current Part 1 objective. They require a report that
+explicitly selects `context_to_target_jepa`, explains why direct
+masked-multiview invariance is insufficient for the stated failure class, and
+evaluates the encoder surface rather than only predictor-target agreement.
 
 If decoder work has not been explicitly requested, do not start conditional
 flow training, decoder baselines, decoder conditioning changes, or Part 2

@@ -29,16 +29,19 @@ The research-log context is important:
 
 ## Part 1: Latent World Model Quality
 
-Part 1 should answer whether the encoder/predictor learns a useful future
-state, independent of generated scenario quality.
+Part 1 should answer whether the encoder learns a useful market-state
+representation from two structured masked views of the same window and same
+relative time position, independent of generated scenario quality.
 
 Primary checks:
 
-- JEPA future-latent prediction error by horizon.
-- Future-latent retrieval top-k accuracy.
+- Same-state masked-view alignment.
+- Same-state retrieval top-k accuracy or MRR.
+- Barlow/cross-correlation diagonal and off-diagonal checks.
 - Embedding variance per dimension.
 - Effective rank and singular-value spectrum.
 - Off-diagonal covariance/correlation norm.
+- Mask-artifact diagnostics.
 - Frozen probes for future volatility, jumps, drawdown, correlation, or
   downstream forecasting/classification tasks.
 
@@ -46,14 +49,17 @@ The core objective should be:
 
 ```text
 L_part1 =
-    L_JEPA_future_latent
+    L_masked_multiview_invariance
+  + lambda_redundancy L_barlow_or_vicreg
   + lambda_var L_variance
   + lambda_cov L_covariance
 ```
 
-The redundancy terms are regularizers, not the main task. They should prevent
-constant collapse and duplicated dimensions while the prediction term keeps the
-representation tied to actual future structure.
+The default implementation is one shared encoder over two corrupted views. EMA
+targets and predictor heads are reserved for explicitly gated
+context-to-target JEPA experiments, not for the current two-corruption
+same-state objective. Future prediction and range estimation are downstream
+probes after pretraining.
 
 ## Part 2: Conditional Flow Decoder Quality
 
@@ -87,11 +93,13 @@ multi-day scenario paths.
 
 Start with a smoke-scale path:
 
-1. Train Part 1 on normalized/state-mapped windows with multi-horizon future
-   latent targets.
-2. Freeze or semi-freeze the Part 1 encoder/predictor.
-3. Train Part 2 as a conditional flow path decoder.
-4. Report Part 1 and Part 2 metrics in separate tables before combining claims.
+1. Train Part 1 on normalized/state-mapped windows using structured masked
+   multiview positives and direct encoder-output redundancy control.
+2. Freeze or semi-freeze the Part 1 encoder.
+3. Score frozen probes for future/range/state tasks before any decoder claim.
+4. Train Part 2 as a conditional flow path decoder only after Part 1 gates are
+   understood.
+5. Report Part 1 and Part 2 metrics in separate tables before combining claims.
 
 Do not use reconstruction or scenario generation as the main proof of Part 1.
 Use them as probes or downstream evaluations after collapse diagnostics pass.
