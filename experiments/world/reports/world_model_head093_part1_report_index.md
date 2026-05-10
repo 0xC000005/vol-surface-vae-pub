@@ -179,6 +179,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD149: `world_model_head149_scale_exact_state_topology.md` decomposes the
   exact-state blocker topologically. The gap is broad across IV cells, but
   strongest in wing moneyness and edge maturities.
+- HEAD150: `world_model_head150_surface_local_jepa_design_gate.md` opens a
+  token/geometry-level context-to-target design route without implementing it or
+  changing Part B gating.
 
 ## Packaging And Restart Guardrails
 
@@ -272,17 +275,18 @@ Then read:
 34. `experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md`
 35. `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`
 36. `experiments/world/reports/world_model_head149_scale_exact_state_topology.md`
-37. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-38. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-39. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-40. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-41. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-42. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-43. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-44. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-45. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-46. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-47. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+37. `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`
+38. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+39. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+40. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+41. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+42. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+43. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+44. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+45. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+46. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+47. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+48. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

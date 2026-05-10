@@ -120051,3 +120051,18 @@ The gap is broad and surface-local. Scaled Barlow is worse than raw surface on `
 `DO_NOT_PROMOTE`. Future Part 1 design should target surface-local geometry and edge/wing exact-state retention, not another global row-level objective or minimal context-to-target knob. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD150 Surface-Local JEPA Design Gate
+
+### Context
+HEAD149 showed the exact-state gap is broad but concentrated in wing moneyness and edge maturities. The next step was a design gate, not an immediate implementation patch.
+
+### Execution
+Added `world_model_head150_surface_local_jepa_design_gate.md`, mapping the evidence to a possible token/geometry-level context-to-target JEPA route grounded in I-JEPA target-output selection and target-position conditioning.
+
+### Result
+The report defines a stricter route: tokenize by relative time and geometry token, include geometry/factor/coordinate embeddings, sample surface-local targets such as wings and edge maturities, feed clean full tokens through the target encoder, and condition the predictor on target time/geometry positions. It explicitly forbids future targets, value reconstruction as the default route, decoder losses, and knob sweeps.
+
+### Decision
+This is a design gate only. It does not implement a model, promote Part 1, or unblock Part B. If pursued, the next implementation step must be a TDD data contract for token/geometry-level target blocks.
+
+---

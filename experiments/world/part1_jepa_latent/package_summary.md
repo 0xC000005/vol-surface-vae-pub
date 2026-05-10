@@ -96,6 +96,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`.
 - Latest exact-state topology audit:
   `experiments/world/reports/world_model_head149_scale_exact_state_topology.md`.
+- Latest surface-local JEPA design gate:
+  `experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md`.
 
 ## Fixed Contract
 
@@ -276,6 +278,9 @@ is a representation-learning package for same-market-state masked views.
 - Exact-state topology audit: HEAD149 shows the current-IV gap is broad
   (`20/25` IV cells worse than raw surface) but concentrated in wing moneyness
   and edge maturities. The largest gap is `iv_m0_t0`.
+- Surface-local JEPA design gate: HEAD150 opens, but does not implement, a
+  token/geometry-level context-to-target route. Any implementation must start
+  with a TDD data contract for target-token identity and geometry coordinates.
 
 ## Caveats
 
@@ -375,6 +380,8 @@ is a representation-learning package for same-market-state masked views.
   negatives do not unblock Part B or promote scaled Barlow.
 - Treat HEAD149 as the current exact-state topology audit: future design should
   target surface-local geometry, not only a global row-level objective.
+- Treat HEAD150 as a design gate only. It does not authorize Part B and does
+  not promote any candidate.
 
 ## Next Work Requires Direction
 
@@ -390,5 +397,7 @@ Future work should be one of:
 - bounded exact-state-gap evidence audit or token/geometry-level JEPA design
   gate;
 - surface-local exact-state design gate if pursuing another Part 1 model;
+- TDD data-contract work for token/geometry-level targets only if this design
+  route is pursued;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
