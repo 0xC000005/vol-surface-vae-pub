@@ -117686,3 +117686,54 @@ before adding more model changes.
 - `rg -n "Part 1 should answer whether the encoder/predictor|L_JEPA_future_latent|future-latent prediction|Expected training form|encoder / EMA encoder|target/EMA encoder|use EMA or stop-gradient target encoders where appropriate|Train Part 1 .*future latent|predictive latent state" .agents/skills/world-model-autoresearch docs/research_protocols/world_model_autoresearch_plan.md experiments/world autoresearch-session/world_model_goal.json`
 
 ---
+## 2026-05-09: World model manual-stop guardrail
+
+### Context
+The user asked why the world-model autoresearch loop stopped without a manual
+stop command in the last two runs, and whether the workflow is ready to resume.
+
+### Verification
+Checked the hard-stop surfaces:
+
+- `autoresearch-session/WORLD_MODEL_STOP` is absent.
+- `python autoresearch-session/check_goal_world_model.py` reports
+  `goal_reached=false` and `stop_requested=false`.
+- `autoresearch-session/world_model_state.json` is still
+  `mode=in_session_running`.
+
+No configured autoresearch stop condition fired.
+
+### Root Cause
+The stop was caused by workflow ambiguity. The local world-model driver prompt
+still instructed the agent to complete exactly one HEAD cycle unless the user
+requested multiple, and it did not explicitly make "continue autoresearch / do
+not stop until I manually stop" a persistent same-session run mode. The same
+prompt also retained stale future-latent/past-future wording from the earlier
+Part 1 objective.
+
+### Change
+Updated:
+
+- `autoresearch-session/world_model_driver_prompt.md` (ignored local driver);
+- `.agents/skills/world-model-autoresearch/SKILL.md` (ignored local skill);
+- `docs/research_protocols/world_model_autoresearch_plan.md` (tracked
+  protocol);
+- `experiments/world/reports/world_model_head079_manual_stop_guardrail.md`
+  (tracked report).
+
+The workflow now has explicit single-cycle and manual-stop modes. In
+manual-stop mode, completing one HEAD cycle, gating Part 1, or avoiding Part 2
+is not a stop condition; the loop must continue with the next principled
+iteration, including scorecard/provenance/process work when modeling changes
+are not justified.
+
+### Decision / Next Step
+The loop is ready to resume. The next substantive iteration remains the compact
+Part 1 scorecard reader/report over saved JSON artifacts.
+
+### Verification Commands
+- `python autoresearch-session/check_goal_world_model.py`
+- `rg -n "Complete exactly one HEAD|past context and the actual future|latent prediction, retrieval|future-latent|target/EMA encoder|positive pair is past|JEPA future-latent|L_JEPA_future_latent|predictive latent state" autoresearch-session/world_model_driver_prompt.md .agents/skills/world-model-autoresearch/SKILL.md docs/research_protocols/world_model_autoresearch_plan.md experiments/world/README.md experiments/world/part1_jepa_latent/README.md`
+- `rg -n "manual-stop mode|Single-cycle mode|Manual-stop mode|do not stop until|single HEAD cycle|completed HEAD cycle is not a stop condition|scorecard consolidation" autoresearch-session/world_model_driver_prompt.md .agents/skills/world-model-autoresearch/SKILL.md docs/research_protocols/world_model_autoresearch_plan.md experiments/world/reports/world_model_head079_manual_stop_guardrail.md`
+
+---

@@ -206,6 +206,25 @@ Decision law:
 
 Do not run an experiment merely because more training looks active.
 
+## Run Modes
+
+The workflow supports two distinct invocation modes:
+
+- **Single-cycle mode:** run one complete HEAD cycle, then report. Use this only
+  when the user asks for a single iteration, status check, review, or bounded
+  task.
+- **Manual-stop mode:** when the user says `continue autoresearch`, `do not stop
+  until I manually stop`, or equivalent, keep executing complete HEAD cycles in
+  sequence inside the same session. After each `Decide`, immediately choose the
+  next principled iteration and continue unless a hard stop condition fires or
+  the user interrupts.
+
+In manual-stop mode, a completed HEAD cycle is not a stop condition. A capped
+modeling branch, a "no more knobs" constraint, or "do not start Part 2 yet" is
+also not a stop condition. Convert those cases into post-experiment analysis,
+research ideation, paradigm shift, scorecard consolidation, provenance checks,
+metric reconciliation, open-risk reports, or workflow guardrails.
+
 ## Literature Gate For Objective Changes
 
 The workflow is local-first for data, metrics, artifacts, and prior results, but
