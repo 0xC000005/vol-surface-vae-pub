@@ -191,6 +191,7 @@
       "additive_signal_gate_audit_report": "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md",
       "additive_exact_state_guardrail_report": "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
       "additive_exact_state_topology_report": "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
+      "additive_probe_standardization_report": "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -237,6 +238,7 @@
       "additive_signal_gate_json": "results/world/additive_signal_gate_head167.json",
       "additive_exact_state_guardrail_json": "results/world/additive_exact_state_guardrail_head168.json",
       "additive_exact_state_topology_json": "results/world/additive_exact_state_topology_head169.json",
+      "additive_probe_standardization_json": "results/world/additive_probe_standardization_head170.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -706,6 +708,14 @@
           "max_raw_plus_minus_raw_mse": 0.003973,
           "promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "additive_probe_standardization": {
+          "status": "standardization_does_not_fix_iv_guardrail",
+          "unstandardized_raw_plus_to_raw_ratio": 1.048173,
+          "standardized_raw_plus_to_raw_ratio": 1.213267,
+          "standardization_fixes_iv_guardrail": false,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -797,7 +807,8 @@
     "experiments/world/reports/world_model_head166_additive_signal_gate.md",
     "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md",
     "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
-    "experiments/world/reports/world_model_head169_additive_exact_state_topology.md"
+    "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
+    "experiments/world/reports/world_model_head170_additive_probe_standardization.md"
   ],
   "guardrail_doc_checks": [
     {

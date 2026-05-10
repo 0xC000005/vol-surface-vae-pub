@@ -120351,3 +120351,18 @@ The raw-plus-learned IV degradation is modest but not isolated: raw-plus-learned
 `DO_NOT_PROMOTE`. The additive embedding helps non-surface geometry and path-shape/risk-width probes, but the exact IV guardrail remains failed in a broad enough pattern that it should not be dismissed as a single-cell artifact. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD170 Additive Probe Standardization
+
+### Context
+HEAD169 showed a broad but modest raw-plus-learned IV exact-state miss. Because the probe concatenates heterogeneous raw and learned features under one ridge penalty, the next step was to test whether the failure is mainly a feature-scale artifact.
+
+### Execution
+Added `analyze_additive_probe_standardization.py`, a focused standardization test, and `world_model_head170_additive_probe_standardization.md`. The diagnostic standardizes each feature surface using train-split statistics before fitting the same ridge probe.
+
+### Result
+Standardization does not fix the IV guardrail. The unstandardized raw-plus/raw IV ratio is `1.048173`; the standardized raw-plus/raw IV ratio is `1.213267`, still `FAIL`. Standardized raw-plus-learned continues to improve non-surface targets versus raw-only, but IV exact-state remains worse than raw-only.
+
+### Decision
+`DO_NOT_PROMOTE`. The raw-plus IV exact-state miss should not be dismissed as only an unstandardized ridge-scale artifact. Part B remains blocked.
+
+---

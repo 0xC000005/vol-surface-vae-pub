@@ -235,6 +235,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD169: `world_model_head169_additive_exact_state_topology.md` localizes
   that exact-state miss across IV cells: raw-plus-learned worsens `14/25` and
   improves `11/25`.
+- HEAD170: `world_model_head170_additive_probe_standardization.md` checks
+  feature-standardized ridge probes and finds standardization does not fix the
+  raw-plus IV guardrail.
 
 ## Packaging And Restart Guardrails
 

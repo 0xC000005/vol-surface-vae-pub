@@ -136,6 +136,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`.
 - Latest additive exact-state topology:
   `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`.
+- Latest additive probe standardization diagnostic:
+  `experiments/world/reports/world_model_head170_additive_probe_standardization.md`.
 
 ## Fixed Contract
 
@@ -472,6 +474,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD169 as the current topology of that failure: raw-plus-learned is
   worse on `14/25` IV cells and better on `11/25`; the degradation is modest
   on average but broad enough to keep the exact-state guardrail failed.
+- Treat HEAD170 as the current probe-hygiene diagnostic: standardizing feature
+  blocks does not fix the IV exact-state guardrail, so the failure is not only
+  an unstandardized ridge-scale artifact.
 
 ## Next Work Requires Direction
 
