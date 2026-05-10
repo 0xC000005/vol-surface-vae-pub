@@ -159,6 +159,7 @@
       "exact_state_retention_literature_gate_report": "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
       "scale_representation_surface_report": "experiments/world/reports/world_model_head136_scale_representation_surface.md",
       "context_target_jepa_design_report": "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
+      "context_target_data_scaffold_report": "experiments/world/reports/world_model_head138_context_target_data_scaffold.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -356,6 +357,13 @@
           "objective_family": "context_to_target_jepa",
           "scope": "same_window_masked_current_history_blocks_not_future_prediction",
           "next_step": "implement_minimal_diagnostic_branch_without_value_reconstruction_or_decoder"
+        },
+        "context_target_data_scaffold": {
+          "status": "same_window_data_surface_ready",
+          "module": "experiments/world/evaluation/context_target_jepa_data.py",
+          "test": "test_code/test_world_model_context_target_jepa_data.py",
+          "uses_future_targets": false,
+          "next_step": "minimal_context_to_target_model_smoke"
         }
       },
       "layer_status": {
@@ -415,7 +423,8 @@
     "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
     "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
     "experiments/world/reports/world_model_head136_scale_representation_surface.md",
-    "experiments/world/reports/world_model_head137_context_target_jepa_design.md"
+    "experiments/world/reports/world_model_head137_context_target_jepa_design.md",
+    "experiments/world/reports/world_model_head138_context_target_data_scaffold.md"
   ],
   "guardrail_doc_checks": [
     {

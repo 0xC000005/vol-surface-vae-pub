@@ -72,6 +72,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head136_scale_representation_surface.md`.
 - Latest context-to-target JEPA design:
   `experiments/world/reports/world_model_head137_context_target_jepa_design.md`.
+- Latest context-target data scaffold:
+  `experiments/world/reports/world_model_head138_context_target_data_scaffold.md`.
 
 ## Fixed Contract
 
@@ -203,6 +205,10 @@ is a representation-learning package for same-market-state masked views.
   after the invariance branch capped out. It is same-window missing-state latent
   prediction for masked current/history blocks, not future prediction and not a
   value-reconstruction decoder.
+- Context-target data scaffold: HEAD138 adds the same-window data surface for
+  the context-to-target diagnostic. It exposes context values, target-only
+  values, observed/context/target masks, geometry metadata, and target family
+  labels without introducing future targets.
 
 ## Caveats
 
@@ -272,13 +278,15 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD137 as the design boundary for any next model code: implement a
   separate context-to-target diagnostic branch and compare it against scaled
   Barlow; do not silently mix it into the two-view invariance reference.
+- Treat HEAD138 as data-surface scaffolding only. It does not promote the
+  context-to-target branch and does not change the active Barlow reference.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- a minimal same-window context-to-target JEPA diagnostic branch, explicitly
-  scoped to masked current/history blocks rather than future prediction;
+- a minimal same-window context-to-target JEPA model smoke using the HEAD138
+  data surface;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

@@ -119871,3 +119871,18 @@ The proposed diagnostic predicts latent target blocks inside the same market his
 Proceed next to a minimal context-to-target JEPA scaffold only as a separate diagnostic branch. Compare it against scaled Barlow and the formal Part 1 gate; do not silently mutate the existing two-view invariance reference.
 
 ---
+## 2026-05-10: World Model HEAD138 Context-Target Data Scaffold
+
+### Context
+HEAD137 defined the context-to-target JEPA branch. The first implementation step had to be the data contract, not model training, so we can verify same-window masking and target semantics before adding a predictor.
+
+### Execution
+Added `experiments/world/evaluation/context_target_jepa_data.py` and `test_code/test_world_model_context_target_jepa_data.py` using TDD. The test first failed on the missing module, then passed after implementing `ContextTargetJepaBatch` and `build_context_target_jepa_batch`.
+
+### Result
+The scaffold reuses the existing geometry loader and typed mask sampler. It returns context values with target blocks hidden, target-only values, observed/context/target masks, geometry metadata, target family labels, and same-window indices. Metadata explicitly records `objective_family=context_to_target_jepa` and `uses_future_targets=False`.
+
+### Decision
+The same-window context-target data surface is ready for a minimal model smoke. This does not promote the branch, does not add future prediction, and does not mutate the scaled Barlow reference.
+
+---
