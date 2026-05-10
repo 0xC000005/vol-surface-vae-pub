@@ -119053,3 +119053,35 @@ passes with `16` reports, `4` guardrail docs, and `7` artifacts.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model goal checker manual-stop guardrail
+
+### Context
+
+`check_goal_world_model.py` still had a target-stage equality path that could
+mark `goal_reached` independent of manual-stop mode. That is the same class of
+workflow bug that caused prior unwanted stops.
+
+### Hypothesis
+
+In `in_session_running` manual-stop mode, target-stage equality should not count
+as `goal_reached` unless `state.goal_reached` is explicitly true.
+
+### Execution
+
+- Added `manual_stop_mode` and `target_stage_reached` to checker output.
+- Changed target-stage equality to count only outside manual-stop mode.
+- Ran `python autoresearch-session/check_goal_world_model.py`; it returned
+  exit code `1` with `goal_reached=false` and `stop_requested=false`, which is
+  the expected keep-running signal.
+- Ran `python -m py_compile autoresearch-session/check_goal_world_model.py`.
+
+### Result
+
+The checker now matches the protocol: target-stage completion is not a
+manual-stop stop condition by itself.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
