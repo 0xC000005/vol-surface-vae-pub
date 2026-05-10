@@ -1,6 +1,6 @@
 # World Model Part 1 Package Summary
 
-Date: 2026-05-09
+Date: 2026-05-10
 
 ## Status
 
@@ -30,6 +30,8 @@ is a representation-learning package for same-market-state masked views.
   source reports, guardrail-doc caveat terms, and ignored artifact identities.
 - Restart checklist:
   `experiments/world/part1_jepa_latent/restart_checklist.md`.
+- Part 1 quality gate:
+  `experiments/world/part1_jepa_latent/part1_quality_gate.md`.
 
 ## Fixed Contract
 
@@ -76,13 +78,15 @@ is a representation-learning package for same-market-state masked views.
 - The representation should not be described as a general predictor.
 - Regime classification is not ready as an acceptance criterion.
 - Part 1 success does not prove Part 2 scenario-generation quality.
+- Part B remains gated until the literature-aligned Part 1 quality gate passes:
+  representation health, corruption robustness, baseline superiority,
+  market-state frozen probes, temporal utility probes, and scale/stability.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
-- explicitly authorized Part 2 decoder work using this frozen reference
-  candidate;
-- a documented Part 1 diagnostic that does not add model knobs by default;
+- a documented Part 1 quality-gate diagnostic that does not add model knobs by
+  default;
 - downstream benchmark/probe work that consumes the frozen representation
   without mutating the pretraining objective.

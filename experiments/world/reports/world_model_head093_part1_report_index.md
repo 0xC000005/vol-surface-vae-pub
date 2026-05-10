@@ -61,6 +61,8 @@ human-oriented resume guide, not the source of truth.
 - HEAD105: `world_model_head105_downstream_target_scope_audit.md` states that
   downstream probes target IV-surface futures only, not factor-panel future
   targets.
+- HEAD118: `world_model_head118_part1_literature_quality_gate.md` adds the
+  literature-aligned Part 1 quality gate and blocks Part B until it passes.
 
 ## Packaging And Restart Guardrails
 
@@ -120,17 +122,19 @@ Then read:
 
 1. `experiments/world/part1_jepa_latent/reference_manifest.json`
 2. `experiments/world/part1_jepa_latent/restart_checklist.md`
-3. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-4. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-5. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-6. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-7. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-8. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-9. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-10. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-11. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-12. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-13. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+3. `experiments/world/part1_jepa_latent/part1_quality_gate.md`
+4. `experiments/world/reports/world_model_head118_part1_literature_quality_gate.md`
+5. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+6. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+7. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+8. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+9. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+10. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+11. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+12. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+13. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+14. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+15. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

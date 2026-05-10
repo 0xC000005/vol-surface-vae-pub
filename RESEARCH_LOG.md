@@ -119113,3 +119113,39 @@ The human report index is current through HEAD116.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model Part 1 literature quality gate
+
+### Context
+
+Before moving to Part B, the user asked to assess Part 1 JEPA quality using
+prior JEPA and time-series representation-learning practice. I searched
+I-JEPA, V-JEPA, V-JEPA 2/world-model work, LeCun's position paper, TS-JEPA,
+LaT-PFN, predictive-control TS-JEPA, MTS-JEPA, and non-contrastive
+frequency-masked time-series embedding work.
+
+### Hypothesis
+
+Part 1 should not be considered Part-B-ready from same-state retrieval, rank,
+redundancy, and mask-artifact checks alone. It needs a literature-aligned gate
+covering representation health, corruption robustness, baseline superiority,
+market-state frozen probes, temporal utility probes, and scale/stability.
+
+### Execution
+
+- Added `experiments/world/part1_jepa_latent/part1_quality_gate.md`.
+- Added `experiments/world/reports/world_model_head118_part1_literature_quality_gate.md`.
+- Updated package summary, restart checklist, report index, manifest source
+  reports, and manifest guardrail-doc checks.
+- Re-ran `python experiments/world/part1_jepa_latent/reference_package_check.py`.
+
+### Result
+
+The package checker now verifies `17` reports, `5` guardrail docs, and `7`
+artifacts. Part B is explicitly gated until the Part 1 quality gate passes.
+
+### Decision
+
+Do not proceed to Part B. Next work should implement or run the Part 1
+quality-gate probes without changing the pretraining objective.
+
+---

@@ -160,7 +160,8 @@
     "experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md",
     "experiments/world/reports/world_model_head100_sample_scale_caveat.md",
     "experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md",
-    "experiments/world/reports/world_model_head105_downstream_target_scope_audit.md"
+    "experiments/world/reports/world_model_head105_downstream_target_scope_audit.md",
+    "experiments/world/reports/world_model_head118_part1_literature_quality_gate.md"
   ],
   "guardrail_doc_checks": [
     {
@@ -197,6 +198,15 @@
         "validated default mask families only",
         "factor-panel future target performance",
         "IV-surface futures only"
+      ]
+    },
+    {
+      "path": "experiments/world/part1_jepa_latent/part1_quality_gate.md",
+      "required_terms": [
+        "Literature Grounding",
+        "Market-State Linear Probes",
+        "Temporal Utility Probes",
+        "Part 2 work remains gated"
       ]
     }
   ],
