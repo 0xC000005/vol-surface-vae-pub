@@ -170,6 +170,7 @@
       "context_target_route_decision_report": "experiments/world/reports/world_model_head146_context_target_route_decision.md",
       "part1_candidate_decision_matrix_report": "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
       "scaled_gate_reconciliation_report": "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
+      "scale_exact_state_topology_report": "experiments/world/reports/world_model_head149_scale_exact_state_topology.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -208,6 +209,7 @@
       "context_target_clean_checkpoint": "models/world/checkpoints/part1_jepa_latent/context_target_jepa_clean_head144.pt",
       "context_target_clean_quality_json": "results/world/context_target_clean_quality_head145.json",
       "part1_candidate_decision_matrix_json": "results/world/part1_candidate_decision_matrix_head147.json",
+      "scale_exact_state_topology_json": "results/world/scale_exact_state_topology_head149.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -482,6 +484,15 @@
           "promotion_decision": "DO_NOT_PROMOTE",
           "context_target_changes_gate_status": false,
           "primary_blocker": "exact_state_and_baseline_superiority"
+        },
+        "scale_exact_state_topology": {
+          "status": "broad_gap_with_surface_local_concentration",
+          "gap_broad_across_surface": true,
+          "wing_gap_larger_than_core": true,
+          "edge_maturity_gap_larger_than_middle": true,
+          "largest_gap_cell": "iv_m0_t0",
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "decision": "future_design_should_target_surface_local_geometry_not_global_row_level_objective"
         }
       },
       "layer_status": {
@@ -552,7 +563,8 @@
     "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
     "experiments/world/reports/world_model_head146_context_target_route_decision.md",
     "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
-    "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md"
+    "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
+    "experiments/world/reports/world_model_head149_scale_exact_state_topology.md"
   ],
   "guardrail_doc_checks": [
     {

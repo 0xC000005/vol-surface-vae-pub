@@ -120036,3 +120036,18 @@ The gate does not change. Scaled Barlow remains the active learned candidate, bu
 Part 1 remains not ready for Part B. Next work should be a bounded exact-state-gap evidence audit or a new token/geometry-level JEPA design gate. Do not start decoder work, tune minimal context-to-target knobs, or use future prediction as pretraining.
 
 ---
+## 2026-05-10: World Model HEAD149 Scale Exact-State Topology
+
+### Context
+HEAD148 kept the scaled Barlow gate blocked on exact-state retention. HEAD132 showed the broad gap, but the next useful audit was topology: whether the gap is uniform or concentrated in IV-surface geometry.
+
+### Execution
+Added and ran `analyze_scale_exact_state_topology.py`, reusing the HEAD132 exact-state decomposition with all 25 IV cells and grouping by moneyness, maturity, wing/core, and edge/middle maturity.
+
+### Result
+The gap is broad and surface-local. Scaled Barlow is worse than raw surface on `20/25` IV cells, with overall scaled/raw IV MSE ratio `2.443584`. Wing moneyness has much larger gap than core (`0.015726` vs `0.003061` scale-minus-raw MSE), and edge maturities have much larger gap than middle maturities (`0.018060` vs `0.001504`). The largest gap cell is `iv_m0_t0`.
+
+### Decision
+`DO_NOT_PROMOTE`. Future Part 1 design should target surface-local geometry and edge/wing exact-state retention, not another global row-level objective or minimal context-to-target knob. Part B remains blocked.
+
+---

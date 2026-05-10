@@ -94,6 +94,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md`.
 - Latest scaled gate reconciliation:
   `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`.
+- Latest exact-state topology audit:
+  `experiments/world/reports/world_model_head149_scale_exact_state_topology.md`.
 
 ## Fixed Contract
 
@@ -271,6 +273,9 @@ is a representation-learning package for same-market-state masked views.
 - Scaled gate reconciliation: HEAD148 confirms context-to-target results do not
   change the formal Part 1 gate. Scaled Barlow remains active but not promoted;
   Part B remains blocked.
+- Exact-state topology audit: HEAD149 shows the current-IV gap is broad
+  (`20/25` IV cells worse than raw surface) but concentrated in wing moneyness
+  and edge maturities. The largest gap is `iv_m0_t0`.
 
 ## Caveats
 
@@ -368,6 +373,8 @@ is a representation-learning package for same-market-state masked views.
   training script.
 - Treat HEAD148 as the current quality-gate reconciliation: context-to-target
   negatives do not unblock Part B or promote scaled Barlow.
+- Treat HEAD149 as the current exact-state topology audit: future design should
+  target surface-local geometry, not only a global row-level objective.
 
 ## Next Work Requires Direction
 
@@ -382,5 +389,6 @@ Future work should be one of:
 - quality-gate reconciliation for scaled Barlow without promoting it;
 - bounded exact-state-gap evidence audit or token/geometry-level JEPA design
   gate;
+- surface-local exact-state design gate if pursuing another Part 1 model;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
