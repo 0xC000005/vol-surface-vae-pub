@@ -62,6 +62,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head131_scale_seed_stability.md`.
 - Latest scale exact-state gap diagnostic:
   `experiments/world/reports/world_model_head132_scale_exact_state_gap.md`.
+- Latest scale regime-probe diagnostic:
+  `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`.
 
 ## Fixed Contract
 
@@ -170,6 +172,11 @@ is a representation-learning package for same-market-state masked views.
   embedding's current-IV reconstruction MSE is `0.013756` versus raw
   last-surface `0.005630`, a `2.44x` ratio, and it is worse on `20/25` IV
   surface cells. The largest gap is the `iv_m0_t0` corner cell.
+- Scale regime-probe gap: HEAD133 says the regime accuracy gate still fails,
+  but the failure is not pure no-signal. Class `3` is the majority class
+  (`153/256` validation rows). Scaled Barlow accuracy is `0.516` versus
+  majority `0.598`, but macro recall is `0.521` versus raw-last `0.353`, and
+  class-4 recall is `0.727` versus raw-last `0.000`.
 
 ## Caveats
 
@@ -223,13 +230,16 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD132 as the active diagnosis of the exact-state blocker: the scaled
   embedding has broad market-state signal, but raw current-state features still
   preserve IV geometry that the frozen embedding compresses away.
+- Treat HEAD133 as the active diagnosis of the regime blocker: accuracy remains
+  a failed promotion layer, but balanced/class-specific recall should be tracked
+  before concluding the embedding has no regime information.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- regime/baseline diagnostics that consume the frozen representation without
-  mutating the pretraining objective;
+- baseline-superiority diagnostics that consume the frozen representation
+  without mutating the pretraining objective;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

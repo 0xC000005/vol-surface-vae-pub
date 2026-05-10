@@ -119796,3 +119796,18 @@ The exact IV-state gap is confirmed. Raw last-surface IV reconstruction MSE is `
 The scaled embedding is not failing through collapse or seed instability. It has broad market-state signal, but it compresses exact current-state geometry that raw/simple baselines preserve. The next blocker is regime/baseline certification or a principled exact-state-retention strategy, not another ad hoc mask or decoder step.
 
 ---
+## 2026-05-10: World Model HEAD133 Regime Probe Gap
+
+### Context
+HEAD132 explained the exact-state part of the baseline gap. The remaining regime layer still failed majority accuracy, but the downstream report hinted that the scaled embedding might carry minority-regime information that raw accuracy hides.
+
+### Execution
+Added and ran `analyze_scale_regime_probe_gap.py`, which reads the frozen downstream probe results and compares accuracy, majority baseline, macro recall, and per-class recall for scaled Barlow and raw surface features.
+
+### Result
+The accuracy gate still fails: scaled Barlow accuracy is `0.515625` versus majority `0.597656`. The validation labels are imbalanced: class `3` has `153/256` rows, class `0` has `92/256`, and class `4` has `11/256`. Scaled Barlow has better balanced signal than raw last-surface features: macro recall `0.521244` versus `0.352704`, and class-4 recall `0.727273` versus `0.000000`.
+
+### Decision
+Regime accuracy remains a failed promotion layer, so Part 1 is still `DO_NOT_PROMOTE`. But the failure should not be read as pure absence of regime information; future regime diagnostics should track balanced accuracy and class-specific recall before changing the representation objective.
+
+---

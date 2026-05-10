@@ -154,6 +154,7 @@
       "scale_part1_quality_gate_report": "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
       "scale_seed_stability_report": "experiments/world/reports/world_model_head131_scale_seed_stability.md",
       "scale_exact_state_gap_report": "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
+      "scale_regime_probe_gap_report": "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -181,6 +182,7 @@
       "scale_seed682_checkpoint": "models/world/checkpoints/part1_jepa_latent/masked_multiview_barlow_scale_seed682_head131.pt",
       "scale_seed_stability_json": "results/world/scale_seed_stability_head131.json",
       "scale_exact_state_gap_json": "results/world/scale_exact_state_gap_head132.json",
+      "scale_regime_probe_gap_json": "results/world/scale_regime_probe_gap_head133.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -305,6 +307,21 @@
           "scale_worse_iv_cells": "20/25",
           "largest_gap_cell": "iv_m0_t0",
           "decision": "next_blocker_is_exact_state_retention_and_baseline_certification_not_collapse_or_seed_instability"
+        },
+        "scale_regime_probe_gap": {
+          "status": "accuracy_gate_failed_but_balanced_signal_present",
+          "class_counts": {
+            "0": 92,
+            "3": 153,
+            "4": 11
+          },
+          "scale_barlow_accuracy": 0.515625,
+          "majority_accuracy": 0.597656,
+          "scale_barlow_macro_recall": 0.521244,
+          "raw_last_macro_recall": 0.352704,
+          "scale_barlow_class4_recall": 0.727273,
+          "raw_last_class4_recall": 0.0,
+          "decision": "regime_accuracy_fails_promotion_but_macro_recall_should_be_tracked_as_diagnostic"
         }
       },
       "layer_status": {
@@ -359,7 +376,8 @@
     "experiments/world/reports/world_model_head129_scale_stratified_mask_audit.md",
     "experiments/world/reports/world_model_head130_scale_part1_quality_gate.md",
     "experiments/world/reports/world_model_head131_scale_seed_stability.md",
-    "experiments/world/reports/world_model_head132_scale_exact_state_gap.md"
+    "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
+    "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md"
   ],
   "guardrail_doc_checks": [
     {
