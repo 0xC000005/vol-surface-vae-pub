@@ -117541,3 +117541,29 @@ Validation, ridge alpha `10.0`:
 The main complementarity falsifier fired. Combined features do not beat raw surface last for mean-delta or HEAD070 clean last for range. This suggests the next Part 1 issue is likely encoder geometry: the current flattened daily GRU representation may be too lossy for surface-local state. Next iteration should analyze a geometry-aware token encoder as a principled architecture change, not add objective knobs.
 
 ---
+## 2026-05-09: World model HEAD075 geometry-aware encoder decision
+
+### Context
+HEAD074 found weak linear complementarity between HEAD070 latents and raw surface features. Combined features did not beat the best single feature for mean-delta or range. HEAD075 analyzed whether the next step should be another objective/probe tweak or an architecture change.
+
+### Finding
+The data and objective are geometry-aware, but the model is not. Masks are structured by maturity, moneyness, rectangles, factor families, side channels, and time blocks; token metadata has geometry ids, factor families, and coordinates. The current direct Barlow encoder still flattens every day's values and masks into one vector, so the GRU sees geometry only as fixed column position.
+
+Probe evidence points to the same issue: raw surface last-day features dominate future mean-delta, HEAD070 latents dominate future range, and simple concatenation does not beat the best single-source feature.
+
+### Decision
+The next principled Part 1 change is a geometry-aware encoder, not another loss knob. Keep the same canonical direct Barlow objective and same masks.
+
+### Proposed Minimal Experiment
+Implement a small token-aware daily encoder:
+
+- per-token input: value, observed mask, synthetic mask, geometry coordinates, and compact one-hot geometry/family descriptors;
+- shared token MLP;
+- daily pooling over token embeddings;
+- temporal GRU over daily pooled states;
+- direct canonical Barlow loss on per-time-row embeddings;
+- same train/validation windows, diagnostics, and frozen probe protocol.
+
+Falsifier: if this does not improve retrieval/rank/redundancy or downstream probes relative to HEAD070, geometry-aware encoding is not justified at this scale.
+
+---
