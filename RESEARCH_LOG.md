@@ -118738,3 +118738,33 @@ futures, or factor-panel scenario targets.
 Continue with bounded evidence-boundary audits or explicit user-directed work.
 
 ---
+## 2026-05-10: World model manifest target-scope source
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Package consistency for `masked_multiview_invariance`.
+
+### Hypothesis
+If HEAD105 adds a downstream target-scope caveat, the manifest should list the
+HEAD105 report as a source report.
+
+### Falsifier
+The iteration would fail if `reference_manifest.json` carried the
+IV-surface-only downstream target caveat but did not list the HEAD105 report.
+
+### Execution
+- Added `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+  to `reference_manifest.json` source reports.
+- Re-ran the reference package checker.
+- Added `experiments/world/reports/world_model_head106_manifest_target_scope_source.md`.
+
+### Result
+`reference_package_check.py` now verifies `16` source reports and `7`
+artifacts.
+
+### Next Step
+Continue in manual-stop mode.
+
+---
