@@ -118193,3 +118193,40 @@ Continue only with provenance/report reconciliation or explicit user-directed
 work while manual-stop mode remains active.
 
 ---
+## 2026-05-09: World model consistency reconciliation
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Workflow consistency check for `masked_multiview_invariance`.
+
+### Hypothesis
+The current Part 1 package, latest reports, research-log tail, and local state
+should consistently point to the HEAD070 masked-multiview reference candidate
+with the same caveat boundary.
+
+### Falsifier
+The reconciliation would fail if source reports were missing, artifact digests
+did not match local files, manifest JSON was invalid, the research log lacked
+the latest entries, or local state pointed to an older committed iteration.
+
+### Execution
+- Checked the stop file was absent.
+- Checked the worktree was clean before HEAD090 edits.
+- Checked recent commits include HEAD085-HEAD089.
+- Validated manifest and digest JSON.
+- Verified digest paths, byte counts, and SHA-256 hashes against local files.
+- Confirmed the research log contains HEAD085-HEAD089 tail entries.
+- Added `experiments/world/reports/world_model_head090_consistency_reconciliation.md`.
+
+### Result
+No consistency blocker was found. The active package, reports, log tail, and
+state all point to the HEAD070 masked-multiview reference candidate with
+caveats.
+
+### Next Step
+No model or decoder action is justified by this reconciliation. Continue only
+with bounded guardrail/provenance work or explicit user-directed work.
+
+---
