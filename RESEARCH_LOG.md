@@ -117245,3 +117245,37 @@ The smoke is useful but falsifies the simple version as sufficient:
 Do not add ad hoc research knobs yet. The next iteration should be post-experiment analysis: inspect whether the EMA/predictor alignment path is optimizing a low-rank smoothing solution that gives high cosine but discards instance/date identity needed for same-state retrieval.
 
 ---
+## 2026-05-09: World model HEAD067 masked multiview smoke analysis
+
+### Context
+HEAD066 produced the first masked-multiview JEPA encoder smoke. It reduced training loss and improved pointwise validation alignment/cosine, but same-state retrieval and rank were far worse than the raw masked-view baseline. HEAD067 analyzed that failure before adding any new research knobs.
+
+### Evidence
+Validation metrics from `results/world/masked_multiview_jepa_head066.json`:
+
+- predicted-target retrieval top1/top5/top10: `0.000260` / `0.002344` / `0.006510`;
+- context-target retrieval top1/top5/top10: `0.001302` / `0.005729` / `0.011198`;
+- raw masked-view retrieval top1/top5/top10: `0.035156` / `0.190885` / `0.357031`;
+- predicted effective rank: `4.134431` vs raw masked-view effective rank `12.916789`;
+- predicted top5 singular-value share: `0.782305` vs raw masked-view top5 share `0.371825`;
+- Barlow offdiag abs mean worsened: `0.204527` vs raw `0.106873`.
+
+### Literature Gate
+Primary sources checked:
+
+- Barlow Twins: Self-Supervised Learning via Redundancy Reduction, arXiv:2103.03230, https://arxiv.org/abs/2103.03230
+- Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture, arXiv:2301.08243, https://arxiv.org/abs/2301.08243
+
+Classification:
+
+- EMA/stop-gradient target prediction is `canonical_jepa` for context-to-target latent prediction under masking.
+- Barlow-style cross-correlation on two corrupted views is `supported_adjacent` for the current same-state masked-multiview objective.
+- The exact HEAD066 hybrid, with Barlow mainly on predictor-to-EMA-target outputs, is less cleanly supported than either source family on its own.
+
+### Diagnosis
+The most likely failure is objective mismatch. The current pretraining goal is same-state multiview invariance, but HEAD066 still used an EMA target and predictor path. The predictor learned high cosine to a moving target while compressing date identity and rank. That is why alignment improved but retrieval collapsed.
+
+### Decision
+Next experiment should remove moving parts rather than add knobs: test a direct shared-encoder Barlow Twins masked-multiview baseline. Apply redundancy reduction directly to the evaluated embeddings; keep the same masks, same diagnostics, and same raw baseline; do not add future prediction, range prediction, neighborhood loss, or extra tuning knobs.
+
+---
