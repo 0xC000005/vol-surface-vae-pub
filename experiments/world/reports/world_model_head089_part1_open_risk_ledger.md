@@ -1,6 +1,6 @@
 # World Model HEAD089: Part 1 Open-Risk Ledger Refresh
 
-Date: 2026-05-09
+Date: 2026-05-10
 
 ## Iteration Type
 
@@ -36,6 +36,10 @@ requires user authorization.
   effective rank is about `14.5`, and health offdiag is about `0.224`.
 - HEAD083 found no large mask-family leakage signal.
 - HEAD084 found no mask-family stratum with top10 retrieval below `0.826`.
+- The package checker now verifies source reports, guardrail-doc caveat terms,
+  and ignored artifact identities.
+- Manual-stop mode has no elapsed-time, turn-count, fatigue,
+  diminishing-returns, completed-cycle, or process-only-work stop condition.
 - Artifact identity for the current package is recorded in
   `experiments/world/part1_jepa_latent/reference_artifact_digests.json`.
 
@@ -45,10 +49,17 @@ requires user authorization.
 - This is `supported_adjacent` to JEPA via masked multiview SSL and
   Barlow-style redundancy control, not a canonical context-to-target JEPA
   reproduction.
-- HEAD070 is a reference candidate, not a final paper claim.
+- HEAD070 is a smoke-scale reference candidate, not a final paper claim or a
+  full-data convergence result.
+- HEAD070 was trained and audited on the default structured mask families; the
+  sparse, wing, ATM-strip, whole-surface day-dropout, and cross-family stress
+  mask ideas need separate evidence before they can be claimed.
 - Downstream probe utility is mixed: risk-width/path-shape probes look better
   than raw last-surface features, but directional/terminal probes and regime
-  classification do not.
+  classification do not, and the full-history raw surface baseline beats
+  Barlow on max-absolute-step MSE.
+- Downstream probes target IV-surface futures only; factor-panel future target
+  performance has not been evaluated.
 - Regime classification is not an acceptance success; all tested feature sets
   are below majority-baseline accuracy.
 - Part 1 evidence does not establish Part 2 scenario-generation quality.
@@ -64,13 +75,17 @@ Do not do these as routine continuation:
 - promote the reference to `canonical_jepa`;
 - claim general future-prediction, ImageNet-level JEPA, or solved regime
   classification;
+- claim full-data convergence, validated non-default mask policies, or
+  factor-panel future target performance;
 - use Part 2 generation metrics to hide a Part 1 representation failure.
 
-## Remaining Safe Continuation
+## Allowed Process Continuation
 
-If manual-stop mode continues without user redirection, safe work is limited to:
+If manual-stop mode continues without user redirection, keep running one bounded
+iteration at a time. Process continuation includes:
 
 - provenance, manifest, digest, and artifact-identity checks;
+- package-checker and guardrail-doc consistency checks;
 - report and research-log reconciliation;
 - handoff criteria and restart guardrails;
 - explicit decision reports that preserve caveats.
@@ -85,4 +100,5 @@ explicit authorization.
 
 - Read the stale HEAD051 ledger and replaced its active claims with the current
   HEAD070 package in this new report.
-- Cross-checked against HEAD082-HEAD088 reports and the updated manifest.
+- Cross-checked against HEAD082-HEAD088, HEAD097, HEAD100, HEAD102, HEAD105,
+  and HEAD107-HEAD110 reports plus the updated manifest.

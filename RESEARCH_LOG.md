@@ -118930,3 +118930,32 @@ target-scope caveat, manual-stop guardrail, and guardrail-doc checker.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model open-risk ledger refresh
+
+### Context
+
+The open-risk ledger remained in the fast resume path but lagged newer caveats
+and still used stale safe-work wording.
+
+### Hypothesis
+
+The ledger should reflect the current package boundary and manual-stop rule:
+smoke-scale HEAD070, default mask families only, mixed raw-baseline downstream
+utility, IV-surface-only targets, guardrail-doc package checking, and no
+elapsed-time/process-only pause condition.
+
+### Execution
+
+- Refreshed `world_model_head089_part1_open_risk_ledger.md`.
+- Added `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`.
+
+### Result
+
+The open-risk ledger now matches the package summary, restart checklist, report
+index, and manual-stop workflow.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
