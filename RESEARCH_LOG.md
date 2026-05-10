@@ -118993,3 +118993,34 @@ iteration, not a stop condition.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-10: World model score summary caveat sync
+
+### Context
+
+Active docs carried the current caveat boundary, but
+`score_masked_multiview_part1.py` could generate future summaries that named
+HEAD070 as the reference candidate without repeating the newer caveats.
+
+### Hypothesis
+
+Generated Part 1 score summaries should warn that HEAD070 is smoke-scale,
+not ImageNet-level JEPA, not full-data convergence, not a general future
+predictor, not a regime-classifier success, and not Part 2 scenario-quality
+evidence.
+
+### Execution
+
+- Added caveat text to the generated `## Decision` section in
+  `score_masked_multiview_part1.py`.
+- Added `experiments/world/reports/world_model_head114_score_summary_caveat_sync.md`.
+
+### Result
+
+Future score summaries now repeat the same acceptance boundary as the manifest
+and package docs.
+
+### Decision
+
+Continue autoresearch in manual-stop mode.
+
+---
