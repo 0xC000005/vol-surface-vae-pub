@@ -36,6 +36,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`.
 - Latest failure analysis:
   `experiments/world/reports/world_model_head120_part1_failure_analysis.md`.
+- Latest JEPA-fit diagnosis:
+  `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`.
 
 ## Fixed Contract
 
@@ -82,6 +84,11 @@ is a representation-learning package for same-market-state masked views.
   improves `3/5` targets. The main empirical failure is that raw/simple features
   still dominate mean/terminal and max-step targets, while missing evidence
   remains for factor-panel probes, richer masks, and scale/stability.
+- JEPA-fit diagnosis: HEAD121 says the current branch is a reasonable
+  collapse-controlled smoke test but weaker than canonical JEPA as a
+  market-state learning recipe. Validation masks hide only about `6.6-7.8%` per
+  view and keep about `86.6%` visible in both views, so the task is likely too
+  easy and too close to raw-state preservation.
 
 ## Caveats
 
@@ -102,6 +109,9 @@ is a representation-learning package for same-market-state masked views.
 - Do not interpret the quality-gate failure as collapse. Interpret it as a
   baseline-superiority and evidence-coverage failure until stronger frozen
   probes and simple baselines are run.
+- Do not jump straight to many new knobs. First run one controlled hard-mask
+  diagnostic preset with the same encoder/loss to test whether mask difficulty,
+  rather than objective family or architecture, is the next bottleneck.
 
 ## Next Work Requires Direction
 

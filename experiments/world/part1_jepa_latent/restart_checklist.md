@@ -14,15 +14,16 @@ probe that consumes the Part 1 world-model reference candidate.
 5. `experiments/world/reports/world_model_head118_part1_literature_quality_gate.md`
 6. `experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md`
 7. `experiments/world/reports/world_model_head120_part1_failure_analysis.md`
-8. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-9. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-10. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-11. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-12. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-13. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-14. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-15. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-16. latest tail of `RESEARCH_LOG.md`
+8. `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`
+9. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+10. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+11. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+12. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+13. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+14. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+15. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+16. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+17. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -66,6 +67,10 @@ probe that consumes the Part 1 world-model reference candidate.
   The representation is useful versus trivial baselines and sometimes
   complementary to raw features, but it is not certified beyond raw/simple
   market-state baselines.
+- Treat HEAD121 as the current JEPA-fit diagnosis: the current masks are mild
+  and overlapping enough that direct two-view invariance may mostly preserve raw
+  state identity. Before changing the objective or architecture, run one
+  controlled hard-mask diagnostic with the same encoder/loss.
 
 ## Do Not Do Without Explicit Authorization
 

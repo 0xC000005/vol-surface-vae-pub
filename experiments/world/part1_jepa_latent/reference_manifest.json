@@ -139,8 +139,10 @@
     "latest_quality_gate_assessment": {
       "report": "experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md",
       "failure_analysis_report": "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
+      "jepa_fit_diagnosis_report": "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
+      "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -154,7 +156,15 @@
           "baseline_superiority",
           "market_state_probe_certification",
           "scale_and_stability"
-        ]
+        ],
+        "jepa_fit_diagnosis": {
+          "not_wrong_as_smoke_test": true,
+          "weaker_than_canonical_jepa_recipe": true,
+          "val_view_a_hidden_rate": 0.066325,
+          "val_view_b_hidden_rate": 0.077649,
+          "val_both_visible_rate": 0.866034,
+          "next_diagnostic": "controlled_hard_mask_preset_before_objective_or_architecture_change"
+        }
       },
       "layer_status": {
         "package_integrity": "PASS",
@@ -193,7 +203,8 @@
     "experiments/world/reports/world_model_head105_downstream_target_scope_audit.md",
     "experiments/world/reports/world_model_head118_part1_literature_quality_gate.md",
     "experiments/world/reports/world_model_head119_part1_quality_gate_assessment.md",
-    "experiments/world/reports/world_model_head120_part1_failure_analysis.md"
+    "experiments/world/reports/world_model_head120_part1_failure_analysis.md",
+    "experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md"
   ],
   "guardrail_doc_checks": [
     {

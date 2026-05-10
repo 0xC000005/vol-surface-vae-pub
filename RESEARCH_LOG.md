@@ -119237,3 +119237,46 @@ mask robustness, and scale/seed checks before changing the pretraining
 objective.
 
 ---
+## 2026-05-10: World Model HEAD121 JEPA Fit Diagnosis
+
+### Context
+
+The Part 1 quality gate failed, and HEAD120 showed the failure was not collapse.
+The next question was whether the current setup is conceptually wrong relative
+to JEPA practice, especially whether masks are too mild or whether raw market
+state baselines are simply too strong.
+
+### Execution
+
+- Searched primary JEPA and JEPA-adjacent sources: I-JEPA, V-JEPA, Barlow Twins,
+  MTS-JEPA, LaT-PFN, and TS-JEPA.
+- Added and ran `experiments/world/part1_jepa_latent/analyze_part1_jepa_fit.py`.
+- The audit reconstructs the HEAD070 train/validation masks and measures view
+  overlap, hidden rates, and local probe evidence.
+- Added `experiments/world/reports/world_model_head121_jepa_fit_diagnosis.md`.
+
+### Result
+
+- The current branch is not wrong as a collapse-controlled masked-multiview
+  invariance smoke test, but it is weaker than canonical JEPA as a market-state
+  learning recipe.
+- Validation view A hides only `6.63%` of observed entries; view B hides only
+  `7.76%`.
+- The two validation views keep `86.60%` of observed entries visible in both
+  views and disagree on only `12.40%`.
+- This is much closer to identity-preserving raw-state alignment than to the
+  hard missing-information tasks used by I-JEPA/V-JEPA.
+- Raw last-surface baselines are expected to dominate persistence-like targets
+  because they preserve exact low-level surface state. Barlow's wins are on
+  path-shape/dispersion targets, which better match abstraction.
+
+### Decision
+
+Do not conclude that the Barlow objective is intrinsically wrong. The strongest
+current hypothesis is mask difficulty plus probe mismatch. The next experiment
+should be one controlled hard-mask diagnostic preset, keeping the same
+encoder/loss first, and scoring frozen present-state probes, factor-panel
+probes, and incremental value over raw/PCA/persistence baselines before adding
+architecture or objective knobs.
+
+---
