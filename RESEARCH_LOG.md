@@ -118543,3 +118543,36 @@ guardrail evidence chain.
 Continue autoresearch in manual-stop mode.
 
 ---
+## 2026-05-09: World model sample-scale caveat
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Evidence-boundary audit for `masked_multiview_invariance`.
+
+### Hypothesis
+The HEAD070 package should make clear that the reference checkpoint is a
+smoke-scale reference candidate, not a full-data convergence result.
+
+### Falsifier
+The audit would fail if package text allowed future work to imply HEAD070 was
+trained to full-data convergence.
+
+### Execution
+- Parsed `results/world/masked_multiview_barlow_head070.json`.
+- Confirmed HEAD070 used `384` train windows, `128` validation windows, and
+  `8` epochs.
+- Added `sample_scale_caveat` to the reference manifest.
+- Added the same caveat to the package summary.
+- Added `experiments/world/reports/world_model_head100_sample_scale_caveat.md`.
+
+### Result
+HEAD070 remains the current reference candidate, but its claims are explicitly
+limited to smoke-scale evidence. Full-data scaling remains future work and
+should not be silently assumed.
+
+### Next Step
+Continue with bounded evidence-boundary audits or explicit user-directed work.
+
+---

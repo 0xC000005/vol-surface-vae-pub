@@ -62,6 +62,8 @@ is a representation-learning package for same-market-state masked views.
 ## Caveats
 
 - This is not canonical ImageNet I-JEPA.
+- The HEAD070 checkpoint is a smoke-scale reference candidate trained on `384`
+  windows and validated on `128`; do not claim full-data convergence from it.
 - Future prediction, range estimation, regime labels, and scenario generation
   remain downstream probes or consumers, not pretraining objectives.
 - The representation should not be described as a general predictor.

@@ -112,6 +112,12 @@
       ],
       "decision": "coverage_caveat_not_model_failure"
     },
+    "sample_scale_caveat": {
+      "checkpoint_train_windows": 384,
+      "checkpoint_val_windows": 128,
+      "checkpoint_epochs": 8,
+      "decision": "smoke_scale_reference_candidate_not_full_data_convergence_claim"
+    },
     "downstream_probe_caveat": {
       "barlow_better_than_raw_last_on": [
         "future_range_mse",
