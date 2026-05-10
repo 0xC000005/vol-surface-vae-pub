@@ -226,6 +226,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD166: `world_model_head166_additive_signal_gate.md` defines the next
   frozen-probe gate for raw-only, learned-only, and raw-plus-learned additive
   market-state value.
+- HEAD167: `world_model_head167_additive_signal_gate_audit.md` runs that gate
+  on existing frozen-probe artifacts and keeps Part 1 blocked by exact-state
+  and persistence guardrails.
 
 ## Packaging And Restart Guardrails
 

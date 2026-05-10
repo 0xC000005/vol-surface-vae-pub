@@ -130,6 +130,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md`.
 - Latest additive-signal quality gate:
   `experiments/world/reports/world_model_head166_additive_signal_gate.md`.
+- Latest additive-signal gate audit:
+  `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`.
 
 ## Fixed Contract
 
@@ -457,6 +459,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD166 as the additive-signal quality gate: evaluate raw-only,
   learned-only, and raw-plus-learned frozen probes before claiming the learned
   representation adds abstract market-state value.
+- Treat HEAD167 as the current additive-signal audit: additive path-shape and
+  balanced-regime signal is present, but exact-state and persistence
+  guardrails still fail promotion.
 
 ## Next Work Requires Direction
 
@@ -470,6 +475,9 @@ Future work should be one of:
   reconstruction auxiliary loss;
 - an additive-signal audit over raw-only, learned-only, and raw-plus-learned
   frozen probes, without changing Part 1 pretraining or starting Part B;
+- a follow-up additive-signal coverage audit only if it expands beyond the
+  current IV-surface future targets and regime diagnostics without changing
+  the Part 1 objective;
 - same-objective scale/stability evidence for the active scaled Barlow
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target

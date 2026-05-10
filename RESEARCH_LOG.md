@@ -120306,3 +120306,18 @@ The gate evaluates frozen `raw-only`, `learned-only`, and `raw-plus-learned` sur
 This is a gate definition, not model promotion. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked. The next empirical step, if chosen, is an additive-signal frozen-probe audit, not decoder work or another Part 1 knob.
 
 ---
+## 2026-05-10: World Model HEAD167 Additive-Signal Gate Audit
+
+### Context
+HEAD166 defined the raw-only, learned-only, and raw-plus-learned additive-signal gate. The next step was to run the gate on existing frozen-probe artifacts instead of adding a model knob.
+
+### Execution
+Added `analyze_additive_signal_gate.py`, a focused test, and `world_model_head167_additive_signal_gate_audit.md`. The audit consumes HEAD132 exact-state gap, HEAD133 regime gap, and HEAD134 target-family taxonomy artifacts.
+
+### Result
+Additive signal is present but the gate does not pass. Exact-state guardrail fails with learned/raw IV MSE ratio `2.443584`; path-shape/risk-width passes with learned wins `2/2` and raw-plus-learned improvements `2/2`; persistence is partial with learned wins `0/2` and raw-plus-learned improvements `1/2`; regime balanced signal is partial with macro-recall delta `0.168540` but accuracy delta `-0.039062`.
+
+### Decision
+`DO_NOT_PROMOTE`. The learned embedding adds useful abstract signal, but exact-state and persistence guardrails still block Part 1 promotion. Part B remains blocked.
+
+---

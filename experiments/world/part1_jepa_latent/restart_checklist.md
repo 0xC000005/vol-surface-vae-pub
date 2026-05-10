@@ -61,15 +61,16 @@ probe that consumes the Part 1 world-model reference candidate.
 52. `experiments/world/reports/world_model_head164_exact_state_literature_refresh.md`
 53. `experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md`
 54. `experiments/world/reports/world_model_head166_additive_signal_gate.md`
-55. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-56. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-57. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-58. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-59. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-60. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-61. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-62. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-63. latest tail of `RESEARCH_LOG.md`
+55. `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`
+56. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+57. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+58. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+59. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+60. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+61. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+62. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+63. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+64. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -240,6 +241,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD166 as the additive-signal quality gate: evaluate raw-only,
   learned-only, and raw-plus-learned frozen probes before treating learned
   embeddings as useful abstract market-state information.
+- Treat HEAD167 as the current additive-signal audit: path-shape/risk-width
+  additive signal passes, balanced-regime signal is partial, and exact-state
+  plus persistence guardrails still block promotion.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -265,6 +269,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Implement context-to-target JEPA without comparing it against the scaled
   Barlow candidate and the formal Part 1 gate layers.
 - Treat an additive-signal probe as decoder evidence or Part B authorization.
+- Treat additive signal on path-shape/risk-width probes as sufficient Part 1
+  promotion while exact-state and persistence guardrails remain failed or
+  partial.
 
 ## Required Reporting
 
