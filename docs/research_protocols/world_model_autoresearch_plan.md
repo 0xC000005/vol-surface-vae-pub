@@ -225,6 +225,11 @@ also not a stop condition. Convert those cases into post-experiment analysis,
 research ideation, paradigm shift, scorecard consolidation, provenance checks,
 metric reconciliation, open-risk reports, or workflow guardrails.
 
+Manual-stop mode has no elapsed-time, turn-count, fatigue,
+diminishing-returns, or process-only-work stop condition. Each cycle must
+either satisfy a hard stop below or immediately choose the next bounded
+iteration.
+
 ## Literature Gate For Objective Changes
 
 The workflow is local-first for data, metrics, artifacts, and prior results, but
@@ -527,9 +532,10 @@ If decoder work has not been explicitly requested, do not start conditional
 flow training, decoder baselines, decoder conditioning changes, or Part 2
 experiments.
 
-When Part 1 and Part 2 are both gated, continue only with bounded process work
-until a real stop condition appears or the user redirects the loop. Allowed
-work is limited to:
+When Part 1 and Part 2 are both gated, continue with one bounded process
+iteration at a time until a real stop condition appears or the user redirects
+the loop. This is a continuation rule, not permission to pause. Allowed work
+includes:
 
 - provenance, manifest, digest, and artifact-identity checks;
 - report, metric, and research-log reconciliation;
@@ -555,5 +561,5 @@ The workflow stops only when one of these is true:
 Research/model blockers are not stop conditions by default. Convert blockers
 into analysis, ideation, or paradigm-shift iterations.
 Do not stop because a modeling branch is gated, a completed cycle reached a
-clean checkpoint, no model knob is justified, or the remaining safe work is
+clean checkpoint, no model knob is justified, or the remaining work is
 process-oriented.

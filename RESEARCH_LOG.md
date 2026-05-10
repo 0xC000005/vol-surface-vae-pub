@@ -118768,3 +118768,36 @@ artifacts.
 Continue in manual-stop mode.
 
 ---
+## 2026-05-10: World model manual-stop runtime guardrail
+
+### Context
+
+Manual-stop autoresearch paused again without a user stop. The failure was not
+a repo or platform limit; it was bad workflow control logic that treated
+elapsed time or low-yield process-only work as a possible pause reason.
+
+### Hypothesis
+
+Manual-stop mode should have no elapsed-time, turn-count, fatigue,
+diminishing-returns, or process-only-work stop condition. If those phrases are
+removed from the live protocol and active skill, future cycles have a single
+valid interpretation: continue unless a hard stop fires or the user interrupts.
+
+### Execution
+
+- Tightened `docs/research_protocols/world_model_autoresearch_plan.md`.
+- Tightened `.agents/skills/world-model-autoresearch/SKILL.md`.
+- Removed confusing wording from the HEAD093 human report index.
+- Added `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`.
+
+### Result
+
+Manual-stop mode is now explicitly independent of elapsed time, turn count,
+fatigue, diminishing returns, and process-only work. Gated model work converts
+into bounded process iterations rather than a pause.
+
+### Decision
+
+Continue autoresearch. This guardrail iteration is not a stop condition.
+
+---

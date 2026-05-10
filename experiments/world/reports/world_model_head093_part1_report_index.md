@@ -74,7 +74,7 @@ human-oriented resume guide, not the source of truth.
 - HEAD092: `world_model_head092_goal_state_reconciliation.md` reconciles local
   ignored goal/state files.
 - HEAD094: `world_model_head094_manual_stop_guardrail.md` removes the vague
-  practical-runtime discretionary pause path.
+  discretionary pause path.
 - HEAD095: `world_model_head095_target_stage_guardrail.md` prevents target-stage
   completion from stopping manual-stop mode unless `goal_reached` is explicit.
 - HEAD096: `world_model_head096_stop_condition_verification.md` verifies the
