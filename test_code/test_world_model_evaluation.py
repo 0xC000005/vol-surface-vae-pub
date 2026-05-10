@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import numpy as np
 import pytest
 import sys
@@ -142,6 +144,9 @@ from experiments.world.part1_jepa_latent.masked_multiview_stratified_audit impor
 )
 from experiments.world.part1_jepa_latent.masked_multiview_downstream_probe_audit import (
     make_extended_future_targets,
+)
+from experiments.world.part1_jepa_latent.reference_package_check import (
+    check_reference_package,
 )
 
 
@@ -401,6 +406,47 @@ def test_make_extended_future_targets_includes_tail_and_drawdown_tasks():
     )
     np.testing.assert_allclose(targets["regression"]["future_drawdown"], [[2.0, 1.0]])
     np.testing.assert_array_equal(targets["classification"]["regime_label"], labels)
+
+
+def test_check_reference_package_validates_reports_and_digest(tmp_path):
+    report = tmp_path / "reports" / "head.md"
+    report.parent.mkdir()
+    report.write_text("# report\n", encoding="utf-8")
+    artifact = tmp_path / "artifacts" / "checkpoint.pt"
+    artifact.parent.mkdir()
+    payload = b"reference"
+    artifact.write_bytes(payload)
+    manifest = tmp_path / "reference_manifest.json"
+    manifest.write_text(
+        json.dumps({"source_reports": ["reports/head.md"]}),
+        encoding="utf-8",
+    )
+    digest = tmp_path / "reference_artifact_digests.json"
+    digest.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "path": "artifacts/checkpoint.pt",
+                        "bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = check_reference_package(
+        root=tmp_path,
+        manifest_path=manifest,
+        digest_path=digest,
+    )
+
+    assert result["ok"]
+    assert result["missing_reports"] == []
+    assert result["artifact_mismatches"] == []
+    assert result["checked_artifacts"] == 1
 
 
 def test_build_iv_world_windows_uses_manifest_style_split(tmp_path):

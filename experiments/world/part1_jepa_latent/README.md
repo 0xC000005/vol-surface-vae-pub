@@ -55,4 +55,6 @@ Current package pointers:
   caveats.
 - `reference_artifact_digests.json`: local ignored artifact identities for the
   HEAD070 package.
+- `reference_package_check.py`: verifies manifest report paths and local
+  artifact byte/SHA-256 identities.
 - `package_summary.md` and `restart_checklist.md`: restart/handoff guardrails.

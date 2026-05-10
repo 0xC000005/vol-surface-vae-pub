@@ -118230,3 +118230,45 @@ No model or decoder action is justified by this reconciliation. Continue only
 with bounded guardrail/provenance work or explicit user-directed work.
 
 ---
+## 2026-05-09: World model reference package checker
+
+### Iteration Type
+`experiment`
+
+### Objective Family
+Workflow/provenance guardrail for `masked_multiview_invariance`.
+
+### Hypothesis
+The HEAD090 one-off consistency checks should be reusable as a small local
+checker so future runs can verify the Part 1 package before consuming ignored
+checkpoint/result artifacts.
+
+### Falsifier
+The iteration would fail if the checker could not validate manifest
+source-report paths and digest entries through a test, or if it failed on the
+current HEAD070 package.
+
+### Execution
+- Added `experiments/world/part1_jepa_latent/reference_package_check.py`.
+- Added a focused unit test for report-path and digest validation.
+- Added the checker command to the Part 1 README/restart checklist.
+
+### Result
+The checker validates the current package with no missing reports and no
+artifact mismatches: `checked_reports=12`, `checked_artifacts=7`.
+
+### Verification
+- Focused test first failed because `reference_package_check` did not exist.
+- `uv run pytest test_code/test_world_model_evaluation.py::test_check_reference_package_validates_reports_and_digest -q`
+  passed.
+- `python experiments/world/part1_jepa_latent/reference_package_check.py`
+  passed.
+- `uv run pytest test_code/test_world_model_evaluation.py -q` passed:
+  `50 passed`.
+- `git diff --check` passed.
+
+### Next Step
+Continue only with bounded guardrail/provenance work or explicit user-directed
+work. The checker does not justify new Part 1 knobs or decoder work.
+
+---
