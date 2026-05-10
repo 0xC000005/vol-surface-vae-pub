@@ -15,6 +15,7 @@ from experiments.world.evaluation.part1_metrics import (
 from experiments.world.evaluation.part2_metrics import compact_path_sample_metrics
 from experiments.world.evaluation.world_data import build_iv_world_windows
 from experiments.world.evaluation.masked_multiview_data import (
+    build_geometry_token_metadata,
     build_masked_multiview_batch,
     load_geometry_panel_values,
 )
@@ -40,6 +41,12 @@ from experiments.world.part1_jepa_latent.masked_multiview_barlow_probe_audit imp
     concatenate_feature_blocks,
     make_future_summary_targets,
     regression_metrics,
+)
+from experiments.world.part1_jepa_latent.masked_multiview_geometry_barlow_smoke import (
+    GeometryAwareDirectBarlowConfig,
+    GeometryAwareDirectBarlowModel,
+    build_token_descriptor_matrix,
+    geometry_masked_multiview_barlow_loss,
 )
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
@@ -535,6 +542,43 @@ def test_probe_feature_block_concatenation_checks_rows():
     np.testing.assert_allclose(combined[:, 2:], right)
     with pytest.raises(ValueError, match="same row count"):
         concatenate_feature_blocks(left, right[:2])
+
+
+def test_geometry_aware_barlow_encoder_uses_token_descriptors():
+    import torch
+
+    metadata = build_geometry_token_metadata(
+        level_columns=["spx"],
+        return_columns=["spx_logret"],
+    )
+    descriptors = build_token_descriptor_matrix(metadata)
+    assert descriptors.shape[0] == metadata.n_tokens
+    assert descriptors.shape[1] > 4
+    assert np.isfinite(descriptors).all()
+
+    cfg = GeometryAwareDirectBarlowConfig(
+        n_tokens=metadata.n_tokens,
+        token_descriptor_dim=descriptors.shape[1],
+        token_hidden_dim=8,
+        hidden_dim=12,
+        latent_dim=6,
+    )
+    model = GeometryAwareDirectBarlowModel(cfg, token_descriptors=descriptors)
+    values = torch.randn(2, 3, metadata.n_tokens)
+    observed = torch.ones_like(values, dtype=torch.bool)
+    synth_a = torch.ones_like(values, dtype=torch.bool)
+    synth_b = torch.ones_like(values, dtype=torch.bool)
+    synth_a[:, :, 0] = False
+    synth_b[:, 1:, -1] = False
+    view_a = torch.where(observed & synth_a, values, torch.zeros_like(values))
+    view_b = torch.where(observed & synth_b, values, torch.zeros_like(values))
+
+    out = model(view_a, view_b, observed, synth_a, synth_b)
+    assert out["view_a"].shape == (2, 3, 6)
+    assert out["view_b"].shape == (2, 3, 6)
+    loss, parts = geometry_masked_multiview_barlow_loss(out)
+    assert torch.isfinite(loss)
+    assert set(parts) == {"barlow", "barlow_diag_loss", "barlow_offdiag_loss", "loss"}
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

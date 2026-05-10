@@ -117567,3 +117567,49 @@ Implement a small token-aware daily encoder:
 Falsifier: if this does not improve retrieval/rank/redundancy or downstream probes relative to HEAD070, geometry-aware encoding is not justified at this scale.
 
 ---
+## 2026-05-09: World model HEAD076 geometry-aware Barlow smoke
+
+### Context
+HEAD075 selected a minimal geometry-aware encoder as the next principled Part 1 experiment. The objective, masks, and train budget were kept fixed: canonical direct Barlow, same masked multiview data, same diagnostics.
+
+### Implementation
+Added `experiments/world/part1_jepa_latent/masked_multiview_geometry_barlow_smoke.py` with:
+
+- per-token value, observed mask, synthetic mask;
+- descriptors from geometry coordinates, geometry id, and factor family;
+- shared token MLP;
+- mean pooling over tokens per day;
+- temporal GRU over daily pooled states;
+- canonical direct Barlow loss.
+
+Added a focused descriptor/model/loss test.
+
+### Validation
+Focused test passed:
+
+```bash
+pytest test_code/test_world_model_evaluation.py::test_geometry_aware_barlow_encoder_uses_token_descriptors -q
+```
+
+Result: `1 passed in 0.74s`.
+
+Real-data smoke:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_geometry_barlow_smoke.py --device cpu
+```
+
+Training loss decreased from `0.164367` to `0.068565`.
+
+### Result
+Validation comparison:
+
+- alignment MSE/cosine: HEAD076 `0.001153` / `0.998920`; HEAD070 `0.007052` / `0.992878`;
+- retrieval top1/top5/top10: HEAD076 `0.138802` / `0.257292` / `0.333073`; HEAD070 `0.321354` / `0.662500` / `0.841927`;
+- effective rank A/B: HEAD076 `3.322565` / `3.321497`; HEAD070 `14.501471` / `14.593816`;
+- offdiag abs mean: HEAD076 `0.402751`; HEAD070 `0.216527`.
+
+### Decision
+The falsifier fired. Minimal token descriptors plus mean pooling are not enough; they improve pointwise alignment but collapse rank and same-state retrieval. HEAD070 remains the current Part 1 reference candidate. Next iteration should analyze whether to pause architecture changes and consolidate HEAD070, or whether a better geometry-aware architecture can be justified without adding objective knobs.
+
+---

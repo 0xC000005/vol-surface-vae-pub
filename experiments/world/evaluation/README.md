@@ -25,6 +25,8 @@ reduction applied directly to the evaluated embeddings. Its default loss uses
 canonical mean-scaled Barlow off-diagonal weighting.
 `masked_multiview_barlow_probe_audit.py` freezes that encoder and evaluates
 simple future-summary probes against raw surface and geometry baselines.
+`masked_multiview_geometry_barlow_smoke.py` tests a minimal token-descriptor
+encoder under the same direct Barlow objective.
 
 ## Part 1 Metrics
 
