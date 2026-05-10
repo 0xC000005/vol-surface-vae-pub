@@ -119991,3 +119991,18 @@ The clean-target correction is worse than the target-only branch and scaled Barl
 `DO_NOT_PROMOTE`. Both minimal context-to-target variants are worse than scaled Barlow on exact-state probes and rank. Next, write a demotion/decision report before any deeper architecture change or knob tuning.
 
 ---
+## 2026-05-10: World Model HEAD146 Context-Target Route Decision
+
+### Context
+HEAD145 confirmed the clean-target correction is worse than both HEAD140 target-only and scaled Barlow on exact-state probes and rank. The workflow needed a route decision rather than more context-to-target knobs.
+
+### Execution
+Added `world_model_head146_context_target_route_decision.md`, consolidating HEAD140, HEAD142, HEAD144, and HEAD145 evidence against the scaled Barlow candidate and raw surface baseline.
+
+### Result
+The minimal GRU row-level context-to-target route has two negative variants. HEAD140 target-only has IV MSE `0.015289` and rank `11.592254`, with mask-family target latent artifacts. HEAD144/145 clean-target has IV MSE `0.015907` and rank `8.059559`. Scaled Barlow remains better at IV MSE `0.013756` and rank `18.761132`, though still not promoted.
+
+### Decision
+Demote the minimal context-to-target route. Do not tune context-to-target masks, EMA, hidden size, or predictor depth. A stronger canonical JEPA attempt would require a new token/geometry-level design gate, not a small patch. Continue with bounded evidence consolidation or a new design gate; do not start decoder work.
+
+---

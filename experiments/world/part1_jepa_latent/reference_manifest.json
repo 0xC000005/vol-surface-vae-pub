@@ -167,6 +167,7 @@
       "context_target_clean_target_gate_report": "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
       "context_target_clean_smoke_report": "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
       "context_target_clean_quality_report": "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
+      "context_target_route_decision_report": "experiments/world/reports/world_model_head146_context_target_route_decision.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -449,6 +450,17 @@
           "scale_barlow_effective_rank": 18.761132,
           "promotion_decision": "DO_NOT_PROMOTE",
           "decision": "minimal_context_to_target_route_remains_worse_than_scaled_barlow"
+        },
+        "context_target_route_decision": {
+          "status": "minimal_context_to_target_demoted",
+          "best_candidate_remains": "HEAD127_scaled_barlow_not_promoted",
+          "do_not_tune": [
+            "context_to_target_masks",
+            "ema_decay",
+            "hidden_size",
+            "predictor_depth"
+          ],
+          "next_work": "bounded_evidence_consolidation_or_new_design_gate_not_ad_hoc_knob"
         }
       },
       "layer_status": {
@@ -516,7 +528,8 @@
     "experiments/world/reports/world_model_head142_context_target_latent_health.md",
     "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
     "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
-    "experiments/world/reports/world_model_head145_context_target_clean_quality.md"
+    "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
+    "experiments/world/reports/world_model_head146_context_target_route_decision.md"
   ],
   "guardrail_doc_checks": [
     {

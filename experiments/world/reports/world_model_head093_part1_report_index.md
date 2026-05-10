@@ -167,6 +167,9 @@ human-oriented resume guide, not the source of truth.
   clean-target checkpoint on present-state probes. It is worse than target-only
   and scaled Barlow on current-IV retention and rank, so the minimal
   context-to-target route remains blocked.
+- HEAD146: `world_model_head146_context_target_route_decision.md` demotes the
+  minimal context-to-target route and keeps scaled Barlow as the best known
+  Part 1 candidate, still `DO_NOT_PROMOTE`.
 
 ## Packaging And Restart Guardrails
 
@@ -256,17 +259,18 @@ Then read:
 30. `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`
 31. `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`
 32. `experiments/world/reports/world_model_head145_context_target_clean_quality.md`
-33. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-34. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-35. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-36. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-37. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-38. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-39. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-40. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-41. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-42. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-43. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+33. `experiments/world/reports/world_model_head146_context_target_route_decision.md`
+34. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+35. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+36. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+37. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+38. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+39. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+40. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+41. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+42. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+43. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+44. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

@@ -88,6 +88,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head144_context_target_clean_smoke.md`.
 - Latest context-target clean-target quality comparison:
   `experiments/world/reports/world_model_head145_context_target_clean_quality.md`.
+- Latest context-target route decision:
+  `experiments/world/reports/world_model_head146_context_target_route_decision.md`.
 
 ## Fixed Contract
 
@@ -254,6 +256,10 @@ is a representation-learning package for same-market-state masked views.
   `0.015907`, worse than HEAD140 target-only `0.015289`, scaled Barlow
   `0.013756`, and raw surface `0.005630`; rank is `8.06` versus scaled Barlow
   `18.76`.
+- Context-target route decision: HEAD146 demotes the minimal GRU row-level
+  context-to-target route. It does not invalidate canonical JEPA for time
+  series, but says a stronger attempt would be a new token/geometry-level
+  architecture proposal, not another small knob.
 
 ## Caveats
 
@@ -343,6 +349,9 @@ is a representation-learning package for same-market-state masked views.
   canonical target construction alone does not fix clean context rank.
 - Treat HEAD145 as the current comparison result: both minimal context-to-target
   variants are worse than scaled Barlow on exact-state probes and rank.
+- Treat HEAD146 as the current route decision: do not tune the minimal
+  context-to-target branch further; HEAD127/HEAD130 scaled Barlow remains the
+  best known Part 1 candidate but is still not promoted.
 
 ## Next Work Requires Direction
 
@@ -352,6 +361,7 @@ Future work should be one of:
 - a target/predictor diagnostic fix for the HEAD140 context-to-target branch
   that avoids high-cosine/low-retrieval shortcuts before adding knobs;
 - a demotion/decision report for the minimal context-to-target route before any
-  deeper architecture change;
+- bounded evidence consolidation around the remaining exact-state gap, or a new
+  design gate for a token/geometry-level JEPA architecture;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.
