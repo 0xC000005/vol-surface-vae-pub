@@ -175,6 +175,7 @@
       "surface_local_data_contract_report": "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
       "surface_local_target_coverage_report": "experiments/world/reports/world_model_head152_surface_local_target_coverage.md",
       "surface_local_model_scaffold_report": "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md",
+      "surface_local_smoke_report": "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -215,6 +216,7 @@
       "part1_candidate_decision_matrix_json": "results/world/part1_candidate_decision_matrix_head147.json",
       "scale_exact_state_topology_json": "results/world/scale_exact_state_topology_head149.json",
       "surface_local_target_coverage_json": "results/world/surface_local_target_coverage_head152.json",
+      "surface_local_smoke_json": "results/world/surface_local_jepa_smoke_head154.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -533,6 +535,16 @@
           "uses_future_targets": false,
           "uses_value_reconstruction": false,
           "part_b_blocked": true
+        },
+        "surface_local_smoke": {
+          "status": "trains_but_low_rank_and_weak_retrieval",
+          "final_val_loss": 0.233348,
+          "val_alignment": 0.200579,
+          "val_retrieval_top10_subset512": 0.054688,
+          "val_predicted_effective_rank": 3.945894,
+          "val_target_effective_rank": 4.750035,
+          "promotion_decision": "SMOKE_ONLY_DO_NOT_PROMOTE",
+          "decision": "surface_local_token_jepa_smoke_is_runnable_but_not_part1_quality_evidence"
         }
       },
       "layer_status": {
@@ -608,7 +620,8 @@
     "experiments/world/reports/world_model_head150_surface_local_jepa_design_gate.md",
     "experiments/world/reports/world_model_head151_surface_local_data_contract.md",
     "experiments/world/reports/world_model_head152_surface_local_target_coverage.md",
-    "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md"
+    "experiments/world/reports/world_model_head153_surface_local_model_scaffold.md",
+    "experiments/world/reports/world_model_head154_surface_local_jepa_smoke.md"
   ],
   "guardrail_doc_checks": [
     {

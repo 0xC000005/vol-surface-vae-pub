@@ -399,6 +399,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD153 as model/loss scaffolding only. It adds explicit
   token-position target selection and a clean target-encoder surface, but it is
   not trained model evidence and does not promote Part 1.
+- Treat HEAD154 as a runnable but negative/weak surface-local smoke. Loss
+  falls, but target-token retrieval and effective rank are too weak to promote
+  the route.
 
 ## Next Work Requires Direction
 
@@ -418,7 +421,7 @@ Future work should be one of:
   route is pursued;
 - target coverage and metadata audit for the surface-local data contract before
   any encoder/loss implementation;
-- after HEAD153, one small surface-local token JEPA smoke may be run with
-  representation/target-token health diagnostics;
+- after HEAD154, diagnose why the surface-local token smoke has low retrieval
+  and low effective rank before any architecture knob tuning;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

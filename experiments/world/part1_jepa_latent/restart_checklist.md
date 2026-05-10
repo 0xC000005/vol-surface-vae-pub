@@ -193,6 +193,9 @@ probe that consumes the Part 1 world-model reference candidate.
   evidence.
 - Treat HEAD153 as the token/geometry-level model/loss scaffold. It is not a
   trained checkpoint, not a Part 1 promotion, and not permission to start Part B.
+- Treat HEAD154 as the surface-local token JEPA smoke result: it trains, but
+  target-token retrieval is weak and predicted rank is low, so diagnose before
+  tuning or promoting the route.
 
 ## Do Not Do Without Explicit Authorization
 

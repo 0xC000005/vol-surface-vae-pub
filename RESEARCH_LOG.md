@@ -120111,3 +120111,18 @@ Used TDD. The new focused test first failed on the missing `surface_local_jepa_m
 Scaffold only. No model was trained, no Part 1 candidate was promoted, and Part B remains blocked. The next safe step is one small surface-local token JEPA smoke with representation and target-token health diagnostics, without architecture knob tuning.
 
 ---
+## 2026-05-10: World Model HEAD154 Surface-Local Token JEPA Smoke
+
+### Context
+HEAD153 added the token/geometry model and loss scaffold. The next bounded step was one smoke run to determine whether the scaffold trains and whether target-token alignment avoids the previous high-cosine/low-retrieval shortcut.
+
+### Execution
+Added `surface_local_jepa_smoke.py` and a focused smoke test. Ran a CPU smoke with `128` train windows, `64` validation windows, `4` epochs, fixed EMA decay `0.99`, and no checkpoint promotion.
+
+### Result
+Validation loss fell from `0.417678` to `0.233348`, with validation alignment `0.200579`. However, target-token retrieval remains weak: top10 is `0.054688` on a 512-row subset, predicted effective rank is `3.945894`, and target effective rank is `4.750035` in a 24-dimensional latent.
+
+### Decision
+`SMOKE_ONLY_DO_NOT_PROMOTE`. The surface-local token JEPA route is runnable but not Part 1 quality evidence. Diagnose low retrieval and low rank before any architecture knob tuning. Part B remains blocked.
+
+---
