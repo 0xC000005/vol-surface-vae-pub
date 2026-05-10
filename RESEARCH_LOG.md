@@ -118480,3 +118480,34 @@ Continue with bounded evidence-boundary audits or explicit user-directed work;
 do not add new mask families or retrain from this audit alone.
 
 ---
+## 2026-05-09: World model manifest source-report update
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Package consistency for `masked_multiview_invariance`.
+
+### Hypothesis
+If HEAD097 adds a new manifest caveat, the reference manifest should list the
+HEAD097 report as a source report so `reference_package_check.py` enforces that
+the evidence file exists.
+
+### Falsifier
+The iteration would fail if the manifest omitted the HEAD097 mask-policy
+coverage audit while carrying the new `mask_policy_coverage` field.
+
+### Execution
+- Added `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+  to `reference_manifest.json` source reports.
+- Re-ran the reference package checker.
+- Added `experiments/world/reports/world_model_head098_manifest_source_report_update.md`.
+
+### Result
+`reference_package_check.py` now verifies `13` source reports and `7`
+artifacts.
+
+### Next Step
+Continue with bounded package consistency or evidence-boundary work.
+
+---
