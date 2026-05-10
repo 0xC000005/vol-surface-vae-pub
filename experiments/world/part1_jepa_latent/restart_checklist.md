@@ -214,6 +214,8 @@ probe that consumes the Part 1 world-model reference candidate.
   Part 1 remains `DO_NOT_PROMOTE`, and Part B remains blocked.
 - Treat HEAD161 as the next-work wording refresh: active docs no longer point
   future resumes into completed or demoted context-to-target tuning tasks.
+- Treat HEAD162 as the active-doc stale-route scan: remaining active-doc hits
+  are intended demotion/blocker statements.
 
 ## Do Not Do Without Explicit Authorization
 

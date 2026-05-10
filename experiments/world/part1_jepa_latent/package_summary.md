@@ -416,6 +416,8 @@ is a representation-learning package for same-market-state masked views.
   demotion.
 - Treat HEAD160 as the current Part 1 gate reconciliation after surface-local
   demotion: Part 1 is still `DO_NOT_PROMOTE` and Part B remains blocked.
+- Treat HEAD161/HEAD162 as active-doc guardrails: next-work wording has been
+  refreshed and scanned for stale routes into demoted context-to-target tasks.
 
 ## Next Work Requires Direction
 

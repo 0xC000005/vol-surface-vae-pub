@@ -120231,3 +120231,18 @@ The active next-work list now points to package/provenance checks, gate/risk rec
 Documentation guardrail only. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD162 Active-Doc Stale Route Scan
+
+### Context
+HEAD161 refreshed next-work wording. The workflow needed a direct scan of active package/resume documents to make sure stale context-to-target and surface-local next steps were not still live.
+
+### Execution
+Scanned active world-model docs for stale instructions around HEAD140 target/predictor fixes, TDD surface-local data-contract work, target coverage before encoder/loss, surface-local exact-state design, minimal context-to-target demotion work, and small-knob tuning.
+
+### Result
+No active stale next-step instruction was found in the active package/workflow docs. Remaining hits are intended demotion/blocker statements such as `DO_NOT_PROMOTE`, `Part B remains blocked`, and `do not tune small knobs`.
+
+### Decision
+Active docs are consistent with HEAD160/HEAD161. No model status changes. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---
