@@ -92,6 +92,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head146_context_target_route_decision.md`.
 - Latest Part 1 candidate decision matrix:
   `experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md`.
+- Latest scaled gate reconciliation:
+  `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`.
 
 ## Fixed Contract
 
@@ -266,6 +268,9 @@ is a representation-learning package for same-market-state masked views.
   HEAD127 scaled Barlow remains the active learned candidate but is
   `DO_NOT_PROMOTE`; raw surface remains the exact-state floor; both minimal
   context-to-target variants are demoted.
+- Scaled gate reconciliation: HEAD148 confirms context-to-target results do not
+  change the formal Part 1 gate. Scaled Barlow remains active but not promoted;
+  Part B remains blocked.
 
 ## Caveats
 
@@ -361,6 +366,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD147 as the current candidate matrix: Part 1 is still blocked by
   exact-state retention and baseline superiority, not by lack of a runnable
   training script.
+- Treat HEAD148 as the current quality-gate reconciliation: context-to-target
+  negatives do not unblock Part B or promote scaled Barlow.
 
 ## Next Work Requires Direction
 
@@ -373,5 +380,7 @@ Future work should be one of:
 - bounded evidence consolidation around the remaining exact-state gap, or a new
   design gate for a token/geometry-level JEPA architecture;
 - quality-gate reconciliation for scaled Barlow without promoting it;
+- bounded exact-state-gap evidence audit or token/geometry-level JEPA design
+  gate;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

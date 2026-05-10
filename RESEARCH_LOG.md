@@ -120021,3 +120021,18 @@ The active learned candidate is still `scale_barlow_head127`, but it is not prom
 Part 1 is not ready for Part B. Continue with bounded evidence consolidation or a new token/geometry-level JEPA design gate. Blocked next work remains Part 2 decoder training, minimal context-to-target knob sweeps, and future prediction as a pretraining objective.
 
 ---
+## 2026-05-10: World Model HEAD148 Scaled Gate Reconciliation
+
+### Context
+HEAD147 consolidated the candidate matrix after demoting minimal context-to-target JEPA. The remaining question was whether those negative context-to-target results changed the formal scaled Part 1 gate.
+
+### Execution
+Added `world_model_head148_scaled_gate_reconciliation.md`, reconciling the scaled Barlow gate layers with HEAD140-147 context-to-target results.
+
+### Result
+The gate does not change. Scaled Barlow remains the active learned candidate, but it is still `DO_NOT_PROMOTE`. Representation health and corruption robustness pass; state content and scale/stability are partial; baseline superiority and market-state regime probes fail. Context-to-target negatives do not unblock Part B and do not promote scaled Barlow.
+
+### Decision
+Part 1 remains not ready for Part B. Next work should be a bounded exact-state-gap evidence audit or a new token/geometry-level JEPA design gate. Do not start decoder work, tune minimal context-to-target knobs, or use future prediction as pretraining.
+
+---

@@ -169,6 +169,7 @@
       "context_target_clean_quality_report": "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
       "context_target_route_decision_report": "experiments/world/reports/world_model_head146_context_target_route_decision.md",
       "part1_candidate_decision_matrix_report": "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
+      "scaled_gate_reconciliation_report": "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -474,6 +475,13 @@
             "minimal context-to-target knob sweep",
             "future prediction as pretraining objective"
           ]
+        },
+        "scaled_gate_reconciliation": {
+          "active_candidate": "HEAD127_HEAD130_scaled_barlow",
+          "part1_ready_for_part_b": false,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "context_target_changes_gate_status": false,
+          "primary_blocker": "exact_state_and_baseline_superiority"
         }
       },
       "layer_status": {
@@ -543,7 +551,8 @@
     "experiments/world/reports/world_model_head144_context_target_clean_smoke.md",
     "experiments/world/reports/world_model_head145_context_target_clean_quality.md",
     "experiments/world/reports/world_model_head146_context_target_route_decision.md",
-    "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md"
+    "experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md",
+    "experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md"
   ],
   "guardrail_doc_checks": [
     {

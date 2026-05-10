@@ -42,15 +42,16 @@ probe that consumes the Part 1 world-model reference candidate.
 33. `experiments/world/reports/world_model_head145_context_target_clean_quality.md`
 34. `experiments/world/reports/world_model_head146_context_target_route_decision.md`
 35. `experiments/world/reports/world_model_head147_part1_candidate_decision_matrix.md`
-36. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-37. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-38. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-39. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-40. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-41. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-42. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-43. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-44. latest tail of `RESEARCH_LOG.md`
+36. `experiments/world/reports/world_model_head148_scaled_gate_reconciliation.md`
+37. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+38. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+39. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+40. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+41. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+42. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+43. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+44. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+45. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -176,6 +177,8 @@ probe that consumes the Part 1 world-model reference candidate.
   branch is demoted and should not be tuned with small knobs.
 - Treat HEAD147 as the current Part 1 candidate matrix: scaled Barlow remains
   active but not promoted; minimal context-to-target variants are demoted.
+- Treat HEAD148 as the current scaled gate reconciliation: Part 1 remains
+  `DO_NOT_PROMOTE` and Part B remains blocked.
 
 ## Do Not Do Without Explicit Authorization
 
