@@ -29,6 +29,11 @@ from experiments.world.part1_jepa_latent.masked_multiview_jepa_smoke import (
     make_masked_view_features,
     masked_multiview_jepa_loss,
 )
+from experiments.world.part1_jepa_latent.masked_multiview_barlow_smoke import (
+    DirectMaskedMultiviewBarlowConfig,
+    DirectMaskedMultiviewBarlowModel,
+    direct_masked_multiview_barlow_loss,
+)
 from experiments.world.part1_jepa_latent.jepa_smoke import (
     JEPAConfig,
     JEPAWorldModel,
@@ -423,6 +428,36 @@ def test_masked_multiview_jepa_uses_mask_channels_and_scores_time_rows():
     loss, parts = masked_multiview_jepa_loss(out, barlow_weight=0.1)
     assert torch.isfinite(loss)
     assert set(parts) == {"alignment", "barlow", "barlow_diag_loss", "barlow_offdiag_loss", "loss"}
+
+
+def test_direct_masked_multiview_barlow_scores_encoder_embeddings():
+    import torch
+
+    values = torch.randn(3, 4, 5)
+    observed = torch.ones_like(values, dtype=torch.bool)
+    synth_a = torch.ones_like(values, dtype=torch.bool)
+    synth_b = torch.ones_like(values, dtype=torch.bool)
+    synth_a[:, :, 1] = False
+    synth_b[:, 2:, 3] = False
+    view_a = torch.where(observed & synth_a, values, torch.zeros_like(values))
+    view_b = torch.where(observed & synth_b, values, torch.zeros_like(values))
+
+    features_a = make_masked_view_features(view_a, observed, synth_a)
+    features_b = make_masked_view_features(view_b, observed, synth_b)
+    cfg = DirectMaskedMultiviewBarlowConfig(
+        token_dim=5,
+        input_dim=15,
+        hidden_dim=8,
+        latent_dim=6,
+    )
+    model = DirectMaskedMultiviewBarlowModel(cfg)
+    out = model(features_a, features_b)
+
+    assert out["view_a"].shape == (3, 4, 6)
+    assert out["view_b"].shape == (3, 4, 6)
+    loss, parts = direct_masked_multiview_barlow_loss(out)
+    assert torch.isfinite(loss)
+    assert set(parts) == {"barlow", "barlow_diag_loss", "barlow_offdiag_loss", "loss"}
 
 
 def test_part1_metrics_detect_prediction_retrieval_and_rank():

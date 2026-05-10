@@ -19,6 +19,9 @@ Part 1 smoke scripts live under `experiments/world/part1_jepa_latent/`.
 encoder smoke. It uses value plus observed/synthetic mask channels and reports
 the diagnostics from this folder; it does not use future prediction as a
 pretraining target.
+`masked_multiview_barlow_smoke.py` is the cleaner direct two-view Barlow
+baseline: one shared encoder, two structured masked views, and redundancy
+reduction applied directly to the evaluated embeddings.
 
 ## Part 1 Metrics
 

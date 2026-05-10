@@ -117279,3 +117279,43 @@ The most likely failure is objective mismatch. The current pretraining goal is s
 Next experiment should remove moving parts rather than add knobs: test a direct shared-encoder Barlow Twins masked-multiview baseline. Apply redundancy reduction directly to the evaluated embeddings; keep the same masks, same diagnostics, and same raw baseline; do not add future prediction, range prediction, neighborhood loss, or extra tuning knobs.
 
 ---
+## 2026-05-09: World model HEAD068 direct Barlow masked multiview smoke
+
+### Context
+HEAD067 diagnosed the EMA/predictor JEPA hybrid as an objective mismatch for the current same-state corruption objective. HEAD068 tested the cleaner baseline recommended by that analysis: one shared encoder, two structured masked views, direct Barlow redundancy reduction on the evaluated embeddings, and no future prediction.
+
+### Implementation
+Added `experiments/world/part1_jepa_latent/masked_multiview_barlow_smoke.py` with:
+
+- value plus observed/synthetic mask channels;
+- one shared GRU encoder for both masked views;
+- direct Barlow cross-correlation loss on per-time-row embeddings;
+- the same HEAD065 alignment, retrieval, Barlow, rank, and visibility diagnostics.
+
+Updated `test_code/test_world_model_evaluation.py`, `experiments/world/evaluation/README.md`, and added a HEAD068 report.
+
+### Validation
+TDD red test first failed with `ModuleNotFoundError` for the missing direct-Barlow module. After implementation, the focused test passed: `1 passed in 0.71s`.
+
+Real-data smoke command:
+
+```bash
+python experiments/world/part1_jepa_latent/masked_multiview_barlow_smoke.py --device cpu
+```
+
+Training loss decreased from `0.037550` to `0.001835` over 8 epochs.
+
+### Result
+Validation metrics compared with raw masked-view baseline and HEAD066 hybrid:
+
+- alignment MSE: direct Barlow `0.004775`, raw `0.056997`, HEAD066 `0.064487`;
+- cosine mean: direct Barlow `0.995122`, raw `0.908502`, HEAD066 `0.939162`;
+- retrieval top1/top5/top10: direct Barlow `0.394271` / `0.680990` / `0.853906`, raw `0.042969` / `0.204427` / `0.373177`, HEAD066 `0.000260` / `0.002344` / `0.006510`;
+- Barlow diag mean/loss: direct Barlow `0.952146` / `0.003628`, raw `0.561084` / `0.354536`, HEAD066 `0.378211` / `0.439239`;
+- offdiag abs mean: direct Barlow `0.468407`, raw `0.112105`, HEAD066 `0.204527`;
+- effective rank A/B: direct Barlow `4.484127` / `4.525738`, raw `12.820380` / `12.797703`, HEAD066 `4.134431` / `9.047730`.
+
+### Decision
+The direct Barlow baseline validates the objective change much better than the EMA/predictor hybrid for same-state retrieval. It is not solved: rank is low and off-diagonal redundancy is high. Next iteration should analyze the spectrum/redundancy before adding knobs, then choose one principled correction if needed.
+
+---
