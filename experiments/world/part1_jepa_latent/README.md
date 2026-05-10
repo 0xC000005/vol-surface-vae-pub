@@ -14,15 +14,17 @@ same market window / same relative time position
 -> shared encoder -> z_b
 ```
 
-Expected losses:
+Current default loss surface:
 
 ```text
 L =
-    L_masked_multiview_invariance(z_a, z_b)
-  + lambda_redundancy L_barlow_or_vicreg
-  + lambda_var L_variance
-  + lambda_cov L_covariance
+    L_barlow_style_same_state_alignment(z_a, z_b)
 ```
+
+Variance/covariance/VICReg-style controls are allowed only as explicitly
+justified representation-health controls on the evaluated embeddings. They are
+not forecasting losses, and they should not be added as knobs unless a specific
+Part 1 failure is documented.
 
 Quality gates for this part should be representation-focused:
 
@@ -46,3 +48,11 @@ experiment, not the default masked-multiview objective.
 - `masked_multiview_barlow_smoke.py`: current direct two-view reference path:
   one shared encoder, two structured masked views, Barlow-style redundancy
   reduction applied directly to the evaluated embeddings.
+
+Current package pointers:
+
+- `reference_manifest.json`: HEAD070 masked-multiview reference candidate and
+  caveats.
+- `reference_artifact_digests.json`: local ignored artifact identities for the
+  HEAD070 package.
+- `package_summary.md` and `restart_checklist.md`: restart/handoff guardrails.

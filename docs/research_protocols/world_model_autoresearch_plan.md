@@ -390,7 +390,9 @@ Required Part 2 metrics:
 
 Part 2 reports must state whether the decoder used:
 
-- frozen Part 1 encoder/predictor;
+- frozen Part 1 encoder/reference representation;
+- an explicitly justified Part 1 predictor, if the selected objective family is
+  `context_to_target_jepa`;
 - semi-frozen Part 1 components;
 - jointly trained Part 1 and Part 2;
 - teacher-forced or generated prefix/context during rollout.

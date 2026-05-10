@@ -118117,3 +118117,43 @@ Do not add Part 1 model knobs from HEAD085 alone, and do not start Part 2 unless
 the user authorizes decoder work.
 
 ---
+## 2026-05-09: World model stale reference guardrail
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+Workflow guardrail for `masked_multiview_invariance`.
+
+### Hypothesis
+After HEAD087, workflow-critical docs should route future work to the HEAD070
+masked-multiview reference candidate and should not imply that fixed delta-PCA,
+future prediction, or predictor heads are the active default.
+
+### Falsifier
+The guardrail would fail if workflow-critical docs still described fixed
+delta-PCA prediction as the active reference, or if they implied that a
+predictor head is the default path for same-state masked views.
+
+### Execution
+- Searched the autoresearch plan, world-model skill, Part 1 README, package
+  summary, restart checklist, and reference manifest for stale fixed delta-PCA,
+  predictor, EMA, and forecasting language.
+- Tightened the Part 2 handoff wording in
+  `docs/research_protocols/world_model_autoresearch_plan.md`.
+- Tightened `experiments/world/part1_jepa_latent/README.md` so optional
+  variance/covariance terms are not presented as default knobs.
+- Added `experiments/world/reports/world_model_head088_stale_reference_guardrail.md`.
+
+### Result
+No workflow-critical file still promotes fixed delta-PCA as the active
+reference. Remaining fixed-delta-PCA mentions are negative/legacy guardrails.
+The default route now remains HEAD070 direct masked-multiview invariance unless
+the user explicitly authorizes decoder work or a new Part 1 failure justifies a
+different objective family.
+
+### Next Step
+Continue with bounded provenance or open-risk cleanup if manual-stop mode
+continues. Do not add new Part 1 knobs from the downstream probe audit alone.
+
+---
