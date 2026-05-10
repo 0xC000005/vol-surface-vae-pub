@@ -118032,3 +118032,49 @@ acceptance/caveat boundaries before adding any new training knobs or starting
 Part 2.
 
 ---
+## 2026-05-09: World model downstream probe interpretation
+
+### Iteration Type
+`post_experiment_analysis`
+
+### Objective Family
+`downstream_probe` interpretation for frozen Part 1 representations.
+
+### Hypothesis
+HEAD085 is useful if it clarifies what HEAD070 can support as a Part 1 reference
+candidate without turning downstream forecasting into pretraining.
+
+### Falsifier
+If the probe evidence requires claiming that HEAD070 is a general forecasting
+representation, or if it shows no clear domain where the representation beats
+simple raw-surface baselines, the Part 1 reference claim should be weakened.
+
+### Execution
+- Interpreted HEAD085 against the earlier Part 1 gates from HEAD082-HEAD084.
+- Kept the task classified as `downstream_probe`, not pretraining.
+- Wrote `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`.
+
+### Findings
+- HEAD070 remains strongest as a masked-multiview representation: strong
+  same-state retrieval, healthy rank, limited mask-family leakage, and no
+  stratified mask-family collapse.
+- HEAD085 gives partial downstream support. `barlow_clean_last` beats
+  `raw_surface_last` on path-width/risk-shape targets: future range, max
+  absolute step, and drawdown MSE.
+- Raw last-surface features remain stronger for future mean delta, terminal
+  delta, and regime-label accuracy.
+- Regime classification should not be promoted as an acceptance criterion yet:
+  all tested feature sets are below majority-baseline accuracy.
+
+### Decision
+Keep HEAD070 as the current Part 1 reference candidate with explicit caveats.
+It can support masked-multiview invariance, representation health, and limited
+risk-width/path-shape downstream utility. It should not be claimed as a general
+forecasting representation, an ImageNet-level JEPA analogue, or a reliable
+regime classifier.
+
+### Next Step
+Consolidate a Part 1 readiness checklist and artifact manifest before starting
+any Part 2 decoder work or adding new Part 1 model knobs.
+
+---
