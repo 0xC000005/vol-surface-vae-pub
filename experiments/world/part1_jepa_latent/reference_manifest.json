@@ -157,6 +157,7 @@
       "scale_regime_probe_gap_report": "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
       "scale_baseline_target_taxonomy_report": "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
       "exact_state_retention_literature_gate_report": "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
+      "scale_representation_surface_report": "experiments/world/reports/world_model_head136_scale_representation_surface.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -186,6 +187,7 @@
       "scale_exact_state_gap_json": "results/world/scale_exact_state_gap_head132.json",
       "scale_regime_probe_gap_json": "results/world/scale_regime_probe_gap_head133.json",
       "scale_baseline_target_taxonomy_json": "results/world/scale_baseline_target_taxonomy_head134.json",
+      "scale_representation_surface_json": "results/world/scale_representation_surface_head136.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -339,6 +341,14 @@
           "next_step": "representation_surface_audit_before_objective_change",
           "fallback_principled_change": "same_window_context_to_target_jepa_for_masked_current_history_blocks",
           "mae_reconstruction_status": "separate_adjacent_diagnostic_not_default_jepa_route"
+        },
+        "scale_representation_surface": {
+          "status": "surface_audit_does_not_fix_exact_state_gap",
+          "best_iv_surface": "scale_barlow_last",
+          "best_scaled_iv_mse": 0.013756,
+          "raw_surface_iv_mse": 0.00563,
+          "best_scaled_surface_beats_raw_iv": false,
+          "decision": "blocker_is_likely_learned_representation_or_objective_not_pooling_choice"
         }
       },
       "layer_status": {
@@ -396,7 +406,8 @@
     "experiments/world/reports/world_model_head132_scale_exact_state_gap.md",
     "experiments/world/reports/world_model_head133_scale_regime_probe_gap.md",
     "experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md",
-    "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md"
+    "experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md",
+    "experiments/world/reports/world_model_head136_scale_representation_surface.md"
   ],
   "guardrail_doc_checks": [
     {

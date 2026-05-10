@@ -30,15 +30,16 @@ probe that consumes the Part 1 world-model reference candidate.
 21. `experiments/world/reports/world_model_head133_scale_regime_probe_gap.md`
 22. `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`
 23. `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`
-24. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-25. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-26. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-27. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-28. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-29. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-30. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-31. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-32. latest tail of `RESEARCH_LOG.md`
+24. `experiments/world/reports/world_model_head136_scale_representation_surface.md`
+25. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+26. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+27. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+28. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+29. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+30. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+31. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+32. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+33. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -133,6 +134,9 @@ probe that consumes the Part 1 world-model reference candidate.
   ad hoc value-reconstruction knob next; first audit whether per-time or
   flattened sequence embeddings preserve exact state better than the current
   last-state readout.
+- Treat HEAD136 as the current representation-surface result: last-state
+  scaled embeddings remain best for most present-state probes, and alternative
+  pooling/flattening does not beat raw IV-surface exact-state baselines.
 
 ## Do Not Do Without Explicit Authorization
 

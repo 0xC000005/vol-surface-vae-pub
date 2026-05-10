@@ -68,6 +68,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head134_scale_baseline_target_taxonomy.md`.
 - Latest exact-state retention literature gate:
   `experiments/world/reports/world_model_head135_exact_state_retention_literature_gate.md`.
+- Latest scale representation-surface audit:
+  `experiments/world/reports/world_model_head136_scale_representation_surface.md`.
 
 ## Fixed Contract
 
@@ -190,6 +192,11 @@ is a representation-learning package for same-market-state masked views.
   (per-time or flattened sequence embeddings). If that fails, the principled
   objective change is same-window context-to-target JEPA for masked
   current/history blocks, not future prediction.
+- Scale representation-surface audit: HEAD136 tests last, mean, last+mean, and
+  flattened per-time scaled embeddings. It does not fix the exact-state gap:
+  last-state embeddings remain best for IV, side-channel, factor-level, and
+  all-geometry probes, and the best scaled IV MSE remains `0.013756` versus raw
+  last-surface `0.005630`.
 
 ## Caveats
 
@@ -253,13 +260,17 @@ is a representation-learning package for same-market-state masked views.
   representation-surface audit before changing the objective; keep MAE-style
   value reconstruction as a separate diagnostic branch, not the default JEPA
   route.
+- Treat HEAD136 as the completed representation-surface audit: the exact-state
+  blocker is probably in the learned representation/objective, not merely the
+  downstream pooling surface.
 
 ## Next Work Requires Direction
 
 Future work should be one of:
 
 - multi-seed scale stability using the same objective and encoder family;
-- the HEAD135 representation-surface audit that consumes the frozen scaled
-  representation before changing the pretraining objective;
+- a same-window context-to-target JEPA design report or minimal diagnostic,
+  explicitly scoped to masked current/history blocks rather than future
+  prediction;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

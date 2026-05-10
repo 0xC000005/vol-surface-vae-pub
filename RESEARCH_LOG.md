@@ -119841,3 +119841,18 @@ The literature split is clear. Barlow/VICReg-style two-view invariance controls 
 Do not add an exact-value auxiliary reconstruction loss next. The next step is a frozen representation-surface audit: compare last, mean, and flattened per-time scaled embeddings on exact-state probes. If that fails, the principled objective change is same-window context-to-target JEPA for masked current/history blocks, not future prediction.
 
 ---
+## 2026-05-10: World Model HEAD136 Representation Surface Audit
+
+### Context
+HEAD135 recommended a frozen representation-surface audit before changing the objective. The question was whether the exact-state gap comes from using only the last scaled embedding as the probe surface.
+
+### Execution
+Added and ran `analyze_scale_representation_surface.py`, comparing raw baselines with scaled Barlow last, mean, last+mean, and flattened per-time sequence embeddings on present-state probes.
+
+### Result
+The surface audit does not fix exact-state retention. Last-state scaled embeddings remain best for IV surface, side channel, factor level, and all-geometry probes. Last+mean only improves factor-return MSE. Best scaled IV MSE remains `0.013756`, while raw last-surface IV MSE is `0.005630`.
+
+### Decision
+Part 1 remains `DO_NOT_PROMOTE`. The exact-state blocker is probably in the learned representation/objective, not merely in the downstream pooling/readout choice. The next principled direction is a same-window context-to-target JEPA diagnostic for masked current/history blocks, not future prediction and not an ad hoc reconstruction loss.
+
+---
