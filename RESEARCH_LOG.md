@@ -120321,3 +120321,18 @@ Additive signal is present but the gate does not pass. Exact-state guardrail fai
 `DO_NOT_PROMOTE`. The learned embedding adds useful abstract signal, but exact-state and persistence guardrails still block Part 1 promotion. Part B remains blocked.
 
 ---
+## 2026-05-10: World Model HEAD168 Additive Exact-State Guardrail
+
+### Context
+HEAD167 marked exact-state as failed using learned-only versus raw evidence, but the additive framing requires a stricter raw-plus-learned exact-state guardrail. The next step was to test whether adding the frozen embedding to explicit raw surface features preserves current IV state.
+
+### Execution
+Added `analyze_additive_exact_state_guardrail.py`, a focused summary test, and `world_model_head168_additive_exact_state_guardrail.md`. The probe uses the existing HEAD132 exact-state contract: `1024` train windows, `256` validation windows, seed `720`, ridge alpha `10.0`, and the frozen HEAD127 scaled Barlow checkpoint.
+
+### Result
+Raw-plus-learned still fails the IV exact-state guardrail: raw-only IV MSE is `0.005630`, learned-only is `0.013756`, and raw-plus-learned is `0.005901`, or `1.048173x` raw. However, raw-plus-learned improves non-surface targets versus raw-only: side channel, factor level, factor return, and all-geometry MSE all improve.
+
+### Decision
+`DO_NOT_PROMOTE`. The learned embedding adds non-surface abstract signal, but it still slightly harms exact IV state when combined with raw surface features under the current frozen probe. Part B remains blocked.
+
+---

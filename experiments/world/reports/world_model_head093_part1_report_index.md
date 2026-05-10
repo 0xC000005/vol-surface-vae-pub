@@ -229,6 +229,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD167: `world_model_head167_additive_signal_gate_audit.md` runs that gate
   on existing frozen-probe artifacts and keeps Part 1 blocked by exact-state
   and persistence guardrails.
+- HEAD168: `world_model_head168_additive_exact_state_guardrail.md` checks the
+  corrected raw-plus-learned exact-state guardrail and finds IV exact-state
+  still slightly worse than raw-only.
 
 ## Packaging And Restart Guardrails
 

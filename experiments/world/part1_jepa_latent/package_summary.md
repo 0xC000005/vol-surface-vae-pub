@@ -132,6 +132,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head166_additive_signal_gate.md`.
 - Latest additive-signal gate audit:
   `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`.
+- Latest additive exact-state guardrail:
+  `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`.
 
 ## Fixed Contract
 
@@ -462,6 +464,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD167 as the current additive-signal audit: additive path-shape and
   balanced-regime signal is present, but exact-state and persistence
   guardrails still fail promotion.
+- Treat HEAD168 as the current raw-plus-learned exact-state guardrail: adding
+  the learned embedding to raw surface features still slightly worsens IV exact
+  state (`1.048x` raw), though it helps non-surface geometry targets.
 
 ## Next Work Requires Direction
 
@@ -478,6 +483,9 @@ Future work should be one of:
 - a follow-up additive-signal coverage audit only if it expands beyond the
   current IV-surface future targets and regime diagnostics without changing
   the Part 1 objective;
+- exact-state guardrail diagnostics that explain why raw-plus-learned slightly
+  worsens IV exact-state probes while improving non-surface geometry, without
+  adding a reconstruction loss;
 - same-objective scale/stability evidence for the active scaled Barlow
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target

@@ -189,6 +189,7 @@
       "exact_state_conditioning_boundary_report": "experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md",
       "additive_signal_gate_report": "experiments/world/reports/world_model_head166_additive_signal_gate.md",
       "additive_signal_gate_audit_report": "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md",
+      "additive_exact_state_guardrail_report": "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -233,6 +234,7 @@
       "surface_local_smoke_failure_json": "results/world/surface_local_smoke_failure_head155.json",
       "surface_local_target_geometry_json": "results/world/surface_local_target_geometry_head156.json",
       "additive_signal_gate_json": "results/world/additive_signal_gate_head167.json",
+      "additive_exact_state_guardrail_json": "results/world/additive_exact_state_guardrail_head168.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -684,6 +686,15 @@
           "regime_balanced_signal": "PARTIAL",
           "promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "additive_exact_state_guardrail": {
+          "status": "raw_plus_learned_iv_guardrail_failed",
+          "raw_only_iv_mse": 0.00563,
+          "raw_plus_learned_iv_mse": 0.005901,
+          "raw_plus_to_raw_ratio": 1.048173,
+          "non_surface_targets_improve": true,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -773,7 +784,8 @@
     "experiments/world/reports/world_model_head164_exact_state_literature_refresh.md",
     "experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md",
     "experiments/world/reports/world_model_head166_additive_signal_gate.md",
-    "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md"
+    "experiments/world/reports/world_model_head167_additive_signal_gate_audit.md",
+    "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md"
   ],
   "guardrail_doc_checks": [
     {

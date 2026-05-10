@@ -62,15 +62,16 @@ probe that consumes the Part 1 world-model reference candidate.
 53. `experiments/world/reports/world_model_head165_exact_state_conditioning_boundary.md`
 54. `experiments/world/reports/world_model_head166_additive_signal_gate.md`
 55. `experiments/world/reports/world_model_head167_additive_signal_gate_audit.md`
-56. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-57. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-58. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-59. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-60. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-61. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-62. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-63. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-64. latest tail of `RESEARCH_LOG.md`
+56. `experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md`
+57. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+58. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+59. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+60. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+61. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+62. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+63. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+64. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+65. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -244,6 +245,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD167 as the current additive-signal audit: path-shape/risk-width
   additive signal passes, balanced-regime signal is partial, and exact-state
   plus persistence guardrails still block promotion.
+- Treat HEAD168 as the current additive exact-state guardrail: raw-plus-learned
+  still worsens IV exact-state slightly versus raw-only, so exact-state
+  guardrail remains failed despite non-surface improvements.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -272,6 +276,8 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat additive signal on path-shape/risk-width probes as sufficient Part 1
   promotion while exact-state and persistence guardrails remain failed or
   partial.
+- Treat raw-plus-learned non-surface improvements as enough to ignore the IV
+  exact-state guardrail failure.
 
 ## Required Reporting
 
