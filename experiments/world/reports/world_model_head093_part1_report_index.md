@@ -156,6 +156,10 @@ human-oriented resume guide, not the source of truth.
   HEAD140/141 failed. The target latent is strongly mask-family identifiable,
   while the predicted latent is low-rank; high cosine (`0.979`) coexists with
   poor row retrieval (`top10=0.043`), so low latent MSE is not enough.
+- HEAD143: `world_model_head143_context_target_clean_target_gate.md` maps the
+  HEAD142 failure to the canonical JEPA target rule. It authorizes one
+  clean-target context-to-target smoke where the target encoder sees the clean
+  full window and target rows are selected from its output.
 
 ## Packaging And Restart Guardrails
 
@@ -242,17 +246,18 @@ Then read:
 27. `experiments/world/reports/world_model_head140_context_target_smoke.md`
 28. `experiments/world/reports/world_model_head141_context_target_state_probe.md`
 29. `experiments/world/reports/world_model_head142_context_target_latent_health.md`
-30. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
-31. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-32. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-33. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
-34. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-35. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-36. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-37. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
-38. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
-39. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
-40. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+30. `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`
+31. `experiments/world/reports/world_model_head089_part1_open_risk_ledger.md`
+32. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+33. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+34. `experiments/world/reports/world_model_head096_stop_condition_verification.md`
+35. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+36. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+37. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+38. `experiments/world/reports/world_model_head107_manual_stop_runtime_guardrail.md`
+39. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
+40. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
+41. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 
 ## Decision
 

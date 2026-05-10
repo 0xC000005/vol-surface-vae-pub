@@ -164,6 +164,7 @@
       "context_target_smoke_report": "experiments/world/reports/world_model_head140_context_target_smoke.md",
       "context_target_state_probe_report": "experiments/world/reports/world_model_head141_context_target_state_probe.md",
       "context_target_latent_health_report": "experiments/world/reports/world_model_head142_context_target_latent_health.md",
+      "context_target_clean_target_gate_report": "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -410,6 +411,17 @@
           "target_family_accuracy_lift_from_target_latent": 0.467955,
           "promotion_decision": "DO_NOT_PROMOTE",
           "decision": "high_cosine_low_retrieval_and_mask_family_target_latent_explain_head140_weakness"
+        },
+        "context_target_clean_target_gate": {
+          "status": "canonical_jepa_correction_gate",
+          "correction": "target_encoder_receives_clean_full_window_then_select_target_rows",
+          "not_allowed": [
+            "future_targets",
+            "value_reconstruction",
+            "decoder_loss",
+            "knob_sweep"
+          ],
+          "decision": "run_one_clean_target_context_to_target_smoke"
         }
       },
       "layer_status": {
@@ -474,7 +486,8 @@
     "experiments/world/reports/world_model_head139_context_target_model_scaffold.md",
     "experiments/world/reports/world_model_head140_context_target_smoke.md",
     "experiments/world/reports/world_model_head141_context_target_state_probe.md",
-    "experiments/world/reports/world_model_head142_context_target_latent_health.md"
+    "experiments/world/reports/world_model_head142_context_target_latent_health.md",
+    "experiments/world/reports/world_model_head143_context_target_clean_target_gate.md"
   ],
   "guardrail_doc_checks": [
     {

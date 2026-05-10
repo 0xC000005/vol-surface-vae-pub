@@ -82,6 +82,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head141_context_target_state_probe.md`.
 - Latest context-target latent-health diagnosis:
   `experiments/world/reports/world_model_head142_context_target_latent_health.md`.
+- Latest context-target clean-target design gate:
+  `experiments/world/reports/world_model_head143_context_target_clean_target_gate.md`.
 
 ## Fixed Contract
 
@@ -234,6 +236,11 @@ is a representation-learning package for same-market-state masked views.
   lift), while the predicted target latent is low-rank (`5.91`). Predicted-to-
   target cosine is high (`0.979`), but row retrieval is poor (`top10=0.043`), so
   the low loss is not evidence of a useful market-state representation.
+- Context-target clean-target gate: HEAD143 maps the HEAD142 failure back to
+  canonical JEPA target construction. The next allowed diagnostic is a single
+  clean-target smoke where the target encoder sees the clean full window and
+  target rows are selected from its output. No future targets, value
+  reconstruction, decoder loss, or knob sweep are authorized by this gate.
 
 ## Caveats
 
@@ -316,6 +323,9 @@ is a representation-learning package for same-market-state masked views.
   supervised target latent is mask-family heavy and the predictor collapses to a
   low-rank surface with high cosine but poor retrieval. Do not tune knobs before
   fixing that target/predictor diagnostic.
+- Treat HEAD143 as the current design gate for that fix: run one clean-target
+  context-to-target smoke, matching canonical JEPA target construction more
+  closely, before considering any broader architecture change.
 
 ## Next Work Requires Direction
 
@@ -324,5 +334,6 @@ Future work should be one of:
 - multi-seed scale stability using the same objective and encoder family;
 - a target/predictor diagnostic fix for the HEAD140 context-to-target branch
   that avoids high-cosine/low-retrieval shortcuts before adding knobs;
+- one clean-target context-to-target smoke authorized by HEAD143;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

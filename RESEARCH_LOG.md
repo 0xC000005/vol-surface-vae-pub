@@ -119946,3 +119946,18 @@ The target latent is strongly target-family identifiable: target-family accuracy
 `DO_NOT_PROMOTE`. The low context-to-target loss is a high-cosine/low-retrieval shortcut, not evidence of a stronger market-state representation. Do not tune model knobs or start decoder work before fixing the target/predictor diagnostic.
 
 ---
+## 2026-05-10: World Model HEAD143 Context-Target Clean-Target Gate
+
+### Context
+HEAD142 showed that the HEAD140 context-to-target target latent is mask-family heavy and the predicted latent is low-rank despite high cosine. Before changing code, the workflow required a design gate rather than a knob sweep.
+
+### Execution
+Added `world_model_head143_context_target_clean_target_gate.md` and checked the JEPA target-construction rule against I-JEPA/V-JEPA sources. The key local mismatch is that HEAD140 fed target-only masked values and the target mask into the target encoder.
+
+### Result
+The canonical correction is to feed the clean full window through the target encoder and select target rows from the target-encoder output. This removes target-mask shortcut pressure from the target branch while preserving same-window latent prediction. The gate authorizes exactly one clean-target smoke: no future targets, no value reconstruction, no decoder loss, and no knob sweep.
+
+### Decision
+Proceed to one clean-target context-to-target smoke and compare it against HEAD140 and scaled Barlow. If it still has low rank, high-cosine/low-retrieval behavior, or weak exact-state probes, demote this branch rather than tuning knobs.
+
+---
