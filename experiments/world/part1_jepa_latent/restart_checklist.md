@@ -210,6 +210,8 @@ probe that consumes the Part 1 world-model reference candidate.
   blocked.
 - Treat HEAD159 as the current open-risk ledger refresh after surface-local
   demotion; do not continue by tuning demoted context-to-target routes.
+- Treat HEAD160 as the current gate reconciliation after surface-local demotion:
+  Part 1 remains `DO_NOT_PROMOTE`, and Part B remains blocked.
 
 ## Do Not Do Without Explicit Authorization
 

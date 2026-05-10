@@ -414,6 +414,8 @@ is a representation-learning package for same-market-state masked views.
   context-to-target variants are demoted as implemented.
 - Treat HEAD159 as the current open-risk ledger refresh after surface-local
   demotion.
+- Treat HEAD160 as the current Part 1 gate reconciliation after surface-local
+  demotion: Part 1 is still `DO_NOT_PROMOTE` and Part B remains blocked.
 
 ## Next Work Requires Direction
 
@@ -441,5 +443,7 @@ Future work should be one of:
   variants;
 - after HEAD159, do not resurrect demoted context-to-target routes through small
   knobs; only use gate/risk reconciliation or a genuinely new design gate;
+- after HEAD160, keep exact-state retention and baseline superiority as the
+  primary blockers unless new evidence changes the gate;
 - a documented Part 1 quality-gate diagnostic that does not add model knobs by
   default.

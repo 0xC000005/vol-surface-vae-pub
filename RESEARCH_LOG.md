@@ -120201,3 +120201,18 @@ The refreshed ledger states that scaled Barlow remains active but unpromoted; ha
 Do not continue by tuning demoted context-to-target routes, increasing target coverage, making masks harder, or starting Part B. Continue only with gate/risk reconciliation or a genuinely new design gate that first proves target latents carry state variation.
 
 ---
+## 2026-05-10: World Model HEAD160 Part 1 Gate Reconciliation After Surface-Local
+
+### Context
+HEAD159 refreshed the risk ledger after surface-local demotion. The formal Part 1 gate needed a current reconciliation after the new negative surface-local evidence.
+
+### Execution
+Added `world_model_head160_part1_gate_reconciliation_after_surface_local.md` and updated package navigation metadata.
+
+### Result
+The surface-local branch changes no promotion layer. Data coverage passes, but the route fails through weak retrieval, low-rank/variance-shrunk latents, and geometry-dominated target embeddings. Scaled Barlow remains the active learned candidate, but exact-state retention and baseline superiority still fail.
+
+### Decision
+Part 1 remains `DO_NOT_PROMOTE` and not ready for Part B. Any future Part 1 design must target exact-state retention and baseline superiority directly; context-to-target revival requires proving target latents carry state variation before predictor training.
+
+---
