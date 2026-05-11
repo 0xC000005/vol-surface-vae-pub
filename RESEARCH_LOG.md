@@ -120914,3 +120914,38 @@ prefer mechanism attribution or a small TestFlight tied to the current
 text-to-memory alignment bottleneck.
 
 ---
+## 2026-05-11: NL prefix latent mechanism attribution
+
+### Context
+Continued the natural-language prefix-latent autoresearch loop with a mechanism-attribution pass rather than a new architecture sweep. The goal was to determine what actually explains the latest text-to-condition-memory improvement before adding another research knob.
+
+### Inputs
+- Seed-stability summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_851d_seed_stability/policy_stability_summary.json`.
+- CLIP/MSE sweep summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852d_clip_mse_sweep/clip_mse_sweep_summary.json`.
+- New offline attribution script: `experiments/backfill/block_ar/nl_text_latent_mechanism_attribution.py`.
+- Output report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_mechanism_attribution_853a/mechanism_attribution_report.md`.
+
+### Findings
+- The stable incumbent remains `mlp_mse_contrastive__multi_caption_with_negatives`.
+- Adding hard negatives to multi-caption MLP training increased held-out hard-negative gap by `+0.571558` and hard-negative margin by `+0.562098`, while target cosine changed only `+0.000337`.
+- Multi-caption plus hard negatives improved target cosine versus anchor-only by `+0.028285`, gap by `+0.514258`, and margin by `+0.502576`.
+- The CLIP/InfoNCE hybrid is not promotable from the current sweep. Its best target-cosine setting (`clip_mse10`) still trails the MLP incumbent by `-0.039553`; its best hard-negative gap setting (`clip_mse5`) trails by `-0.144892`; its best hard-negative margin setting trails by `-0.177579`.
+- The CLIP hybrid can improve recall@1 (`+0.039683` at `clip_mse5`), but this looks like a local retrieval tradeoff rather than better generator-memory geometry. Recall@3 is tied or worse.
+
+### Decision
+Do not continue broad CLIP/MSE weight sweeping. Keep the MLP generator-memory regression anchor and hard-negative training as the current production-facing mechanism. Treat exact nearest-window retrieval as an audit/provenance signal, not the main training objective.
+
+### Next Principled Step
+Train a supervised-contrastive MLP bridge anchored by generator-memory regression, then evaluate fixed-start narrative conditionality. The falsifiers are:
+- target cosine drops by more than `0.01` versus the incumbent;
+- hard-negative gap or margin fails to improve;
+- fixed-start scenario distributions do not move when narratives change.
+
+Avoid model-chosen starts hidden from the user, broad hyperparameter sweeps, and distributional latent priors until the deterministic text-to-memory bridge signal is stronger.
+
+### Verification
+- `uv run pytest test_code/test_853a_nl_text_latent_mechanism_attribution.py -q` passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_latent_mechanism_attribution.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_text_latent_mechanism_attribution.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_mechanism_attribution_853a` wrote the JSON and Markdown attribution reports.
+
+---
