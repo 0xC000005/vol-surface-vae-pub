@@ -122011,3 +122011,96 @@ floor.
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py`
 
 ---
+## 2026-05-11: NL prefix latent generator-calibrated support TestFlight
+
+### Context
+Iteration 118 showed a support/generator calibration mismatch: alpha-0.25
+improved historical replay support but slightly worsened frozen-generator
+top-k rollout. The next bounded experiment was to use train-window
+self-calibration to rerank candidate support, avoiding test-future leakage.
+
+### Hypothesis
+If the previous failure was caused by choosing support windows that replay well
+but are less calibrated under the frozen SNI generator, then a train-derived
+generator-calibration support quality score should improve the alpha-0.25
+candidate's scenario-level energy/CRPS without changing the text-memory
+geometry.
+
+### Execution
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py`.
+- Added tests in
+  `test_code/test_873a_nl_prefix_latent_generator_calibrated_support.py`.
+- Built a 20-window train self-calibration bridge and ran a CUDA smoke through
+  the existing scenario evaluator.
+- Scaled to all `128` train support windows:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_self_calibration_873b_train128/scenario_level_eval_report.json`.
+- Reranked the alpha-0.25 blended bridge support pools with the train-window
+  generator energy score:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json`.
+- Ran the full 29-window held-out scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval/scenario_level_eval_report.json`.
+- Ran support-quality decomposition against the original representative
+  baseline:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_quality_decomposition_873e_calibrated_alpha025/support_quality_decomposition.json`.
+
+### Result
+- Unit tests passed: `7 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- Full train self-calibration:
+  - support windows: `128`;
+  - self-generator energy improvement versus persistence: `+16.7384%`;
+  - self-generator CRPS improvement versus persistence: `+17.5970%`;
+  - self-generator 80% coverage mean: `0.4895`.
+- Reranking coverage:
+  - reranked held-out rows: `126`;
+  - measured candidate occurrences: `630`;
+  - held-out hard-negative gap unchanged at `0.6755`.
+- Calibrated alpha-0.25 top-k generator, 29 held-out windows:
+  - energy improvement versus persistence: `+21.3782%`;
+  - ensemble CRPS improvement versus persistence: `+17.6690%`;
+  - 80% coverage mean: `0.6173`;
+  - mean-path MAE improvement versus persistence: `-7.6769%`.
+- Current representative top-k baseline:
+  - energy improvement versus persistence: `+21.3288%`;
+  - ensemble CRPS improvement versus persistence: `+17.3929%`;
+  - 80% coverage mean: `0.6410`;
+  - mean-path MAE improvement versus persistence: `-8.7119%`.
+- Decomposition versus baseline:
+  - mean top-k support overlap: `0.5057`;
+  - top-1 support changed fraction: `0.8621`;
+  - historical replay energy improvement delta: `+0.34%`;
+  - narrative generator energy improvement delta: `+0.05%`;
+  - narrative generator CRPS improvement delta: `+0.28%`.
+
+### Mechanism Read
+The train-derived generator calibration feature fixed the main alpha-0.25
+rollout regression and gave a small energy/CRPS gain over the current
+representative top-k baseline. This supports the mechanism read: support
+selection should be aware of how the frozen generator behaves on the support
+regime, not only memory cosine or historical replay. However, the gain is
+small and coverage is worse than the current baseline, so this is not yet a
+promotion.
+
+### Decision / Next Step
+Treat generator-calibrated support reranking as a promising diagnostic
+candidate, not a default. The next principled step is a stability check rather
+than another reranking knob: rerun the calibrated policy under repeated seeds
+or higher sample counts and compare it to the current baseline. Falsifier:
+if the energy/CRPS gain disappears under seed/sample stability, keep the
+current representative bridge as default and record calibration-aware support
+as exploratory.
+
+### Verification
+- `uv run black experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py test_code/test_873a_nl_prefix_latent_generator_calibrated_support.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py`
+- `uv run pytest test_code/test_873a_nl_prefix_latent_generator_calibrated_support.py test_code/test_872a_nl_prefix_latent_support_quality_decomposition.py -q`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py build-calibration-report --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873a_train20 --max-calibration-windows 20`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873a_train20/generator_self_calibration_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_self_calibration_873a_train20 --samples 4 --n-steps 30 --top-k 1 --max_windows 441 --device cuda`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py build-calibration-report --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873b_train128`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873b_train128/generator_self_calibration_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_self_calibration_873b_train128 --samples 4 --n-steps 30 --top-k 1 --max_windows 441 --device cuda`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_generator_calibrated_support.py rerank --calibration-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_self_calibration_873b_train128/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json --candidate-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_quality_decomposition_873e_calibrated_alpha025`
+
+---
