@@ -83,34 +83,37 @@ Current supported claim:
 
 - Tracked case spec:
   `docs/research_protocols/nl_prefix_latent_promoted_specs/fixed_start_narrative_matrix_858b_cases.json`
-- Bakeoff report:
-  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json`
-- Gate report:
-  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b/fixed_start_conditioning_gate.json`
-- Analysis packet:
-  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a/fixed_start_conditioning_analysis.json`
-- Damping diagnostic:
-  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_damping_diagnostic_860a/fixed_start_damping_diagnostic.json`
+- Current 192-path narrative bakeoff:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865a_full_narrative_s192/start_conditioned_bakeoff.json`
+- Current symmetric 192-path control suite:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865d_full_s192_symmetric/fixed_start_control_suite.json`
+- Current start reliability manifest:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_reliability_gate_865d_full_s192_symmetric/start_reliability_gate.json`
 - Verifier report:
-  `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-11_workflow_audit.md`
+  `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-11_start_reliability_gate_865b.md`
 
 Current supported claim:
 
-- 36 fixed-start runs: 6 narratives by 6 starts;
+- 36 fixed-start narrative runs: 6 narratives by 6 starts;
 - fixed-start equality passes;
 - support/direction consistency passes;
-- direction status: `36/36` pass;
+- direction status: `36/36` pass at 192 generated paths;
 - operational validation: `30` pass, `6` warning;
-- energy improvement versus persistence: `+14.2%`;
-- CRPS improvement versus persistence: `+11.7%`;
-- starts `18`, `22`, `40`, and `77` pass narrative-separation checks;
-- starts `0` and `178` damp narrative influence and should produce product
-  trust warnings.
+- energy improvement versus persistence: `+18.5%`;
+- CRPS improvement versus persistence: `+17.1%`;
+- symmetric fixed-start controls at 192 paths:
+  - observed narrative median gap: `0.749`;
+  - no-narrative start-only median gap: `0.000`;
+  - same-narrative repeat median gap: `0.337`, ratio `0.450`;
+  - within-run bootstrap median gap: `0.339`, ratio `0.453`;
+- starts `0`, `18`, `22`, `40`, and `77` pass current start reliability;
+- start `178` remains `warn_high_instability` because its repeat ratio is
+  `0.764`, just above the `0.75` threshold.
 
 Interpretation: the narrative is not just selecting the initial level. With the
 same start held fixed, different narratives can move the distribution. However,
-some starts constrain narrative leverage; this is a warning state, not a clean
-pass.
+start reliability is start-specific. The current demo manifest supports five
+starts and keeps `178` as a hard-case warning, not a normal recommended start.
 
 ## Not Yet Promoted
 

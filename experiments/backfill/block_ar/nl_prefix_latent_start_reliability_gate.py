@@ -11,12 +11,12 @@ from typing import Any
 
 DEFAULT_CONTROL_REPORT = Path(
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-    "prefix_latent_fixed_start_sample_scale_863c_start22_178_s192_repeat_fixedstatus/"
+    "prefix_latent_fixed_start_control_suite_865d_full_s192_symmetric/"
     "fixed_start_control_suite.json"
 )
 DEFAULT_OUTPUT_DIR = Path(
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-    "prefix_latent_start_reliability_gate_864a"
+    "prefix_latent_start_reliability_gate_865d_full_s192_symmetric"
 )
 
 
