@@ -65,6 +65,9 @@ from experiments.backfill.block_ar.nl_prefix_latent_start_sensitivity import (  
     DEFAULT_BRIDGE_ARRAYS,
     endpoint_alignment_summary,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_start_reliability_gate import (  # noqa: E402
+    evaluate_start_reliability,
+)
 from experiments.backfill.block_ar.nl_prefix_latent_validation_gate import (  # noqa: E402
     DEFAULT_GATE_THRESHOLDS,
     case_rollout_shift_rows,
@@ -144,6 +147,33 @@ def _write_text(path: str | Path, text: str) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def _story_smoke_start_reliability(
+    *,
+    manifest_path: str | None,
+    operational_row: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not manifest_path:
+        return None
+    manifest = _load_json(manifest_path)
+    start_window_index = operational_row.get("start_window_index")
+    if start_window_index is None:
+        return {
+            "start_name": "unknown",
+            "product_status": "warn_needs_stronger_evidence",
+            "decision": "No fixed-start reliability evidence is available.",
+            "warnings": ["selected_start_index_missing"],
+            "failures": [],
+            "source": "fallback",
+            "manifest_path": str(manifest_path),
+        }
+    reliability = evaluate_start_reliability(
+        manifest,
+        f"fixed_start_{int(start_window_index)}",
+    )
+    reliability["manifest_path"] = str(manifest_path)
+    return reliability
 
 
 def _condition_arrays_path_from_report(
@@ -1309,6 +1339,24 @@ def _render_markdown(report: dict[str, Any]) -> str:
             f"- Endpoint max error: {gate.get('endpoint_max_abs_error')}",
             f"- Warning counts: {gate.get('warning_counts')}",
             f"- Failure counts: {gate.get('fail_counts')}",
+        ]
+    )
+    reliability = report.get("start_reliability_gate")
+    if isinstance(reliability, dict):
+        lines.extend(
+            [
+                "",
+                "## Start Reliability Gate",
+                "",
+                f"- Product status: `{reliability.get('product_status')}`",
+                f"- Decision: {reliability.get('decision')}",
+                f"- Warnings: {reliability.get('warnings')}",
+                f"- Failures: {reliability.get('failures')}",
+                f"- Source: `{reliability.get('source')}`",
+            ]
+        )
+    lines.extend(
+        [
             "",
             "## Decoder",
             "",
@@ -1716,6 +1764,10 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         endpoint_max_abs_error=float(endpoint["max_abs_error"]),
         hard_case_count=int(args.hard_case_count),
     )
+    start_reliability_gate = _story_smoke_start_reliability(
+        manifest_path=getattr(args, "start_reliability_manifest", None),
+        operational_row=variant_rows[operational_prior_pos],
+    )
     if condition_report_narrative_text is not None:
         narrative_text = condition_report_narrative_text
     elif bool(getattr(args, "live_story", False)):
@@ -1771,6 +1823,11 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "bridge_arrays": str(args.bridge_arrays),
             "pipeline_report": str(args.pipeline_report),
             "checkpoint": str(args.checkpoint),
+            "start_reliability_manifest": (
+                str(args.start_reliability_manifest)
+                if getattr(args, "start_reliability_manifest", None)
+                else None
+            ),
             "start_state_json": (
                 str(args.start_state_json)
                 if getattr(args, "start_state_json", None)
@@ -1811,6 +1868,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "variant_rows": variant_rows,
         "rollout_shifts": rollout_shifts,
         "validation_gate": validation_gate,
+        "start_reliability_gate": start_reliability_gate,
         "generation": generation,
         "artifact_paths": {
             "report": str(
@@ -1879,6 +1937,13 @@ def main() -> None:
     parser.add_argument("--embedding-model", default="text-embedding-3-small")
     parser.add_argument("--bridge-adapter", default=DEFAULT_BRIDGE_ADAPTER)
     parser.add_argument("--dotenv", default=".env")
+    parser.add_argument(
+        "--start-reliability-manifest",
+        help=(
+            "Optional start reliability manifest. When provided, the selected "
+            "historical start receives a product-facing pass/warn diagnostic."
+        ),
+    )
     parser.add_argument(
         "--start-mode",
         choices=[

@@ -121441,3 +121441,35 @@ The next production step is not a new architecture knob. The system needs a star
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-11: NL prefix latent start reliability gate
+
+### Context
+The start-reliability decomposition showed that narrative conditioning is active, but not every selected start is equally trustworthy. A product workflow needs to surface this before generation rather than treating all historical starts as equally valid.
+
+### Execution
+- Added `nl_prefix_latent_start_reliability_gate.py`, which converts fixed-start control evidence into product statuses.
+- Added optional `--start-reliability-manifest` support to `nl_prefix_latent_story_smoke.py`.
+- Generated a start reliability manifest from the targeted 192-path control report.
+- Ran two story-smoke integrations with the same narrative and different explicit starts to confirm that the gate attaches the expected product status to scenario reports.
+
+### Key Artifacts
+- Gate manifest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_reliability_gate_864a/start_reliability_gate.md`
+- Pass smoke: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_reliability_gate_864a/story_smoke_gate_start22/prefix_latent_story_smoke_report.json`
+- High-instability smoke: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_reliability_gate_864a/story_smoke_gate_start178/prefix_latent_story_smoke_report.json`
+
+### Results
+- `fixed_start_22`: `pass`; bootstrap ratio `0.398`, repeat ratio `0.306`.
+- `fixed_start_178`: `warn_high_instability`; bootstrap ratio `0.683`, repeat ratio `0.847`, failure reason `repeat_noise_close`.
+- Story-smoke integration correctly attached:
+  - `fixed_start_22` -> `pass`.
+  - `fixed_start_178` -> `warn_high_instability`.
+
+### Decision
+The workflow can now separate a normal validation pass from product trust in the selected starting level. This does not yet promote the whole system: only two starts have 192-path repeat evidence. The next bounded step is to expand this reliability evidence to the six-start narrative casebook or explicitly restrict the production-demo start universe.
+
+### Verification
+- `uv run pytest test_code/test_862a_nl_prefix_latent_fixed_start_control_suite.py test_code/test_863a_nl_prefix_latent_fixed_start_reliability_decomposition.py test_code/test_864a_nl_prefix_latent_start_reliability_gate.py test_code/test_791a_nl_prefix_latent_story_smoke.py -q` -> `27 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_control_suite.py experiments/backfill/block_ar/nl_prefix_latent_fixed_start_reliability_decomposition.py experiments/backfill/block_ar/nl_prefix_latent_start_reliability_gate.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` -> passed.
+- `git diff --check` -> passed.
+
+---
