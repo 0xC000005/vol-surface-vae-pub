@@ -121639,3 +121639,46 @@ This iteration fixed product/API contract drift, not model quality. The importan
 Checkpoint the live fixed-start API smoke. The next principled step is post-experiment analysis of product conditionality evidence: inspect whether the live safe-haven run's support mixture and generated scenario summary visibly explain how the narrative changed the scenario, and decide whether the next experiment should be a small fixed-start narrative-contrast casebook for the paper/demo or more bridge training.
 
 ---
+## 2026-05-11: NL prefix latent conditionality report
+
+### Context
+After verifying the live fixed-start API path, the next question was whether the project has a clear product/paper explanation of conditionality: what does the narrative change when the starting level is fixed?
+
+### Hypothesis
+Existing fixed-start artifacts should be enough to show conditionality if: (1) starts are exactly identical across narratives, (2) narrative-induced distribution gaps are larger than start-only and seed/noise controls, and (3) the result can be summarized as a compact casebook rather than a raw artifact dump.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_conditionality_report.py`.
+- Added `test_code/test_869a_nl_prefix_latent_conditionality_report.py`.
+- Built the report from:
+  - contrast report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865a_full_narrative_s192_contrast/fixed_start_narrative_contrast.json`
+  - control report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865d_full_s192_symmetric/fixed_start_control_suite.json`
+- Ran:
+  - `uv run pytest test_code/test_869a_nl_prefix_latent_conditionality_report.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_conditionality_report.py`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+  - `uv run python experiments/backfill/block_ar/nl_prefix_latent_conditionality_report.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_report_869a`
+
+### Result
+- Unit test passed: `1 passed`.
+- Syntax and whitespace checks passed.
+- Generated report:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_report_869a/narrative_conditionality_report.md`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_report_869a/narrative_conditionality_report.json`
+- Headline:
+  - status: `pass`
+  - fixed-start max absolute difference: `0.000000`
+  - observed narrative median gap: `0.749`
+  - start-only median gap: `0.000`
+  - same-narrative repeat median gap: `0.337`
+  - within-run bootstrap median gap: `0.339`
+  - reliable starts: `5`
+- Top casebook candidates include fragile-risk-on versus commodity-inflation at start 18 and 22, with largest standardized terminal differences concentrated in credit spreads, IV surface, SPX, and VIX.
+
+### Mechanism Read
+This supports the product conditionality story: the initial level is fixed, but the narrative changes the support mixture and therefore the generated distribution. The result is stronger than a start-only explanation and larger than current seed/bootstrap noise for reliability-passing starts. It is not a claim that arbitrary starts or arbitrary narratives are production-ready.
+
+### Decision / Next Step
+Promote this as a paper/demo analysis artifact, not as a new model default. The next principled step is to either incorporate this conditionality report into the narrative-conditioning paper, or run a tiny live casebook around the same start to make the fixed-start narrative contrast more risk-manager-readable with fresh OpenAI narratives.
+
+---
