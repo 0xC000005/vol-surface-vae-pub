@@ -122178,3 +122178,32 @@ more support-policy knobs.
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_policy_stability.py --report baseline:776:experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220/scenario_level_eval_report.json --report baseline:777:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874a_baseline_seed777/scenario_level_eval_report.json --report baseline:778:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874b_baseline_seed778/scenario_level_eval_report.json --report calibrated:776:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval/scenario_level_eval_report.json --report calibrated:777:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874c_calibrated_seed777/scenario_level_eval_report.json --report calibrated:778:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874d_calibrated_seed778/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874e_summary`
 
 ---
+## 2026-05-11: NL prefix latent text-to-latent prior research checkpoint
+
+### Context
+Iteration 120 falsified generator-calibrated support reranking as a promotion candidate: the candidate looked good under one rollout seed, but seed stability across 776/777/778 favored the current representative bridge. The next step should not be another support-policy knob.
+
+### Hypothesis
+The next principled improvement is to make the text-to-latent training target clearer before changing architecture or scaling OpenAI calls. The local bridge evidence and primary-source literature point toward rich captions, hard-negative directional alignment, and a text/start-aware latent prior, not a pure CLIP replacement or free-form LLM scenario generation.
+
+### Execution
+Added `docs/research_protocols/nl_prefix_latent_text_to_latent_prior_plan.md` and linked it from `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`. The note records local evidence, primary-source citations, transfer limits, the recommended text/start latent-prior direction, and a bounded next TestFlight that uses the existing 182-window OpenAI-labeled representative set.
+
+Primary sources checked:
+- CLIP / natural-language paired alignment: https://openai.com/index/clip/ and https://icml.cc/virtual/2021/oral/9194
+- DALL-E 2 / text-to-latent prior plus decoder: https://openai.com/index/hierarchical-text-conditional-image-generation-with-clip-latents/
+- Sora / compressed latent space and descriptive recaptioning: https://openai.com/index/video-generation-models-as-world-simulators/
+- BRIDGE / text-controlled time-series generation with LLM-generated text-time-series data and semantic prototypes: https://proceedings.mlr.press/v267/li25ah.html
+- T2S / VAE latent alignment plus flow matching/DiT for text-to-series generation: https://www.ijcai.org/proceedings/2025/580
+- VerbalTS / unstructured textual descriptions and multi-focal alignment for time-series generation: https://proceedings.mlr.press/v267/gu25a.html
+
+### Result
+The protocol now separates what transfers from CLIP/DALL-E/Sora-style systems from what does not transfer to the frozen SNI generator. The recommended next executable iteration is a cached TestFlight: audit caption/negative coverage and compare text-only versus text-plus-start bridge inputs under the incumbent MLP memory-regression plus hard-negative loss.
+
+### Mechanism Read
+The local evidence already supports multi-caption hard negatives. The unresolved mechanism is whether adding the fixed starting level into the text-to-memory target improves generator-condition memory without degrading hard-negative directionality. That is a cleaner falsifier than another top-k support reranker.
+
+### Decision / Next Step
+Do not promote a new model or production claim from this iteration. Next HEAD iteration should implement the bounded text/start target diagnostic over the existing representative OpenAI artifacts, with no new OpenAI calls and no broad hyperparameter sweep. Falsifier: target cosine drops by more than 0.01 or hard-negative gap/margin materially degrades versus the incumbent.
+
+---

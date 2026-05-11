@@ -17,6 +17,9 @@ Tracked current goal:
 Tracked current-truth index:
 `docs/research_protocols/nl_prefix_latent_current_truth.md`.
 
+Current text-to-latent prior research note:
+`docs/research_protocols/nl_prefix_latent_text_to_latent_prior_plan.md`.
+
 The long-run product contract has one fixed-start requirement with two start
 input routes:
 
