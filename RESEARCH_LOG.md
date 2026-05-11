@@ -121856,3 +121856,81 @@ This is the clearest bridge-improvement signal since the multi-caption hard-nega
 Do not promote the blend yet because this is memory-space evidence only. The next principled step is a frozen-generator rollout TestFlight for the alpha-0.25 blended memory condition on the existing representative scenario-level evaluation harness. Falsifier: the blend must improve or match distributional scores versus the current narrative generator without creating a directional-audit regression.
 
 ---
+## 2026-05-11: NL prefix latent blended-memory rollout TestFlight
+
+### Context
+Iteration 116 found the clearest memory-space trade-off so far: a convex
+blend with support-mixture alpha `0.25` improved held-out target-memory cosine
+from `0.8597` to `0.8775` while retaining `76.5%` of the text-memory
+hard-negative gap. The missing falsifier was whether that gain survives the
+frozen SNI generator's native scenario-level evaluation.
+
+### Hypothesis
+If the alpha-0.25 text/support memory blend is a real production improvement,
+then exporting it as a bridge report/array pair should improve or at least
+match the current representative narrative-generator top-k distributional
+metrics, without a directional-memory regression.
+
+### Execution
+- Extended
+  `experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py`
+  to export a downstream bridge report and arrays for any chosen support alpha.
+- Added round-trip tests in
+  `test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py`.
+- Exported alpha-0.25 artifacts:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_report_blend_alpha250.json`
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_arrays_blend_alpha250.npz`.
+- The first rollout smoke exposed a harness configuration issue: the
+  representative manifest needs `--max_windows 441`, otherwise the evaluator
+  rebuilds only 50 validation windows and fails before scoring.
+- Ran a 5-window CUDA smoke, then the full 29-window held-out scenario
+  evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_blend_alpha025_scenario_eval_872b_full/scenario_level_eval_report.json`.
+
+### Result
+- Unit tests passed: `7 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- Full 29-window alpha-0.25 blended top-k generator:
+  - energy improvement versus persistence: `+20.8962%`;
+  - ensemble CRPS improvement versus persistence: `+16.9945%`;
+  - 80% coverage mean: `0.6150`;
+  - mean-path MAE improvement versus persistence: `-8.5246%`.
+- Current representative top-k generator baseline:
+  - energy improvement versus persistence: `+21.3288%`;
+  - ensemble CRPS improvement versus persistence: `+17.3929%`;
+  - 80% coverage mean: `0.6410`;
+  - mean-path MAE improvement versus persistence: `-8.7119%`.
+- Compared with the older direct-memory ablation, alpha-0.25 direct memory
+  improved materially:
+  - direct-memory energy improvement: `+8.5938%` -> `+11.6030%`;
+  - direct-memory CRPS improvement: `+2.9437%` -> `+7.6809%`;
+  - direct-memory 80% coverage: `0.3866` -> `0.4131`.
+
+### Mechanism Read
+The blend is not garbage: it improves direct memory injection and memory-space
+alignment. But the product path is still the analogue-supported top-k rollout,
+and on that path the alpha-0.25 blend slightly underperforms the current
+representative bridge. The support blend appears to improve retrieval replay
+quality but weakens generator top-k coverage. This reinforces the earlier
+lesson that memory-space target cosine is not sufficient; generator rollout is
+the real promotion gate.
+
+### Decision / Next Step
+Do not promote alpha-0.25 as the default product bridge. Treat it as a
+diagnostic that may help a future residual or direct-conditioning interface.
+The next principled step is post-experiment analysis of why improved retrieval
+and direct-memory metrics do not translate into better top-k generator
+distributional quality. The likely focus is a support-quality decomposition:
+candidate overlap, replay quality, generator rollout sensitivity, and whether
+the blend shifts support toward histories whose futures replay well but whose
+generator rollout is less calibrated.
+
+### Verification
+- `uv run black experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py`
+- `uv run pytest test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py test_code/test_870a_nl_prefix_latent_residual_refinement.py -q`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts --write-blended-artifacts-alpha 0.25`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_report_blend_alpha250.json --bridge-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_arrays_blend_alpha250.npz --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_blend_alpha025_scenario_eval_872b_full --include-direct-memory-generator --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda`
+
+---

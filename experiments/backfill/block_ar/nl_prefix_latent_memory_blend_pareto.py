@@ -66,6 +66,15 @@ def _round(value: float | int | None) -> float | None:
     return round(raw, 12) if np.isfinite(raw) else None
 
 
+def alpha_slug(value: float) -> str:
+    """Build a stable file-name slug for a support-mixture blend weight."""
+
+    alpha = float(value)
+    if alpha < 0.0 or alpha > 1.0:
+        raise ValueError("support_alpha must be in [0, 1]")
+    return f"alpha{int(round(alpha * 1000)):03d}"
+
+
 def parse_alpha_grid(raw: str) -> list[float]:
     values: list[float] = []
     for item in str(raw).split(","):
@@ -203,6 +212,96 @@ def build_pareto_report(
     }
 
 
+def write_blended_bridge_artifacts(
+    *,
+    output_dir: str | Path,
+    source_report: dict[str, Any],
+    source_report_path: str | Path | None = None,
+    examples: list[dict[str, Any]],
+    bridge_arrays: dict[str, np.ndarray],
+    condition_vectors: np.ndarray,
+    train_indices: np.ndarray,
+    test_indices: np.ndarray,
+    support_alpha: float,
+    eval_top_k: int,
+) -> dict[str, str]:
+    """Write a bridge report/array pair for downstream scenario evaluation."""
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    slug = alpha_slug(float(support_alpha))
+    arrays_path = output_path / f"bridge_eval_arrays_blend_{slug}.npz"
+    report_path = output_path / f"bridge_eval_report_blend_{slug}.json"
+    arrays_payload = {
+        name: np.asarray(value).copy() for name, value in bridge_arrays.items()
+    }
+    arrays_payload["condition_vectors"] = np.asarray(
+        condition_vectors,
+        dtype=np.float32,
+    )
+    np.savez_compressed(arrays_path, **arrays_payload)
+    memory_targets = np.asarray(bridge_arrays["memory_targets"], dtype=np.float32)
+    evaluation = evaluate_condition_bridge(
+        examples,
+        arrays_payload["condition_vectors"],
+        memory_targets,
+        train_indices=[int(value) for value in train_indices],
+        test_indices=[int(value) for value in test_indices],
+        top_k=int(eval_top_k),
+    )
+    summary = summarize_bridge_metrics(evaluation)
+    used_indices = {int(value) for value in train_indices} | {
+        int(value) for value in test_indices
+    }
+    output_report = {
+        "status": "ok",
+        "scope_note": (
+            "Bridge report reconstructed from the representative OpenAI narrative "
+            "pipeline using a fixed convex blend of text-predicted memory and "
+            "support-mixture memory. No OpenAI calls are made by this export."
+        ),
+        "input_report": (
+            str(source_report_path)
+            if source_report_path is not None
+            else source_report.get("artifact_paths", {}).get("report", "")
+        ),
+        "embedding_backend": source_report.get("embedding_backend"),
+        "embedding_model": source_report.get("embedding_model"),
+        "window_metadata": source_report.get("window_metadata", []),
+        "source_indices": source_report.get("source_indices", []),
+        "window_indices": source_report.get(
+            "window_indices",
+            list(range(int(memory_targets.shape[0]))),
+        ),
+        "split": {
+            "train_indices": [int(value) for value in train_indices],
+            "test_indices": [int(value) for value in test_indices],
+            "excluded_indices": [
+                int(idx)
+                for idx in range(int(memory_targets.shape[0]))
+                if idx not in used_indices
+            ],
+            "source": "source_bridge_arrays",
+        },
+        "blend": {
+            "support_alpha": float(support_alpha),
+            "text_alpha": float(1.0 - float(support_alpha)),
+            "method": (
+                "condition = (1 - support_alpha) * text_predicted_memory + "
+                "support_alpha * support_mixture_memory"
+            ),
+        },
+        "summary": summary,
+        "evaluation": evaluation,
+        "artifact_paths": {
+            "arrays": str(arrays_path),
+            "report": str(report_path),
+        },
+    }
+    _write_json(report_path, output_report)
+    return {"arrays": str(arrays_path), "report": str(report_path)}
+
+
 def run_pareto(args: argparse.Namespace) -> dict[str, Any]:
     report = _load_json(args.pipeline_report)
     examples = build_bridge_examples(report)
@@ -276,6 +375,27 @@ def run_pareto(args: argparse.Namespace) -> dict[str, Any]:
             "report": str(output_dir / "memory_blend_pareto.json"),
         },
     }
+    if args.write_blended_artifacts_alpha is not None:
+        export_alpha = float(args.write_blended_artifacts_alpha)
+        blended_export = blend_condition_memory(
+            text_memory,
+            support_memory,
+            support_alpha=export_alpha,
+        )
+        artifact_paths = write_blended_bridge_artifacts(
+            output_dir=output_dir,
+            source_report=report,
+            source_report_path=args.pipeline_report,
+            examples=examples,
+            bridge_arrays=bridge_arrays,
+            condition_vectors=blended_export,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            support_alpha=export_alpha,
+            eval_top_k=int(args.eval_top_k),
+        )
+        output["artifact_paths"]["blended_arrays"] = artifact_paths["arrays"]
+        output["artifact_paths"]["blended_report"] = artifact_paths["report"]
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_json(output_dir / "memory_blend_pareto.json", output)
     print(
@@ -314,6 +434,14 @@ def main() -> None:
     )
     parser.add_argument("--min-target-gain", type=float, default=0.005)
     parser.add_argument("--min-gap-fraction", type=float, default=0.50)
+    parser.add_argument(
+        "--write-blended-artifacts-alpha",
+        type=float,
+        help=(
+            "Optional support-mixture alpha to export as a bridge report/array "
+            "pair for downstream scenario-level evaluation."
+        ),
+    )
     args = parser.parse_args()
     run_pareto(args)
 
