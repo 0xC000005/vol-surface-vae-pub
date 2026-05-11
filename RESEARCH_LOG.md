@@ -121473,3 +121473,46 @@ The workflow can now separate a normal validation pass from product trust in the
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-11: NL prefix latent full s192 start reliability suite
+
+### Context
+The start-reliability gate was implemented using a targeted 192-path run for two starts. The next bounded promotion question was whether the six-start narrative casebook has enough fixed-start reliability evidence to support a production demo with explicit start warnings.
+
+### Execution
+- Ran the full 36-case narrative-start-checked bakeoff at 192 generated paths per case.
+- Built fixed-start narrative contrasts from that 192-path bakeoff.
+- Ran symmetric 192-path start-only/no-narrative controls.
+- Ran full same-narrative repeat controls with two seeds over all 36 cases.
+- Built a full 192-path start reliability manifest.
+- Ran independent verification against the code and artifacts.
+
+### Key Artifacts
+- Narrative bakeoff: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865a_full_narrative_s192/start_conditioned_bakeoff.json`
+- Symmetric control suite: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865d_full_s192_symmetric/fixed_start_control_suite.md`
+- Reliability manifest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_reliability_gate_865d_full_s192_symmetric/start_reliability_gate.md`
+- Verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-11_start_reliability_gate_865b.md`
+
+### Results
+- Narrative bakeoff: 36 runs, `status: pass`.
+- Mean scenario improvements: CRPS `+17.1%`, energy `+18.5%` versus persistence.
+- Symmetric fixed-start controls:
+  - Observed narrative median gap: `0.749`.
+  - Start-only/no-narrative median gap: `0.000`.
+  - Same-narrative repeat median gap: `0.337`, ratio `0.450`.
+  - Within-run bootstrap median gap: `0.339`, ratio `0.453`.
+- Per-start reliability:
+  - `fixed_start_0`: pass; repeat ratio `0.253`.
+  - `fixed_start_18`: pass; repeat ratio `0.375`.
+  - `fixed_start_22`: pass; repeat ratio `0.393`.
+  - `fixed_start_40`: pass; repeat ratio `0.309`.
+  - `fixed_start_77`: pass; repeat ratio `0.473`.
+  - `fixed_start_178`: `warn_high_instability`; repeat ratio `0.764`, failure `repeat_noise_close`.
+- Reliability manifest status counts: 5 pass, 1 high-instability warning.
+
+### Independent Verification
+The independent-verifier pass agreed with the narrow claim: five of six selected starts pass the 192-path fixed-start controls, while `fixed_start_178` should remain a warned hard case. The verifier noted that two repeat seeds are enough for a promotion guardrail but not a final production reliability certificate.
+
+### Decision
+Use the full 192-path reliability manifest as the current demo reliability manifest. Do not claim arbitrary-start production readiness. The production demo can show five supported starts and one hard-case warned start; stronger claims need a wider repeat-seed certificate or a broader start universe.
+
+---
