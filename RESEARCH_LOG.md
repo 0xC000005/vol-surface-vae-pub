@@ -121357,3 +121357,48 @@ contract. New model families should wait until those controls show that the
 current text-to-latent bridge is the actual bottleneck.
 
 ---
+## 2026-05-11: NL prefix latent fixed-start control suite
+
+### Context
+The narrative-conditioned scenario workflow now requires the user to provide or select a starting level before mixture formation. This HEAD iteration tested whether fixed-start scenario differences are actually caused by the narrative channel, rather than by starting-level geometry or rollout noise.
+
+### Hypothesis
+If the support-mixture prior is genuinely narrative-conditioned, then with the same starting level:
+
+- different narratives should produce nonzero scenario-distribution gaps;
+- a start-only/no-narrative control should collapse those gaps;
+- same-narrative seed repeats should be materially smaller than cross-narrative gaps;
+- within-run bootstrap gaps should not dominate the observed narrative gaps.
+
+### Execution
+- Added `soft_topk_start_only`, a no-narrative control that ranks support only by fixed-start compatibility while leaving grounding as audit metadata.
+- Added `nl_prefix_latent_fixed_start_control_suite.py` to compare observed fixed-start narrative contrasts against start-only controls, same-narrative repeats, and within-run bootstrap gaps.
+- Ran a small passing-start TestFlight on `fixed_start_18` before scaling.
+- Ran the full 36-case, 6-start, 96-path control pass with repeat controls.
+
+### Key Artifacts
+- Full repeat report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_s96_repeat/fixed_start_control_suite.md`
+- Full repeat JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_s96_repeat/fixed_start_control_suite.json`
+- Observed narrative bakeoff: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_narrative_s96/start_conditioned_bakeoff.json`
+- Start-only bakeoff: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_start_only_s96/start_conditioned_bakeoff.json`
+
+### Results
+- Full-suite status: `warning`; no hard aggregate failures.
+- Observed fixed-start narrative median gap: `0.741`.
+- Start-only/no-narrative median gap: `0.000`, so the measured scenario differences are not caused by starting-level geometry alone.
+- Same-narrative repeat median gap: `0.365`, ratio `0.493` to observed narrative gap.
+- Within-run bootstrap median gap: `0.738`, ratio `0.997` to observed narrative gap, producing the aggregate warning.
+- Per-start status:
+  - `fixed_start_18`: `pass` with observed gap `1.000`, repeat ratio `0.349`, bootstrap ratio `0.746`.
+  - `fixed_start_178`: `fail` because repeat noise is too close to narrative separation.
+  - `fixed_start_0`, `fixed_start_22`, `fixed_start_40`, `fixed_start_77`: `warning` from bootstrap noise close to observed narrative separation.
+
+### Decision
+This supports the claim that the current narrative channel has real effect beyond the fixed starting level, because the no-narrative start-only control collapses to zero. It does **not** yet support a blanket production claim that all selected starts have clean narrative separation. The next bottleneck is start-specific reliability: determine whether weak starts are caused by support dispersion, insufficient rollout samples, factor-level low effect size, or unstable prefix-decoder training.
+
+### Verification
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_862a_nl_prefix_latent_fixed_start_control_suite.py -q` -> `26 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_control_suite.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` -> passed.
+- `git diff --check` -> passed.
+
+---

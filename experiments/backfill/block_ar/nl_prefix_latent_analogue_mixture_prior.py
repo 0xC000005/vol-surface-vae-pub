@@ -271,6 +271,7 @@ def candidate_support_table(
                 "window_index": int(window_idx),
                 "memory_support_cosine": float(cosines[pos]),
                 "start_distance_z": float(distances[pos]),
+                "start_only_score": float(-distances[pos]),
                 "start_distance_cost": float(start_distance_cost),
                 "excess_start_distance_cost": float(excess_distance_cost),
                 "narrative_start_score": float(narrative_start_score),
@@ -569,6 +570,9 @@ def build_mixture_memory_prior(
             k=top_k,
         )
         scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "soft_topk_start_only":
+        indices = _top_indices(candidates, "start_only_score", top_k)
+        scores = _scores_for_indices(candidates, indices, "start_only_score")
     elif prior_mode == "soft_topk_combined":
         indices = _top_indices(candidates, "combined_score", top_k)
         scores = _scores_for_indices(candidates, indices, "combined_score")

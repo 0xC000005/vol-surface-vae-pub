@@ -81,6 +81,18 @@ def test_selected_variants_supports_direction_check_set() -> None:
     assert rows[0]["generator_temperature"] == 0.5
 
 
+def test_selected_variants_supports_control_sets() -> None:
+    start_only = selected_variants(1, variant_set="start_only_control")
+    controls = selected_variants(3, variant_set="controls")
+
+    assert start_only[0]["memory_prior_mode"] == "soft_topk_start_only"
+    assert [row["memory_prior_mode"] for row in controls] == [
+        "soft_topk_narrative_start_checked",
+        "soft_topk_start_only",
+        "soft_topk_memory",
+    ]
+
+
 def test_row_from_report_extracts_operational_metrics() -> None:
     row = row_from_report(
         case={

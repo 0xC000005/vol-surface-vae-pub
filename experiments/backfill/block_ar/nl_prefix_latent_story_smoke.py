@@ -108,6 +108,7 @@ MemoryPriorMode = Literal[
     "soft_topk_memory",
     "soft_topk_narrative_start",
     "soft_topk_narrative_start_checked",
+    "soft_topk_start_only",
     "soft_topk_combined",
     "diverse_topk_narrative_start",
     "diverse_topk_combined",

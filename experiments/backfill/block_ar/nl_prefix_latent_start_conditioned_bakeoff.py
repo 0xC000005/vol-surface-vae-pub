@@ -196,11 +196,37 @@ DIRECTION_CHECK_VARIANTS = [
     },
 ]
 
+START_ONLY_CONTROL_VARIANTS = [
+    {
+        "variant_name": "decoder_soft_topk_start_only_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_start_only",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+]
+
+CONTROL_VARIANTS = [
+    DIRECTION_CHECK_VARIANTS[0],
+    START_ONLY_CONTROL_VARIANTS[0],
+    {
+        "variant_name": "decoder_soft_topk_memory_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_memory",
+        "prefix_prior_mode": "decoder",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+]
+
 
 VARIANT_SETS = {
     "prior": DEFAULT_VARIANTS,
     "temperature": TEMPERATURE_CALIBRATION_VARIANTS,
     "direction_check": DIRECTION_CHECK_VARIANTS,
+    "start_only_control": START_ONLY_CONTROL_VARIANTS,
+    "controls": CONTROL_VARIANTS,
 }
 
 
