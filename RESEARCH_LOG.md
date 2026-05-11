@@ -120983,3 +120983,48 @@ Return to fixed-start narrative conditionality using the incumbent bridge: same 
 - `uv run python experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py ... --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_855b_supcon_lowweight_gpu --device auto` completed and wrote a report with `device: cuda`.
 
 ---
+## 2026-05-11: NL prefix latent fixed-start narrative conditionality
+
+### Context
+Ran the next fixed-start narrative-conditionality check using the incumbent narrative/start-checked prefix path. The purpose was to isolate narrative effects by holding the starting level fixed, instead of letting different narratives choose different starts.
+
+### Setup
+- Case spec: three cached condition-only narratives with the same historical start `candidate_index=18`.
+- Narratives: fragile risk-on rebound, defensive risk-off, and rates selloff.
+- Variant: `decoder_soft_topk_narrative_start_checked_gen_temp_0p50`.
+- Samples: `12`; solver steps: `100`; device: `cuda`.
+- No OpenAI calls.
+
+### Results
+- Bakeoff report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_conditionality_856a/start_conditioned_bakeoff.json`.
+- Contrast report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_856b/fixed_start_narrative_contrast.md`.
+- All three runs passed the operational and direction checks.
+- Start equality check passed with `start_max_abs_diff = 0.0`.
+- Support weighted match rate was `1.0` for all three narratives, with zero final-mixture direction mismatches.
+- Mean scenario quality across the three same-start runs: energy improvement versus persistence `+15.5%`; CRPS improvement versus persistence `+10.8%`.
+
+### Conditionality Read
+The narratives produced non-identical terminal distributions even with the exact same starting level. Pairwise standardized terminal-distribution gaps were:
+- fragile risk-on vs rates selloff: `2.043`;
+- fragile risk-on vs defensive risk-off: `1.629`;
+- defensive risk-off vs rates selloff: `0.897`.
+
+The largest separation came through credit spreads, IV-surface average, VIX, and rates. This is useful because it shows conditionality is not only coming from the starting level. However, the result should be treated as a small diagnostic, not a final production proof, because sample count is still small and the narratives are cached condition reports rather than fresh live API inputs.
+
+### Decision
+The same-start experiment supports the current product story: user-selected starting level plus narrative-conditioned support/prefix selection changes the scenario distribution while keeping the start fixed and auditable. This is a stronger production argument than exact historical-window retrieval.
+
+### Next Principled Step
+Scale this fixed-start narrative-contrast evaluation to a small matrix of starts and narrative families. The next gate should require:
+- start equality within each same-start block;
+- direction/support audit pass or warning captured;
+- non-trivial narrative separation for at least the markets implied by the narrative;
+- scenario-level quality not materially worse than persistence.
+
+### Verification
+- `uv run pytest test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py -q` passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_conditionality_856a --case-spec-json autoresearch-session/fixed_start_narrative_conditionality_856a_cases.json --variant-set direction_check --variant-count 1 --samples 12 --steps 100 --chunk-size 4 --device cuda` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_conditionality_856a/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_856b` passed.
+
+---
