@@ -122416,3 +122416,33 @@ The result supports the structured-fusion mechanism: a small residual after the 
 Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to mark the bounded start-residual bridge as a diagnostic, not a promoted default. The next principled step is downstream scenario-level evaluation or a fixed-start narrative conditionality check using this residual bridge. Promotion requires independent verification and scenario-level evidence, not just memory-space preservation.
 
 ---
+## 2026-05-11: NL prefix latent start-residual bridge export
+
+### Context
+After bounded start-residual seed stability passed the memory-space preservation gate, the next downstream need was a bridge-compatible report/array export so the scenario-level evaluator can consume the residual condition vectors.
+
+### Hypothesis
+The start-residual diagnostic should be able to export `condition_vectors`, `memory_targets`, train/test split, and bridge-evaluation rows in the same format expected by `nl_scenario_level_evaluation.py`, without changing the diagnostic result or making OpenAI calls.
+
+### Execution
+Updated `experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py` to write candidate bridge artifacts for `mlp_start_residual__multi_caption_with_negatives`. The first export attempt failed because the output directory was not created before `np.savez_compressed`; fixed the export helper to create the directory at the artifact boundary.
+
+Verification commands:
+
+- `uv run black experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py`
+- `uv run pytest test_code/test_875a_nl_text_start_memory_diagnostic.py test_code/test_876a_nl_text_start_memory_stability.py -q`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_877a_export_seed775 --input-modes text_only,text_start --start-feature-weights 0.10 --include-start-residual --adapter-steps 700 --start-residual-steps 350 --start-residual-scale 0.10 --start-residual-l2-weight 0.10 --device auto --seed 775`
+
+### Result
+The export rerun completed and produced downstream-compatible artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_877a_export_seed775/mlp_start_residual__multi_caption_with_negatives_bridge_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_877a_export_seed775/mlp_start_residual__multi_caption_with_negatives_bridge_eval_arrays.npz`
+
+The seed-775 preservation result remains consistent: target-cosine delta `-0.00018`, hard-negative gap delta `-0.0135`, hard-negative margin delta `-0.0089` versus text-only.
+
+### Decision / Next Step
+Stop here per user instruction. The next work item, when resumed, is downstream scenario-level evaluation using the exported residual bridge artifacts; no promotion should occur before that evaluation and independent verification.
+
+---

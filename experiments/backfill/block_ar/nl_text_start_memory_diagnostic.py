@@ -507,8 +507,66 @@ def train_start_residual_method(
                 float(np.mean(residual_norm / np.maximum(base_norm, 1e-8)))
             ),
         },
+        "_condition_vectors": condition_vectors,
         **eval_block,
     }
+
+
+def write_candidate_bridge_artifacts(
+    output_dir: Path,
+    *,
+    method_name: str,
+    method_result: dict[str, Any],
+    pipeline_report: dict[str, Any],
+    source_bridge_report: dict[str, Any],
+    memory_targets: np.ndarray,
+    text_embeddings: np.ndarray,
+) -> dict[str, str]:
+    """Write bridge-evaluation artifacts consumable by scenario evaluation."""
+
+    condition_vectors = method_result.pop("_condition_vectors", None)
+    if condition_vectors is None:
+        raise ValueError("method_result does not contain _condition_vectors")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    arrays_path = output_dir / f"{method_name}_bridge_eval_arrays.npz"
+    report_path = output_dir / f"{method_name}_bridge_eval_report.json"
+    np.savez_compressed(
+        arrays_path,
+        condition_vectors=np.asarray(condition_vectors, dtype=np.float32),
+        memory_targets=np.asarray(memory_targets, dtype=np.float32),
+        text_embeddings=normalize_rows(np.asarray(text_embeddings, dtype=np.float32)),
+        train_indices=np.asarray(
+            source_bridge_report.get("split", {}).get("train_indices", []),
+            dtype=np.int64,
+        ),
+        test_indices=np.asarray(
+            source_bridge_report.get("split", {}).get("test_indices", []),
+            dtype=np.int64,
+        ),
+    )
+    bridge_report = {
+        "status": "ok",
+        "scope_note": (
+            "Bridge-compatible export from the text/start memory diagnostic. "
+            "No OpenAI API calls were made."
+        ),
+        "method": method_name,
+        "input_report": pipeline_report.get("artifact_paths", {}).get("report"),
+        "embedding_backend": pipeline_report.get("embedding_backend"),
+        "embedding_model": pipeline_report.get("embedding_model"),
+        "window_metadata": pipeline_report.get("window_metadata", []),
+        "source_indices": pipeline_report.get("source_indices", []),
+        "window_indices": pipeline_report.get("window_indices", []),
+        "split": source_bridge_report.get("split", {}),
+        "summary": method_result.get("summary", {}),
+        "evaluation": method_result.get("evaluation", {}),
+        "artifact_paths": {
+            "report": str(report_path),
+            "arrays": str(arrays_path),
+        },
+    }
+    _write_json(report_path, bridge_report)
+    return {"report": str(report_path), "arrays": str(arrays_path)}
 
 
 def _parse_float_list(raw: str) -> list[float]:
@@ -624,6 +682,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
             "bounded calibration allows at most three start-feature weights"
         )
     text_start_candidates: list[str] = []
+    candidate_bridge_artifacts: dict[str, dict[str, str]] = {}
     for mode in modes:
         weights = start_weights if mode == "text_start" else [1.0]
         for weight in weights:
@@ -675,7 +734,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         )
         residual_name = f"mlp_start_residual__{args.training_policy}"
         structured_candidates.append(residual_name)
-        results[residual_name] = train_start_residual_method(
+        residual_result = train_start_residual_method(
             examples,
             text_features,
             start_features,
@@ -683,6 +742,16 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
             split,
             args,
         )
+        candidate_bridge_artifacts[residual_name] = write_candidate_bridge_artifacts(
+            Path(args.output_dir),
+            method_name=residual_name,
+            method_result=residual_result,
+            pipeline_report=pipeline_report,
+            source_bridge_report=bridge_report,
+            memory_targets=memory_targets,
+            text_embeddings=text_embeddings,
+        )
+        results[residual_name] = residual_result
     baseline = f"mlp_mse_contrastive__{args.training_policy}__text_only"
     report = {
         "status": "ok",
@@ -717,6 +786,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         "artifact_paths": {
             "report": str(Path(args.output_dir) / "text_start_memory_diagnostic.json"),
             "markdown": str(Path(args.output_dir) / "text_start_memory_diagnostic.md"),
+            "candidate_bridge_artifacts": candidate_bridge_artifacts,
         },
     }
     output_dir = Path(args.output_dir)
