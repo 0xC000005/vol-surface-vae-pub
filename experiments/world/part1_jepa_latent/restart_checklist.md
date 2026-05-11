@@ -70,15 +70,16 @@ probe that consumes the Part 1 world-model reference candidate.
 61. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
 62. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
 63. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
-64. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-65. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-66. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-67. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-68. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-69. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-70. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-71. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-72. latest tail of `RESEARCH_LOG.md`
+64. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
+65. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+66. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+67. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+68. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+69. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+70. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+71. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+72. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+73. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -280,6 +281,9 @@ probe that consumes the Part 1 world-model reference candidate.
   hidden size, epochs, mask, target length, EMA, or predictor depth.
 - Treat HEAD175 as the temporal stale-route scan: active docs are consistent
   after the demotion, and no temporal stale-route cleanup is currently needed.
+- Treat HEAD176 as the post-temporal gate reconciliation: temporal
+  context-to-target results do not change Part 1 gate status, and Part B
+  remains blocked by exact-state retention and baseline superiority.
 
 ## Do Not Do Without Explicit Authorization
 

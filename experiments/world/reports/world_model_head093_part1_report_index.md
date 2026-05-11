@@ -255,6 +255,9 @@ human-oriented resume guide, not the source of truth.
   knob tuning unless a genuinely new design gate is justified.
 - HEAD175: `world_model_head175_temporal_stale_route_scan.md` verifies active
   docs after HEAD174 and finds no stale temporal tuning next-step wording.
+- HEAD176: `world_model_head176_post_temporal_gate_reconciliation.md`
+  reconciles the formal Part 1 gate after the temporal route demotion and keeps
+  Part B blocked.
 
 ## Packaging And Restart Guardrails
 
@@ -379,6 +382,7 @@ Then read:
 65. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
 66. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
 67. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
+68. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
 
 ## Decision
 

@@ -197,6 +197,7 @@
       "temporal_jepa_bakeoff_report": "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md",
       "temporal_route_decision_report": "experiments/world/reports/world_model_head174_temporal_route_decision.md",
       "temporal_stale_route_scan_report": "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md",
+      "post_temporal_gate_reconciliation_report": "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -785,6 +786,20 @@
           "checked_guardrail_docs": 5,
           "checked_artifacts": 9,
           "part_b_blocked": true
+        },
+        "post_temporal_gate_reconciliation": {
+          "quality_gate_passed": false,
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part1_ready_for_part_b": false,
+          "active_learned_candidate": "HEAD127_HEAD130_scaled_barlow",
+          "temporal_changes_gate_status": false,
+          "demoted_context_target_routes": [
+            "minimal_row_level",
+            "clean_target_row_level",
+            "surface_local_token_geometry",
+            "temporal_block"
+          ],
+          "primary_blocker": "exact_state_retention_and_baseline_superiority"
         }
       },
       "layer_status": {
@@ -882,7 +897,8 @@
     "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
     "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md",
     "experiments/world/reports/world_model_head174_temporal_route_decision.md",
-    "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md"
+    "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md",
+    "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md"
   ],
   "guardrail_doc_checks": [
     {

@@ -120459,3 +120459,21 @@ This iteration scans active world-model docs after HEAD174 to make sure the temp
 Scan decision: `PASS`. No temporal stale-route cleanup is needed. The current temporal context-to-target route remains demoted as implemented, and Part B remains blocked.
 
 ---
+## 2026-05-11: World model HEAD176 post-temporal gate reconciliation
+
+### Context
+
+This iteration reconciles the formal Part 1 quality gate after the HEAD172-175 temporal context-to-target work.
+
+### Findings
+
+- HEAD173/174/175 demote the temporal context-to-target route as implemented; they do not promote a candidate or unblock Part B.
+- Scaled Barlow remains the active learned candidate, still `DO_NOT_PROMOTE`.
+- Context-to-target routes demoted as implemented now include row-level minimal, clean-target row-level, surface-local token/geometry, and temporal block variants.
+- The active blockers remain exact-state retention, baseline superiority, and incomplete probe coverage rather than collapse or lack of runnable scripts.
+
+### Decision
+
+Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked. Continue with provenance/gate work, broader additive/probe coverage, or a genuinely new Part 1 design gate that first explains target-latent state variation.
+
+---

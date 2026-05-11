@@ -148,6 +148,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head174_temporal_route_decision.md`.
 - Latest temporal stale-route scan:
   `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`.
+- Latest post-temporal gate reconciliation:
+  `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`.
 
 ## Fixed Contract
 
@@ -292,6 +294,11 @@ is a representation-learning package for same-market-state masked views.
   demotion. The remaining temporal references are intended smoke-only,
   negative-bakeoff, or do-not-tune guardrails; no active README or protocol
   points future work into temporal context-to-target tuning.
+- Post-temporal gate reconciliation: HEAD176 confirms the temporal branch does
+  not change the formal Part 1 gate. Scaled Barlow remains the active learned
+  candidate but is still `DO_NOT_PROMOTE`; row-level, clean-target,
+  surface-local, and temporal context-to-target routes are demoted as
+  implemented; Part B remains blocked.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -531,6 +538,9 @@ is a representation-learning package for same-market-state masked views.
   status returns to scaled Barlow `DO_NOT_PROMOTE`, and Part B remains blocked.
 - Treat HEAD175 as the current stale-route scan: active docs are consistent
   after temporal route demotion, so no temporal doc cleanup is currently needed.
+- Treat HEAD176 as the current post-temporal gate reconciliation: temporal
+  results do not promote Part 1 or unblock Part B; exact-state retention and
+  baseline superiority remain the main blockers.
 
 ## Next Work Requires Direction
 
