@@ -121226,3 +121226,52 @@ Keep the paper ignored. The content is useful for local drafting and presentatio
 Continue production hardening through the tracked code path: either add a compact demo endpoint/panel that displays the fixed-start conditionality packet, or add a start-aware calibration diagnostic for the damped-support regimes before considering any new bridge architecture.
 
 ---
+## 2026-05-11: NL prefix latent start-damping diagnostic
+
+### Context
+After the 36-run fixed-start conditionality matrix, the remaining warning was not whether the frozen generator can run or whether direction checks pass. The open question was why two fixed starts (`0` and `178`) damp narrative influence while four starts pass the same-start conditionality gate.
+
+### Work Completed
+- Added `experiments/backfill/block_ar/nl_prefix_latent_start_damping_diagnostic.py`.
+- Added `test_code/test_860a_nl_prefix_latent_start_damping_diagnostic.py`.
+- The diagnostic consumes the 858b bakeoff, 858b fixed-start contrast, and 858b gate artifacts.
+- It compares, by fixed start:
+  - narrative separation gap;
+  - selected-start distance;
+  - weighted support-pool start distance;
+  - memory support cosine;
+  - operational warning counts;
+  - support-window concentration;
+  - distributional quality versus persistence.
+
+### Findings
+- Overall diagnostic status is `warning`, with zero new hard failures.
+- Damped starts remain `fixed_start_178` and `fixed_start_0`.
+- Passing starts remain `fixed_start_77`, `fixed_start_18`, `fixed_start_22`, and `fixed_start_40`.
+- `fixed_start_0` is damped mainly because the selected start is far from the query baseline: all six operational rows are warnings and mean start distance is `22.075` z units. It also has weaker memory support cosine (`0.671`) and farther weighted support distance (`8.940`) than the passing-start averages.
+- `fixed_start_178` is subtler: all six operational rows pass, but narrative separation is low (`0.769` median gap), memory support cosine is weak (`0.624`), and the weighted support pool is far from the fixed start (`14.911`). This means the start is operationally valid, but the narrative has less leverage over the rollout distribution.
+
+### Product Interpretation
+A damped start should be treated as a trust warning on the chosen starting level, not as a new user-facing research knob. The product story remains:
+
+1. Risk manager describes current/recent market conditions, not a desired future path.
+2. Risk manager supplies or selects the current starting level.
+3. The system forms a narrative-and-start-compatible support mixture.
+4. The frozen generator rolls out possible 30-day futures.
+5. If the chosen start weakens narrative leverage, the app should say so clearly rather than silently pretending the story had strong conditional effect.
+
+### Artifacts
+- Diagnostic JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_damping_diagnostic_860a/fixed_start_damping_diagnostic.json`
+- Diagnostic Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_damping_diagnostic_860a/fixed_start_damping_diagnostic.md`
+
+### Verification
+- `uv run pytest test_code/test_860a_nl_prefix_latent_start_damping_diagnostic.py -q` passed: 2 tests.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_damping_diagnostic.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_damping_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_damping_diagnostic_860a` passed.
+- `uv run pytest test_code/test_860a_nl_prefix_latent_start_damping_diagnostic.py test_code/test_859a_nl_prefix_latent_fixed_start_conditioning_analysis.py test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py -q` passed: 8 tests.
+- `git diff --check` passed.
+
+### Decision
+Stop here per user instruction after the current task. The next principled research step would be to expose this damping diagnostic as a production trust signal, but not to add another architecture knob until we decide whether the weak starts are acceptable user warnings or require start-aware calibration.
+
+---
