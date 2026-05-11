@@ -120564,3 +120564,51 @@ level and return geometry before any stronger quality claim.
 - `python experiments/world/part1_jepa_latent/analyze_factor_panel_probe_bakeoff.py --device cpu --history_len 30 --future_len 30 --max_train_windows 128 --max_val_windows 64 --batch_size 64 --ridge_alpha 10.0 --output_json results/world/factor_panel_probe_bakeoff_head179.json --report_md experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`
 
 ---
+## 2026-05-11: World model HEAD180 factor-family normalized probe audit
+
+### Context
+
+HEAD179 showed factor-panel downstream signal, but the aggregate MSE was still
+in raw factor units and target-family breakdown was missing. HEAD180 audits the
+same frozen Part 1 representation with factor-level and factor-return target
+families separated.
+
+### Work
+
+- Added `experiments/world/part1_jepa_latent/analyze_factor_family_normalized_probe_audit.py`.
+- Added `test_code/test_world_model_factor_family_normalized_audit.py`.
+- Standardized factor-level and factor-return downstream targets using train
+  statistics.
+- Standardized each feature surface using train statistics before ridge probes.
+- Report: `experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md`.
+- Result JSON: `results/world/factor_family_normalized_probe_head180.json`.
+
+### Findings
+
+- Target-family cells: `8`.
+- Scale-only beats the best raw baseline on `7/8` cells.
+- Raw-factor-last plus scale improves raw-factor-last on `4/8` cells.
+- Raw-factor-last plus scale beats the best raw baseline on `4/8` cells.
+- The standalone scaled embedding has strong factor-family normalized signal,
+  but the combined raw-plus-learned feature surface is mixed.
+
+### Decision
+
+Promotion decision: `PROBE_ONLY_DO_NOT_PROMOTE`.
+
+This resolves the raw-unit MSE caveat from HEAD179, but it does not promote
+Part 1. The result is still smoke-scale, downstream-only evidence; Part B
+remains blocked. The next step is to interpret whether standalone factor-panel
+signal should change the Part 1 gate when raw-plus-learned remains mixed and
+exact IV-state retention is still unresolved.
+
+### Validation
+
+- Red test first failed with `ModuleNotFoundError` for
+  `experiments.world.part1_jepa_latent.analyze_factor_family_normalized_probe_audit`.
+- Focused pytest passed: `python -m pytest test_code/test_world_model_factor_family_normalized_audit.py test_code/test_world_model_factor_panel_bakeoff.py test_code/test_world_model_factor_panel_probes.py -q`.
+- Compile check passed: `python -m py_compile experiments/world/part1_jepa_latent/analyze_factor_family_normalized_probe_audit.py experiments/world/part1_jepa_latent/analyze_factor_panel_probe_bakeoff.py experiments/world/evaluation/factor_panel_data.py`.
+- Real audit command passed:
+  `python experiments/world/part1_jepa_latent/analyze_factor_family_normalized_probe_audit.py --device cpu --history_len 30 --future_len 30 --max_train_windows 128 --max_val_windows 64 --batch_size 64 --ridge_alpha 10.0 --output_json results/world/factor_family_normalized_probe_head180.json --report_md experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md`.
+
+---

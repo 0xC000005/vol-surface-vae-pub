@@ -156,6 +156,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`.
 - Latest factor-panel probe bakeoff:
   `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`.
+- Latest factor-family normalized probe audit:
+  `experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md`.
 
 ## Fixed Contract
 
@@ -320,6 +322,11 @@ is a representation-learning package for same-market-state masked views.
   factor future targets. Scale-only wins `4/4` best-raw comparisons and
   raw-plus-scale improves raw-last `4/4`, but raw-plus-scale beats the best raw
   baseline only `3/4`; this is smoke-scale factor-panel signal, not promotion.
+- Factor-family normalized probe audit: HEAD180 repeats the factor-panel
+  comparison with train-standardized level/return target families and
+  train-standardized feature surfaces. Scale-only beats best raw on `7/8`
+  target-family cells, but raw-plus-scale beats best raw on only `4/8`;
+  standalone representation signal is stronger than combined-feature evidence.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled

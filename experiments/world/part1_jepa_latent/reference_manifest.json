@@ -201,6 +201,7 @@
       "additive_probe_coverage_inventory_report": "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
       "factor_panel_probe_scaffold_report": "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md",
       "factor_panel_probe_bakeoff_report": "experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md",
+      "factor_family_normalized_probe_audit_report": "experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -251,6 +252,7 @@
       "temporal_block_jepa_smoke_json": "results/world/temporal_block_jepa_smoke_head172.json",
       "temporal_jepa_bakeoff_json": "results/world/temporal_jepa_bakeoff_head173.json",
       "factor_panel_probe_bakeoff_json": "results/world/factor_panel_probe_bakeoff_head179.json",
+      "factor_family_normalized_probe_audit_json": "results/world/factor_family_normalized_probe_head180.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -852,6 +854,23 @@
           "promotion_decision": "PROBE_ONLY_DO_NOT_PROMOTE",
           "next_step": "factor_family_normalized_probe_audit_before_promotion",
           "part_b_blocked": true
+        },
+        "factor_family_normalized_probe_audit": {
+          "status": "standalone_scale_signal_strong_combined_signal_mixed",
+          "objective_family": "downstream_probe_factor_family_normalized",
+          "uses_future_targets_as_pretraining": false,
+          "target_metric_units": "train_standardized_per_factor_family",
+          "feature_metric_units": "train_standardized_per_feature_surface",
+          "scale_standalone_factor_family_wins": "7/8",
+          "raw_plus_scale_improves_raw_last": "4/8",
+          "raw_plus_scale_beats_best_raw": "4/8",
+          "caveats": [
+            "smoke_scale_128_train_64_val",
+            "still_downstream_probe_only"
+          ],
+          "promotion_decision": "PROBE_ONLY_DO_NOT_PROMOTE",
+          "next_step": "interpret_family_normalized_audit_against_part1_gate",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -953,7 +972,8 @@
     "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
     "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
     "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md",
-    "experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md"
+    "experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md",
+    "experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md"
   ],
   "guardrail_doc_checks": [
     {

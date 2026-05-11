@@ -83,6 +83,14 @@
       "sha256": "a27074925d9146c0cc928243f3e6cd68938852097847aa8c1df0e3f98652fd47",
       "tracked": false,
       "ignored": true
+    },
+    {
+      "role": "factor_family_normalized_probe_audit_result",
+      "path": "results/world/factor_family_normalized_probe_head180.json",
+      "bytes": 15997,
+      "sha256": "ef356c885b1975e7d9242d286dee17d7c0eb329ab31ad006cdb0eba17c4d999d",
+      "tracked": false,
+      "ignored": true
     }
   ]
 }

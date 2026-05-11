@@ -269,6 +269,11 @@ human-oriented resume guide, not the source of truth.
   on `4/4` targets and raw-plus-scale improves raw-last on `4/4`, but
   raw-plus-scale beats the best raw baseline on only `3/4`; result is
   probe-only smoke evidence, not Part 1 promotion.
+- HEAD180: `world_model_head180_factor_family_normalized_probe_audit.md`
+  splits factor-level and factor-return targets, standardizes targets and
+  feature surfaces with train statistics, and reruns the frozen factor-panel
+  comparison. Scale-only beats best raw on `7/8` target-family cells, while
+  raw-plus-scale beats best raw on `4/8`; result is still probe-only.
 
 ## Packaging And Restart Guardrails
 
@@ -397,6 +402,7 @@ Then read:
 69. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
 70. `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`
 71. `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`
+72. `experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md`
 
 ## Decision
 
