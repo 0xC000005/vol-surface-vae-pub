@@ -121156,3 +121156,44 @@ Before adding model complexity, add a compact paper/demo analysis that shows fix
 - `uv run pytest test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q` passed.
 
 ---
+## 2026-05-11: NL prefix latent fixed-start conditionality analysis packet
+
+### Context
+Built a compact paper/demo evidence packet for fixed-start narrative conditionality. The objective is to explain where conditionality comes from after decoupling the user-provided starting level from the narrative-conditioned support mixture.
+
+### Setup
+- New script: `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_analysis.py`.
+- New tests: `test_code/test_859a_nl_prefix_latent_fixed_start_conditioning_analysis.py`.
+- Inputs:
+  - bakeoff: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json`;
+  - contrast: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b/fixed_start_narrative_contrast.json`;
+  - gate: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b/fixed_start_conditioning_gate.json`.
+- No OpenAI calls; this is an artifact analysis pass over existing fixed-start runs.
+
+### Results
+- Analysis JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a/fixed_start_conditioning_analysis.json`.
+- Analysis Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a/fixed_start_conditioning_analysis.md`.
+- Gap plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a/fixed_start_narrative_gap_by_start.png`.
+- Quality plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a/fixed_start_quality_by_start.png`.
+- Overall status: `warning`.
+- Starts: `6`; cases: `36`; damped starts: `2`; hard failures: `0`.
+- Damped starts: `fixed_start_0` and `fixed_start_178`.
+- Passing starts: `fixed_start_18`, `fixed_start_22`, `fixed_start_40`, and `fixed_start_77`.
+- Highest narrative-separation block: `fixed_start_77` with max standardized gap `2.541`.
+- Main separating markets in the top contrasts: credit spreads (`BBB_OAS`, `AAA_OAS`), rates (`US10Y`/`US2Y`), IV surface/VIX, gold, SPX, and DXY depending on start.
+
+### Interpretation
+This packet directly answers the product question: when the starting level is held fixed, different narratives still produce different scenario distributions. The current conditionality is therefore not only coming from the selected historical start. At the same time, the analysis exposes a product caveat: some starts make the narrative channel less expressive and should carry an audit warning.
+
+### Decision
+Use this packet as the main evidence artifact for explaining narrative conditionality in the paper/demo. It is better than only reporting retrieval metrics because it is aligned with the actual product contract: risk manager selects a starting level, the narrative influences the support mixture and prefix, then the frozen generator rolls forward.
+
+### Next Principled Step
+Update the natural-language conditioning paper with this fixed-start conditionality analysis and include the generated plots/tables or their summarized numbers. The paper should explicitly say that support/direction pass is separate from operational validation pass.
+
+### Verification
+- `uv run pytest test_code/test_859a_nl_prefix_latent_fixed_start_conditioning_analysis.py test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py -q` passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_analysis.py experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_gate.py experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_analysis.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json --contrast-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b/fixed_start_narrative_contrast.json --gate-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b/fixed_start_conditioning_gate.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a` passed.
+
+---
