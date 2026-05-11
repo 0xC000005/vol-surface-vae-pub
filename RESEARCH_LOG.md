@@ -122295,3 +122295,36 @@ Start state is useful for the product contract, but this experiment says it shou
 Do not promote direct text-plus-start memory concatenation. Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to record this as a non-promoted diagnostic. The next principled step is post-analysis or a structured latent-prior design that keeps separate text and start encoders/cross-attention/gating rather than concatenating start features into the frozen text embedding space.
 
 ---
+## 2026-05-11: NL prefix latent structured text-start fusion plan
+
+### Context
+The direct text-plus-start branch is now falsified: both naive concatenation and weak start-channel weights materially degraded target-memory cosine and hard-negative directional separation versus the text-only incumbent.
+
+### Hypothesis
+The next text/start bridge should keep text and start as separate pathways, then combine them through a small learned gate or modulation layer. This may let the fixed start affect the memory target without destroying the text geometry that carries narrative directionality.
+
+### Execution
+Added `docs/research_protocols/nl_prefix_latent_structured_text_start_fusion_plan.md` and linked it from `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`. The note records the negative local result, three candidate designs, the recommended next TestFlight, and falsifiers.
+
+Primary-source constraints checked:
+
+- FiLM: feature-wise affine modulation instead of naive conditioning concatenation: https://ojs.aaai.org/index.php/AAAI/article/view/11671
+- Gated Multimodal Units: multiplicative gates over separate modality representations: https://huggingface.co/papers/1702.01992
+- BLIP-2: lightweight bridge between frozen unimodal systems using a Q-Former: https://proceedings.mlr.press/v202/li23q.html
+
+### Result
+The recommended next experiment is a bounded start-gated text-memory adapter:
+
+```text
+text tower + start gate / FiLM modulation -> generator-memory target
+```
+
+Controls should include the incumbent text-only MLP and the failed concatenation baseline. The experiment should use cached representative OpenAI embeddings and make no new OpenAI calls.
+
+### Mechanism Read
+The failed concatenation branch suggests start is not useless, but incorrectly fused. The bridge needs to preserve the text-only pathway and let start modulate it through a bounded mechanism whose gate statistics can be audited. This is closer to multimodal fusion practice than treating text and joint39 level as one homogeneous vector.
+
+### Decision / Next Step
+No model is promoted. Next HEAD iteration should implement the start-gated text-memory adapter as a TestFlight. Falsifiers: target cosine drops by more than `0.01`, hard-negative gap/margin drops by more than `0.05`, or gates saturate to all-start/all-text behavior.
+
+---

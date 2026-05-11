@@ -20,6 +20,9 @@ Tracked current-truth index:
 Current text-to-latent prior research note:
 `docs/research_protocols/nl_prefix_latent_text_to_latent_prior_plan.md`.
 
+Current structured text/start fusion note:
+`docs/research_protocols/nl_prefix_latent_structured_text_start_fusion_plan.md`.
+
 The long-run product contract has one fixed-start requirement with two start
 input routes:
 
