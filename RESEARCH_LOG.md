@@ -121762,3 +121762,47 @@ The support mixture is doing something useful for memory target placement, but i
 Do not promote the residual refiner. The next principled TestFlight is not a broad hyperparameter sweep; it is one mechanism-targeted variant: add a hard-negative preservation term to the residual refiner, using the same grouped anchor/positive/negative structure already used by the bridge evaluator. Falsifier: target cosine must remain above the text-memory incumbent, and hard-negative gap must recover materially toward the incumbent rather than staying collapsed near the mixture baseline.
 
 ---
+## 2026-05-11: NL prefix latent hard-negative residual TestFlight
+
+### Context
+Iteration 114 showed that support-mixture memory improves target placement but collapses hard-negative separation. The mechanism-targeted next step was to add a hard-negative preservation term to the residual refiner, not to run a broad hyperparameter sweep.
+
+### Hypothesis
+If the residual model's main failure is loss-function mismatch, then adding grouped anchor/positive/negative separation to the residual-refinement objective should recover a material amount of hard-negative gap while retaining the target-cosine gain over the current text-memory incumbent.
+
+### Execution
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py` with a grouped hard-negative preservation loss over train-window anchor/positive/negative examples.
+- Updated `test_code/test_870a_nl_prefix_latent_residual_refinement.py` to verify the preservation path has train-window hard-negative rows and records hard-negative loss diagnostics.
+- Ran:
+  - `uv run black experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py test_code/test_870a_nl_prefix_latent_residual_refinement.py`
+  - `uv run pytest test_code/test_870a_nl_prefix_latent_residual_refinement.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py`
+  - `uv run python experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_residual_refinement_testflight_870b_hardneg --hard-negative-weight 0.25`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+
+### Result
+- Unit tests passed: `2 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- TestFlight report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_residual_refinement_testflight_870b_hardneg/residual_refinement_testflight.json`
+- Status: `diagnostic_only`.
+- Held-out target cosine:
+  - text-memory incumbent: `0.8597`;
+  - support-mixture memory: `0.9014`;
+  - residual-refined hard-negative memory: `0.8932`.
+- Hard-negative gap:
+  - text-memory incumbent: `0.8835`;
+  - support-mixture memory: `0.0811`;
+  - residual-refined hard-negative memory: `0.2233`.
+- Recall@3 within the test pool:
+  - text-memory incumbent: `0.1746`;
+  - support-mixture memory: `0.1905`;
+  - residual-refined hard-negative memory: `0.2063`.
+
+### Mechanism Read
+The hard-negative term moves in the right direction: hard-negative gap improves from `0.1439` in the plain residual run to `0.2233`, and target cosine remains well above the text-memory incumbent. But it does not solve the core collapse. The support mixture still dominates the condition geometry, and the residual model cannot recover the original text channel's directional separation once the mixture has compressed anchor and hard-negative stories toward similar support.
+
+### Decision / Next Step
+Do not promote the hard-negative residual refiner. The next principled diagnostic is a minimal text-memory/support-mixture interpolation or gating analysis: keep the text-memory vector as the directional anchor and use the support mixture as a target-placement prior, then measure the Pareto trade-off between target cosine and hard-negative separation. This directly tests whether the product should combine text memory and support mixture explicitly before learning a more complex latent prior.
+
+---

@@ -33,7 +33,9 @@ from experiments.backfill.block_ar.nl_condition_bridge_evaluation import (  # no
     evaluate_condition_bridge,
     summarize_bridge_metrics,
 )
-from experiments.backfill.block_ar.nl_text_conditioning import normalize_rows  # noqa: E402
+from experiments.backfill.block_ar.nl_text_conditioning import (
+    normalize_rows,
+)  # noqa: E402
 
 
 DEFAULT_PIPELINE_REPORT = (
@@ -186,6 +188,39 @@ class ResidualRefiner(nn.Module):
         return self.net(value)
 
 
+def _group_hard_negative_loss(
+    refined: torch.Tensor,
+    *,
+    roles: list[str],
+    groups: list[str],
+    margin: float,
+) -> torch.Tensor:
+    """Keep anchor/positive refinements separated from hard-negative text."""
+
+    if refined.numel() == 0:
+        return refined.new_zeros(())
+    normed = torch.nn.functional.normalize(refined, dim=-1)
+    terms: list[torch.Tensor] = []
+    for group in sorted(set(groups)):
+        indices = [idx for idx, value in enumerate(groups) if value == group]
+        anchors = [idx for idx in indices if roles[idx] == "anchor"]
+        positives = [idx for idx in indices if roles[idx] == "positive"]
+        negatives = [idx for idx in indices if roles[idx] == "negative"]
+        if not anchors or not negatives:
+            continue
+        anchor = normed[anchors[0]]
+        pos = (
+            normed[positives] @ anchor
+            if positives
+            else torch.ones(1, device=refined.device)
+        )
+        neg = normed[negatives] @ anchor
+        terms.append(torch.relu(float(margin) - pos[:, None] + neg[None, :]).mean())
+    if not terms:
+        return refined.new_zeros(())
+    return torch.stack(terms).mean()
+
+
 def build_residual_inputs(
     *,
     query_memory: np.ndarray,
@@ -209,7 +244,12 @@ def build_residual_inputs(
     )
     return inputs, {
         "input_dim": int(inputs.shape[1]),
-        "channels": ["text_memory", "support_mixture_memory", "memory_difference", "start_z"],
+        "channels": [
+            "text_memory",
+            "support_mixture_memory",
+            "memory_difference",
+            "start_z",
+        ],
         "start_standardization": start_stats,
     }
 
@@ -227,6 +267,8 @@ def train_residual_refiner(
     lr: float,
     seed: int,
     device: str,
+    hard_negative_weight: float = 0.0,
+    hard_negative_margin: float = 0.25,
 ) -> dict[str, Any]:
     """Train a bounded residual model around the support-mixture memory."""
 
@@ -234,7 +276,13 @@ def train_residual_refiner(
     train_rows = [
         row_idx
         for row_idx, example in enumerate(examples)
-        if int(example["window_index"]) in train_set and example.get("target_index") is not None
+        if int(example["window_index"]) in train_set
+        and example.get("target_index") is not None
+    ]
+    group_rows = [
+        row_idx
+        for row_idx, example in enumerate(examples)
+        if int(example["window_index"]) in train_set
     ]
     if not train_rows:
         raise ValueError("no target-bearing train rows for residual refiner")
@@ -259,8 +307,14 @@ def train_residual_refiner(
     torch.manual_seed(int(seed))
     dev = torch.device(device)
     x = torch.from_numpy(np.asarray(inputs, dtype=np.float32)).to(dev)
+    mixture_t = torch.from_numpy(np.asarray(mixture_memory, dtype=np.float32)).to(dev)
+    residual_mean_t = torch.from_numpy(residual_mean).to(dev)
+    residual_std_t = torch.from_numpy(residual_std).to(dev)
     y = torch.from_numpy(residual_train).to(dev)
     train_t = torch.from_numpy(row_idx).long().to(dev)
+    group_t = torch.from_numpy(np.asarray(group_rows, dtype=np.int64)).long().to(dev)
+    group_roles = [str(examples[idx]["role"]) for idx in group_rows]
+    group_ids = [str(examples[idx]["window_id"]) for idx in group_rows]
     model = ResidualRefiner(
         input_dim=int(inputs.shape[1]),
         output_dim=int(memory_targets.shape[1]),
@@ -272,15 +326,32 @@ def train_residual_refiner(
         initial = model(x[train_t])
         loss_first = float(torch.mean((initial - y) ** 2).cpu())
     losses: list[float] = []
+    hard_losses: list[float] = []
     for _ in range(int(steps)):
-        choice = rng.choice(np.arange(row_idx.size), size=batch, replace=row_idx.size < batch)
+        choice = rng.choice(
+            np.arange(row_idx.size), size=batch, replace=row_idx.size < batch
+        )
         choice_t = torch.from_numpy(choice).long().to(dev)
         pred = model(x[train_t[choice_t]])
-        loss = torch.mean((pred - y[choice_t]) ** 2)
+        mse_loss = torch.mean((pred - y[choice_t]) ** 2)
+        if float(hard_negative_weight) > 0.0:
+            group_pred_std = model(x[group_t])
+            group_residual = group_pred_std * residual_std_t + residual_mean_t
+            group_refined = mixture_t[group_t] + group_residual
+            hard_loss = _group_hard_negative_loss(
+                group_refined,
+                roles=group_roles,
+                groups=group_ids,
+                margin=float(hard_negative_margin),
+            )
+        else:
+            hard_loss = mse_loss.new_zeros(())
+        loss = mse_loss + float(hard_negative_weight) * hard_loss
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
         losses.append(float(loss.detach().cpu()))
+        hard_losses.append(float(hard_loss.detach().cpu()))
     model.eval()
     with torch.no_grad():
         pred_std = model(x).cpu().numpy().astype(np.float32)
@@ -296,9 +367,15 @@ def train_residual_refiner(
         "loss_first": float(loss_first),
         "loss_last": float(losses[-1] if losses else loss_first),
         "train_row_count": int(row_idx.size),
+        "group_row_count": int(len(group_rows)),
+        "hard_negative_weight": float(hard_negative_weight),
+        "hard_negative_margin": float(hard_negative_margin),
+        "hard_negative_loss_last": float(hard_losses[-1] if hard_losses else 0.0),
         "residual_norm_cap_p95": residual_norm_cap,
         "predicted_residual_norm_mean": float(np.mean(norms)),
-        "bounded_residual_norm_mean": float(np.mean(np.linalg.norm(bounded_residual, axis=1))),
+        "bounded_residual_norm_mean": float(
+            np.mean(np.linalg.norm(bounded_residual, axis=1))
+        ),
     }
 
 
@@ -340,7 +417,11 @@ def _delta_summary(
     for metric in metrics:
         left = candidate["summary"].get(metric)
         right = baseline["summary"].get(metric)
-        out[metric] = None if left is None or right is None else _round(float(left) - float(right))
+        out[metric] = (
+            None
+            if left is None or right is None
+            else _round(float(left) - float(right))
+        )
     return out
 
 
@@ -359,9 +440,13 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
     report = _load_json(args.pipeline_report)
     examples = build_bridge_examples(report)
     with np.load(args.bridge_arrays) as bridge_payload:
-        bridge_arrays = {name: bridge_payload[name].copy() for name in bridge_payload.files}
+        bridge_arrays = {
+            name: bridge_payload[name].copy() for name in bridge_payload.files
+        }
     with np.load(args.oracle_arrays) as oracle_payload:
-        oracle_arrays = {name: oracle_payload[name].copy() for name in oracle_payload.files}
+        oracle_arrays = {
+            name: oracle_payload[name].copy() for name in oracle_payload.files
+        }
     query_memory = np.asarray(bridge_arrays["condition_vectors"], dtype=np.float32)
     memory_targets = np.asarray(bridge_arrays["memory_targets"], dtype=np.float32)
     train_indices = np.asarray(bridge_arrays["train_indices"], dtype=np.int64)
@@ -403,6 +488,8 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
         lr=float(args.lr),
         seed=int(args.seed),
         device=device,
+        hard_negative_weight=float(args.hard_negative_weight),
+        hard_negative_margin=float(args.hard_negative_margin),
     )
     baselines = {
         "text_memory_incumbent": _evaluate(
@@ -464,6 +551,8 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             "batch_size": int(args.batch_size),
             "lr": float(args.lr),
             "seed": int(args.seed),
+            "hard_negative_weight": float(args.hard_negative_weight),
+            "hard_negative_margin": float(args.hard_negative_margin),
             "min_target_cosine_gain": float(args.min_target_cosine_gain),
             "min_mixture_cosine_gain": float(args.min_mixture_cosine_gain),
             "max_gap_loss": float(args.max_gap_loss),
@@ -475,9 +564,7 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             for key, value in residual.items()
             if key != "condition_vectors"
         },
-        "metrics": {
-            name: payload["summary"] for name, payload in baselines.items()
-        },
+        "metrics": {name: payload["summary"] for name, payload in baselines.items()},
         "deltas": {
             "residual_minus_text_memory": _delta_summary(refined, text),
             "residual_minus_support_mixture": _delta_summary(refined, mixture),
@@ -522,13 +609,17 @@ def main() -> None:
     parser.add_argument("--eval-top-k", type=int, default=5)
     parser.add_argument("--temperature", type=float, default=0.25)
     parser.add_argument("--start-distance-penalty", type=float, default=0.02)
-    parser.add_argument("--exclude-self", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--exclude-self", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--steps", type=int, default=600)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=870)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--hard-negative-weight", type=float, default=0.0)
+    parser.add_argument("--hard-negative-margin", type=float, default=0.25)
     parser.add_argument("--min-target-cosine-gain", type=float, default=0.005)
     parser.add_argument("--min-mixture-cosine-gain", type=float, default=0.005)
     parser.add_argument("--max-gap-loss", type=float, default=0.01)

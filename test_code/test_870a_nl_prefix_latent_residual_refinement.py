@@ -25,8 +25,8 @@ def _examples() -> list[dict[str, object]]:
         )
     rows.append(
         {
-            "window_id": "w3",
-            "window_index": 3,
+            "window_id": "w2",
+            "window_index": 2,
             "embedding_index": 4,
             "target_index": None,
             "role": "negative",
@@ -109,8 +109,11 @@ def test_residual_refiner_learns_toy_support_residual() -> None:
         lr=1e-2,
         seed=1,
         device="cpu",
+        hard_negative_weight=0.1,
     )
     after = float(np.mean((result["condition_vectors"][:3] - memory[:3]) ** 2))
 
     assert result["train_row_count"] == 3
+    assert result["group_row_count"] == 4
+    assert result["hard_negative_loss_last"] >= 0.0
     assert after < before
