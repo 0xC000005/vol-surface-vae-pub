@@ -1788,6 +1788,13 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             if user_start is not None
             else None
         ),
+        "selected_start_state": {
+            "variant_index": int(operational_prior_pos),
+            "values_by_name": {
+                str(name): float(requested_raw[operational_prior_pos, idx])
+                for idx, name in enumerate(spec_names)
+            },
+        },
         "selected_window_count": int(selected_windows.size),
         "train_window_count": int(train_indices.size),
         "test_window_count": int(test_indices.size),

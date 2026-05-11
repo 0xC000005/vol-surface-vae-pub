@@ -160,7 +160,7 @@ def test_evaluate_start_case_gates_fails_on_endpoint_error() -> None:
     assert "endpoint_not_pinned" in report["hard_fail_reasons"]
 
 
-def test_evaluate_start_case_gates_rejects_direction_mismatch() -> None:
+def test_evaluate_start_case_gates_warns_on_direction_mismatch() -> None:
     rows = [
         {
             "query_window_index": 1,
@@ -182,7 +182,10 @@ def test_evaluate_start_case_gates_rejects_direction_mismatch() -> None:
         thresholds=DEFAULT_GATE_THRESHOLDS,
     )
 
-    assert report["overall_status"] == "fail"
-    assert report["operational_status"] == "fail"
-    assert report["fail_counts"]["memory_prior_direction_reject"] == 1
+    assert report["overall_status"] == "warning"
+    assert report["operational_status"] == "warning"
+    assert report["warning_counts"]["memory_prior_direction_reject"] == 1
+    assert "memory_prior_direction_reject" not in report["fail_counts"]
     assert report["cases"][0]["memory_prior_direction_status"] == "reject"
+    assert report["cases"][0]["warnings"] == ["memory_prior_direction_reject"]
+    assert report["cases"][0]["failures"] == []

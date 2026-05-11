@@ -126,7 +126,7 @@ def evaluate_start_case_gates(
         elif memory_cosine < float(th["memory_cosine_warn"]):
             warnings.append("low_memory_compatibility")
         if direction_status == "reject":
-            failures.append("memory_prior_direction_reject")
+            warnings.append("memory_prior_direction_reject")
         elif direction_status == "warning":
             warnings.append("memory_prior_direction_warning")
         if start_distance > float(th["start_distance_fail"]):
@@ -144,6 +144,7 @@ def evaluate_start_case_gates(
             + max(0.0, start_distance / max(float(th["start_distance_warn"]), 1e-8) - 1.0)
             + max(0.0, max(mean_shift, terminal_shift) / max(float(th["rollout_shift_warn"]), 1e-8) - 1.0)
             + 2.0 * len(failures)
+            + (1.0 if direction_status == "reject" else 0.0)
             + (0.5 if direction_status == "warning" else 0.0)
         )
         cases.append(

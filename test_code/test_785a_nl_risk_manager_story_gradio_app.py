@@ -1,3 +1,4 @@
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     analogue_scope_choices,
     boss_demo_live_casebook_table,
     boss_demo_pack_markdown,
+    boss_demo_status_strip,
     build_start_state_payload,
     build_prefix_latent_run_args,
     build_run_args,
@@ -27,6 +29,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_condition_implications_table,
     prefix_condition_warnings_table,
     prefix_latent_status_markdown,
+    prefix_latent_product_status_markdown,
     prefix_trust_interpretation,
     preview_start_state_json,
     prefix_selected_start_table,
@@ -38,6 +41,9 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_warning_component_table,
     refresh_fan_chart,
     resolve_launch_auth,
+    build_demo,
+    run_live_openai_prefix_for_app,
+    preview_live_openai_start_for_app,
     run_prefix_latent_for_app,
     run_story_for_app,
     scenario_table,
@@ -276,6 +282,11 @@ def _prefix_report() -> dict:
                 "is_operational": True,
             },
         ],
+        "selected_start_state": {
+            "values_by_name": {
+                "factor:spx": 4200.0,
+            }
+        },
         "validation_gate": {
             "overall_status": "pass",
             "operational_status": "pass",
@@ -443,9 +454,45 @@ def test_resolve_launch_auth_requires_both_values_when_enabled() -> None:
 
 def test_demo_css_keeps_tables_mobile_safe() -> None:
     assert "overflow-wrap: anywhere" in APP_CSS
+    assert "@media (max-width: 900px)" in APP_CSS
+    assert ".demo-responsive-row" in APP_CSS
+    assert ".demo-shell" in APP_CSS
+    assert "margin-left: auto" in APP_CSS
+    assert "margin-right: auto" in APP_CSS
     assert "@media (max-width: 640px)" in APP_CSS
     assert f".{DEMO_TABLE_CLASS}" in APP_CSS
     assert "overflow-x: auto" in APP_CSS
+
+
+def test_demo_places_product_workflow_before_diagnostics() -> None:
+    source = inspect.getsource(build_demo)
+
+    assert "Validation evidence and casebook details" not in source
+    assert "boss_demo_status_strip" not in source
+    assert "Advanced story processing" not in source
+    assert "Approve starting level for scenario generation" not in source
+    assert "prefix_casebook_choice" not in source
+    assert "prefix_cached_condition_report" not in source
+    assert "prefix_live_story" not in source
+    assert "prefix_condition_only_story" not in source
+    assert "prefix_approve_start" not in source
+    assert "prefix_start_source" not in source
+    assert "prefix_start_mode" not in source
+    assert "Recommended start method" not in source
+    assert "Use recommended start" not in source
+    assert "Research Diagnostics" not in source
+    assert "Story-Smoke Diagnostics" not in source
+    assert "Start/support view" not in source
+    assert "All retrieved analogues" not in source
+    assert "Scenario samples" not in source
+    assert "Validate Starting Level" not in source
+    assert "prefix_preview_button" not in source
+    assert "preview_live_openai_start_for_app" not in source
+    assert "validate it, then generate" not in source
+    assert "approve a starting level" not in source
+    assert "How to read this screen" in source
+    assert "A historical start is the day-0 market level" in source
+    assert "## Main Workflow" in source
 
 
 def test_table_formatters_expose_demo_evidence() -> None:
@@ -455,13 +502,19 @@ def test_table_formatters_expose_demo_evidence() -> None:
     assert warnings_table(report).iloc[0]["Code"] == "interpretive_phrase"
     assert analogues_table(report).iloc[0]["Implication Match"] == "0.670"
     assert scenario_table(report).iloc[0]["Market"] == "SPX"
+    assert "Starting Level" in scenario_table(_prefix_report()).columns
+    assert scenario_table(_prefix_report()).iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert scenario_table(_prefix_report()).iloc[0]["Start Value"] == "4200.000"
     assert "Narrative" in analogues_table(report).columns
 
 
 def test_boss_demo_pack_formatters_surface_live_readiness() -> None:
+    strip = boss_demo_status_strip(_boss_pack())
     markdown = boss_demo_pack_markdown(_boss_pack())
     table = boss_demo_live_casebook_table(_boss_pack())
 
+    assert "Validation evidence:" in strip
+    assert "details below" in strip
     assert "Demo readiness evidence" in markdown
     assert "Live API casebook: `3/3` pass" in markdown
     assert "OpenAI tokens `5609`" in markdown
@@ -523,6 +576,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     report = _prefix_report()
 
     markdown = prefix_latent_status_markdown(report)
+    product_markdown = prefix_latent_product_status_markdown(report)
     variants = prefix_variant_table(report)
     selected = prefix_selected_start_table(report)
     diagnostic = prefix_diagnostic_start_table(report)
@@ -538,7 +592,13 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
     assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
-    assert selected.iloc[0]["Start Window"] == "joint39_val_0269"
+    assert selected.iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert selected.iloc[0]["Compatibility"] == "0.887"
+    assert "Product decision:" not in product_markdown
+    assert "Warning:" not in product_markdown
+    assert "Starting level:" not in product_markdown
+    assert "Story support:" in product_markdown
+    assert "Result note:" in product_markdown
     assert diagnostic.iloc[0]["Start Window"] == "joint39_val_0370"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
     assert "warn_and_continue_for_narrative_only" in markdown
@@ -744,10 +804,12 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
         condition_report="tmp/condition_only_report.json",
         explicit_start_window_index=22,
         start_state_json="tmp/today_start.json",
+        skip_rollout=True,
     )
     assert condition_args.condition_report == "tmp/condition_only_report.json"
     assert condition_args.explicit_start_window_index == 22
     assert condition_args.start_state_json == "tmp/today_start.json"
+    assert condition_args.skip_rollout is True
 
 
 def test_build_run_args_sets_generator_controls() -> None:
@@ -877,11 +939,11 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "Prefix-latent run started" in first[1]
-    assert "Calibrated rollout temperature: `0.50`" in first[1]
+    assert "Run started" in first[1]
+    assert "30-day scenario generation" in first[1]
     assert calls == [("nearest_train_start", 8)]
     assert "Completed in" in final[1]
-    assert final[2].iloc[0]["Variant"] == "nearest_train_start"
+    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
     assert final[3].iloc[0]["Variant"] == "original"
     assert final[4].iloc[0]["Status"] == "pass"
     assert final[6].layout.title.text == "SPX 30-day scenario fan"
@@ -889,6 +951,169 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert final[16]["choices"] == [
         ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
     ]
+
+
+def test_run_prefix_latent_for_app_does_not_require_start_approval_gate() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(args)
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        approve_start=False,
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "Starting level approval required" not in first[1]
+    assert calls
+    assert "Completed in" in final[1]
+
+
+def test_run_prefix_latent_for_app_can_preview_start_without_rollout() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append((args.skip_rollout, args.samples))
+        return _prefix_report()
+
+    stream = run_prefix_latent_for_app(
+        start_mode="balanced_memory_start",
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        skip_rollout=True,
+        approve_start=False,
+        runner=fake_runner,
+    )
+
+    first = next(stream)
+    final = list(stream)[-1]
+
+    assert "scenario rollout skipped" in first[1]
+    assert calls == [(True, 8)]
+    assert "Completed in" in final[1]
+    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
+
+
+def test_live_openai_wrappers_force_production_story_path() -> None:
+    calls = []
+
+    def fake_grounder(story: str, **kwargs):
+        return (
+            ConditionOnlyGroundingResult.model_validate(
+                {
+                    "prompt_version": "condition_only_grounding_v1",
+                    "narrative_frame": "risk-on recovery",
+                    "current_market_state_summary": "Equities are recovering.",
+                    "recent_regime_summary": (
+                        "No separate recent-regime description stated beyond current conditions."
+                    ),
+                    "cleaned_conditioning_text": "Equities are recovering.",
+                    "current_market_state_implications": [
+                        {
+                            "market": "SPX",
+                            "direction": "up",
+                            "magnitude": "small",
+                            "confidence": "high",
+                            "horizon": "current_state",
+                            "target_use": "support_prior",
+                            "evidence": ["Equities are recovering"],
+                            "inferred": False,
+                            "rationale": "The story states equities are recovering.",
+                        }
+                    ],
+                    "recent_regime_implications": [],
+                    "non_conditioning_forward_language": [],
+                    "unsupported_claims": [],
+                    "grounding_warnings": [],
+                    "critique": [],
+                }
+            ),
+            {"model": "fixture"},
+        )
+
+    def fake_condition_report_runner(args: SimpleNamespace) -> dict:
+        return {
+            "artifact_paths": {
+                "report": "tmp/live_condition_report.json",
+                "arrays": "tmp/live_condition_report_arrays.npz",
+            },
+            "cached_query": {"condition_source": "condition_only_openai_story"},
+        }
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(args)
+        return _prefix_report()
+
+    preview = preview_live_openai_start_for_app(
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        story="A current risk-on rebound.",
+        explicit_start_window_index=22,
+        runner=fake_runner,
+        condition_grounder=fake_grounder,
+        condition_report_runner=fake_condition_report_runner,
+    )
+    first = next(preview)
+    final = list(preview)[-1]
+
+    assert "user-selected historical start" in first[1]
+    assert "user-selected historical start validation" not in first[1]
+    assert "scenario rollout skipped" in first[1]
+    assert calls[-1].live_story is False
+    assert calls[-1].condition_report is not None
+    assert calls[-1].start_mode == "explicit_start_window"
+    assert calls[-1].explicit_start_window_index == 22
+    assert calls[-1].skip_rollout is True
+    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
+
+    generated = run_live_openai_prefix_for_app(
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        story="A current risk-on rebound.",
+        explicit_start_window_index=77,
+        runner=fake_runner,
+        condition_grounder=fake_grounder,
+        condition_report_runner=fake_condition_report_runner,
+    )
+    next(generated)
+    list(generated)
+
+    assert calls[-1].live_story is False
+    assert calls[-1].condition_report is not None
+    assert calls[-1].explicit_start_window_index == 77
+    assert calls[-1].skip_rollout is False
+
+
+def test_live_openai_wrappers_require_manual_start_index() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(args)
+        return _prefix_report()
+
+    stream = run_live_openai_prefix_for_app(
+        samples=8,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        story="A current risk-on rebound.",
+        explicit_start_window_index=None,
+        runner=fake_runner,
+    )
+    first = next(stream)
+
+    assert calls == []
+    assert "Historical start required" in first[1]
 
 
 def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
@@ -915,7 +1140,8 @@ def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
 
     assert "OpenAI grounding and embedding" in first[1]
     assert calls == [(True, "A live risk-manager story.")]
-    assert "live_openai_story" in final[1]
+    assert "Scenario generation complete" in final[1]
+    assert "Review the fan chart" in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
@@ -938,7 +1164,8 @@ def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "explicit_start_window" in first[1]
+    assert "user-selected historical start" in first[1]
+    assert "user-selected historical start validation" not in first[1]
     assert calls == [("explicit_start_window", 22)]
     assert "Completed in" in final[1]
 
@@ -963,7 +1190,8 @@ def test_run_prefix_latent_for_app_can_use_user_start_json() -> None:
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "user_start_state" in first[1]
+    assert "user-supplied start state" in first[1]
+    assert "user-supplied start-state validation" not in first[1]
     assert calls == [("user_start_state", "tmp/today_start.json")]
     assert final[15].iloc[0]["Label"] == "today"
 
@@ -1001,7 +1229,7 @@ def test_run_prefix_latent_for_app_can_use_cached_condition_report(tmp_path) -> 
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "cached condition-only report" in first[1]
+    assert "cached grounding-sidecar report" in first[1]
     assert calls == [(str(report_path), False, "explicit_start_window", 77)], final[7]
     assert "Completed in" in final[1]
 
@@ -1081,6 +1309,6 @@ def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> 
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "condition-only OpenAI grounding" in first[1]
+    assert "OpenAI grounding sidecar" in first[1]
     assert calls == [(str(tmp_path / "condition_only_report.json"), False)], final[7]
     assert final[10].iloc[0]["Market"] == "SPX"

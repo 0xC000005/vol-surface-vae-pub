@@ -103,7 +103,9 @@ DEMO_TABLE_CLASS = "demo-scroll-table"
 APP_CSS = """
 .gradio-container {
   width: 100% !important;
-  max-width: 1220px !important;
+  max-width: 1180px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
   overflow-x: hidden;
 }
 .gradio-container,
@@ -142,6 +144,39 @@ APP_CSS = """
 .demo-scroll-table table {
   width: max-content;
   max-width: none;
+}
+.demo-shell {
+  width: 100%;
+  max-width: 1120px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.demo-hero {
+  margin-bottom: 0.35rem;
+  text-align: center;
+}
+.demo-status-strip {
+  padding: 0.55rem 0.75rem;
+  border-left: 4px solid #2563eb;
+  background: #eff6ff;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.demo-status-strip p {
+  margin: 0;
+}
+.demo-responsive-row {
+  gap: 0.75rem;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .demo-responsive-row {
+    flex-direction: column !important;
+  }
+  .demo-responsive-row > div {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
 }
 @media (max-width: 640px) {
   html,
@@ -311,7 +346,14 @@ ANALOGUE_COLUMNS = [
     "Split",
     "Narrative",
 ]
-SCENARIO_COLUMNS = ["Market", "Mean Terminal Delta", "P10", "P90"]
+SCENARIO_COLUMNS = [
+    "Starting Level",
+    "Start Value",
+    "Market",
+    "Mean Terminal Delta",
+    "P10",
+    "P90",
+]
 VALIDATION_GATE_COLUMNS = [
     "Variant",
     "Role",
@@ -332,6 +374,13 @@ PREFIX_VARIANT_COLUMNS = [
     "Memory Support",
     "Selection",
     "Start Split",
+]
+PREFIX_SELECTED_START_COLUMNS = [
+    "Starting Level",
+    "Index",
+    "Compatibility",
+    "Distance",
+    "Source Split",
 ]
 PREFIX_START_CANDIDATE_COLUMNS = [
     "Rank",
@@ -379,6 +428,20 @@ START_PREVIEW_FIELDS = [
     ("IV ATM 3M", "iv:07"),
     ("IV ATM 1Y", "iv:17"),
 ]
+SCENARIO_MARKET_TO_START_SPEC = {
+    "SPX": "factor:spx",
+    "VIX": "factor:vix",
+    "BBB_OAS": "factor:bbb_oas",
+    "AAA_OAS": "factor:aaa_oas",
+    "US2Y": "factor:us2y",
+    "US10Y": "factor:us10y",
+    "USDJPY": "factor:usdjpy",
+    "DXY": "factor:dxy",
+    "GOLD": "factor:gold",
+    "CRUDE_OIL": "factor:crude_oil",
+    "IV_ATM_3M": "iv:07",
+    "IV_ATM_1Y": "iv:17",
+}
 FAN_MARKET_CHOICES = [
     ("SPX", "SPX"),
     ("VIX", "VIX"),
@@ -486,7 +549,7 @@ def cached_prefix_casebook_update(choice: str | None) -> tuple[
     str,
     str,
 ]:
-    """Populate story/start/report controls from a cached casebook selection."""
+    """Populate story/start/report controls from a saved demo setup."""
 
     value = str(choice or "")
     if not value:
@@ -497,7 +560,7 @@ def cached_prefix_casebook_update(choice: str | None) -> tuple[
             True,
             False,
             "",
-            "## Cached Casebook\n\n- Selection: `typed story / current controls`",
+            "## Saved Demo Setup\n\n- Selection: `typed story / current controls`",
         )
     for row in cached_prefix_casebook_rows():
         if str(row["value"]) != value:
@@ -513,7 +576,7 @@ def cached_prefix_casebook_update(choice: str | None) -> tuple[
             report_path,
             "\n".join(
                 [
-                    "## Cached Casebook",
+                    "## Saved Demo Setup",
                     "",
                     f"- Selection: `{row['label']}`",
                     f"- Narrative family: `{row['case_name']}`",
@@ -530,7 +593,7 @@ def cached_prefix_casebook_update(choice: str | None) -> tuple[
         True,
         False,
         "",
-        f"## Cached Casebook\n\n- Selection: `unknown ({value})`",
+        f"## Saved Demo Setup\n\n- Selection: `unknown ({value})`",
     )
 
 
@@ -720,15 +783,30 @@ def analogues_table(report: dict[str, Any]) -> pd.DataFrame:
     return _frame(rows, ANALOGUE_COLUMNS)
 
 
+def _selected_start_values_by_spec(report: dict[str, Any]) -> dict[str, Any]:
+    selected = _as_dict(report.get("selected_start_state"))
+    values = _as_dict(selected.get("values_by_name"))
+    if values:
+        return values
+    return _as_dict(report.get("selected_start_values_by_name"))
+
+
 def scenario_table(report: dict[str, Any]) -> pd.DataFrame:
     generation = _as_dict(report.get("generation"))
+    selected_start = _operational_variant_row(report)
+    start_label = str(selected_start.get("start_window_id") or "n/a")
+    start_values = _selected_start_values_by_spec(report)
     rows: list[dict[str, Any]] = []
     for item in _as_list(generation.get("terminal_delta_summary")):
         if not isinstance(item, dict):
             continue
+        market = str(item.get("market", ""))
+        start_spec = SCENARIO_MARKET_TO_START_SPEC.get(market.upper(), "")
         rows.append(
             {
-                "Market": str(item.get("market", "")),
+                "Starting Level": start_label,
+                "Start Value": _fmt_float(start_values.get(start_spec)),
+                "Market": market,
                 "Mean Terminal Delta": _fmt_float(item.get("mean_terminal_delta")),
                 "P10": _fmt_float(item.get("p10")),
                 "P90": _fmt_float(item.get("p90")),
@@ -753,6 +831,25 @@ def load_boss_demo_pack(
     if not report_path.exists():
         return {}
     return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def boss_demo_status_strip(report: dict[str, Any]) -> str:
+    if not report:
+        return (
+            "**Validation evidence:** not available. Optional casebook details "
+            "below are empty until the boss demo pack is generated."
+        )
+    snapshot = _as_dict(report.get("validation_snapshot"))
+    live_snapshot = _as_dict(report.get("live_casebook_snapshot"))
+    run_count = snapshot.get("run_count", 0)
+    case_count = live_snapshot.get("case_count", 0)
+    return (
+        "**Validation evidence:** "
+        f"offline CRPS `{snapshot.get('improved_crps_rows', 0)}/{run_count}`, "
+        f"energy `{snapshot.get('improved_energy_rows', 0)}/{run_count}`, "
+        f"live API casebook `{live_snapshot.get('pass_count', 0)}/{case_count}` pass. "
+        "These are demo-readiness checks; full details below are optional."
+    )
 
 
 def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
@@ -875,7 +972,19 @@ def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
 
 
 def prefix_selected_start_table(report: dict[str, Any]) -> pd.DataFrame:
-    return _prefix_variant_table_for_role(report, role="operational")
+    row = _operational_variant_row(report)
+    rows: list[dict[str, Any]] = []
+    if row:
+        rows.append(
+            {
+                "Starting Level": str(row.get("start_window_id", "")),
+                "Index": str(row.get("start_window_index", "")),
+                "Compatibility": _fmt_float(row.get("memory_support_cosine")),
+                "Distance": _fmt_float(row.get("start_distance_z")),
+                "Source Split": str(row.get("start_manifest_split", "")),
+            }
+        )
+    return _frame(rows, PREFIX_SELECTED_START_COLUMNS)
 
 
 def prefix_diagnostic_start_table(report: dict[str, Any]) -> pd.DataFrame:
@@ -1568,9 +1677,9 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
                 break
         lines.extend(
             [
-                f"- Product decision: `{decision.get('decision', 'n/a')}`",
-                f"- Product warning: {decision.get('ui_guidance', decision.get('reason', ''))}",
-                f"- Main warning contributors: `{', '.join(contributors) or 'n/a'}`",
+                f"- Decision code: `{decision.get('decision', 'n/a')}`",
+                f"- Decision note: {decision.get('ui_guidance', decision.get('reason', ''))}",
+                f"- Main note contributors: `{', '.join(contributors) or 'n/a'}`",
             ]
         )
     lines.extend(
@@ -1581,6 +1690,34 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def prefix_latent_product_status_markdown(report: dict[str, Any]) -> str:
+    generation = _as_dict(report.get("generation"))
+    product_gate = _as_dict(report.get("condition_only_product_gate"))
+    decision = _as_dict(product_gate.get("production_decision"))
+    generated_shape = generation.get("generated_state_shape")
+    if generated_shape:
+        status = "Scenario generation complete."
+        next_step = "Review the fan chart and scenario summary."
+    else:
+        status = "Scenario preparation complete."
+        next_step = "Generate 30-day scenarios from the selected historical start."
+    result_note = (
+        decision.get("ui_guidance")
+        or decision.get("reason")
+        or "No blocking issue was found for this narrative and selected start."
+    )
+    return "\n".join(
+        [
+            "## Scenario Workflow Status",
+            "",
+            f"- Status: {status}",
+            f"- Story support: `{prefix_trust_interpretation(report)}`",
+            f"- Result note: {result_note}",
+            f"- Next step: {next_step}",
+        ]
+    )
 
 
 def report_json_text(report: dict[str, Any]) -> str:
@@ -1625,31 +1762,45 @@ def _prefix_progress_status_markdown(
     live_story: bool = False,
     condition_only_story: bool = False,
     cached_condition_report: bool = False,
+    skip_rollout: bool = False,
 ) -> str:
+    start_label = (
+        "user-selected historical start"
+        if str(start_mode) == "explicit_start_window"
+        else "user-supplied start state"
+        if str(start_mode) == "user_start_state"
+        else "start selection"
+    )
     if bool(cached_condition_report):
         condition_step = (
-            "cached condition-only report, fixed start, prefix decoding, frozen rollout"
+            f"cached grounding-sidecar report, {start_label}, support mixture, "
+            "prefix preparation"
         )
     elif bool(condition_only_story):
         condition_step = (
-            "condition-only OpenAI grounding, text embedding, balanced start "
-            "selection, prefix decoding, frozen rollout, warning decomposition"
+            "OpenAI grounding sidecar, text embedding, "
+            f"{start_label}, support mixture, prefix preparation, warning check"
         )
     elif bool(live_story):
-        condition_step = "OpenAI grounding and embedding, start selection, prefix decoding, frozen rollout"
-    else:
         condition_step = (
-            "cached text memory, start selection, prefix decoding, frozen rollout"
+            f"OpenAI grounding and embedding, {start_label}, support mixture, "
+            "prefix preparation"
         )
+    else:
+        condition_step = f"cached text memory, {start_label}, support mixture, prefix preparation"
+    if bool(skip_rollout):
+        condition_step = f"{condition_step}; scenario rollout skipped"
+        generator_note = "not run during validation"
+    else:
+        condition_step = f"{condition_step}, 30-day scenario generation"
+        generator_note = f"{int(samples)}"
     return "\n".join(
         [
-            "## Prefix-Latent Run Status",
+            "## Scenario Workflow Status",
             "",
-            f"- Prefix-latent run started: `{_elapsed_text(start_time)} ago`",
+            f"- Run started: `{_elapsed_text(start_time)} ago`",
             f"- Current step: `{condition_step}`",
-            f"- Start mode: `{start_mode}`",
-            f"- Generator samples per variant: `{int(samples)}`",
-            f"- Calibrated rollout temperature: `{float(temperature):.2f}`",
+            f"- Scenario samples: `{generator_note}`",
             "- Outputs will fill in automatically when the run completes.",
         ]
     )
@@ -1661,7 +1812,7 @@ def _completed_status_markdown(report: dict[str, Any], start_time: float) -> str
 
 def _completed_prefix_status_markdown(report: dict[str, Any], start_time: float) -> str:
     return (
-        prefix_latent_status_markdown(report)
+        prefix_latent_product_status_markdown(report)
         + f"\n- Completed in: `{_elapsed_text(start_time)}`"
     )
 
@@ -1735,7 +1886,7 @@ def _blank_prefix_outputs(
     return (
         "Prefix-latent run in progress. Results will appear here when complete.",
         status,
-        _frame([], PREFIX_VARIANT_COLUMNS),
+        _frame([], PREFIX_SELECTED_START_COLUMNS),
         _frame([], PREFIX_VARIANT_COLUMNS),
         _frame([], VALIDATION_GATE_COLUMNS),
         _frame([], SCENARIO_COLUMNS),
@@ -1896,6 +2047,7 @@ def build_prefix_latent_run_args(
     condition_report: str | None = None,
     explicit_start_window_index: int | None = None,
     start_state_json: str | None = None,
+    skip_rollout: bool = False,
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
@@ -1939,7 +2091,7 @@ def build_prefix_latent_run_args(
         lr=1e-3,
         seed=791,
         device="cuda",
-        skip_rollout=False,
+        skip_rollout=bool(skip_rollout),
         samples=int(samples),
         n_steps=30,
         chunk_size=max(4, min(16, int(samples))),
@@ -2045,6 +2197,8 @@ def run_prefix_latent_for_app(
     explicit_start_window_index: float | int | None = None,
     use_user_start_state: bool = False,
     start_state_json: str | None = DEFAULT_USER_START_STATE_JSON,
+    approve_start: bool = True,
+    skip_rollout: bool = False,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
     condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
@@ -2076,6 +2230,7 @@ def run_prefix_latent_for_app(
         live_story=bool(live_story),
         condition_only_story=bool(condition_only_story),
         cached_condition_report=bool(cached_report_path),
+        skip_rollout=bool(skip_rollout),
     )
     yield _blank_prefix_outputs(status=running_status, fan_market=fan_market)
 
@@ -2117,6 +2272,7 @@ def run_prefix_latent_for_app(
             condition_report=condition_report_path,
             explicit_start_window_index=explicit_start,
             start_state_json=user_start_path if bool(use_user_start_state) else None,
+            skip_rollout=bool(skip_rollout),
             output_dir=output_dir,
         )
         report = runner(args)
@@ -2153,7 +2309,7 @@ def run_prefix_latent_for_app(
         yield (
             "The prefix-latent run failed before a report could be produced.",
             _error_status_markdown(error, start_time),
-            _frame([], PREFIX_VARIANT_COLUMNS),
+            _frame([], PREFIX_SELECTED_START_COLUMNS),
             _frame([], PREFIX_VARIANT_COLUMNS),
             _frame([], VALIDATION_GATE_COLUMNS),
             _frame([], SCENARIO_COLUMNS),
@@ -2198,6 +2354,169 @@ def run_prefix_latent_for_app(
     )
 
 
+def preview_prefix_start_for_app(
+    start_mode: str,
+    samples: int,
+    fan_market: str,
+    analogue_scope: str,
+    live_story: bool = False,
+    story: str = DEFAULT_STORY,
+    cached_condition_report: str | None = None,
+    condition_only_story: bool = False,
+    use_explicit_start: bool = False,
+    explicit_start_window_index: float | int | None = None,
+    use_user_start_state: bool = False,
+    start_state_json: str | None = DEFAULT_USER_START_STATE_JSON,
+) -> Any:
+    """Preview start/support diagnostics without running the final rollout."""
+
+    yield from run_prefix_latent_for_app(
+        start_mode=start_mode,
+        samples=samples,
+        fan_market=fan_market,
+        analogue_scope=analogue_scope,
+        live_story=live_story,
+        story=story,
+        cached_condition_report=cached_condition_report,
+        condition_only_story=condition_only_story,
+        use_explicit_start=use_explicit_start,
+        explicit_start_window_index=explicit_start_window_index,
+        use_user_start_state=use_user_start_state,
+        start_state_json=start_state_json,
+        approve_start=False,
+        skip_rollout=True,
+    )
+
+
+def _manual_start_index(value: float | int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _manual_start_required_outputs(
+    *, fan_market: str
+) -> tuple[
+    str,
+    str,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    go.Figure,
+    str,
+    dict[str, Any],
+    Any,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    Any,
+]:
+    status = "\n".join(
+        [
+            "## Scenario Workflow Status",
+            "",
+            "- Historical start required.",
+            "- Enter a bridge-local historical start window index before preview or generation.",
+        ]
+    )
+    outputs = list(_blank_prefix_outputs(status=status, fan_market=fan_market))
+    outputs[0] = (
+        "## Historical Start Required\n\n"
+        "This production workflow does not infer a starting level. Enter the "
+        "historical start window index supplied by the risk manager."
+    )
+    return tuple(outputs)
+
+
+def preview_live_openai_start_for_app(
+    samples: int,
+    fan_market: str,
+    analogue_scope: str,
+    story: str = DEFAULT_STORY,
+    explicit_start_window_index: float | int | None = None,
+    *,
+    runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
+    condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
+    condition_report_runner: Callable[
+        [SimpleNamespace],
+        dict[str, Any],
+    ] = run_condition_only_report,
+) -> Any:
+    """Preview a production-style live OpenAI narrative condition and start."""
+
+    explicit_start = _manual_start_index(explicit_start_window_index)
+    if explicit_start is None:
+        yield _manual_start_required_outputs(fan_market=fan_market)
+        return
+    yield from run_prefix_latent_for_app(
+        start_mode="explicit_start_window",
+        samples=samples,
+        fan_market=fan_market,
+        analogue_scope=analogue_scope,
+        live_story=True,
+        story=story,
+        cached_condition_report="",
+        condition_only_story=True,
+        use_explicit_start=True,
+        explicit_start_window_index=explicit_start,
+        use_user_start_state=False,
+        start_state_json=None,
+        approve_start=False,
+        skip_rollout=True,
+        runner=runner,
+        condition_grounder=condition_grounder,
+        condition_report_runner=condition_report_runner,
+    )
+
+
+def run_live_openai_prefix_for_app(
+    samples: int,
+    fan_market: str,
+    analogue_scope: str,
+    story: str = DEFAULT_STORY,
+    explicit_start_window_index: float | int | None = None,
+    *,
+    runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
+    condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
+    condition_report_runner: Callable[
+        [SimpleNamespace],
+        dict[str, Any],
+    ] = run_condition_only_report,
+) -> Any:
+    """Run production-style live OpenAI narrative conditioning and rollout."""
+
+    explicit_start = _manual_start_index(explicit_start_window_index)
+    if explicit_start is None:
+        yield _manual_start_required_outputs(fan_market=fan_market)
+        return
+    yield from run_prefix_latent_for_app(
+        start_mode="explicit_start_window",
+        samples=samples,
+        fan_market=fan_market,
+        analogue_scope=analogue_scope,
+        live_story=True,
+        story=story,
+        cached_condition_report="",
+        condition_only_story=True,
+        use_explicit_start=True,
+        explicit_start_window_index=explicit_start,
+        use_user_start_state=False,
+        start_state_json=None,
+        approve_start=True,
+        skip_rollout=False,
+        runner=runner,
+        condition_grounder=condition_grounder,
+        condition_report_runner=condition_report_runner,
+    )
+
+
 RunStoryForAppOutput = tuple[
     str,
     pd.DataFrame,
@@ -2215,381 +2534,167 @@ RunStoryForAppOutput = tuple[
 def build_demo() -> Any:
     import gradio as gr
 
-    validation_report = load_validation_gate_report()
-    boss_demo_pack = load_boss_demo_pack()
     with gr.Blocks(title="Narrative Conditioned Scenario Demo") as demo:
-        report_state = gr.State({})
         prefix_report_state = gr.State({})
+        prefix_samples = gr.State(16)
         gr.Markdown(
-            "# Narrative Conditioned Scenario Demo\n"
-            "Use this page top to bottom:\n\n"
-            "- Enter or edit the story.\n"
-            "- Check implications and warnings.\n"
-            "- Inspect historical support.\n"
-            "- Review the 30-day scenario fan.\n\n"
-            "After a run:\n\n"
-            "- Change the factor selector to redraw the chart.\n"
-            "- Change the analogue selector to compare support."
+            "# Narrative-Conditioned Scenario Generator\n"
+            "Describe the current market story, select a historical starting level, "
+            "and generate a 30-day scenario distribution.",
+            elem_classes=["demo-hero", "demo-shell"],
         )
-        gr.Markdown(boss_demo_pack_markdown(boss_demo_pack))
-        gr.Dataframe(
-            value=boss_demo_live_casebook_table(boss_demo_pack),
-            headers=BOSS_DEMO_CASEBOOK_COLUMNS,
-            label="Live API casebook readiness",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        gr.Markdown("## 1. Risk-manager story")
         story = gr.Textbox(
             label="Risk-manager narrative",
             value=DEFAULT_STORY,
             lines=6,
             max_lines=10,
-            placeholder="Describe the market regime and forward risk in plain language.",
+            placeholder="Describe the current/recent market state in risk-manager language.",
+            elem_classes=["demo-shell"],
         )
-        with gr.Row():
-            samples = gr.Slider(
-                minimum=1,
-                maximum=96,
-                value=24,
-                step=1,
-                label="Generator samples per analogue",
-                info="Higher values make the fan chart smoother and run slower.",
-            )
-            top_k = gr.Slider(
-                minimum=1,
-                maximum=5,
-                value=3,
-                step=1,
-                label="Historical analogues",
-            )
-            skip_generator = gr.Checkbox(
-                value=False,
-                label="Skip generator",
-                info="Use for a fast grounding/analogue demo.",
-            )
-        run_button = gr.Button("Run Scenario", variant="primary")
-        status = gr.Markdown(
-            "## Run Status\n\n- Waiting for a run. Click `Run Scenario` to start.",
-            label="Status",
-        )
-        gr.Markdown("## 2. Grounded market implications")
+        gr.Markdown("## Main Workflow")
         gr.Markdown(
-            "These are the explicit market moves extracted from the story. "
-            "Warnings mark wording that is interpretive or under-specified."
+            "Enter the historical starting level selected by the risk manager, then generate scenarios."
         )
-        implications = gr.Dataframe(
-            headers=IMPLICATION_COLUMNS,
-            label="Extracted explicit market implications",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        warnings = gr.Dataframe(
-            headers=WARNING_COLUMNS,
-            label="Grounding warnings",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        gr.Markdown("## 3. Retrieved historical analogues")
-        gr.Markdown(
-            "The generator conditions on historical windows whose learned "
-            "condition embeddings are nearest to the grounded story. Inspect "
-            "this table before switching the fan chart to a single analogue."
-        )
-        analogues = gr.Dataframe(
-            headers=ANALOGUE_COLUMNS,
-            label="Nearest historical analogues",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        gr.Markdown("## 4. Scenario distribution")
-        gr.Markdown(
-            "The chart shows generated deltas from the current state over the "
-            "next 30 days. After generation, use these two selectors to redraw "
-            "the chart without rerunning the model. A single-analogue chart "
-            "also overlays representative generated paths and that analogue's "
-            "realized future path."
-        )
-        with gr.Row():
-            fan_market = gr.Dropdown(
-                choices=FAN_MARKET_CHOICES,
-                value="SPX",
-                label="Fan chart factor",
-                info="Change this after the run to switch markets or IV cells.",
+        with gr.Accordion("How to read this screen", open=False):
+            gr.Markdown(
+                "- A historical start is the day-0 market level. In production, "
+                "the risk manager supplies this level from today's market or a "
+                "chosen historical window.\n"
+                "- The narrative drives the support mixture and decoded prefix. "
+                "Grounding is used as an audit check so future-looking claims are "
+                "not treated as guaranteed outcomes.\n"
+                "- Story support means the selected support set is compatible with "
+                "the narrative and the chosen starting level.\n"
+                "- Result notes are product guidance, not forecasts. The fan chart "
+                "is the model's 30-day conditional distribution from the selected start."
             )
-            analogue_scope = gr.Dropdown(
-                choices=[("All retrieved analogues", "ALL")],
-                value="ALL",
-                label="Fan chart analogue set",
-                info="Change this after the run to compare pooled vs single analogue scenarios.",
-            )
-        fan_plot = gr.Plot(label="30-day fan chart")
-        scenario = gr.Dataframe(
-            headers=SCENARIO_COLUMNS,
-            label="Generated 30-day terminal delta summary",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        gr.Markdown("## 5. Latent-prefix validation")
-        gr.Markdown(
-            "This quality gate is computed from cached held-out tests for the "
-            "new text-memory-plus-start prefix decoder. It is system-level QC, "
-            "not a replacement for inspecting the current story run."
-        )
-        gr.Markdown(validation_gate_markdown(validation_report))
-        gr.Dataframe(
-            value=validation_gate_table(validation_report),
-            headers=VALIDATION_GATE_COLUMNS,
-            label="Top validation hard cases",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        gr.Markdown("## 6. Prefix-latent live smoke")
-        gr.Markdown(
-            "This cached smoke path uses a held-out narrative text memory plus "
-            "a selected start state, decodes a recent prefix, and runs the "
-            "frozen joint39 generator. It makes no OpenAI calls."
-        )
-        with gr.Row():
-            prefix_casebook_choice = gr.Dropdown(
-                choices=cached_prefix_casebook_choices(),
-                value="",
-                label="Cached validated casebook",
-                info=(
-                    "Choose a previously grounded narrative/start pair. This "
-                    "fills the story, fixed start, and cached condition report."
-                ),
-            )
-            prefix_cached_condition_report = gr.Textbox(
-                value="",
-                label="Cached condition report path",
-                visible=False,
-            )
-        prefix_casebook_status = gr.Markdown(
-            "## Cached Casebook\n\n- Selection: `typed story / current controls`",
-            label="Cached casebook selection",
-        )
-        with gr.Row():
-            prefix_start_mode = gr.Dropdown(
-                choices=[
-                    ("Implication-aligned start", "implication_aligned_start"),
-                    ("Balanced memory/start support", "balanced_memory_start"),
-                    ("Memory-nearest train start", "memory_nearest_start"),
-                    ("Original start", "original"),
-                    ("Nearest train start", "nearest_train_start"),
-                    ("Farthest train start", "farthest_train_start"),
-                ],
-                value="balanced_memory_start",
-                label="Start mode",
-            )
-            prefix_live_story = gr.Checkbox(
-                value=False,
-                label="Use typed story (OpenAI TestFlight)",
-                info="Unchecked uses cached held-out text memory. Checked grounds and embeds the story above.",
-            )
-            prefix_condition_only_story = gr.Checkbox(
-                value=True,
-                label="Condition-only contract",
-                info=(
-                    "Use current/recent market implications only; forward-looking "
-                    "phrases become warnings, not scenario targets."
-                ),
-            )
-            prefix_use_explicit_start = gr.Checkbox(
-                value=False,
-                label="Use historical start",
-                info=(
-                    "Override model-chosen start with a bridge-local historical "
-                    "window index. Use this as the first user-specified start mode."
-                ),
-            )
-            prefix_use_user_start_state = gr.Checkbox(
-                value=False,
-                label="Use start JSON",
-                info=(
-                    "Override historical starts with a raw joint39 start-state JSON. "
-                    "This is the stricter user-specified current-state mode."
-                ),
-            )
-            prefix_explicit_start_candidate = gr.Dropdown(
-                choices=[],
-                value=None,
-                label="Historical start candidate",
-                info=(
-                    "Populated after a run. Selecting a candidate writes its "
-                    "index into Historical start window index."
-                ),
-            )
-            prefix_explicit_start_index = gr.Number(
-                value=22,
-                precision=0,
-                label="Historical start window index",
-                info="Bridge-local window index; ignored unless Use historical start is checked.",
-            )
-            prefix_start_state_json = gr.Textbox(
-                value=DEFAULT_USER_START_STATE_JSON,
-                label="Start-state JSON path",
-                info=(
-                    "Used only when Use start JSON is checked. The file should "
-                    "contain raw joint39 values_by_name or state_vector."
-                ),
-                lines=1,
-            )
-            prefix_preview_start_json = gr.Button(
-                "Preview Start JSON",
-                variant="secondary",
-            )
-            prefix_export_start_json = gr.Button(
-                "Export Candidate Start JSON",
-                variant="secondary",
-            )
-            prefix_samples = gr.Slider(
-                minimum=2,
-                maximum=64,
-                value=16,
-                step=1,
-                label="Prefix-latent samples per variant",
-            )
-        prefix_run_button = gr.Button("Run Prefix-Latent Smoke", variant="secondary")
+        with gr.Row(equal_height=False, elem_classes=["demo-responsive-row"]):
+            with gr.Column(scale=1, min_width=280):
+                prefix_explicit_start_index = gr.Number(
+                    value=22,
+                    precision=0,
+                    label="Historical start window index",
+                    info=(
+                        "Bridge-local window index for the starting market level. "
+                        "In production this is supplied by the risk manager."
+                    ),
+                )
+            with gr.Column(scale=1, min_width=280):
+                prefix_fan_market = gr.Dropdown(
+                    choices=FAN_MARKET_CHOICES,
+                    value="SPX",
+                    label="Scenario factor",
+                )
+            with gr.Column(scale=1, min_width=280):
+                prefix_run_button = gr.Button(
+                    "Generate 30-Day Scenarios",
+                    variant="primary",
+                )
         prefix_status = gr.Markdown(
-            "## Prefix-Latent Run Status\n\n- Waiting for a cached prefix-latent run.",
+            "## Scenario Workflow Status\n\n- Waiting. Enter a narrative and historical start window, then generate scenarios.",
             label="Prefix-latent status",
         )
-        with gr.Row():
-            prefix_fan_market = gr.Dropdown(
-                choices=FAN_MARKET_CHOICES,
-                value="SPX",
-                label="Prefix-latent fan chart factor",
-            )
-            prefix_analogue_scope = gr.Dropdown(
-                choices=[("All retrieved analogues", "ALL")],
-                value="ALL",
-                label="Prefix-latent start variant",
-            )
-        prefix_fan_plot = gr.Plot(label="Prefix-latent 30-day fan chart")
+        prefix_analogue_scope = gr.Dropdown(
+            choices=[("All", "ALL")],
+            value="ALL",
+            visible=False,
+            show_label=False,
+        )
+        prefix_explicit_start_candidate = gr.Dropdown(
+            choices=[],
+            value=None,
+            visible=False,
+            show_label=False,
+        )
+        prefix_fan_plot = gr.Plot(label="30-day scenario fan chart")
+        gr.Markdown(
+            "The selected starting level is the day-0 market state used before the "
+            "narrative-conditioned support mixture and rollout are built."
+        )
         prefix_selected_start = gr.Dataframe(
-            headers=PREFIX_VARIANT_COLUMNS,
-            label="Proposed selected start",
+            headers=PREFIX_SELECTED_START_COLUMNS,
+            label="Selected starting level",
             interactive=False,
             elem_classes=[DEMO_TABLE_CLASS],
         )
-        prefix_diagnostic_start = gr.Dataframe(
-            headers=PREFIX_VARIANT_COLUMNS,
-            label="Diagnostic original-start comparison",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_validation = gr.Dataframe(
-            headers=VALIDATION_GATE_COLUMNS,
-            label="Prefix-latent current-run validation",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_condition_implications = gr.Dataframe(
-            headers=PREFIX_CONDITION_COLUMNS,
-            label="Condition-only implications used for support",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_condition_warnings = gr.Dataframe(
-            headers=WARNING_COLUMNS,
-            label="Warning-only language excluded from conditioning",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_warning_components = gr.Dataframe(
-            headers=PREFIX_WARNING_COMPONENT_COLUMNS,
-            label="Product warning decomposition",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_start_candidates = gr.Dataframe(
-            headers=PREFIX_START_CANDIDATE_COLUMNS,
-            label="Historical start/support candidates",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_user_start = gr.Dataframe(
-            headers=PREFIX_USER_START_COLUMNS,
-            label="User-supplied start diagnostics",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_start_json_status = gr.Markdown(
-            "## Start-State JSON Preview\n\n- Status: `waiting`",
-            label="Start-state JSON preview status",
-        )
-        prefix_start_json_preview = gr.Dataframe(
-            headers=PREFIX_START_PREVIEW_COLUMNS,
-            label="Start-state JSON preview",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
-        prefix_shift_factors = gr.Dataframe(
-            headers=PREFIX_SHIFT_FACTOR_COLUMNS,
-            label="Largest rollout-sensitivity contributors",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
+        gr.Markdown(
+            "Terminal deltas are changes from the selected starting level. The "
+            "Starting Level column shows the historical reference used as day 0."
         )
         prefix_scenario = gr.Dataframe(
             headers=SCENARIO_COLUMNS,
-            label="Prefix-latent terminal delta summary",
+            label="30-day terminal delta summary",
             interactive=False,
             elem_classes=[DEMO_TABLE_CLASS],
         )
-        with gr.Accordion("Prefix-latent Markdown report", open=False):
-            prefix_report_markdown = gr.Markdown(label="Prefix-latent report")
-        with gr.Accordion("Prefix-latent raw JSON report", open=False):
-            prefix_report_json = gr.Code(language="json", label="Prefix-latent JSON")
-        with gr.Accordion("Full Markdown report", open=False):
-            report_markdown = gr.Markdown(label="Full report")
-        with gr.Accordion("Raw JSON report", open=False):
-            report_json = gr.Code(language="json", label="Full JSON report")
-        run_button.click(
-            fn=run_story_for_app,
-            inputs=[story, samples, top_k, fan_market, analogue_scope, skip_generator],
-            outputs=[
-                report_markdown,
-                implications,
-                warnings,
-                analogues,
-                status,
-                scenario,
-                fan_plot,
-                report_json,
-                report_state,
-                analogue_scope,
-            ],
-            show_progress="full",
-            show_progress_on=status,
-        )
-        fan_market.change(
-            fn=refresh_fan_chart,
-            inputs=[report_state, fan_market, analogue_scope],
-            outputs=fan_plot,
-            show_progress="hidden",
-        )
-        analogue_scope.change(
-            fn=refresh_fan_chart,
-            inputs=[report_state, fan_market, analogue_scope],
-            outputs=fan_plot,
-            show_progress="hidden",
-        )
+        with gr.Accordion("Audit details", open=False):
+            gr.Markdown(
+                "Audit details explain why the run was accepted or flagged. "
+                "Grounded implications are current/recent market claims extracted "
+                "from the story; forward-looking language is kept as a warning-only "
+                "sidecar; support candidates show the historical evidence pool used "
+                "to construct the latent prefix."
+            )
+            prefix_condition_warnings = gr.Dataframe(
+                headers=WARNING_COLUMNS,
+                label="Warnings",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_validation = gr.Dataframe(
+                headers=VALIDATION_GATE_COLUMNS,
+                label="Validation",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_condition_implications = gr.Dataframe(
+                headers=PREFIX_CONDITION_COLUMNS,
+                label="Grounded implications",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_diagnostic_start = gr.Dataframe(
+                headers=PREFIX_VARIANT_COLUMNS,
+                label="Original-start comparison",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_start_candidates = gr.Dataframe(
+                headers=PREFIX_START_CANDIDATE_COLUMNS,
+                label="Support candidates",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_user_start = gr.Dataframe(
+                headers=PREFIX_USER_START_COLUMNS,
+                label="User start diagnostics",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_warning_components = gr.Dataframe(
+                headers=PREFIX_WARNING_COMPONENT_COLUMNS,
+                label="Warning decomposition",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            prefix_shift_factors = gr.Dataframe(
+                headers=PREFIX_SHIFT_FACTOR_COLUMNS,
+                label="Rollout sensitivity",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
+            with gr.Accordion("Markdown report", open=False):
+                prefix_report_markdown = gr.Markdown(label="Report")
+            with gr.Accordion("Raw JSON", open=False):
+                prefix_report_json = gr.Code(language="json", label="JSON")
         prefix_run_button.click(
-            fn=run_prefix_latent_for_app,
+            fn=run_live_openai_prefix_for_app,
             inputs=[
-                prefix_start_mode,
                 prefix_samples,
                 prefix_fan_market,
                 prefix_analogue_scope,
-                prefix_live_story,
                 story,
-                prefix_cached_condition_report,
-                prefix_condition_only_story,
-                prefix_use_explicit_start,
                 prefix_explicit_start_index,
-                prefix_use_user_start_state,
-                prefix_start_state_json,
             ],
             outputs=[
                 prefix_report_markdown,
@@ -2613,49 +2718,7 @@ def build_demo() -> Any:
             show_progress="full",
             show_progress_on=prefix_status,
         )
-        prefix_casebook_choice.change(
-            fn=cached_prefix_casebook_update,
-            inputs=prefix_casebook_choice,
-            outputs=[
-                story,
-                prefix_use_explicit_start,
-                prefix_explicit_start_index,
-                prefix_condition_only_story,
-                prefix_live_story,
-                prefix_cached_condition_report,
-                prefix_casebook_status,
-            ],
-            show_progress="hidden",
-        )
-        prefix_explicit_start_candidate.change(
-            fn=historical_start_candidate_to_index,
-            inputs=prefix_explicit_start_candidate,
-            outputs=prefix_explicit_start_index,
-            show_progress="hidden",
-        )
-        prefix_preview_start_json.click(
-            fn=preview_start_state_json,
-            inputs=prefix_start_state_json,
-            outputs=[prefix_start_json_status, prefix_start_json_preview],
-            show_progress="minimal",
-        )
-        prefix_export_start_json.click(
-            fn=export_historical_start_json_for_app,
-            inputs=[prefix_explicit_start_candidate, prefix_explicit_start_index],
-            outputs=[
-                prefix_start_json_status,
-                prefix_start_state_json,
-                prefix_start_json_preview,
-            ],
-            show_progress="minimal",
-        )
         prefix_fan_market.change(
-            fn=refresh_fan_chart,
-            inputs=[prefix_report_state, prefix_fan_market, prefix_analogue_scope],
-            outputs=prefix_fan_plot,
-            show_progress="hidden",
-        )
-        prefix_analogue_scope.change(
             fn=refresh_fan_chart,
             inputs=[prefix_report_state, prefix_fan_market, prefix_analogue_scope],
             outputs=prefix_fan_plot,
@@ -2665,6 +2728,8 @@ def build_demo() -> Any:
 
 
 def main() -> None:
+    import gradio as gr
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server-name", default="127.0.0.1")
     parser.add_argument("--server-port", type=int, default=7860)
@@ -2688,6 +2753,7 @@ def main() -> None:
         server_port=int(args.server_port),
         share=bool(args.share),
         auth=auth,
+        theme=gr.themes.Origin(),
         css=APP_CSS,
     )
 
