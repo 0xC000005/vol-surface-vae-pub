@@ -66,15 +66,16 @@ probe that consumes the Part 1 world-model reference candidate.
 57. `experiments/world/reports/world_model_head169_additive_exact_state_topology.md`
 58. `experiments/world/reports/world_model_head170_additive_probe_standardization.md`
 59. `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`
-60. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-61. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-62. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-63. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-64. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-65. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-66. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-67. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-68. latest tail of `RESEARCH_LOG.md`
+60. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
+61. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+62. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+63. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+64. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+65. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+66. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+67. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+68. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+69. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -260,6 +261,11 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD171 as the current additive-gate reconciliation: the embedding has
   additive abstract signal, but Part 1 remains blocked by exact-state and
   persistence guardrails.
+- Treat HEAD172 as a separate temporal context-to-target JEPA smoke: it hides
+  the last five days inside the history window and predicts latent target rows
+  only, with no future-window target, decoder, or raw reconstruction. It shows
+  mixed additive probe signal but weak retrieval/rank, so it is
+  `SMOKE_ONLY_DO_NOT_PROMOTE`.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -290,6 +296,8 @@ probe that consumes the Part 1 world-model reference candidate.
   partial.
 - Treat raw-plus-learned non-surface improvements as enough to ignore the IV
   exact-state guardrail failure.
+- Treat the HEAD172 temporal smoke as Part-B-ready or as permission to tune
+  context-to-target knobs; its own report marks it smoke-only.
 
 ## Required Reporting
 

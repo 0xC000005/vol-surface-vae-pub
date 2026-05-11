@@ -193,6 +193,7 @@
       "additive_exact_state_topology_report": "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
       "additive_probe_standardization_report": "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
       "additive_gate_reconciliation_report": "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
+      "temporal_block_jepa_smoke_report": "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -240,6 +241,7 @@
       "additive_exact_state_guardrail_json": "results/world/additive_exact_state_guardrail_head168.json",
       "additive_exact_state_topology_json": "results/world/additive_exact_state_topology_head169.json",
       "additive_probe_standardization_json": "results/world/additive_probe_standardization_head170.json",
+      "temporal_block_jepa_smoke_json": "results/world/temporal_block_jepa_smoke_head172.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -726,6 +728,20 @@
           "iv_exact_state_guardrail": "FAIL",
           "promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "temporal_block_jepa_smoke": {
+          "status": "smoke_only_mixed_signal_do_not_promote",
+          "objective_family": "context_to_target_jepa_temporal_diagnostic",
+          "uses_future_targets": false,
+          "uses_value_reconstruction": false,
+          "val_predicted_retrieval_top10": 0.03125,
+          "val_context_effective_rank": 3.796004,
+          "val_target_effective_rank": 6.820216,
+          "current_iv_raw_plus_to_raw_ratio": 0.880589,
+          "future_mean_delta_raw_plus_to_raw_ratio": 1.000313,
+          "future_range_raw_plus_to_raw_ratio": 0.85333,
+          "promotion_decision": "SMOKE_ONLY_DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -819,7 +835,8 @@
     "experiments/world/reports/world_model_head168_additive_exact_state_guardrail.md",
     "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
     "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
-    "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md"
+    "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
+    "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md"
   ],
   "guardrail_doc_checks": [
     {

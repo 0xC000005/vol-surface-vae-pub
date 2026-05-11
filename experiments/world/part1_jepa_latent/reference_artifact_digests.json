@@ -1,8 +1,8 @@
 {
   "name": "world_model_part1_masked_multiview_reference_artifact_digests",
-  "date": "2026-05-09",
+  "date": "2026-05-11",
   "manifest_ref": "experiments/world/part1_jepa_latent/reference_manifest.json",
-  "scope": "Ignored local artifacts required to consume or reproduce the current masked-multiview Part 1 reference candidate.",
+  "scope": "Ignored local artifacts required to consume or reproduce the current masked-multiview Part 1 reference candidate and recorded package diagnostics.",
   "entries": [
     {
       "role": "data",
@@ -57,6 +57,14 @@
       "path": "results/world/masked_multiview_downstream_probe_head085.json",
       "bytes": 39444,
       "sha256": "821bdd38a42d103e7576a3d6cbc3f129ff9c4d9cd2f4fd17bdb45dc0d6ac7db1",
+      "tracked": false,
+      "ignored": true
+    },
+    {
+      "role": "temporal_block_jepa_diagnostic_result",
+      "path": "results/world/temporal_block_jepa_smoke_head172.json",
+      "bytes": 22919,
+      "sha256": "ffd81f3c88510acb7b05331d6f09512836d0c1933ec69f39d3b704c3672e784b",
       "tracked": false,
       "ignored": true
     }

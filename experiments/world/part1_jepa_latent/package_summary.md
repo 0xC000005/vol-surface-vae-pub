@@ -140,6 +140,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head170_additive_probe_standardization.md`.
 - Latest additive gate reconciliation:
   `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`.
+- Latest temporal block JEPA smoke:
+  `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`.
 
 ## Fixed Contract
 
@@ -257,6 +259,14 @@ is a representation-learning package for same-market-state masked views.
   is structured by target family. Scaled Barlow wins `2/2` path-shape/risk-width
   targets and adds to raw-last on `4/5` targets, but wins `0/2`
   persistence/exact-state targets and remains `DO_NOT_PROMOTE`.
+- Temporal block JEPA smoke: HEAD172 runs a separate
+  `context_to_target_jepa_temporal_diagnostic` branch where the last five
+  history days are hidden from the context encoder and only latent target rows
+  are predicted. It uses no future-window targets, decoder, or raw
+  reconstruction. The small smoke shows mixed additive probe signal
+  (`current-IV raw+learned/raw=0.881`, `future-range raw+learned/raw=0.853`),
+  but latent row retrieval is weak (`top10=0.031`) and context rank is low
+  (`3.80`), so it is `SMOKE_ONLY_DO_NOT_PROMOTE`.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -482,6 +492,10 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD171 as the current additive-gate reconciliation: additive abstract
   signal is present, but exact-state and persistence guardrails still block
   Part 1 promotion and Part B.
+- Treat HEAD172 as a separate temporal context-to-target JEPA smoke, not a
+  replacement for the active masked-multiview Barlow reference. It gives a
+  useful bounded diagnostic signal, but weak latent retrieval/rank and
+  smoke-scale scope block promotion and Part B.
 
 ## Next Work Requires Direction
 
@@ -505,6 +519,9 @@ Future work should be one of:
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target
   latents will carry state variation before predictor training.
+- a follow-up temporal-JEPA assessment only if it compares the same raw-only,
+  learned-only, and raw-plus-learned guardrails against the active scaled
+  Barlow candidate without tuning context-to-target knobs.
 
 Do not resurrect demoted context-to-target routes through target coverage,
 hidden-size, predictor-depth, EMA, epoch, mask-aggression, or Barlow-weight

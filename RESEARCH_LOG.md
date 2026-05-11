@@ -120381,3 +120381,21 @@ The reconciled status is: additive abstract/path-shape utility passes, balanced 
 `DO_NOT_PROMOTE`. Scaled Barlow is not empty and should not be demoted as useless, but it is not a certified joint Part 1 representation. Part B remains blocked.
 
 ---
+## 2026-05-11: World model HEAD172 temporal block JEPA smoke
+
+### Context
+The next bounded check was a literature-aligned `context_to_target_jepa` diagnostic without turning future prediction into pretraining. The branch hides a contiguous temporal block inside the same history window, lets the target encoder see the clean same-window history, and predicts latent target rows only.
+
+### Run
+- Added `experiments/world/part1_jepa_latent/temporal_block_jepa_smoke.py` and `test_code/test_world_model_temporal_block_jepa_smoke.py`.
+- Smoke command: `python experiments/world/part1_jepa_latent/temporal_block_jepa_smoke.py --device cpu --epochs 4 --batch_size 64 --history_len 30 --future_len 30 --target_len 5 --max_train_windows 128 --max_val_windows 64 --hidden_dim 64 --latent_dim 32 --predictor_hidden_dim 64 --seed 2172 --output_json results/world/temporal_block_jepa_smoke_head172.json --report_md experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`.
+
+### Findings
+- No future-window targets, decoder, or raw-value reconstruction were used.
+- Validation loss fell from `0.522053` to `0.256064`, but latent row quality stayed weak: predicted retrieval top10 `0.031250`, context retrieval top10 `0.034375`, context effective rank `3.796004`, target effective rank `6.820216`.
+- Frozen probes were mixed: current-IV raw+learned/raw `0.880589` and future-range raw+learned/raw `0.853330` improved, while future-mean-delta raw+learned/raw was effectively flat at `1.000313`.
+
+### Decision
+HEAD172 is `SMOKE_ONLY_DO_NOT_PROMOTE`. It is useful evidence that a temporal JEPA branch can add bounded raw+learned probe signal, but weak retrieval/rank and smoke-scale scope mean it does not replace the active masked-multiview Barlow reference and does not unblock Part B.
+
+---

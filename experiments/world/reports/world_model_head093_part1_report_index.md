@@ -240,6 +240,10 @@ human-oriented resume guide, not the source of truth.
   raw-plus IV guardrail.
 - HEAD171: `world_model_head171_additive_gate_reconciliation.md` reconciles
   HEAD166-170: additive signal is present, but Part 1 remains blocked.
+- HEAD172: `world_model_head172_temporal_block_jepa_smoke.md` runs a separate
+  temporal context-to-target JEPA diagnostic. It shows bounded raw+learned
+  probe signal on current IV and future range, but weak latent retrieval/rank,
+  so it is smoke-only and not promoted.
 
 ## Packaging And Restart Guardrails
 
@@ -360,6 +364,7 @@ Then read:
 61. `experiments/world/reports/world_model_head110_package_checker_guardrail_docs.md`
 62. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
 63. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
+64. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
 
 ## Decision
 
