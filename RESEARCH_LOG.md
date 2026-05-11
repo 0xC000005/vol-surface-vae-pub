@@ -121072,3 +121072,38 @@ Turn this into a product/evaluation gate: for a selected start block and narrati
 - `uv run pytest test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py -q` passed after updating the analyzer to compare within fixed-start blocks only.
 
 ---
+## 2026-05-11: NL prefix latent fixed-start conditioning gate
+
+### Context
+Turned the fixed-start narrative-conditionality matrix into a reusable product/evaluation gate. The goal is to make the production claim auditable: hold the starting level fixed, vary only the narrative condition, and require visible scenario-distribution movement without violating support, direction, or persistence-quality checks.
+
+### Setup
+- Input contrast report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_857b/fixed_start_narrative_contrast.json`.
+- Input bakeoff report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b/start_conditioned_bakeoff.json`.
+- New script: `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_gate.py`.
+- New tests: `test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py`.
+- No OpenAI calls; this consumes existing run artifacts.
+
+### Results
+- Gate report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858a/fixed_start_conditioning_gate.json`.
+- Gate markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858a/fixed_start_conditioning_gate.md`.
+- Overall status: `warning`, with zero hard failures.
+- `fixed_start_equality`: pass (`start_max_abs_diff = 0`).
+- `support_direction_consistency`: pass (`bad_direction = 0`, `low_support = 0`, `mixture_mismatches = 0`).
+- `scenario_quality_vs_persistence`: pass (`energy +14.7%`, `CRPS +11.9%`).
+- `fixed_start_narrative_separation`: warning, because fixed start 178 dampens narrative influence relative to the strongest start block.
+
+### Interpretation
+This is a more production-relevant diagnostic than exact analogue retrieval. It directly asks whether changing the narrative changes the generated scenario distribution when the initial market level is fixed. The current result supports the conditionality claim but keeps a visible warning: some starting states may constrain how strongly the narrative can move the support mixture and rollout.
+
+### Decision
+Keep this fixed-start conditioning gate as a standing product/evaluation check for the narrative-conditioned scenario generator. It should be used in casebooks, paper experiments, and demo QA whenever we need to explain where conditionality comes from.
+
+### Next Principled Step
+Use the gate to compare a broader set of fixed starts and narrative families before changing the bridge architecture. If the warning pattern concentrates in specific start regimes, the next model-side target should be start-aware calibration of the support prior, not another contrastive or CLIP-like loss.
+
+### Verification
+- `uv run pytest test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py -q` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_gate.py --contrast-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_857b/fixed_start_narrative_contrast.json --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858a` passed with status `warning`.
+
+---
