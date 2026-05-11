@@ -253,6 +253,8 @@ human-oriented resume guide, not the source of truth.
 - HEAD174: `world_model_head174_temporal_route_decision.md` demotes the
   current temporal context-to-target route as implemented and blocks temporal
   knob tuning unless a genuinely new design gate is justified.
+- HEAD175: `world_model_head175_temporal_stale_route_scan.md` verifies active
+  docs after HEAD174 and finds no stale temporal tuning next-step wording.
 
 ## Packaging And Restart Guardrails
 
@@ -376,6 +378,7 @@ Then read:
 64. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
 65. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
 66. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
+67. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
 
 ## Decision
 

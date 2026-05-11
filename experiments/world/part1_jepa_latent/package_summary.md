@@ -146,6 +146,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`.
 - Latest temporal route decision:
   `experiments/world/reports/world_model_head174_temporal_route_decision.md`.
+- Latest temporal stale-route scan:
+  `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`.
 
 ## Fixed Contract
 
@@ -286,6 +288,10 @@ is a representation-learning package for same-market-state masked views.
   negative enough that the correct continuation is provenance/gate work or a
   genuinely new design gate, not temporal hidden-size, target-len, mask, EMA,
   epoch, or predictor-depth tuning.
+- Temporal stale-route scan: HEAD175 verifies active docs after the route
+  demotion. The remaining temporal references are intended smoke-only,
+  negative-bakeoff, or do-not-tune guardrails; no active README or protocol
+  points future work into temporal context-to-target tuning.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -523,6 +529,8 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD174 as the current temporal route decision: the temporal
   context-to-target route is demoted as implemented, active learned candidate
   status returns to scaled Barlow `DO_NOT_PROMOTE`, and Part B remains blocked.
+- Treat HEAD175 as the current stale-route scan: active docs are consistent
+  after temporal route demotion, so no temporal doc cleanup is currently needed.
 
 ## Next Work Requires Direction
 

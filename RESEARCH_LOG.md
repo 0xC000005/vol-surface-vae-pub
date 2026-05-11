@@ -120441,3 +120441,21 @@ This iteration records the route decision after the HEAD173 temporal JEPA frozen
 HEAD174 demotes the current temporal context-to-target route as implemented. Do not continue with temporal hidden-size, epoch, mask, target-len, EMA, or predictor-depth tuning. The active learned candidate remains scaled Barlow, still `DO_NOT_PROMOTE`, and Part B remains blocked.
 
 ---
+## 2026-05-11: World model HEAD175 temporal stale-route scan
+
+### Context
+
+This iteration scans active world-model docs after HEAD174 to make sure the temporal context-to-target route demotion did not leave stale next-step wording.
+
+### Findings
+
+- The scan found only intended HEAD172 smoke-only references, HEAD173 negative-bakeoff references, and HEAD174 do-not-tune route-decision references.
+- Restart checklist and package summary explicitly block temporal context-to-target tuning without a genuinely new design gate.
+- No active README or protocol hit points future work into temporal context-to-target tuning.
+- Package checker passed with `76` reports, `5` guardrail docs, and `9` ignored artifacts.
+
+### Decision
+
+Scan decision: `PASS`. No temporal stale-route cleanup is needed. The current temporal context-to-target route remains demoted as implemented, and Part B remains blocked.
+
+---
