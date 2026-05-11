@@ -121402,3 +121402,42 @@ This supports the claim that the current narrative channel has real effect beyon
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-11: NL prefix latent start reliability decomposition
+
+### Context
+The previous fixed-start control suite showed that narrative conditioning is not explained by starting-level geometry, but several starts had bootstrap noise close to the measured narrative gap and one start had repeat instability. This post-experiment HEAD iteration decomposed that failure before adding any new text-to-latent architecture.
+
+### Execution
+- Added `nl_prefix_latent_fixed_start_reliability_decomposition.py` to summarize per-start control failures, support-set behavior, text-memory support, weighted start distance, and scenario-quality metrics.
+- Fixed a control-suite aggregation bug: a per-start failure now fails the whole control suite instead of allowing an aggregate pass.
+- Ran a targeted higher-sample TestFlight on two questionable starts, `fixed_start_22` and `fixed_start_178`, with 192 generated paths per narrative.
+- Reused cached condition reports and existing start-only controls; no OpenAI calls were made.
+
+### Key Artifacts
+- Decomposition report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_reliability_decomposition_863a/fixed_start_reliability_decomposition.md`
+- Full 96-path fixed-status report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_s96_repeat_fixedstatus/fixed_start_control_suite.md`
+- Targeted 192-path bakeoff: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_sample_scale_863b_start22_178_s192_prod/start_conditioned_bakeoff.json`
+- Targeted 192-path control report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_sample_scale_863c_start22_178_s192_repeat_fixedstatus/fixed_start_control_suite.md`
+
+### Results
+- Full 96-path suite now correctly reports `fail` because a per-start failure exists.
+- Decomposition flags:
+  - `rollout_sampling_noise_close_to_narrative_gap`: 5 starts.
+  - `repeat_seed_instability`: 1 start.
+  - `weak_text_memory_support`: 1 start.
+  - `support_pool_far_from_fixed_start`: 1 start.
+  - `no_blocking_mechanism_detected`: 1 start.
+- Increasing from 96 to 192 paths fixed bootstrap noise for the tested starts:
+  - `fixed_start_22`: bootstrap ratio `0.398`, repeat ratio `0.306`, status `pass`.
+  - `fixed_start_178`: bootstrap ratio `0.683`, repeat ratio `0.847`, status `fail`.
+- Interpretation: some warnings were sample-count artifacts, but `fixed_start_178` is a true start-specific reliability problem because same-narrative repeat variation remains too close to cross-narrative variation.
+
+### Decision
+The next production step is not a new architecture knob. The system needs a start reliability gate: enough scenario paths for stable fan charts, per-start repeat/seed diagnostics for promotion, and clear warnings when the selected starting level is weakly supported by the narrative-compatible support pool.
+
+### Verification
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_862a_nl_prefix_latent_fixed_start_control_suite.py test_code/test_863a_nl_prefix_latent_fixed_start_reliability_decomposition.py -q` -> `30 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_control_suite.py experiments/backfill/block_ar/nl_prefix_latent_fixed_start_reliability_decomposition.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` -> passed.
+- `git diff --check` -> passed.
+
+---

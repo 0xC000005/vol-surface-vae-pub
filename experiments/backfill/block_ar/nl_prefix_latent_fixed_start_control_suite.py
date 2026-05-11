@@ -618,6 +618,10 @@ def build_control_suite(
         max_bootstrap_ratio=float(max_bootstrap_ratio),
         max_repeat_ratio=float(max_repeat_ratio),
     )
+    if any(_as_list(row.get("failures")) for row in per_start):
+        failures.append("per_start_control_failure")
+    if any(_as_list(row.get("warnings")) for row in per_start):
+        warnings.append("per_start_control_warning")
 
     status = "fail" if failures else "warning" if warnings else "pass"
     interpretation = [

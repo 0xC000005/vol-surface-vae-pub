@@ -102,6 +102,54 @@ def test_build_control_suite_fails_when_start_only_gap_matches_observed() -> Non
     assert report["per_start_controls"][0]["status"] == "fail"
 
 
+def test_build_control_suite_fails_when_any_per_start_control_fails() -> None:
+    observed = {
+        "pairwise_contrasts": [
+            {"start_name": "start_a", "standardized_l2_gap": 1.0},
+            {"start_name": "start_b", "standardized_l2_gap": 1.0},
+        ]
+    }
+    repeat = {
+        "gap_summary": {
+            "pair_count": 2,
+            "overall_median_gap": 0.4,
+            "overall_mean_gap": 0.4,
+            "overall_p90_gap": 0.5,
+            "overall_max_gap": 0.5,
+            "by_start": [
+                {"start_name": "start_a", "median_gap": 0.8},
+                {"start_name": "start_b", "median_gap": 0.1},
+            ],
+        }
+    }
+
+    report = build_control_suite(
+        observed_contrast=observed,
+        start_only_contrast={
+            "gap_summary": {
+                "pair_count": 2,
+                "overall_median_gap": 0.0,
+                "overall_mean_gap": 0.0,
+                "overall_p90_gap": 0.0,
+                "overall_max_gap": 0.0,
+                "by_start": [
+                    {"start_name": "start_a", "median_gap": 0.0},
+                    {"start_name": "start_b", "median_gap": 0.0},
+                ],
+            }
+        },
+        bootstrap_report=None,
+        repeat_report=repeat,
+        max_start_only_ratio=0.5,
+        max_bootstrap_ratio=0.75,
+        max_repeat_ratio=0.75,
+    )
+
+    assert report["status"] == "fail"
+    assert "per_start_control_failure" in report["failures"]
+    assert report["per_start_controls"][0]["status"] == "fail"
+
+
 def _write_repeat_run(tmp_path: Path, name: str, spx_mean: float) -> str:
     path = tmp_path / f"{name}.json"
     payload = {
