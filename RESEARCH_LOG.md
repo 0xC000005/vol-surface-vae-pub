@@ -122207,3 +122207,51 @@ The local evidence already supports multi-caption hard negatives. The unresolved
 Do not promote a new model or production claim from this iteration. Next HEAD iteration should implement the bounded text/start target diagnostic over the existing representative OpenAI artifacts, with no new OpenAI calls and no broad hyperparameter sweep. Falsifier: target cosine drops by more than 0.01 or hard-negative gap/margin materially degrades versus the incumbent.
 
 ---
+## 2026-05-11: NL prefix latent text-plus-start memory diagnostic
+
+### Context
+Iteration 121 defined the next text-to-latent prior gate: before scaling OpenAI calls or adding a new latent-prior architecture, test whether the fixed starting level helps the narrative-to-generator-memory target under the incumbent MLP memory-regression plus hard-negative objective.
+
+### Hypothesis
+Appending the risk-manager-selected/fixed starting level to each cached narrative embedding should improve or at least preserve held-out generator-memory target cosine while preserving hard-negative directional separation. Falsifier: target cosine drops by more than `0.01`, or hard-negative gap/margin materially degrades versus text-only.
+
+### Execution
+Added `experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py` and `test_code/test_875a_nl_text_start_memory_diagnostic.py`. The diagnostic rebuilds selected-window start states from the frozen SNI validation block, standardizes them on train windows, and compares three input modes using the existing 182-window representative OpenAI artifacts and the existing train/test split:
+
+- `text_only`
+- `text_start`
+- `start_only`
+
+No OpenAI calls were made. Verification commands:
+
+- `uv run black experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py test_code/test_875a_nl_text_start_memory_diagnostic.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py`
+- `uv run pytest test_code/test_875a_nl_text_start_memory_diagnostic.py -q`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875a --input-modes text_only,text_start,start_only --adapter-steps 700 --device auto --seed 775`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875a/text_start_memory_diagnostic.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875a/text_start_memory_diagnostic.md`
+
+### Result
+The naive text-plus-start concatenation failed the target diagnostic:
+
+- text-only target cosine: `0.8582`
+- text-plus-start target cosine: `0.7865`
+- delta: `-0.0717`
+- text-only hard-negative gap: `0.8950`
+- text-plus-start hard-negative gap: `0.1872`
+- gap delta: `-0.7078`
+- text-only hard-negative margin: `0.6867`
+- text-plus-start hard-negative margin: `0.1325`
+- margin delta: `-0.5542`
+- text-plus-start recall@1 improved from `0.0873` to `0.1032`, but this is not enough because exact retrieval is not the main objective and memory/direction quality degraded.
+
+### Mechanism Read
+The fixed-start channel is not automatically useful when appended naively. The likely mechanism is input-channel imbalance: standardized joint39 start features can dominate or distort the text geometry after concatenation and row normalization, weakening the hard-negative contrast that previously fixed directionality. Start-only predictably has zero hard-negative separation because all captions for a window share the same start feature.
+
+### Decision / Next Step
+Do not promote text-plus-start concatenation. The next principled iteration is a bounded one-axis calibration of start-channel strength, not a broad sweep: test whether a small start-feature weight preserves the text-only hard-negative geometry while allowing any useful start information through. If even a small start weight fails, keep start compatibility in the support-mixture/audit layer rather than the text-to-memory bridge input.
+
+---
