@@ -122328,3 +122328,47 @@ The failed concatenation branch suggests start is not useless, but incorrectly f
 No model is promoted. Next HEAD iteration should implement the start-gated text-memory adapter as a TestFlight. Falsifiers: target cosine drops by more than `0.01`, hard-negative gap/margin drops by more than `0.05`, or gates saturate to all-start/all-text behavior.
 
 ---
+## 2026-05-11: NL prefix latent bounded start-residual TestFlight
+
+### Context
+The previous diagnostics closed direct text-plus-start concatenation as a non-promoted branch. The structured fusion plan recommended keeping the text bridge as the base pathway and adding fixed-start information only through a bounded residual/modulation path.
+
+### Hypothesis
+A bounded start residual added after the text-only memory bridge can preserve target-memory alignment and hard-negative directionality while allowing a controlled amount of start-state information. Falsifiers: target cosine drops by more than `0.01`, hard-negative gap/margin drop by more than `0.05`, or the residual becomes too large relative to the base memory.
+
+### Execution
+Extended `experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py` with an optional `--include-start-residual` path. The model trains the incumbent text-only bridge, freezes its predictions as the base condition, then trains a bounded start-state residual with scale `0.10` and residual L2 penalty `0.10`. It uses the same cached representative OpenAI embeddings, 182 windows, train/test split, memory targets, and hard-negative groups. No OpenAI calls were made.
+
+Verification and run commands:
+
+- `uv run black experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py test_code/test_875a_nl_text_start_memory_diagnostic.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py`
+- `uv run pytest test_code/test_875a_nl_text_start_memory_diagnostic.py -q`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875c_start_residual --input-modes text_only,text_start --start-feature-weights 0.10 --include-start-residual --adapter-steps 700 --start-residual-steps 350 --start-residual-scale 0.10 --start-residual-l2-weight 0.10 --device auto --seed 775`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875c_start_residual/text_start_memory_diagnostic.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875c_start_residual/text_start_memory_diagnostic.md`
+
+### Result
+The bounded start residual passed the local preservation gate, unlike concatenation:
+
+- text-only target cosine: `0.8582`
+- start residual target cosine: `0.8580`, delta `-0.00018`
+- text-only hard-negative gap: `0.8950`
+- start residual hard-negative gap: `0.8815`, delta `-0.0135`
+- text-only hard-negative margin: `0.6867`
+- start residual hard-negative margin: `0.6778`, delta `-0.0089`
+- recall@3 test-pool improved from `0.1825` to `0.1905`
+- residual mean norm: `0.7996` versus base mean norm `11.7693`, ratio `0.0687`
+
+The failed concatenation control with start weight `0.10` again degraded target cosine to `0.7908` and hard-negative gap to `0.5460`.
+
+### Mechanism Read
+The result supports the structured-fusion diagnosis: start information can be introduced safely only when the text condition remains the dominant base path and the start channel is bounded as a small residual. This is still a preservation result, not evidence of improved scenario quality or production readiness.
+
+### Decision / Next Step
+Do not promote the start-residual bridge yet. The next principled step is seed stability for the same cached diagnostic. If the preservation gate holds across seeds, then evaluate whether the residual changes fixed-start scenario conditionality or remains too small to matter. If stability fails, keep start compatibility in support/audit and avoid further start-bridge architecture work.
+
+---

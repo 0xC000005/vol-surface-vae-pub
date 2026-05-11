@@ -1,10 +1,12 @@
 import numpy as np
 import pytest
 import sys
+import torch
 
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_text_start_memory_diagnostic import (
+    BoundedStartResidualAdapter,
     build_input_features,
     caption_coverage_audit,
     standardize_start_features,
@@ -111,3 +113,17 @@ def test_caption_coverage_audit_counts_roles_by_split():
     assert audit["split_role_counts"]["test"] == {"anchor": 1, "negative": 1}
     assert audit["positive_captions_per_window"]["mean"] == 0.5
     assert audit["hard_negatives_per_window"]["mean"] == 1.0
+
+
+def test_bounded_start_residual_adapter_respects_scale():
+    torch.manual_seed(0)
+    model = BoundedStartResidualAdapter(
+        start_dim=3,
+        output_dim=2,
+        hidden_dim=4,
+        residual_scale=0.2,
+    )
+    residual = model(torch.ones(5, 3))
+
+    assert residual.shape == (5, 2)
+    assert float(torch.max(torch.abs(residual.detach()))) <= 0.2

@@ -18,6 +18,8 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from torch import nn
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -30,6 +32,9 @@ from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovati
     build_val_block,
 )
 from experiments.backfill.block_ar.nl_bridge_architecture_bakeoff import (  # noqa: E402
+    _group_hard_negative_loss,
+    filter_training_examples,
+    evaluate_condition_vectors,
     run_single_method,
     summarize_bakeoff,
 )
@@ -39,6 +44,7 @@ from experiments.backfill.block_ar.nl_condition_bridge_evaluation import (  # no
 )
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
     DEFAULT_CHECKPOINT,
+    train_narrative_adapter,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import (  # noqa: E402
     DEFAULT_BRIDGE_REPORT,
@@ -77,6 +83,32 @@ def _round(value: float | int | None) -> float | None:
 def _safe_std(values: np.ndarray) -> np.ndarray:
     std = np.asarray(values, dtype=np.float32).std(axis=0, keepdims=True)
     return np.maximum(std, 1e-6).astype(np.float32)
+
+
+class BoundedStartResidualAdapter(nn.Module):
+    """Predict a bounded memory residual from standardized start features."""
+
+    def __init__(
+        self,
+        start_dim: int,
+        output_dim: int,
+        *,
+        hidden_dim: int,
+        residual_scale: float,
+    ) -> None:
+        super().__init__()
+        self.residual_scale = float(residual_scale)
+        self.net = nn.Sequential(
+            nn.LayerNorm(int(start_dim)),
+            nn.Linear(int(start_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.Linear(int(hidden_dim), int(hidden_dim)),
+            nn.GELU(),
+            nn.Linear(int(hidden_dim), int(output_dim)),
+        )
+
+    def forward(self, start_features: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(self.net(start_features)) * float(self.residual_scale)
 
 
 def standardize_start_features(
@@ -323,6 +355,162 @@ def _decision_block(
     }
 
 
+def _role_counts(roles: list[str]) -> dict[str, int]:
+    return {
+        role: int(sum(1 for item in roles if item == role))
+        for role in sorted(set(roles))
+    }
+
+
+def train_start_residual_method(
+    examples: list[dict[str, Any]],
+    text_embeddings: np.ndarray,
+    start_features: np.ndarray,
+    memory_targets: np.ndarray,
+    split: dict[str, list[int]],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Train text-only base bridge plus bounded start residual."""
+
+    device = torch.device(
+        "cuda"
+        if str(getattr(args, "device", "auto")) == "auto" and torch.cuda.is_available()
+        else str(getattr(args, "device", "cpu"))
+    )
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
+    row_indices = filter_training_examples(
+        examples,
+        train_indices=split["train_indices"],
+        policy=str(args.training_policy),
+    )
+    train_examples = [examples[idx] for idx in row_indices]
+    target_indices = np.asarray(
+        [
+            -1 if example["target_index"] is None else int(example["target_index"])
+            for example in train_examples
+        ],
+        dtype=np.int64,
+    )
+    roles = [str(example["role"]) for example in train_examples]
+    groups = [str(example["window_id"]) for example in train_examples]
+    text = normalize_rows(np.asarray(text_embeddings, dtype=np.float32))
+    starts = np.asarray(start_features, dtype=np.float32)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    if starts.shape[0] != text.shape[0]:
+        raise ValueError("start_features must have one row per text embedding")
+    base_train = train_narrative_adapter(
+        text[np.asarray(row_indices, dtype=np.int64)],
+        targets,
+        target_indices,
+        roles,
+        groups,
+        condition_dim=int(targets.shape[1]),
+        hidden_dim=args.hidden_dim,
+        steps=int(args.adapter_steps),
+        lr=float(args.adapter_lr),
+        contrastive_weight=float(args.mlp_contrastive_weight),
+        contrastive_margin=float(args.hard_negative_margin),
+        seed=int(args.seed),
+        device=device,
+    )
+    base_adapter = base_train["adapter"]
+    base_adapter.eval()
+    with torch.no_grad():
+        base_all = base_adapter(torch.from_numpy(text).float().to(device)).detach()
+    train_rows_t = torch.as_tensor(row_indices, dtype=torch.long, device=device)
+    target_idx_t = torch.from_numpy(target_indices).to(device)
+    valid_mask = target_idx_t >= 0
+    target_t = torch.from_numpy(targets).float().to(device)
+    start_t = torch.from_numpy(starts).float().to(device)
+    residual_model = BoundedStartResidualAdapter(
+        int(starts.shape[1]),
+        int(targets.shape[1]),
+        hidden_dim=int(args.start_residual_hidden_dim),
+        residual_scale=float(args.start_residual_scale),
+    ).to(device)
+    opt = torch.optim.AdamW(
+        residual_model.parameters(),
+        lr=float(args.start_residual_lr),
+        weight_decay=1e-4,
+    )
+    losses: list[float] = []
+    mse_losses: list[float] = []
+    hard_losses: list[float] = []
+    residual_penalties: list[float] = []
+    base_train_rows = base_all[train_rows_t].detach()
+    train_start = start_t[train_rows_t]
+    for _ in range(int(args.start_residual_steps)):
+        opt.zero_grad(set_to_none=True)
+        residual = residual_model(train_start)
+        pred = base_train_rows + residual
+        align_pred = pred[valid_mask]
+        align_target = target_t[target_idx_t[valid_mask]]
+        mse = F.mse_loss(align_pred, align_target)
+        cosine = 1.0 - F.cosine_similarity(align_pred, align_target, dim=-1).mean()
+        hard = _group_hard_negative_loss(
+            pred,
+            roles=roles,
+            groups=groups,
+            margin=float(args.hard_negative_margin),
+        )
+        residual_penalty = torch.mean(residual.pow(2))
+        loss = (
+            mse
+            + 0.2 * cosine
+            + float(args.mlp_contrastive_weight) * hard
+            + float(args.start_residual_l2_weight) * residual_penalty
+        )
+        loss.backward()
+        opt.step()
+        losses.append(float(loss.detach().cpu()))
+        mse_losses.append(float(mse.detach().cpu()))
+        hard_losses.append(float(hard.detach().cpu()))
+        residual_penalties.append(float(residual_penalty.detach().cpu()))
+    residual_model.eval()
+    with torch.no_grad():
+        residual_all = residual_model(start_t).detach()
+        condition_vectors = (base_all + residual_all).cpu().numpy().astype(np.float32)
+        residual_np = residual_all.cpu().numpy().astype(np.float32)
+    eval_block = evaluate_condition_vectors(
+        examples,
+        condition_vectors,
+        targets,
+        split=split,
+        top_k=int(args.top_k),
+    )
+    residual_norm = np.linalg.norm(residual_np, axis=1)
+    base_norm = np.linalg.norm(base_all.cpu().numpy(), axis=1)
+    return {
+        "method": "mlp_start_residual",
+        "training_policy": str(args.training_policy),
+        "train_example_count": len(train_examples),
+        "train_role_counts": _role_counts(roles),
+        "adapter_training": {
+            "base_loss_first": _round(float(base_train["loss_first"])),
+            "base_loss_last": _round(float(base_train["loss_last"])),
+            "residual_loss_first": _round(losses[0]),
+            "residual_loss_last": _round(losses[-1]),
+            "residual_mse_last": _round(mse_losses[-1]),
+            "residual_hard_negative_last": _round(hard_losses[-1]),
+            "residual_penalty_last": _round(residual_penalties[-1]),
+            "base_steps": int(args.adapter_steps),
+            "residual_steps": int(args.start_residual_steps),
+            "residual_scale": float(args.start_residual_scale),
+            "residual_l2_weight": float(args.start_residual_l2_weight),
+        },
+        "residual_stats": {
+            "mean_residual_norm": _round(float(np.mean(residual_norm))),
+            "max_residual_norm": _round(float(np.max(residual_norm))),
+            "mean_base_norm": _round(float(np.mean(base_norm))),
+            "mean_residual_to_base_norm": _round(
+                float(np.mean(residual_norm / np.maximum(base_norm, 1e-8)))
+            ),
+        },
+        **eval_block,
+    }
+
+
 def _parse_float_list(raw: str) -> list[float]:
     values = [float(item.strip()) for item in str(raw).split(",") if item.strip()]
     if not values:
@@ -469,6 +657,32 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
                 split,
                 args,
             )
+    structured_candidates = list(text_start_candidates)
+    if bool(args.include_start_residual):
+        text_features, _ = build_input_features(
+            text_embeddings,
+            start_state,
+            examples,
+            fit_window_indices=np.asarray(split["train_indices"], dtype=np.int64),
+            input_mode="text_only",
+        )
+        start_features, _ = build_input_features(
+            text_embeddings,
+            start_state,
+            examples,
+            fit_window_indices=np.asarray(split["train_indices"], dtype=np.int64),
+            input_mode="start_only",
+        )
+        residual_name = f"mlp_start_residual__{args.training_policy}"
+        structured_candidates.append(residual_name)
+        results[residual_name] = train_start_residual_method(
+            examples,
+            text_features,
+            start_features,
+            memory_targets,
+            split,
+            args,
+        )
     baseline = f"mlp_mse_contrastive__{args.training_policy}__text_only"
     report = {
         "status": "ok",
@@ -486,6 +700,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         "embedding_model": pipeline_report.get("embedding_model"),
         "input_modes": modes,
         "start_feature_weights": start_weights,
+        "include_start_residual": bool(args.include_start_residual),
         "training_policy": str(args.training_policy),
         "split": split,
         "caption_coverage": caption_coverage_audit(examples, split),
@@ -493,7 +708,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         "summary": summarize_bakeoff(results),
         "decision": _decision_block(
             results,
-            candidates=text_start_candidates,
+            candidates=structured_candidates,
             baseline=baseline,
             target_cosine_floor_delta=float(args.target_cosine_floor_delta),
             hard_negative_floor_delta=float(args.hard_negative_floor_delta),
@@ -540,6 +755,12 @@ def main() -> None:
     parser.add_argument("--mlp-contrastive-weight", type=float, default=0.25)
     parser.add_argument("--hard-negative-margin", type=float, default=0.25)
     parser.add_argument("--seed", type=int, default=775)
+    parser.add_argument("--include-start-residual", action="store_true")
+    parser.add_argument("--start-residual-hidden-dim", type=int, default=128)
+    parser.add_argument("--start-residual-steps", type=int, default=350)
+    parser.add_argument("--start-residual-lr", type=float, default=1e-3)
+    parser.add_argument("--start-residual-scale", type=float, default=0.10)
+    parser.add_argument("--start-residual-l2-weight", type=float, default=0.10)
     parser.add_argument("--target-cosine-floor-delta", type=float, default=-0.01)
     parser.add_argument("--hard-negative-floor-delta", type=float, default=-0.05)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
