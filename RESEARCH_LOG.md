@@ -121806,3 +121806,53 @@ The hard-negative term moves in the right direction: hard-negative gap improves 
 Do not promote the hard-negative residual refiner. The next principled diagnostic is a minimal text-memory/support-mixture interpolation or gating analysis: keep the text-memory vector as the directional anchor and use the support mixture as a target-placement prior, then measure the Pareto trade-off between target cosine and hard-negative separation. This directly tests whether the product should combine text memory and support mixture explicitly before learning a more complex latent prior.
 
 ---
+## 2026-05-11: NL prefix latent text-support memory Pareto
+
+### Context
+The hard-negative residual refiner improved the support-mixture gap but still failed to recover enough directional separation. The mechanism read suggested that the support mixture compresses narrative direction before the residual model can repair it. The next bounded diagnostic was therefore an explicit text-memory/support-mixture Pareto analysis.
+
+### Hypothesis
+If text memory carries directional meaning and support-mixture memory carries target-placement support, then a simple convex blend should show a smooth target-cosine versus hard-negative-gap trade-off. A small support-mixture weight should improve target cosine while retaining a material fraction of the text channel's hard-negative separation.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py`.
+- Added `test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py`.
+- The script makes no OpenAI calls and no generator rollout. It reuses the same representative bridge arrays and support-mixture construction as the residual TestFlight.
+- Evaluated endpoints plus three interior support-mixture weights: `0.25`, `0.50`, and `0.75`.
+- Gate: target cosine must improve by at least `0.005` versus text memory while retaining at least `50%` of the text-memory hard-negative gap.
+- Ran:
+  - `uv run black experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py`
+  - `uv run pytest test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py test_code/test_870a_nl_prefix_latent_residual_refinement.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py`
+  - `uv run python experiments/backfill/block_ar/nl_prefix_latent_memory_blend_pareto.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871a`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+
+### Result
+- Unit tests passed: `5 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- Pareto report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871a/memory_blend_pareto.json`
+- Status: `testflight_pass`.
+- Best passing blend: support alpha `0.25`.
+- Text-memory endpoint:
+  - target cosine `0.8597`;
+  - hard-negative gap `0.8835`;
+  - recall@3 test pool `0.1746`.
+- Support alpha `0.25`:
+  - target cosine `0.8775`;
+  - target gain versus text `+0.0178`;
+  - hard-negative gap `0.6755`;
+  - retained gap fraction `0.7646`;
+  - recall@3 test pool `0.1984`.
+- Support alpha `1.00`:
+  - target cosine `0.9014`;
+  - hard-negative gap `0.0811`;
+  - retained gap fraction `0.0918`.
+
+### Mechanism Read
+This is the clearest bridge-improvement signal since the multi-caption hard-negative incumbent. It explains the residual failure: the support mixture helps target placement, but using it alone destroys text-direction geometry. A low-alpha explicit blend retains most of the text channel's hard-negative separation while gaining target-memory accuracy. This is more interpretable than a learned residual at the current scale and does not require treating the mixture as the whole generator.
+
+### Decision / Next Step
+Do not promote the blend yet because this is memory-space evidence only. The next principled step is a frozen-generator rollout TestFlight for the alpha-0.25 blended memory condition on the existing representative scenario-level evaluation harness. Falsifier: the blend must improve or match distributional scores versus the current narrative generator without creating a directional-audit regression.
+
+---
