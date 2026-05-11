@@ -160,6 +160,7 @@ def _pairwise_contrast(
             )
         rows.append(
             {
+                "start_name": str(left["start_name"]),
                 "left_case": left["case_name"],
                 "right_case": right["case_name"],
                 "standardized_l2_gap": float(np.sqrt(squared)),
@@ -175,6 +176,25 @@ def _pairwise_contrast(
     )
 
 
+def _start_block_summaries(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_start: dict[str, list[dict[str, Any]]] = {}
+    for case in cases:
+        by_start.setdefault(str(case["start_name"]), []).append(case)
+    summaries = []
+    for start_name, start_cases in sorted(by_start.items()):
+        starts = np.stack([case["start_state"] for case in start_cases], axis=0)
+        summaries.append(
+            {
+                "start_name": start_name,
+                "case_count": int(len(start_cases)),
+                "start_max_abs_diff": float(
+                    np.max(np.abs(starts - starts[0][None, :]))
+                ),
+            }
+        )
+    return summaries
+
+
 def build_fixed_start_contrast(
     bakeoff_report: dict[str, Any],
     *,
@@ -184,8 +204,21 @@ def build_fixed_start_contrast(
     if not isinstance(rows, list) or not rows:
         raise ValueError("bakeoff report has no rows")
     cases = [_case_distribution(row, markets=markets) for row in rows]
-    starts = np.stack([case["start_state"] for case in cases], axis=0)
-    start_max_abs_diff = float(np.max(np.abs(starts - starts[0][None, :])))
+    start_blocks = _start_block_summaries(cases)
+    start_max_abs_diff = max(
+        float(block["start_max_abs_diff"]) for block in start_blocks
+    )
+    pairwise_rows: list[dict[str, Any]] = []
+    for block in start_blocks:
+        block_cases = [
+            case for case in cases if str(case["start_name"]) == block["start_name"]
+        ]
+        pairwise_rows.extend(_pairwise_contrast(block_cases, markets))
+    pairwise_rows = sorted(
+        pairwise_rows,
+        key=lambda item: float(item["standardized_l2_gap"]),
+        reverse=True,
+    )
     case_summaries = []
     for case in cases:
         case_summaries.append(
@@ -210,8 +243,9 @@ def build_fixed_start_contrast(
         "case_count": int(len(cases)),
         "markets": list(markets),
         "start_max_abs_diff": start_max_abs_diff,
+        "start_blocks": start_blocks,
         "case_summaries": case_summaries,
-        "pairwise_contrasts": _pairwise_contrast(cases, markets),
+        "pairwise_contrasts": pairwise_rows,
     }
 
 
@@ -231,13 +265,27 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Case count: `{report.get('case_count')}`",
         f"- Start max absolute difference: `{_format(report.get('start_max_abs_diff'))}`",
         "",
-        "## Terminal Mean Deltas",
+        "## Fixed-Start Blocks",
         "",
-        "| Case | Direction | Support Match | Mix Mismatches | "
-        + " | ".join(f"{market} mean" for market in report["markets"])
-        + " |",
-        "|---|---|---:|---:|" + "---:|" * len(report["markets"]),
+        "| Start | Cases | Max Start Diff |",
+        "|---|---:|---:|",
     ]
+    for block in report.get("start_blocks", []):
+        lines.append(
+            f"| `{block.get('start_name')}` | `{block.get('case_count')}` | "
+            f"`{_format(block.get('start_max_abs_diff'))}` |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Terminal Mean Deltas",
+            "",
+            "| Case | Direction | Support Match | Mix Mismatches | "
+            + " | ".join(f"{market} mean" for market in report["markets"])
+            + " |",
+            "|---|---|---:|---:|" + "---:|" * len(report["markets"]),
+        ]
+    )
     for case in report["case_summaries"]:
         means = [
             _format(case["terminal_summary"][market]["mean"])
@@ -265,7 +313,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             for item in row["largest_abs_market_gaps"]
         )
         lines.append(
-            f"| `{row['left_case']}` | `{row['right_case']}` | "
+            f"| `{row['start_name']} / {row['left_case']}` | `{row['right_case']}` | "
             f"`{_format(row['standardized_l2_gap'])}` | `{largest}` |"
         )
     return "\n".join(lines) + "\n"

@@ -121028,3 +121028,47 @@ Scale this fixed-start narrative-contrast evaluation to a small matrix of starts
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_conditionality_856a/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_856b` passed.
 
 ---
+## 2026-05-11: NL prefix latent fixed-start narrative matrix
+
+### Context
+Scaled the fixed-start narrative-conditionality diagnostic from one same-start block to a small matrix. The goal was to test whether narrative changes still alter generated scenario distributions when the starting level is fixed across multiple starts, without adding a new model knob.
+
+### Setup
+- Six cached narrative condition reports: fragile risk-on, defensive risk-off, rates selloff, commodity inflation pressure, dollar liquidity squeeze, and safe-haven gold bid.
+- Three fixed historical starts: `18`, `22`, and `178`.
+- Total runs: `18`.
+- Variant: `decoder_soft_topk_narrative_start_checked_gen_temp_0p50`.
+- Samples: `8`; solver steps: `100`; device: `cuda`.
+- No OpenAI calls.
+
+### Results
+- Matrix report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b/start_conditioned_bakeoff.json`.
+- Contrast report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_857b/fixed_start_narrative_contrast.md`.
+- Status: `pass`.
+- All 18 runs passed operational and direction checks.
+- All three fixed-start blocks had `start_max_abs_diff = 0.0`.
+- Mean support match rate was `1.0`; final mixture direction mismatches were `0`.
+- Mean scenario quality: energy improvement versus persistence `+14.7%`; CRPS improvement versus persistence `+11.9%`.
+
+### Conditionality Read
+The scaled matrix supports the current product claim that conditionality is not only coming from the starting level. With the same start held fixed, changing the narrative produced measurable terminal-distribution shifts. The largest pairwise standardized gaps were:
+- `2.210`: commodity inflation vs dollar liquidity at start 22;
+- `2.191`: fragile risk-on vs commodity inflation at start 18;
+- `2.150`: rates selloff vs dollar liquidity at start 22;
+- `2.134`: fragile risk-on vs commodity inflation at start 22;
+- `2.110`: fragile risk-on vs rates selloff at start 22.
+
+The strongest separation repeatedly came through credit spreads, rates, IV-surface average, VIX, and sometimes equity/gold. Start 178 passed the gates but generally had weaker narrative separation, which suggests start-level geometry still modulates how much narrative influence the mixture can express.
+
+### Decision
+Keep the fixed-start narrative-contrast matrix as the current production-evidence direction. It is a better answer to "where does conditionality come from?" than exact analogue retrieval because it explicitly holds the starting level fixed and measures narrative-induced distribution movement.
+
+### Next Principled Step
+Turn this into a product/evaluation gate: for a selected start block and narrative family set, require fixed-start equality, direction/support audit, non-trivial narrative separation in implied markets, and scenario quality not worse than persistence. The remaining risk is that some starts, such as start 178, may damp narrative separation; this should become a warning/diagnostic rather than a hidden failure.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b --case-spec-json autoresearch-session/fixed_start_narrative_matrix_857a_cases.json --case-count 18 --variant-set direction_check --variant-count 1 --samples 8 --steps 100 --chunk-size 4 --device cuda` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_857b` passed.
+- `uv run pytest test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py -q` passed after updating the analyzer to compare within fixed-start blocks only.
+
+---
