@@ -261,6 +261,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD177: `world_model_head177_additive_probe_coverage_inventory.md` confirms
   that world Part 1 future-target probes are still IV-surface-only and that
   factor-panel future probes remain missing downstream-probe coverage.
+- HEAD178: `world_model_head178_factor_panel_probe_scaffold.md` adds the
+  factor-panel future-probe data/target scaffold for downstream frozen
+  evaluation.
 
 ## Packaging And Restart Guardrails
 
@@ -387,6 +390,7 @@ Then read:
 67. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
 68. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
 69. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
+70. `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`
 
 ## Decision
 

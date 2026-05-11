@@ -152,6 +152,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`.
 - Latest additive probe coverage inventory:
   `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`.
+- Latest factor-panel probe scaffold:
+  `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`.
 
 ## Fixed Contract
 
@@ -306,6 +308,11 @@ is a representation-learning package for same-market-state masked views.
   or returns, cross-factor spread/correlation summaries, joint IV-plus-factor
   future state probes, and horizon sensitivity remain missing evidence, not
   pretraining objectives.
+- Factor-panel probe scaffold: HEAD178 adds
+  `experiments/world/evaluation/factor_panel_data.py` and
+  `test_code/test_world_model_factor_panel_probes.py`. It builds split-safe
+  factor-panel history/future windows and downstream-only factor future targets
+  from `data/multi_factor_data.npz`; it does not change Part 1 pretraining.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -551,6 +558,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD177 as the current probe-coverage inventory: the next
   evidence-expanding work should design or scaffold factor-panel future probes
   as downstream frozen probes, not turn them into Part 1 training losses.
+- Treat HEAD178 as data/target scaffolding only. It enables factor-panel
+  downstream probe bakeoffs but is not model evidence and does not promote
+  Part 1.
 
 ## Next Work Requires Direction
 

@@ -120495,3 +120495,28 @@ This iteration inventories the additive/probe coverage gap after the temporal ro
 The next evidence-expanding step should be a factor-panel future-probe contract or scaffold, not a new Part 1 pretraining loss and not temporal context-to-target tuning. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-11: World model HEAD178 factor-panel probe scaffold
+
+### Context
+
+This iteration implements the factor-panel future-probe scaffold identified by HEAD177. The target remains downstream frozen evaluation only.
+
+### Implementation
+
+- Added `experiments/world/evaluation/factor_panel_data.py`.
+- Added `test_code/test_world_model_factor_panel_probes.py`.
+- New batch builder: `build_factor_panel_world_windows`.
+- New target builder: `make_factor_panel_future_targets`.
+
+### Verification
+
+- Red test first failed with `ModuleNotFoundError` for `experiments.world.evaluation.factor_panel_data`.
+- Focused pytest passed: `python -m pytest test_code/test_world_model_factor_panel_probes.py -q`.
+- Compile check passed: `python -m py_compile experiments/world/evaluation/factor_panel_data.py`.
+- Real-data smoke produced `past=(4, 30, 28)`, `future=(4, 30, 28)`, `columns=28`, and four downstream factor future target keys.
+
+### Decision
+
+HEAD178 is data/target scaffolding for downstream factor-panel probe bakeoffs. It is not Part 1 promotion evidence and does not change pretraining. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---

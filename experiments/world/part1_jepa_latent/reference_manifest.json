@@ -199,6 +199,7 @@
       "temporal_stale_route_scan_report": "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md",
       "post_temporal_gate_reconciliation_report": "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
       "additive_probe_coverage_inventory_report": "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
+      "factor_panel_probe_scaffold_report": "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -813,6 +814,26 @@
           ],
           "next_step": "probe_contract_design_or_scaffold_not_pretraining_loss",
           "part_b_blocked": true
+        },
+        "factor_panel_probe_scaffold": {
+          "status": "data_and_target_scaffold_ready",
+          "module": "experiments/world/evaluation/factor_panel_data.py",
+          "test": "test_code/test_world_model_factor_panel_probes.py",
+          "real_data_smoke_shape": {
+            "past": [
+              4,
+              30,
+              28
+            ],
+            "future": [
+              4,
+              30,
+              28
+            ]
+          },
+          "target_scope": "factor_panel_future_downstream_probe_only",
+          "uses_future_targets_as_pretraining": false,
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -912,7 +933,8 @@
     "experiments/world/reports/world_model_head174_temporal_route_decision.md",
     "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md",
     "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
-    "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md"
+    "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
+    "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md"
   ],
   "guardrail_doc_checks": [
     {
