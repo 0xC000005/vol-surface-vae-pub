@@ -121107,3 +121107,52 @@ Use the gate to compare a broader set of fixed starts and narrative families bef
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_gate.py --contrast-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_857b/fixed_start_narrative_contrast.json --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_857b/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858a` passed with status `warning`.
 
 ---
+## 2026-05-11: NL prefix latent expanded fixed-start conditioning gate
+
+### Context
+Expanded the fixed-start narrative-conditioning gate from three starts to six starts to test whether narrative-influence damping is a start-regime pattern rather than a one-off artifact. This remains a bounded, no-OpenAI evaluation: cached narrative condition reports, explicit historical starts, one checked prefix-latent variant, and CUDA rollout.
+
+### Setup
+- Narratives: fragile risk-on, defensive risk-off, rates selloff, commodity inflation pressure, dollar liquidity squeeze, and safe-haven gold bid.
+- Fixed starts: `0`, `18`, `22`, `40`, `77`, and `178`.
+- Total runs: `36`.
+- Variant: `decoder_soft_topk_narrative_start_checked_gen_temp_0p50`.
+- Samples: `6`; solver steps: `100`; device: `cuda`.
+- Case spec: `autoresearch-session/fixed_start_narrative_matrix_858b_cases.json`.
+
+### Results
+- Bakeoff report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json`.
+- Contrast report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b/fixed_start_narrative_contrast.json`.
+- Gate report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b/fixed_start_conditioning_gate.json`.
+- Bakeoff status: `pass`; target count `36/36`.
+- Operational status counts: `30 pass`, `6 warning`.
+- Direction status counts: `36 pass`.
+- Mean scenario quality: energy improvement `+14.2%`; CRPS improvement `+11.7%` versus persistence.
+- Gate status: `warning` with zero hard failures.
+- Fixed-start equality: pass (`start_max_abs_diff = 0`).
+- Support/direction consistency: pass (`support_match = 1.0`, `final_mixture_mismatches = 0`).
+- Operational validation observation: warning (`30 pass`, `6 warning`), now reported separately from support/direction consistency.
+- Narrative separation: warning because starts `0` and `178` dampened narrative influence; starts `18`, `22`, `40`, and `77` passed.
+
+### Independent Verification
+An independent verifier agreed with caveats: the 858b artifacts support the claim, but the original gate warning count mixed check-level and start-block warnings, and support/direction pass should not be phrased as all validation rows pass. The gate was updated accordingly:
+- `warning_count` now means check-level warnings only.
+- `start_block_warning_count` and `total_warning_count` are reported separately.
+- `operational_validation_observation` now surfaces bakeoff operational/direction status counts explicitly.
+
+### Interpretation
+The expanded matrix strengthens the production story: conditionality is not only the chosen starting level, because multiple fixed-start blocks show narrative-dependent scenario-distribution separation. The caveat is also clearer now: some starting regimes constrain how much narrative influence the support mixture can express. This should be presented as an audit warning, not hidden or treated as a model failure.
+
+### Decision
+Keep the current bridge and support-mixture direction. Do not add a new CLIP/SupCon/architecture knob yet. The next model-side target, if needed, is start-aware support-prior calibration for starts that repeatedly damp narrative separation.
+
+### Next Principled Step
+Before adding model complexity, add a compact paper/demo analysis that shows fixed-start conditionality: same starting level, different narratives, different fan-chart/terminal-distribution responses, with starts `0` and `178` called out as damped-support regimes.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b --case-spec-json autoresearch-session/fixed_start_narrative_matrix_858b_cases.json --case-count 36 --variant-set direction_check --variant-count 1 --samples 6 --steps 100 --chunk-size 4 --device cuda` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_narrative_contrast.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b` passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_gate.py --contrast-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b/fixed_start_narrative_contrast.json --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b` passed with status `warning`.
+- `uv run pytest test_code/test_857a_nl_prefix_latent_fixed_start_conditioning_gate.py test_code/test_856b_nl_prefix_latent_fixed_start_narrative_contrast.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q` passed.
+
+---

@@ -14,7 +14,11 @@ def _contrast_report(*, start_diff: float = 0.0) -> dict:
         "start_max_abs_diff": start_diff,
         "start_blocks": [
             {"start_name": "start_a", "case_count": 3, "start_max_abs_diff": 0.0},
-            {"start_name": "start_b", "case_count": 3, "start_max_abs_diff": start_diff},
+            {
+                "start_name": "start_b",
+                "case_count": 3,
+                "start_max_abs_diff": start_diff,
+            },
         ],
         "case_summaries": [
             {
@@ -88,12 +92,18 @@ def test_gate_passes_with_warning_for_damped_start_block() -> None:
 
     assert gate["overall_status"] == "warning"
     assert gate["hard_fail_count"] == 0
+    assert gate["warning_count"] == 1
+    assert gate["start_block_warning_count"] == 1
+    assert gate["total_warning_count"] == 2
     assert any(
         block["start_name"] == "start_b" and block["status"] == "warning"
         for block in gate["start_block_assessments"]
     )
     assert {check["name"]: check["status"] for check in gate["checks"]}[
         "scenario_quality_vs_persistence"
+    ] == "pass"
+    assert {check["name"]: check["status"] for check in gate["checks"]}[
+        "operational_validation_observation"
     ] == "pass"
 
 
@@ -118,7 +128,26 @@ def test_gate_fails_when_distribution_quality_is_worse_than_persistence() -> Non
 
     assert gate["overall_status"] == "fail"
     assert any(
-        check["name"] == "scenario_quality_vs_persistence"
-        and check["status"] == "fail"
+        check["name"] == "scenario_quality_vs_persistence" and check["status"] == "fail"
         for check in gate["checks"]
     )
+
+
+def test_gate_surfaces_operational_validation_warnings_without_support_failure() -> (
+    None
+):
+    bakeoff = _bakeoff_report()
+    bakeoff["variant_summary"][0]["operational_status_counts"] = {
+        "pass": 5,
+        "warning": 1,
+    }
+
+    gate = evaluate_fixed_start_conditioning_gate(
+        contrast_report=_contrast_report(),
+        bakeoff_report=bakeoff,
+    )
+
+    checks = {check["name"]: check for check in gate["checks"]}
+    assert checks["support_direction_consistency"]["status"] == "pass"
+    assert checks["operational_validation_observation"]["status"] == "warning"
+    assert "warning" in checks["operational_validation_observation"]["detail"]

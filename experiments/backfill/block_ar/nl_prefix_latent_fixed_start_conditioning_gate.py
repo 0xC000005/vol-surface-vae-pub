@@ -68,7 +68,9 @@ def _primary_variant_summary(bakeoff_report: dict[str, Any]) -> dict[str, Any]:
     ]
     if summaries:
         return summaries[0]
-    rows = [row for row in _as_list(bakeoff_report.get("rows")) if isinstance(row, dict)]
+    rows = [
+        row for row in _as_list(bakeoff_report.get("rows")) if isinstance(row, dict)
+    ]
     energy = []
     crps = []
     for row in rows:
@@ -77,7 +79,9 @@ def _primary_variant_summary(bakeoff_report: dict[str, Any]) -> dict[str, Any]:
             energy.append(
                 _as_float(metrics.get("energy_score_z_improvement_vs_persistence"))
             )
-            crps.append(_as_float(metrics.get("ensemble_crps_z_improvement_vs_persistence")))
+            crps.append(
+                _as_float(metrics.get("ensemble_crps_z_improvement_vs_persistence"))
+            )
     return {
         "variant_name": "rows",
         "run_count": len(rows),
@@ -170,6 +174,47 @@ def _scenario_quality_check(
             "mean_energy_improvement_vs_persistence": energy,
             "mean_crps_improvement_vs_persistence": crps,
         },
+    }
+
+
+def _count_status(counts: dict[str, Any]) -> tuple[str, int, int]:
+    fail_count = 0
+    warning_count = 0
+    for key, value in counts.items():
+        count = int(value or 0)
+        status = str(key).lower()
+        if status == "warning":
+            warning_count += count
+        elif status != "pass":
+            fail_count += count
+    return _status(fail_count > 0, warning_count > 0), fail_count, warning_count
+
+
+def _operational_validation_observation(
+    bakeoff_report: dict[str, Any],
+) -> dict[str, Any]:
+    summary = _primary_variant_summary(bakeoff_report)
+    operational_counts = summary.get("operational_status_counts", {})
+    direction_counts = summary.get("direction_status_counts", {})
+    operational_counts = (
+        operational_counts if isinstance(operational_counts, dict) else {}
+    )
+    direction_counts = direction_counts if isinstance(direction_counts, dict) else {}
+    op_status, op_fail, op_warning = _count_status(operational_counts)
+    direction_status, direction_fail, direction_warning = _count_status(
+        direction_counts
+    )
+    fail = op_status == "fail" or direction_status == "fail"
+    warn = op_status == "warning" or direction_status == "warning"
+    return {
+        "name": "operational_validation_observation",
+        "status": _status(fail, warn),
+        "detail": (
+            f"operational_counts={dict(operational_counts)}, "
+            f"direction_counts={dict(direction_counts)}, "
+            f"operational_fail={op_fail}, operational_warning={op_warning}, "
+            f"direction_fail={direction_fail}, direction_warning={direction_warning}"
+        ),
     }
 
 
@@ -269,30 +314,34 @@ def evaluate_fixed_start_conditioning_gate(
     )
     checks = [
         _fixed_start_check(contrast_report, max_start_diff=max_start_diff),
-        _support_direction_check(
-            contrast_report, min_support_match=min_support_match
-        ),
+        _support_direction_check(contrast_report, min_support_match=min_support_match),
         _scenario_quality_check(
             bakeoff_report,
             min_energy_improvement=min_energy_improvement,
             min_crps_improvement=min_crps_improvement,
         ),
+        _operational_validation_observation(bakeoff_report),
         _narrative_separation_check(block_assessments),
     ]
     hard_fail_count = sum(1 for row in checks if row["status"] == "fail")
-    warning_count = sum(1 for row in checks if row["status"] == "warning") + sum(
+    check_warning_count = sum(1 for row in checks if row["status"] == "warning")
+    start_block_warning_count = sum(
         1 for row in block_assessments if row["status"] == "warning"
     )
+    total_warning_count = check_warning_count + start_block_warning_count
     return {
-        "overall_status": _status(hard_fail_count > 0, warning_count > 0),
+        "overall_status": _status(hard_fail_count > 0, total_warning_count > 0),
         "scope_note": (
             "Product/evaluation gate for fixed-start narrative conditionality. "
             "It verifies that the starting state is held fixed, support direction "
             "checks pass, distributional quality is not worse than persistence, "
-            "and narrative changes create measurable scenario-distribution gaps."
+            "operational validation counts are surfaced separately, and narrative "
+            "changes create measurable scenario-distribution gaps."
         ),
         "hard_fail_count": hard_fail_count,
-        "warning_count": warning_count,
+        "warning_count": check_warning_count,
+        "start_block_warning_count": start_block_warning_count,
+        "total_warning_count": total_warning_count,
         "thresholds": {
             "max_start_diff": max_start_diff,
             "min_support_match": min_support_match,
@@ -315,7 +364,9 @@ def render_markdown(gate: dict[str, Any]) -> str:
         "",
         f"- Overall status: `{gate.get('overall_status')}`",
         f"- Hard failures: `{gate.get('hard_fail_count')}`",
-        f"- Warnings: `{gate.get('warning_count')}`",
+        f"- Check warnings: `{gate.get('warning_count')}`",
+        f"- Start-block warnings: `{gate.get('start_block_warning_count')}`",
+        f"- Total warnings: `{gate.get('total_warning_count')}`",
         "",
         "## Checks",
         "",
