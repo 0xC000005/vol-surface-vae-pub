@@ -120477,3 +120477,21 @@ This iteration reconciles the formal Part 1 quality gate after the HEAD172-175 t
 Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked. Continue with provenance/gate work, broader additive/probe coverage, or a genuinely new Part 1 design gate that first explains target-latent state variation.
 
 ---
+## 2026-05-11: World model HEAD177 additive probe coverage inventory
+
+### Context
+
+This iteration inventories the additive/probe coverage gap after the temporal route was demoted.
+
+### Findings
+
+- `make_extended_future_targets` derives future probes from IV-surface `past_surface` and `future_surface` arrays only.
+- `build_iv_world_windows` loads 25-cell IV-surface windows from `data/vol_surface_with_ret.npz`; it does not expose a factor-panel future target batch.
+- Existing package docs correctly warn that factor-panel future target performance has not been claimed.
+- Backfill has aligned IV+factor panel utilities, but these are not yet wrapped as a frozen world Part 1 probe contract.
+
+### Decision
+
+The next evidence-expanding step should be a factor-panel future-probe contract or scaffold, not a new Part 1 pretraining loss and not temporal context-to-target tuning. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
+
+---

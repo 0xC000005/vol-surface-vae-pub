@@ -71,15 +71,16 @@ probe that consumes the Part 1 world-model reference candidate.
 62. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
 63. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
 64. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
-65. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-66. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-67. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-68. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-69. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-70. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-71. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-72. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-73. latest tail of `RESEARCH_LOG.md`
+65. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
+66. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+67. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+68. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+69. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+70. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+71. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+72. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+73. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+74. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -284,6 +285,9 @@ probe that consumes the Part 1 world-model reference candidate.
 - Treat HEAD176 as the post-temporal gate reconciliation: temporal
   context-to-target results do not change Part 1 gate status, and Part B
   remains blocked by exact-state retention and baseline superiority.
+- Treat HEAD177 as the probe-coverage inventory: factor-panel future probe
+  coverage is still missing from world Part 1 and should be added only as a
+  downstream frozen-probe contract, not as a pretraining loss.
 
 ## Do Not Do Without Explicit Authorization
 

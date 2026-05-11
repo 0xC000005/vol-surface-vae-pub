@@ -258,6 +258,9 @@ human-oriented resume guide, not the source of truth.
 - HEAD176: `world_model_head176_post_temporal_gate_reconciliation.md`
   reconciles the formal Part 1 gate after the temporal route demotion and keeps
   Part B blocked.
+- HEAD177: `world_model_head177_additive_probe_coverage_inventory.md` confirms
+  that world Part 1 future-target probes are still IV-surface-only and that
+  factor-panel future probes remain missing downstream-probe coverage.
 
 ## Packaging And Restart Guardrails
 
@@ -383,6 +386,7 @@ Then read:
 66. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
 67. `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`
 68. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
+69. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
 
 ## Decision
 

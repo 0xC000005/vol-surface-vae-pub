@@ -150,6 +150,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head175_temporal_stale_route_scan.md`.
 - Latest post-temporal gate reconciliation:
   `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`.
+- Latest additive probe coverage inventory:
+  `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`.
 
 ## Fixed Contract
 
@@ -299,6 +301,11 @@ is a representation-learning package for same-market-state masked views.
   candidate but is still `DO_NOT_PROMOTE`; row-level, clean-target,
   surface-local, and temporal context-to-target routes are demoted as
   implemented; Part B remains blocked.
+- Additive probe coverage inventory: HEAD177 confirms the world Part 1
+  downstream future-target code is IV-surface-only. Factor-panel future levels
+  or returns, cross-factor spread/correlation summaries, joint IV-plus-factor
+  future state probes, and horizon sensitivity remain missing evidence, not
+  pretraining objectives.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -541,6 +548,9 @@ is a representation-learning package for same-market-state masked views.
 - Treat HEAD176 as the current post-temporal gate reconciliation: temporal
   results do not promote Part 1 or unblock Part B; exact-state retention and
   baseline superiority remain the main blockers.
+- Treat HEAD177 as the current probe-coverage inventory: the next
+  evidence-expanding work should design or scaffold factor-panel future probes
+  as downstream frozen probes, not turn them into Part 1 training losses.
 
 ## Next Work Requires Direction
 
@@ -566,6 +576,8 @@ Future work should be one of:
   latents will carry state variation before predictor training.
 - provenance or gate-reconciliation work that preserves HEAD174's temporal
   route demotion, without tuning context-to-target knobs.
+- a factor-panel future-probe contract/scaffold that expands downstream
+  evaluation coverage without changing Part 1 pretraining.
 
 Do not resurrect demoted context-to-target routes through target coverage,
 hidden-size, predictor-depth, EMA, epoch, mask-aggression, or Barlow-weight
