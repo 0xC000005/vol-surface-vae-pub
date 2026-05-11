@@ -194,6 +194,7 @@
       "additive_probe_standardization_report": "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
       "additive_gate_reconciliation_report": "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
       "temporal_block_jepa_smoke_report": "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
+      "temporal_jepa_bakeoff_report": "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -242,6 +243,7 @@
       "additive_exact_state_topology_json": "results/world/additive_exact_state_topology_head169.json",
       "additive_probe_standardization_json": "results/world/additive_probe_standardization_head170.json",
       "temporal_block_jepa_smoke_json": "results/world/temporal_block_jepa_smoke_head172.json",
+      "temporal_jepa_bakeoff_json": "results/world/temporal_jepa_bakeoff_head173.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -742,6 +744,21 @@
           "future_range_raw_plus_to_raw_ratio": 0.85333,
           "promotion_decision": "SMOKE_ONLY_DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "temporal_jepa_bakeoff": {
+          "status": "do_not_promote",
+          "objective_family": "downstream_probe_frozen_bakeoff",
+          "uses_future_targets_as_pretraining": false,
+          "current_iv_temporal_raw_plus_to_raw_ratio": 0.837799,
+          "current_iv_random_raw_plus_to_raw_ratio": 0.817571,
+          "temporal_raw_plus_future_improvements": "1/5",
+          "random_raw_plus_future_improvements": "3/5",
+          "scale_raw_plus_future_improvements": "3/5",
+          "temporal_raw_plus_beats_scale_raw_plus_future_targets": "1/5",
+          "random_control_warning": "raw_plus_random_beats_or_matches_raw_plus_temporal_on_current_iv",
+          "future_utility_status": "temporal_raw_plus_underperforms_controls",
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -836,7 +853,8 @@
     "experiments/world/reports/world_model_head169_additive_exact_state_topology.md",
     "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
     "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
-    "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md"
+    "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
+    "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md"
   ],
   "guardrail_doc_checks": [
     {

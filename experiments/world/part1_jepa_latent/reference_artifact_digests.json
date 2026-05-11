@@ -67,6 +67,14 @@
       "sha256": "ffd81f3c88510acb7b05331d6f09512836d0c1933ec69f39d3b704c3672e784b",
       "tracked": false,
       "ignored": true
+    },
+    {
+      "role": "temporal_jepa_bakeoff_result",
+      "path": "results/world/temporal_jepa_bakeoff_head173.json",
+      "bytes": 113597,
+      "sha256": "75245f6f44cb084945803599636a166356b1c81758a1793c55f8e9bf7ada7de6",
+      "tracked": false,
+      "ignored": true
     }
   ]
 }

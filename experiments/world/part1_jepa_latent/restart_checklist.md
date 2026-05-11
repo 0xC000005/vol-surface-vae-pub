@@ -67,15 +67,16 @@ probe that consumes the Part 1 world-model reference candidate.
 58. `experiments/world/reports/world_model_head170_additive_probe_standardization.md`
 59. `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`
 60. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
-61. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-62. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-63. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-64. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-65. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-66. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-67. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-68. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-69. latest tail of `RESEARCH_LOG.md`
+61. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
+62. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+63. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+64. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+65. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+66. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+67. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+68. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+69. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+70. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 
@@ -266,6 +267,11 @@ probe that consumes the Part 1 world-model reference candidate.
   only, with no future-window target, decoder, or raw reconstruction. It shows
   mixed additive probe signal but weak retrieval/rank, so it is
   `SMOKE_ONLY_DO_NOT_PROMOTE`.
+- Treat HEAD173 as the temporal JEPA frozen bakeoff: raw+temporal improves the
+  current-IV guardrail, but raw+random does better on the same guardrail, while
+  temporal raw+ improves only `1/5` future targets versus `3/5` for random raw+
+  and `3/5` for scaled Barlow raw+. The temporal route is `DO_NOT_PROMOTE` and
+  should not be tuned with small context-to-target knobs.
 
 ## Do Not Do Without Explicit Authorization
 
@@ -298,6 +304,8 @@ probe that consumes the Part 1 world-model reference candidate.
   exact-state guardrail failure.
 - Treat the HEAD172 temporal smoke as Part-B-ready or as permission to tune
   context-to-target knobs; its own report marks it smoke-only.
+- Treat the HEAD173 temporal frozen bakeoff as a positive temporal-JEPA result;
+  its random-control and scaled-candidate comparisons are negative.
 
 ## Required Reporting
 

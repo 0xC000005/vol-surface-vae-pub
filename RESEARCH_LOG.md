@@ -120399,3 +120399,27 @@ The next bounded check was a literature-aligned `context_to_target_jepa` diagnos
 HEAD172 is `SMOKE_ONLY_DO_NOT_PROMOTE`. It is useful evidence that a temporal JEPA branch can add bounded raw+learned probe signal, but weak retrieval/rank and smoke-scale scope mean it does not replace the active masked-multiview Barlow reference and does not unblock Part B.
 
 ---
+## 2026-05-11: World model HEAD173 temporal JEPA frozen bakeoff
+
+### Context
+
+This iteration completes the HEAD172 temporal context-to-target JEPA follow-up as a frozen bakeoff rather than a knob-tuning step. The branch still uses no future-window target, no decoder, and no raw-value reconstruction; future targets are probe-only.
+
+### Hypothesis
+
+If the temporal JEPA signal is useful, the frozen temporal feature surface should add value beyond raw features and should beat random temporal features and the active scaled Barlow candidate on the same raw-only, learned-only, and raw-plus-learned probes.
+
+### Result
+
+- Added `experiments/world/part1_jepa_latent/analyze_temporal_jepa_bakeoff.py` and `test_code/test_world_model_temporal_bakeoff.py`.
+- Report: `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`.
+- Result JSON: `results/world/temporal_jepa_bakeoff_head173.json`.
+- Current-IV raw+temporal/raw ratio is `0.837799`, but raw+random/raw is better at `0.817571`, so the current-IV improvement is not strong learned-state evidence.
+- Temporal raw+learned improves only `1/5` future probe targets, versus `3/5` for random raw+ and `3/5` for scaled Barlow raw+.
+- Temporal raw+learned beats scaled Barlow raw+ on only `1/5` future probe targets.
+
+### Decision
+
+Promotion decision: `DO_NOT_PROMOTE`. HEAD173 is a negative bakeoff for the current temporal context-to-target route. Do not tune context-to-target knobs from this result; keep scaled Barlow as the active learned candidate with Part B still blocked.
+
+---

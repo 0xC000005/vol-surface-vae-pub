@@ -142,6 +142,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head171_additive_gate_reconciliation.md`.
 - Latest temporal block JEPA smoke:
   `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`.
+- Latest temporal JEPA frozen bakeoff:
+  `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`.
 
 ## Fixed Contract
 
@@ -267,6 +269,15 @@ is a representation-learning package for same-market-state masked views.
   (`current-IV raw+learned/raw=0.881`, `future-range raw+learned/raw=0.853`),
   but latent row retrieval is weak (`top10=0.031`) and context rank is low
   (`3.80`), so it is `SMOKE_ONLY_DO_NOT_PROMOTE`.
+- Temporal JEPA frozen bakeoff: HEAD173 compares the HEAD172-style temporal
+  feature surface against raw features, random temporal features, and the
+  scaled Barlow candidate on the same frozen probes. Raw+temporal improves the
+  current-IV guardrail (`0.838x` raw), but raw+random is better on that same
+  guardrail (`0.818x` raw). On future probes, temporal raw+ improves only
+  `1/5` targets versus `3/5` for random raw+ and `3/5` for scaled Barlow raw+,
+  and temporal raw+ beats scaled Barlow raw+ on only `1/5` targets. The route
+  is `DO_NOT_PROMOTE` and should not be tuned with small context-to-target
+  knobs.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -496,6 +507,11 @@ is a representation-learning package for same-market-state masked views.
   replacement for the active masked-multiview Barlow reference. It gives a
   useful bounded diagnostic signal, but weak latent retrieval/rank and
   smoke-scale scope block promotion and Part B.
+- Treat HEAD173 as the temporal frozen-bakeoff result: the current-IV
+  raw+temporal improvement is undercut by the random temporal control, and
+  temporal raw+learned future utility underperforms both random raw+ and scaled
+  Barlow raw+. Do not tune the temporal context-to-target route from this
+  result.
 
 ## Next Work Requires Direction
 
@@ -519,9 +535,8 @@ Future work should be one of:
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target
   latents will carry state variation before predictor training.
-- a follow-up temporal-JEPA assessment only if it compares the same raw-only,
-  learned-only, and raw-plus-learned guardrails against the active scaled
-  Barlow candidate without tuning context-to-target knobs.
+- a temporal-JEPA route decision or provenance report that preserves HEAD173's
+  negative bakeoff result, without tuning context-to-target knobs.
 
 Do not resurrect demoted context-to-target routes through target coverage,
 hidden-size, predictor-depth, EMA, epoch, mask-aggression, or Barlow-weight

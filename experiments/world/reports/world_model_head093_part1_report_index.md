@@ -244,6 +244,12 @@ human-oriented resume guide, not the source of truth.
   temporal context-to-target JEPA diagnostic. It shows bounded raw+learned
   probe signal on current IV and future range, but weak latent retrieval/rank,
   so it is smoke-only and not promoted.
+- HEAD173: `world_model_head173_temporal_jepa_bakeoff.md` compares that
+  temporal feature surface against raw, random temporal, and scaled Barlow
+  controls. Raw+temporal helps current IV, but raw+random is better on that
+  guardrail; temporal raw+ improves only `1/5` future targets versus `3/5` for
+  both random raw+ and scaled Barlow raw+, so the temporal route is
+  `DO_NOT_PROMOTE`.
 
 ## Packaging And Restart Guardrails
 
@@ -365,6 +371,7 @@ Then read:
 62. `experiments/world/reports/world_model_head112_open_risk_ledger_refresh.md`
 63. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 64. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
+65. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
 
 ## Decision
 
