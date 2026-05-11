@@ -121934,3 +121934,80 @@ generator rollout is less calibrated.
 - `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_report_blend_alpha250.json --bridge-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_arrays_blend_alpha250.npz --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_blend_alpha025_scenario_eval_872b_full --include-direct-memory-generator --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda`
 
 ---
+## 2026-05-11: NL prefix latent support-quality decomposition
+
+### Context
+Iteration 117 falsified promotion of the alpha-0.25 blended memory bridge:
+memory-space and direct-memory metrics improved, but the analogue-supported
+top-k generator slightly underperformed the current representative baseline.
+The next HEAD step was post-experiment analysis, not another model knob.
+
+### Hypothesis
+If the alpha-0.25 bridge improves support retrieval but hurts top-k generator
+quality, then a support-quality decomposition should show replay quality
+improving while generator rollout metrics stagnate or worsen. That would
+identify the bottleneck as support/generator calibration mismatch rather than
+text-memory alignment alone.
+
+### Execution
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py`.
+- Added tests in
+  `test_code/test_872a_nl_prefix_latent_support_quality_decomposition.py`.
+- The diagnostic compares baseline and candidate bridge/scenario reports on:
+  top-k support overlap, top-1 support changes, historical replay score deltas,
+  generator score deltas, replay/generator delta correlation, and windows where
+  replay improves but generator rollout worsens.
+- Ran the diagnostic on:
+  - baseline bridge:
+    `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json`;
+  - baseline scenario:
+    `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220/scenario_level_eval_report.json`;
+  - alpha-0.25 blended bridge:
+    `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_memory_blend_pareto_871b_alpha025_artifacts/bridge_eval_report_blend_alpha250.json`;
+  - alpha-0.25 scenario:
+    `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_blend_alpha025_scenario_eval_872b_full/scenario_level_eval_report.json`.
+
+### Result
+- Unit tests passed: `7 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- Decomposition artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_quality_decomposition_872c_alpha025/support_quality_decomposition.json`
+- Markdown report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_quality_decomposition_872c_alpha025/support_quality_decomposition.md`
+- Key findings:
+  - held-out windows: `29`;
+  - mean top-k support overlap: `0.6897`;
+  - top-1 support changed fraction: `0.3448`;
+  - historical replay raw energy delta: `-0.0146` (better);
+  - generator raw energy delta: `+0.0051` (worse);
+  - replay/generator energy-delta correlation: `-0.0006`;
+  - windows where replay improved but generator worsened: `6`;
+  - historical replay energy improvement delta: `+1.23%`;
+  - narrative generator top-k energy improvement delta: `-0.43%`.
+
+### Mechanism Read
+The candidate support pool is not merely worse. It finds histories whose
+realized futures replay better, but those histories do not produce better
+frozen-generator samples. This is a support/generator calibration mismatch.
+The generator's learned conditional distribution is not identical to historical
+replay quality, so optimizing target-memory cosine or replay alone can select
+support windows that are less calibrated under the frozen SNI rollout.
+
+### Decision / Next Step
+Do not promote alpha-0.25 and do not add broad hyperparameter sweeps. The next
+principled experiment is a generator-calibration-aware support policy
+TestFlight: keep the same narrative/start candidate pool, but add a candidate
+quality feature derived from frozen-generator calibration on training windows
+or leave-one-out support diagnostics. Falsifier: the policy must improve
+scenario-level energy/CRPS versus the current representative baseline without
+reducing hard-negative separation below the text-memory incumbent's acceptable
+floor.
+
+### Verification
+- `uv run black experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py test_code/test_872a_nl_prefix_latent_support_quality_decomposition.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py`
+- `uv run pytest test_code/test_872a_nl_prefix_latent_support_quality_decomposition.py test_code/test_871a_nl_prefix_latent_memory_blend_pareto.py -q`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py`
+
+---
