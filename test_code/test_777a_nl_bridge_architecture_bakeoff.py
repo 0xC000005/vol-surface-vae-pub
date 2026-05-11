@@ -7,12 +7,16 @@ sys.path.insert(0, ".")
 from experiments.backfill.block_ar.nl_bridge_architecture_bakeoff import (
     choose_best_method,
     filter_training_examples,
+    resolve_torch_device,
     summarize_bakeoff,
     train_clip_condition_adapter,
+    train_supcon_regression_adapter,
 )
 
 
-def test_train_clip_condition_adapter_reduces_loss_and_outputs_condition_vectors() -> None:
+def test_train_clip_condition_adapter_reduces_loss_and_outputs_condition_vectors() -> (
+    None
+):
     rng = np.random.default_rng(777)
     memory_targets = np.asarray(
         [
@@ -66,6 +70,52 @@ def test_train_clip_condition_adapter_reduces_loss_and_outputs_condition_vectors
 
     assert result["condition_vectors"].shape == (9, 3)
     assert result["loss_last"] < result["loss_first"]
+    assert np.isfinite(result["condition_vectors"]).all()
+
+
+def test_train_supcon_regression_adapter_reduces_loss_and_outputs_condition_vectors() -> (
+    None
+):
+    memory_targets = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    text_embeddings = np.asarray(
+        [
+            [1.0, 0.1, 0.0, 0.0],
+            [0.9, 0.2, 0.0, 0.0],
+            [0.0, 1.0, 0.1, 0.0],
+            [0.0, 0.9, 0.2, 0.0],
+            [0.0, 0.1, 1.0, 0.0],
+            [0.1, 0.0, 0.9, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    target_indices = np.asarray([0, 0, 1, 1, -1, -1], dtype=np.int64)
+    roles = ["anchor", "positive", "anchor", "positive", "negative", "negative"]
+    groups = ["w0", "w0", "w1", "w1", "w0", "w1"]
+
+    result = train_supcon_regression_adapter(
+        text_embeddings,
+        memory_targets,
+        target_indices,
+        roles,
+        groups,
+        condition_dim=3,
+        hidden_dim=12,
+        steps=160,
+        lr=2e-2,
+        supcon_weight=0.1,
+        supcon_temperature=0.1,
+        seed=778,
+    )
+
+    assert result["condition_vectors"].shape == (6, 3)
+    assert result["loss_last"] < result["loss_first"]
+    assert result["component_loss_last"]["supervised_contrastive"] >= 0.0
     assert np.isfinite(result["condition_vectors"]).all()
 
 
@@ -135,3 +185,14 @@ def test_choose_best_method_ignores_missing_metric() -> None:
         )
         == "b"
     )
+
+
+def test_resolve_torch_device_accepts_cpu_and_rejects_unknown() -> None:
+    assert resolve_torch_device("cpu") == "cpu"
+
+    try:
+        resolve_torch_device("tpu")
+    except ValueError as exc:
+        assert "device must be" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")

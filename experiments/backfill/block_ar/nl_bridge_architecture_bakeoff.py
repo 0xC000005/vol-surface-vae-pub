@@ -33,25 +33,45 @@ from experiments.backfill.block_ar.nl_condition_bridge_evaluation import (  # no
     summarize_bridge_metrics,
 )
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
+    NarrativeAdapter,
     train_narrative_adapter,
 )
-from experiments.backfill.block_ar.nl_text_conditioning import normalize_rows  # noqa: E402
+from experiments.backfill.block_ar.nl_text_conditioning import (
+    normalize_rows,
+)  # noqa: E402
 
 
 def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _round_float(value: float) -> float:
     return round(float(value), 12)
 
 
+def resolve_torch_device(requested: str) -> str:
+    """Resolve a user-facing device option for bridge adapter training."""
+
+    value = str(requested).lower()
+    if value == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if value == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
+    if value not in {"cpu", "cuda"}:
+        raise ValueError("device must be auto, cpu, or cuda")
+    return value
+
+
 class ClipConditionAdapter(nn.Module):
     """Projection head from frozen text embeddings into generator memory space."""
 
-    def __init__(self, embedding_dim: int, condition_dim: int, hidden_dim: int | None = None):
+    def __init__(
+        self, embedding_dim: int, condition_dim: int, hidden_dim: int | None = None
+    ):
         super().__init__()
         hidden = int(hidden_dim or min(512, max(condition_dim * 2, embedding_dim // 2)))
         self.net = nn.Sequential(
@@ -93,6 +113,140 @@ def _group_hard_negative_loss(
     return torch.stack(terms).mean()
 
 
+def _supervised_contrastive_loss(
+    pred: torch.Tensor,
+    target_indices: torch.Tensor,
+    *,
+    temperature: float,
+) -> torch.Tensor:
+    """Supervised contrastive loss over rows with the same memory target."""
+
+    valid_mask = target_indices >= 0
+    pred_valid = pred[valid_mask]
+    labels = target_indices[valid_mask]
+    if int(pred_valid.shape[0]) < 2:
+        return pred.new_zeros(())
+    pred_norm = F.normalize(pred_valid, dim=-1)
+    logits = pred_norm @ pred_norm.T
+    logits = logits / max(float(temperature), 1e-6)
+    logits = logits - logits.max(dim=1, keepdim=True).values.detach()
+    eye = torch.eye(
+        int(pred_valid.shape[0]),
+        dtype=torch.bool,
+        device=pred_valid.device,
+    )
+    positive_mask = (labels[:, None] == labels[None, :]) & (~eye)
+    denominator_mask = ~eye
+    usable_rows = positive_mask.any(dim=1)
+    if not bool(torch.any(usable_rows)):
+        return pred.new_zeros(())
+    neg_inf = torch.finfo(logits.dtype).min
+    log_denominator = torch.logsumexp(
+        logits.masked_fill(~denominator_mask, neg_inf),
+        dim=1,
+    )
+    log_positive = torch.logsumexp(
+        logits.masked_fill(~positive_mask, neg_inf),
+        dim=1,
+    )
+    return -(log_positive[usable_rows] - log_denominator[usable_rows]).mean()
+
+
+def train_supcon_regression_adapter(
+    text_embeddings: np.ndarray,
+    target_memory: np.ndarray,
+    target_indices: np.ndarray,
+    roles: list[str],
+    groups: list[str],
+    *,
+    condition_dim: int,
+    hidden_dim: int | None = None,
+    steps: int = 700,
+    lr: float = 1e-3,
+    supcon_weight: float = 0.10,
+    supcon_temperature: float = 0.10,
+    hard_negative_weight: float = 0.25,
+    hard_negative_margin: float = 0.25,
+    seed: int = 0,
+    device: str | torch.device | None = None,
+) -> dict[str, Any]:
+    """Train an MLP with memory regression plus supervised contrastive pairing."""
+
+    embeddings = normalize_rows(text_embeddings)
+    targets = np.asarray(target_memory, dtype=np.float32)
+    target_idx = np.asarray(target_indices, dtype=np.int64)
+    if embeddings.shape[0] != target_idx.shape[0]:
+        raise ValueError("target_indices length must match text embeddings")
+    if len(roles) != embeddings.shape[0] or len(groups) != embeddings.shape[0]:
+        raise ValueError("roles/groups length must match text embeddings")
+    torch.manual_seed(int(seed))
+    device_t = torch.device(device or "cpu")
+    x = torch.from_numpy(embeddings).float().to(device_t)
+    y = torch.from_numpy(targets).float().to(device_t)
+    idx_t = torch.from_numpy(target_idx).to(device_t)
+    valid_mask = idx_t >= 0
+    if not bool(torch.any(valid_mask)):
+        raise ValueError("need at least one non-negative training target")
+    adapter = NarrativeAdapter(
+        embeddings.shape[1],
+        int(condition_dim),
+        hidden_dim=hidden_dim,
+    ).to(device_t)
+    opt = torch.optim.AdamW(adapter.parameters(), lr=float(lr), weight_decay=1e-4)
+    losses: list[float] = []
+    mse_losses: list[float] = []
+    cosine_losses: list[float] = []
+    supcon_losses: list[float] = []
+    hard_losses: list[float] = []
+    for _ in range(int(steps)):
+        opt.zero_grad(set_to_none=True)
+        pred = adapter(x)
+        align_pred = pred[valid_mask]
+        align_target = y[idx_t[valid_mask]]
+        mse = F.mse_loss(align_pred, align_target)
+        cosine = 1.0 - F.cosine_similarity(align_pred, align_target, dim=-1).mean()
+        supcon = _supervised_contrastive_loss(
+            pred,
+            idx_t,
+            temperature=float(supcon_temperature),
+        )
+        hard = _group_hard_negative_loss(
+            pred,
+            roles=roles,
+            groups=groups,
+            margin=float(hard_negative_margin),
+        )
+        loss = (
+            mse
+            + 0.2 * cosine
+            + float(supcon_weight) * supcon
+            + float(hard_negative_weight) * hard
+        )
+        loss.backward()
+        opt.step()
+        losses.append(float(loss.detach()))
+        mse_losses.append(float(mse.detach()))
+        cosine_losses.append(float(cosine.detach()))
+        supcon_losses.append(float(supcon.detach()))
+        hard_losses.append(float(hard.detach()))
+    adapter.eval()
+    with torch.no_grad():
+        condition_vectors = adapter(x).cpu().numpy().astype(np.float32)
+    return {
+        "adapter": adapter,
+        "condition_vectors": condition_vectors,
+        "loss_first": losses[0],
+        "loss_last": losses[-1],
+        "losses": losses,
+        "component_loss_last": {
+            "mse": mse_losses[-1],
+            "cosine": cosine_losses[-1],
+            "supervised_contrastive": supcon_losses[-1],
+            "hard_negative": hard_losses[-1],
+        },
+    }
+
+
 def train_clip_condition_adapter(
     text_embeddings: np.ndarray,
     target_memory: np.ndarray,
@@ -109,6 +263,7 @@ def train_clip_condition_adapter(
     hard_negative_weight: float = 0.25,
     hard_negative_margin: float = 0.25,
     seed: int = 0,
+    device: str | torch.device | None = None,
 ) -> dict[str, Any]:
     """Train a CLIP-style supervised contrastive bridge over frozen embeddings."""
 
@@ -130,17 +285,18 @@ def train_clip_condition_adapter(
     )
 
     torch.manual_seed(int(seed))
-    x = torch.from_numpy(embeddings).float()
-    y = torch.from_numpy(targets).float()
-    valid_mask = torch.from_numpy(valid_mask_np)
-    class_t = torch.from_numpy(class_labels)
-    target_idx_t = torch.from_numpy(target_idx)
-    target_table_t = torch.tensor(unique_targets, dtype=torch.long)
+    device_t = torch.device(device or "cpu")
+    x = torch.from_numpy(embeddings).float().to(device_t)
+    y = torch.from_numpy(targets).float().to(device_t)
+    valid_mask = torch.from_numpy(valid_mask_np).to(device_t)
+    class_t = torch.from_numpy(class_labels).to(device_t)
+    target_idx_t = torch.from_numpy(target_idx).to(device_t)
+    target_table_t = torch.tensor(unique_targets, dtype=torch.long, device=device_t)
     adapter = ClipConditionAdapter(
         embeddings.shape[1],
         int(condition_dim),
         hidden_dim=hidden_dim,
-    )
+    ).to(device_t)
     opt = torch.optim.AdamW(adapter.parameters(), lr=float(lr), weight_decay=1e-4)
     losses: list[float] = []
     ce_losses: list[float] = []
@@ -275,6 +431,7 @@ def run_single_method(
     split: dict[str, list[int]],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
+    device = resolve_torch_device(str(getattr(args, "device", "auto")))
     row_indices = filter_training_examples(
         examples,
         train_indices=split["train_indices"],
@@ -305,12 +462,44 @@ def run_single_method(
             contrastive_weight=float(args.mlp_contrastive_weight),
             contrastive_margin=float(args.hard_negative_margin),
             seed=int(args.seed),
+            device=device,
         )
         adapter = train_result["adapter"]
         adapter.eval()
         with torch.no_grad():
             condition_vectors = (
-                adapter(torch.from_numpy(normalize_rows(text_embeddings)).float())
+                adapter(
+                    torch.from_numpy(normalize_rows(text_embeddings)).float().to(device)
+                )
+                .cpu()
+                .numpy()
+                .astype(np.float32)
+            )
+    elif method == "mlp_supcon_regression":
+        train_result = train_supcon_regression_adapter(
+            train_embeddings,
+            memory_targets,
+            target_indices,
+            roles,
+            groups,
+            condition_dim=int(memory_targets.shape[1]),
+            hidden_dim=args.hidden_dim,
+            steps=int(args.adapter_steps),
+            lr=float(args.adapter_lr),
+            supcon_weight=float(args.supcon_weight),
+            supcon_temperature=float(args.supcon_temperature),
+            hard_negative_weight=float(args.supcon_hard_negative_weight),
+            hard_negative_margin=float(args.hard_negative_margin),
+            seed=int(args.seed),
+            device=device,
+        )
+        adapter = train_result["adapter"]
+        adapter.eval()
+        with torch.no_grad():
+            condition_vectors = (
+                adapter(
+                    torch.from_numpy(normalize_rows(text_embeddings)).float().to(device)
+                )
                 .cpu()
                 .numpy()
                 .astype(np.float32)
@@ -331,12 +520,15 @@ def run_single_method(
             hard_negative_weight=float(args.clip_hard_negative_weight),
             hard_negative_margin=float(args.hard_negative_margin),
             seed=int(args.seed),
+            device=device,
         )
         adapter = train_result["adapter"]
         adapter.eval()
         with torch.no_grad():
             condition_vectors = (
-                adapter(torch.from_numpy(normalize_rows(text_embeddings)).float())
+                adapter(
+                    torch.from_numpy(normalize_rows(text_embeddings)).float().to(device)
+                )
                 .cpu()
                 .numpy()
                 .astype(np.float32)
@@ -437,9 +629,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
         split["source"] = "sequential"
     requested = [item.strip() for item in str(args.methods).split(",") if item.strip()]
     policies = [
-        item.strip()
-        for item in str(args.training_policies).split(",")
-        if item.strip()
+        item.strip() for item in str(args.training_policies).split(",") if item.strip()
     ]
     results = {}
     for method in requested:
@@ -470,6 +660,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
         "split": split,
         "methods_requested": requested,
         "training_policies_requested": policies,
+        "device": resolve_torch_device(str(args.device)),
         "summary": summary,
         "results": results,
         "artifact_paths": {
@@ -510,8 +701,17 @@ def main() -> None:
     parser.add_argument("--adapter-lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Torch device for bridge adapter training. auto uses CUDA when visible.",
+    )
     parser.add_argument("--temperature", type=float, default=0.07)
     parser.add_argument("--mlp-contrastive-weight", type=float, default=0.25)
+    parser.add_argument("--supcon-weight", type=float, default=0.10)
+    parser.add_argument("--supcon-temperature", type=float, default=0.10)
+    parser.add_argument("--supcon-hard-negative-weight", type=float, default=0.25)
     parser.add_argument("--clip-mse-weight", type=float, default=0.25)
     parser.add_argument("--clip-hard-negative-weight", type=float, default=0.25)
     parser.add_argument("--hard-negative-margin", type=float, default=0.25)

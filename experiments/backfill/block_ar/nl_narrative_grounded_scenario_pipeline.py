@@ -829,6 +829,7 @@ def train_narrative_adapter(
     contrastive_weight: float = 0.25,
     contrastive_margin: float = 0.25,
     seed: int = 0,
+    device: str | torch.device | None = None,
 ) -> dict[str, Any]:
     embeddings = normalize_rows(text_embeddings)
     targets = np.asarray(target_memory, dtype=np.float32)
@@ -838,14 +839,15 @@ def train_narrative_adapter(
     if len(roles) != embeddings.shape[0] or len(groups) != embeddings.shape[0]:
         raise ValueError("roles/groups length must match text embeddings")
     torch.manual_seed(int(seed))
-    x = torch.from_numpy(embeddings).float()
-    y = torch.from_numpy(targets).float()
-    idx_t = torch.from_numpy(target_idx)
+    device_t = torch.device(device or "cpu")
+    x = torch.from_numpy(embeddings).float().to(device_t)
+    y = torch.from_numpy(targets).float().to(device_t)
+    idx_t = torch.from_numpy(target_idx).to(device_t)
     adapter = NarrativeAdapter(
         embeddings.shape[1],
         int(condition_dim),
         hidden_dim=hidden_dim,
-    )
+    ).to(device_t)
     opt = torch.optim.AdamW(adapter.parameters(), lr=float(lr), weight_decay=1e-4)
     valid_mask = idx_t >= 0
     losses: list[float] = []
@@ -1148,7 +1150,9 @@ def sample_with_memory_residual_condition(
     if base.ndim == 1:
         base = np.repeat(base[None], bsz, axis=0)
     if cond.shape != (bsz, int(model.cfg.memory_dim)):
-        raise ValueError("condition_memory must have shape [K,memory_dim] or [memory_dim]")
+        raise ValueError(
+            "condition_memory must have shape [K,memory_dim] or [memory_dim]"
+        )
     if base.shape != cond.shape:
         raise ValueError("base_memory must match condition_memory shape")
     residual = float(alpha) * (cond - base)

@@ -120949,3 +120949,37 @@ Avoid model-chosen starts hidden from the user, broad hyperparameter sweeps, and
 - `uv run python experiments/backfill/block_ar/nl_text_latent_mechanism_attribution.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_mechanism_attribution_853a` wrote the JSON and Markdown attribution reports.
 
 ---
+## 2026-05-11: NL prefix latent supervised contrastive TestFlight and GPU bakeoff path
+
+### Context
+Continued the text-to-condition-memory bridge autoresearch after the mechanism attribution pass. The next falsifiable idea was a narrow supervised-contrastive MLP variant that preserves generator-memory regression while adding same-window caption alignment. During the run, the bake-off was found to be CPU-bound even though CUDA was available, so the training path was updated to support `--device auto`.
+
+### Implementation
+- Added `mlp_supcon_regression` to `experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py`.
+- Added `--device auto|cpu|cuda`; `auto` selects CUDA when `torch.cuda.is_available()` is true.
+- Added optional `device` support to `train_narrative_adapter` in `experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py`.
+- Added tests for the supervised-contrastive bridge and device resolver in `test_code/test_777a_nl_bridge_architecture_bakeoff.py`.
+
+### Results
+- CUDA was visible in the environment: `torch.cuda.is_available() == True`, one CUDA device, PyTorch `2.9.0+cu128`.
+- The first supervised-contrastive TestFlight at `--supcon-weight 0.10` improved gap/margin but failed the target-memory falsifier: target cosine fell by `-0.065130`.
+- A conservative `--supcon-weight 0.02` run with seed 854 stayed within the target-memory drop threshold (`-0.008492`) and improved gap (`+0.061000`), margin (`+0.058710`), and recall@3 (`+0.015873`).
+- Seed checks were mixed:
+  - seed 855 improved gap/margin but target cosine dropped by `-0.017574`, failing the `0.01` target-cosine falsifier;
+  - seed 856 improved retrieval but worsened gap/margin and target cosine dropped by `-0.012748`;
+  - the CUDA rerun with seed 855 recorded `device: cuda`, target cosine drop `-0.007334`, recall@3 improvement `+0.087302`, but gap/margin worsened.
+
+### Decision
+Do not promote `mlp_supcon_regression` yet. The method may help retrieval, but it is not a robust improvement to the generator-memory and directional-separation objectives. Keep `mlp_mse_contrastive__multi_caption_with_negatives` as the incumbent.
+
+The durable engineering improvement is GPU-capable bake-off execution. Future bridge experiments should run serially with `--device auto` rather than parallel CPU jobs.
+
+### Next Principled Step
+Return to fixed-start narrative conditionality using the incumbent bridge: same approved starting level, multiple narratives, and scenario-level distribution comparison. The key question is whether narrative changes produce meaningful, auditable changes in generated 30-day distributions without relying on exact historical-window retrieval as the objective.
+
+### Verification
+- `uv run pytest test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_853a_nl_text_latent_mechanism_attribution.py -q` passed: 21 tests.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py` passed.
+- `uv run python experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py ... --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_855b_supcon_lowweight_gpu --device auto` completed and wrote a report with `device: cuda`.
+
+---
