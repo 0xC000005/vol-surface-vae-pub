@@ -1,6 +1,6 @@
 ---
 name: autoresearch-head-loop
-description: Run a resumable in-session HEAD autoresearch loop toward 11/11 on the common full 11-suite for a generalizable conditional scenario generator. Use persistent state files, append results to the true end of RESEARCH_LOG.md via research-log-tail-append, and create one focused commit per iteration. Default mode is in-session; optional external-driver mode is secondary.
+description: Run a resumable in-session HEAD autoresearch loop toward 11/11 on the common full 11-suite for a generalizable conditional scenario generator. Use persistent state files, append results to the true end of RESEARCH_LOG.md via research-log-tail-append, and create workflow-scoped checkpoint commits. Default mode is in-session; optional external-driver mode is secondary.
 ---
 
 # Autoresearch HEAD Loop
@@ -260,7 +260,7 @@ use this workflow:
 4. Execute exactly one iteration.
 5. Update `autoresearch-session/state_11x11.json`.
 6. Append a concise entry to the true tail of `RESEARCH_LOG.md` using `research-log-tail-append`.
-7. Make one focused git commit for that iteration.
+7. Apply the checkpoint commit policy.
 8. If more iterations remain in the current in-session budget, continue immediately.
 
 ## Iteration Granularity
@@ -289,16 +289,47 @@ After each iteration, update:
 - `current_best_note`
 - `goal_reached`
 - `last_commit`
+- `pending_git_files`
+- `pending_commit_reason`
 
-## Commit Discipline
+## Checkpoint Commit Discipline
 
-Every iteration must end with one focused commit.
+This workflow's commit-title scope is `sni-head`.
 
-Good commit pattern:
+Every iteration must append to the research log, but Git commits should be
+created at coherent checkpoints rather than after every micro-step. Do not make
+single-file or log-only commits unless the file is a standalone protocol
+decision, user-requested checkpoint, or urgent fix.
 
-- `feat: autoresearch 254b temporal anti-collapse test`
-- `docs: autoresearch postmortem for 254a`
-- `refactor: autoresearch loop tooling`
+Create a checkpoint commit only when the staged files form one legible unit:
+
+- one completed experiment/evaluator plus its validation evidence;
+- one postmortem or protocol decision that changes future loop behavior;
+- implementation plus tests;
+- a research-log entry bundled with the code, report, or artifact it documents.
+
+If the iteration is partial, cosmetic, or log-only, leave the changes pending
+and record `last_commit: null`, `pending_git_files`, and
+`pending_commit_reason` in state.
+
+Every auto-research checkpoint commit title must include the workflow scope:
+
+- `feat(sni-head): add temporal anti-collapse test`
+- `eval(sni-head): compare sticky-channel generic head`
+- `docs(sni-head): record postmortem for 254a`
+- `refactor(sni-head): tighten autoresearch loop tooling`
+
+Use a concise commit body for nontrivial checkpoints:
+
+```text
+Workflow: autoresearch-head-loop
+HEAD: <post_experiment_analysis|research_ideation|paradigm_shift|experiment>
+Objective: <one sentence>
+Validation: <commands or artifact checks>
+Artifacts: <paths, or n/a>
+Research log: <date/title or line if known>
+Next bottleneck: <one sentence>
+```
 
 Do not stage unrelated local state by default. Avoid committing:
 
@@ -309,6 +340,13 @@ Do not stage unrelated local state by default. Avoid committing:
 - unrelated experimental debris
 
 unless the iteration is explicitly about those files.
+
+Before committing, check:
+
+- The title would still be meaningful six months later.
+- The commit answers one clear HEAD question or checkpoint.
+- Related code, tests, docs, and research-log evidence are bundled together.
+- No unrelated dirty worktree changes are staged.
 
 ## Research Log Entry Requirements
 

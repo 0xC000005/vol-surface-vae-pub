@@ -120612,3 +120612,69 @@ exact IV-state retention is still unresolved.
   `python experiments/world/part1_jepa_latent/analyze_factor_family_normalized_probe_audit.py --device cpu --history_len 30 --future_len 30 --max_train_windows 128 --max_val_windows 64 --batch_size 64 --ridge_alpha 10.0 --output_json results/world/factor_family_normalized_probe_head180.json --report_md experiments/world/reports/world_model_head180_factor_family_normalized_probe_audit.md`.
 
 ---
+## 2026-05-11: Narrative-Conditioned Scenario Product Contract
+
+### Context
+
+We clarified how a risk manager should treat the narrative-conditioned scenario product. The user narrative should describe the current or recent market regime, not prescribe the desired future path.
+
+### Product Contract
+
+- The risk manager enters a narrative describing the current/recent market condition, such as a fragile risk-on rebound after stress, credit tightening, volatility compression, liquidity squeeze, or safe-haven rotation.
+- The risk manager supplies or selects the starting market level. This is the explicit numerical state from which the next-30-day distribution begins.
+- The system maps the narrative into a latent recent-market condition, with grounding used as an audit/check layer rather than as a replacement for the richer story.
+- The frozen scenario generator then produces a distribution of plausible next-30-day paths conditioned on the narrative-derived market context and starting level.
+- The system should not treat future-directed statements as target paths. If the user writes "equities will crash next month," the application should warn that this is a forward hypothesis and ask for current/recent evidence supporting the regime.
+
+### Decision
+
+The user-facing promise should be: describe the market condition, choose the starting level, and receive plausible future scenario distributions conditioned on that setup.
+
+This should not be framed as an agentic forecasting assistant or as a tool that lets users prescribe the future they want to see. The numerical future must come from the trained scenario generator, while the LLM/narrative layer interprets and audits the conditioning setup.
+
+### Implication For Evaluation
+
+The next product-quality analysis should test whether different narratives, holding the same starting level fixed, produce meaningfully different and defensible scenario distributions across horizons such as day 1, day 7, day 14, and day 30. This isolates narrative conditionality from starting-level effects and shows whether the story meaning survives through the generator rollout.
+
+---
+## 2026-05-11: Sora-CLIP-Style Narrative Conditioning Research Direction
+
+### Context
+
+We reviewed how to make the natural-language-conditioned scenario generator more like a mature Sora/CLIP/DALL-E-style text-to-latent system, beyond simply using more of the existing training windows. The key question was what else can improve the mapping from risk-manager narrative to the latent condition used by the frozen scenario generator.
+
+### External Research Signals
+
+- CLIP's transferable capability comes from paired multimodal alignment, not from a generic text embedding alone. The core task is matching the correct caption to the correct target representation among many negatives, which suggests that our bridge should learn a contrastive relationship between scenario narratives and generator condition memories. References: https://icml.cc/virtual/2021/oral/9194 and https://openai.com/index/clip/
+- DALL-E 2 provides a closer analogy than raw CLIP retrieval: a prior maps text to a latent image embedding, and a decoder generates from that latent. Our analogue is `narrative + start level -> condition-memory latent prior -> frozen scenario generator`. Reference: https://openai.com/index/hierarchical-text-conditional-image-generation-with-clip-latents/
+- Sora and related latent video models do not generate raw pixels directly from text. They compress videos into latent representations, model latent spacetime patches, and rely heavily on descriptive recaptioning to improve text fidelity. This supports generating multiple high-quality historical-window narratives rather than relying on sparse labels. Reference: https://openai.com/index/video-generation-models-as-world-simulators/
+- DALL-E 3's recaptioning result is directly relevant: better, more descriptive synthetic captions improve prompt following. For our setting, the equivalent is richer risk-manager-style descriptions of each historical scenario window, with explicit current/recent market content and warning-only forward-risk language. Reference: https://cdn.openai.com/papers/dall-e-3.pdf
+- Text-to-time-series work is moving toward latent alignment and generative priors. BRIDGE uses LLM-synthesized text-time-series data plus semantic prototypes for text-controlled time-series generation. T2S uses a length-adaptive VAE, flow matching, and a DiT denoiser to align text representations with time-series latents. References: https://proceedings.mlr.press/v267/li25ah.html and https://www.ijcai.org/proceedings/2025/580
+- BLIP-2 suggests a lightweight bridge architecture between frozen unimodal systems: a Querying Transformer bridges frozen encoders/decoders with much fewer trainable parameters than full end-to-end training. This is a useful analogy for bridging frozen text embeddings and frozen scenario-generator condition memories. Reference: https://proceedings.mlr.press/v202/li23q.html
+- ControlNet suggests a later-stage adapter path: freeze the strong generator and train a small condition-control branch. This may be appropriate after the narrative bridge proves useful, but it is not the immediate next step. Reference: https://huggingface.co/papers/2302.05543
+- Sentence-BERT, SimCSE, and supervised contrastive learning are useful baselines and objective families, but they are not the full solution. The important move is domain-specific contrastive alignment between scenario narratives, hard negatives, starting levels, and the generator's own latent condition space. References: https://huggingface.co/papers/1908.10084, https://huggingface.co/papers/2104.08821, and https://proceedings.neurips.cc/paper/2020/hash/d89a66c7c80a29b1bdbab0f2a1a94af8-Abstract.html
+
+### Design Implications
+
+- Do not frame the next upgrade as only `text embedding -> MLP -> condition embedding`. That is too weak and too point-estimate oriented.
+- Build a multi-caption historical dataset: several factual and narrative descriptions per window, including cross-asset regime interpretation, volatility/liquidity language, and explicit direction claims.
+- Use hard negatives deliberately: same dominant asset language but opposite direction, such as rates up versus rates down, vol compression versus vol spike, risk-on rebound versus risk-off liquidation.
+- Train a CLIP/SupCon-style alignment objective so matched narrative/window pairs are close and hard negatives are separated.
+- Move toward a text-plus-start latent prior that predicts a distribution over plausible condition memories, rather than a single deterministic projection.
+- Keep historical support analogues as provenance and audit, not as the whole model. Support retrieval should check on-manifold behavior, direction consistency, and explainability.
+- Consider token-level cross-attention or a small Q-Former-style bridge so the full narrative is not collapsed into one sentence vector too early.
+- Treat ControlNet-style adapters as a later option after the bridge and latent prior show stable signal.
+
+### Recommended Next Research Step
+
+The most principled upgrade path is:
+
+`multi-caption historical dataset -> CLIP/SupCon alignment -> narrative+start latent prior -> frozen generator -> support audit`
+
+This better matches mature text-conditioned generation systems: the text does not directly invent the future, and the LLM is not used as the numerical generator. Instead, the narrative conditions a learned latent prior in the scenario generator's own condition space. The frozen generator then produces the next-30-day distribution.
+
+### Evaluation Implication
+
+The next experiment should hold the starting level fixed and vary the narrative. We should measure whether the generated distributions differ in sensible, directionally auditable ways across day 1, day 7, day 14, and day 30. If narratives do not move the distribution, the bridge is too weak. If they move the distribution without on-manifold support or direction consistency, the bridge is hallucinating.
+
+---
