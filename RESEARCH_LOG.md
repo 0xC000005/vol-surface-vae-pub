@@ -121711,3 +121711,54 @@ This iteration did not improve the bridge. It closed paper-contract drift: the m
 Record this as a documentation/paper-refresh HEAD iteration, not a model promotion. The next principled step is a post-experiment analysis of the text-to-memory incumbent versus the desired Sora/CLIP-like latent prior direction: identify one falsifiable bridge improvement that can use the existing multi-caption/hard-negative data without adding an unconstrained knob.
 
 ---
+## 2026-05-11: NL prefix latent residual refinement TestFlight
+
+### Context
+After the paper refresh, the next research bottleneck was whether the language bridge can move beyond `text embedding -> MLP -> condition memory` without jumping to an unconstrained Sora/CLIP-style latent prior. The current protocol calls for a bounded residual refinement on top of an auditable narrative/start support mixture.
+
+### Hypothesis
+A small residual refiner should be tested before any larger latent-prior architecture. If the support mixture already places held-out examples near the target generator memory, then a residual model conditioned on text memory, fixed start, and mixture memory may improve target cosine while preserving the incumbent's hard-negative separation.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py`.
+- Added `test_code/test_870a_nl_prefix_latent_residual_refinement.py`.
+- The script makes no OpenAI calls. It uses:
+  - saved current bridge outputs from `manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_arrays.npz`;
+  - saved narrative bundles from `manifest_openai_schema_v2_representative_220/narrative_pipeline_report.json`;
+  - saved prefix/oracle history from `prefix_latent_oracle_fullheldout_786c/prefix_latent_oracle_arrays.npz`.
+- It compares three memory-space conditions on the same held-out bridge evaluator:
+  - current text-memory incumbent;
+  - start-compatible support-mixture memory;
+  - bounded residual-refined support-mixture memory.
+- Ran:
+  - `uv run pytest test_code/test_870a_nl_prefix_latent_residual_refinement.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py`
+  - `uv run python experiments/backfill/block_ar/nl_prefix_latent_residual_refinement_testflight.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_residual_refinement_testflight_870a`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+
+### Result
+- Unit tests passed: `2 passed`.
+- Syntax and whitespace checks passed.
+- TestFlight report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_residual_refinement_testflight_870a/residual_refinement_testflight.json`
+- Status: `diagnostic_only`.
+- Held-out target cosine:
+  - text-memory incumbent: `0.8597`;
+  - support-mixture memory: `0.9014`;
+  - residual-refined memory: `0.8926`.
+- Hard-negative gap:
+  - text-memory incumbent: `0.8835`;
+  - support-mixture memory: `0.0811`;
+  - residual-refined memory: `0.1439`.
+- Recall@3 within the test pool:
+  - text-memory incumbent: `0.1746`;
+  - support-mixture memory: `0.1905`;
+  - residual-refined memory: `0.2222`.
+
+### Mechanism Read
+The support mixture is doing something useful for memory target placement, but it collapses directional hard-negative separation. The residual refiner improves recall and target cosine versus the original text memory, but it remains worse than the support mixture on target cosine and far worse than the text-memory incumbent on hard-negative gap. The likely failure mechanism is not lack of capacity; it is that the support mixture dominates the condition and the residual objective has no explicit constraint preserving text-level negative separation.
+
+### Decision / Next Step
+Do not promote the residual refiner. The next principled TestFlight is not a broad hyperparameter sweep; it is one mechanism-targeted variant: add a hard-negative preservation term to the residual refiner, using the same grouped anchor/positive/negative structure already used by the bridge evaluator. Falsifier: target cosine must remain above the text-memory incumbent, and hard-negative gap must recover materially toward the incumbent rather than staying collapsed near the mixture baseline.
+
+---
