@@ -11,15 +11,16 @@ autoregressive rollout.
 Current boss-demo runbook:
 `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
 
-The long-run product contract has two modes:
+The long-run product contract has one fixed-start requirement with two start
+input routes:
 
-1. **Model-chosen starting point.** The risk manager supplies only a narrative.
-   The system recommends one or more plausible starting states. The user accepts
-   or selects one of those levels before the prefix mixture is formed.
-2. **User-specified starting point.** The risk manager supplies a narrative plus
+1. **Manually selected historical/current start.** The app can expose historical
+   or current joint39 start states for browsing, but the risk manager manually
+   selects the level. The system must not silently choose the start as a hidden
+   conditioning input.
+2. **User-specified joint39 start.** The risk manager supplies a narrative plus
    the current or hypothetical starting level for the joint scenario factors.
-   The system skips start recommendation and treats that supplied level as the
-   fixed initial condition.
+   The supplied level is treated as the fixed initial condition.
 
 After the initial level is fixed, both modes share the same contract:
 
@@ -37,10 +38,10 @@ nearest-neighbor replay engine. The production path should retrieve a set of
 narrative-relevant and start-compatible historical regimes, form a soft mixture
 in latent or prefix space, and learn a residual refinement from the narrative
 plus fixed starting state. The mixture is therefore not upstream of the initial
-level. It is conditioned on the level the user supplied or accepted from the
-system's recommendations. The system must expose the analogue weights, support
-diagnostics, and post-rollout implication checks so a risk manager can see
-whether the generated distribution is supported, weakly supported, or rejected.
+level. It is conditioned on the level the user supplied or manually selected.
+The system must expose the analogue weights, support diagnostics, and
+post-rollout implication checks so a risk manager can see whether the generated
+distribution is supported, weakly supported, or rejected.
 
 ## Workflow Revision: Grounding Is A Sidecar, Not The Narrative
 
@@ -138,16 +139,15 @@ not conditioning targets. The grounding layer must therefore separate:
 - forward-looking or desired-future language that must be excluded from the
   conditioning text.
 
-The start level is resolved before any prefix mixture is formed. In
-narrative-only mode the system can recommend plausible joint39 start levels,
-but it must then ask the user to accept or choose one. In explicit-start mode
-the user-supplied joint39 level is already the fixed start. Only after this
-point should the model retrieve and weight historical prefix support:
+The start level is resolved before any prefix mixture is formed. The app may
+show historical/current start candidates for browsing, but a candidate is not a
+conditioning input until the risk manager explicitly selects it. If the user
+supplies a joint39 level directly, that level is already the fixed start. Only
+after this point should the model retrieve and weight historical prefix support:
 
 ```text
 narrative -> condition-only grounding
-grounding -> candidate start levels, if needed
-accepted/user-supplied s0 + full narrative + grounding sidecar -> analogue pool and mixture weights
+user-selected/user-supplied s0 + full narrative + grounding sidecar -> analogue pool and mixture weights
 mixture prefix ending at s0 -> frozen SNI rollout -> future distribution
 ```
 
@@ -167,10 +167,11 @@ should move at least one of these product gates:
    full narrative text and also converted into explicit market implications,
    unsupported-claim warnings, forward-risk sidecars, model metadata, and
    cached text conditions.
-2. **Fixed-start mixture contract.** The model first accepts either a proposed
-   historical start or an explicit user-specified joint39 start. Only after that
-   level is fixed does it build the narrative-conditioned analogue mixture, then
-   decode a recent-prefix object that ends exactly at that start.
+2. **Fixed-start mixture contract.** The model first accepts either a manually
+   selected historical/current start or an explicit user-specified joint39
+   start. Only after that level is fixed does it build the
+   narrative-conditioned analogue mixture, then decode a recent-prefix object
+   that ends exactly at that start.
 3. **Native frozen rollout.** The decoded prefix is fed through the frozen SNI
    generator's native encoder and autoregressive rollout, not a stale fixed
    condition vector.
@@ -224,7 +225,7 @@ The direct-memory and residual-memory ablations confirm the mechanics:
 The central object is a **mixture-supported prefix latent**:
 
 ```text
-narrative -> recommended or user-specified starting state s0
+narrative -> user-selected or user-specified starting state s0
 narrative + fixed s0 -> start-compatible analogue pool -> soft mixture prior
 soft mixture prior + narrative + fixed s0 -> residual-refined prefix latent
 residual-refined prefix latent -> synthetic recent-prefix state
@@ -330,15 +331,15 @@ The loss should begin simple:
 The refined latent is decoded to a synthetic prefix and passed through the
 unchanged SNI autoregressive sampler.
 
-### Stage E: Product Modes
+### Stage E: Starting-Level Contract
 
-For model-chosen starts, use retrieval only at the start-state layer:
+For manually selected historical/current starts:
 
-- retrieve or sample plausible `s0` states consistent with the narrative and
-  analogue-mixture support;
-- generate several start candidates and display them to the risk manager;
-- once a start is accepted, build the analogue mixture conditioned on both the
-  narrative and that selected `s0`;
+- display searchable or curated historical/current `s0` states to the risk
+  manager;
+- treat only the user's selected start as the conditioning input;
+- build the analogue mixture conditioned on both the narrative and that selected
+  `s0`;
 - run the mixture-supported residual generator from that fixed start.
 
 For user-specified starts:
@@ -352,6 +353,11 @@ For user-specified starts:
 This makes the analogue mixture a transparent prior rather than a hidden
 nearest-neighbor generator. The refined latent is the scenario condition; the
 analogue pool is provenance, plausibility support, and a guardrail.
+
+There is no model-chosen start in the production default. A future start
+recommendation feature would need its own product gate, user approval step, and
+evaluation set; it must not be folded into the core narrative-conditioning
+claim.
 
 ## Evaluation Plan
 
@@ -367,8 +373,9 @@ then add prefix-latent baselines in this order:
    learned residual and roll out.
 4. **Mixture plus residual.** Predict a residual from narrative, starting
    state, and mixture diagnostics, then decode and roll out.
-5. **Text-only start-selected prefix.** Let the model choose plausible starts,
-   then produce mixture-supported refined latents and roll out.
+5. **Fixed-start narrative sensitivity.** Hold the selected start fixed and vary
+   narratives, then hold the narrative fixed and vary starts. The scenario
+   distribution should change for the right reason in both directions.
 6. **Ablations.** Compare against historical replay, persistence, current
    analogue-top-k generation, direct memory, residual memory, raw text embedding
    retrieval, no-contrastive bridge, contrastive bridge, mixture without
@@ -401,6 +408,80 @@ Use the repo's HEAD discipline:
 - **Analyze:** compare against saved artifacts and baselines.
 - **Decide:** update persistent state, append the research log, and recommend
   the next iteration.
+
+### Autoresearch Guardrails
+
+The workflow should learn from autonomous-research systems without copying
+their failure modes. Related systems such as AI Scientist, Agent Laboratory,
+and Robin show that autonomous loops are useful when they include literature
+review, experiment execution, reporting, and review. Independent evaluations of
+AI Scientist also show recurring risks: weak novelty checks, failed or
+misleading experiments, stale citations, hallucinated numbers, and structural
+report errors.
+
+Before adopting a new model family, bridge objective, agent workflow, or
+deployment architecture, create a short related-work artifact under
+`docs/research_protocols/` or the relevant experiment output directory. The
+artifact should contain:
+
+- sources checked, preferably primary sources;
+- what transfers to this project;
+- what does not transfer;
+- the mechanism being tested;
+- the falsifier;
+- the implementation constraint imposed by the literature review.
+
+Do not use web search as decoration after the decision has already been made.
+Use it to constrain the next HEAD hypothesis.
+
+### Sweep And Hyperparameter Policy
+
+Sweeping is not a principled default research action. It is allowed only as a
+bounded diagnostic or calibration step.
+
+Before a sweep, write:
+
+- the single failure mechanism under test;
+- the one hyperparameter axis being varied;
+- the baseline and expected movement;
+- the trade-off that would still be acceptable;
+- the falsifier that stops the branch.
+
+Default sweep budget is at most three values on one axis. Larger sweeps require
+a preceding `research_ideation` decision and a saved analysis note explaining
+why the mechanism cannot be tested more directly. A sweep cannot promote a new
+default by itself; promotion still requires mechanism attribution, held-out
+validation, and independent verification.
+
+### Independent Verifier Checklist
+
+Before promoting a bridge, support policy, demo path, production-readiness
+claim, or paper-facing result, the verifier should check:
+
+- the novelty claim is real and not just a renamed known method;
+- the experiment actually ran and the artifacts match the claimed command;
+- reported metrics are current, held out where needed, and not cherry-picked;
+- code changes are substantive enough to support the claimed mechanism;
+- citations are real, relevant, and current enough for the claim;
+- generated reports contain no hallucinated numbers, duplicated figures,
+  missing figures, placeholder text, or stale paths presented as evidence;
+- the result still satisfies the fixed-start contract and does not reintroduce
+  hidden model-chosen starts.
+
+If the verifier cannot answer these from local artifacts, the next step is
+`post_experiment_analysis` or `research_ideation`, not promotion.
+
+### Artifact Lifecycle Policy
+
+Autoresearch creates many scripts, reports, and intermediate branches. Prevent
+stale artifacts from becoming current truth:
+
+- maintain one current default artifact path per production gate;
+- mark superseded branches in local state when possible with `superseded_by`
+  and `superseded_reason`;
+- cite older reports only as baselines or historical context;
+- if two reports conflict, run `post_experiment_analysis` before using either
+  as evidence for a product or paper claim.
 
 ### Commit and Artifact Policy
 
@@ -494,3 +575,13 @@ LLM to invent the final distribution.
   while not treating retrieved neighbors as the whole generative mechanism:
   https://papers.neurips.cc/paper/2020/hash/6b493230205f780e1bc26945df7481e5-Abstract.html
   and https://proceedings.mlr.press/v267/han25d.html
+- **Autonomous research loops.** AI Scientist, Agent Laboratory, Robin, and
+  automated-discovery surveys motivate HEAD-style iteration, literature review,
+  experiment execution, reporting, and review, but also require explicit
+  guardrails for novelty, failed experiments, hallucinated evidence, and human
+  intervention points:
+  https://arxiv.org/abs/2408.06292
+  https://arxiv.org/abs/2501.04227
+  https://www.futurehouse.org/research-announcements/demonstrating-end-to-end-scientific-discovery-with-robin-a-multi-agent-system
+  https://link.springer.com/article/10.1007/s10994-025-06955-2
+  https://arxiv.org/abs/2502.14297

@@ -120867,3 +120867,50 @@ Future nontrivial design moves should first articulate alternatives and falsifie
 - `git diff --check` passed.
 
 ---
+## 2026-05-11: NLP Autoresearch Guardrail Update
+
+### Context
+
+Reviewed the current narrative prefix-latent autoresearch workflow against
+autoresearch and ML-production related material: AI Scientist, Agent Laboratory,
+FutureHouse Robin, an automated scientific discovery survey, an independent AI
+Scientist critique, Google Rules of ML / ML Test Score, and OpenAI eval
+guidance.
+
+### Decision
+
+The NLP autoresearch workflow should remain HEAD-based, but now has stricter
+guardrails:
+
+- fixed start first: the risk manager must manually select a historical/current
+  start or supply a joint39 start before any narrative-conditioned mixture is
+  formed;
+- no model-chosen starting level in the production default;
+- related-work artifact required before adopting a new model family, bridge
+  objective, agent workflow, or deployment architecture;
+- sweeps are bounded diagnostics only: one axis, normally at most three values,
+  with mechanism, expected movement, trade-off, and falsifier written before the
+  run;
+- independent verification must check for known autonomous-research failure
+  modes: weak novelty, failed experiments, stale or cherry-picked metrics, thin
+  code changes, unreal/stale citations, hallucinated numbers, placeholder text,
+  missing/duplicated figures, stale artifacts, and hidden model-chosen starts;
+- stale artifacts must be treated as baselines or historical context unless
+  explicitly revalidated.
+
+### Implementation
+
+Updated the active local NLP skill and the tracked protocol:
+
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `docs/research_protocols/nl_prefix_autoresearch_guardrail_sources.md`
+
+### Next Step
+
+Resume NLP autoresearch only after checking that the next HEAD iteration states
+one mechanism and falsifier. Avoid broad CLIP or bridge hyperparameter sweeps;
+prefer mechanism attribution or a small TestFlight tied to the current
+text-to-memory alignment bottleneck.
+
+---
