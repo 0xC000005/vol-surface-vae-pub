@@ -383,6 +383,7 @@ PREFIX_VARIANT_COLUMNS = [
 PREFIX_SELECTED_START_COLUMNS = [
     "Starting Level",
     "Index",
+    "Reliability",
     "Compatibility",
     "Distance",
     "Source Split",
@@ -978,12 +979,14 @@ def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
 
 def prefix_selected_start_table(report: dict[str, Any]) -> pd.DataFrame:
     row = _operational_variant_row(report)
+    reliability = _as_dict(report.get("start_reliability_gate"))
     rows: list[dict[str, Any]] = []
     if row:
         rows.append(
             {
                 "Starting Level": str(row.get("start_window_id", "")),
                 "Index": str(row.get("start_window_index", "")),
+                "Reliability": str(reliability.get("product_status", "not checked")),
                 "Compatibility": _fmt_float(row.get("memory_support_cosine")),
                 "Distance": _fmt_float(row.get("start_distance_z")),
                 "Source Split": str(row.get("start_manifest_split", "")),
@@ -2605,6 +2608,11 @@ def build_demo() -> Any:
                         "Bridge-local window index for the starting market level. "
                         "In production this is supplied by the risk manager."
                     ),
+                )
+                gr.Markdown(
+                    "Reliability-checked demo starts: `0`, `18`, `22`, `40`, "
+                    "`77` pass. `178` is kept as a high-instability hard case.",
+                    elem_classes=["demo-hint"],
                 )
             with gr.Column(scale=1, min_width=280):
                 prefix_fan_market = gr.Dropdown(

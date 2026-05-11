@@ -348,6 +348,12 @@ def _prefix_report() -> dict:
                 }
             ],
         },
+        "start_reliability_gate": {
+            "product_status": "pass",
+            "decision": "Start has enough fixed-start evidence.",
+            "warnings": [],
+            "failures": [],
+        },
         "generation": {
             "generated_state_shape": [2, 16, 30, 39],
             "finite_rate": 1.0,
@@ -593,11 +599,13 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert variants.iloc[1]["Memory Support"] == "0.887"
     assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
     assert selected.iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert selected.iloc[0]["Reliability"] == "pass"
     assert selected.iloc[0]["Compatibility"] == "0.887"
     assert "Product decision:" not in product_markdown
     assert "Warning:" not in product_markdown
     assert "Starting level:" not in product_markdown
     assert "Story support:" in product_markdown
+    assert "Start reliability: `pass`" in product_markdown
     assert "Result note:" in product_markdown
     assert diagnostic.iloc[0]["Start Window"] == "joint39_val_0370"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"

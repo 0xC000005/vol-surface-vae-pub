@@ -121539,3 +121539,26 @@ The demo path now surfaces the same product-facing start reliability used by the
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-11: NL prefix latent start reliability UX
+
+### Context
+The demo consumed the start reliability manifest, but the start-selection UI still did not make supported versus hard-case starts obvious before the user generated scenarios.
+
+### Execution
+- Added a compact reliability hint next to the historical start input.
+- Added a `Reliability` column to the selected-start table so the selected day-0 market level carries the same product status as the backend gate.
+- Updated formatter tests to require the reliability status in product-facing output.
+
+### Result
+The Gradio path now makes the current start universe explicit:
+
+- `0`, `18`, `22`, `40`, and `77` are reliability-checked passing demo starts.
+- `178` is retained as a high-instability hard case.
+- The selected start table shows whether the actual selected start is `pass`, `warn_high_instability`, or not checked.
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> `39 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` -> passed.
+- `git diff --check` -> passed.
+
+---
