@@ -120423,3 +120423,21 @@ If the temporal JEPA signal is useful, the frozen temporal feature surface shoul
 Promotion decision: `DO_NOT_PROMOTE`. HEAD173 is a negative bakeoff for the current temporal context-to-target route. Do not tune context-to-target knobs from this result; keep scaled Barlow as the active learned candidate with Part B still blocked.
 
 ---
+## 2026-05-11: World model HEAD174 temporal route decision
+
+### Context
+
+This iteration records the route decision after the HEAD173 temporal JEPA frozen bakeoff. It is not a new model experiment, Part 1 objective, or Part B decoder step.
+
+### Evidence
+
+- HEAD173 raw+temporal improves current IV (`0.837799x` raw), but raw+random is better on the same guardrail (`0.817571x` raw).
+- Temporal raw+ improves only `1/5` future probe targets, versus `3/5` for random raw+ and `3/5` for scaled Barlow raw+.
+- Temporal raw+ beats scaled Barlow raw+ on only `1/5` future probe targets.
+- The package checker after HEAD173 passed with `75` reports, `5` guardrail docs, and `9` ignored artifacts.
+
+### Decision
+
+HEAD174 demotes the current temporal context-to-target route as implemented. Do not continue with temporal hidden-size, epoch, mask, target-len, EMA, or predictor-depth tuning. The active learned candidate remains scaled Barlow, still `DO_NOT_PROMOTE`, and Part B remains blocked.
+
+---

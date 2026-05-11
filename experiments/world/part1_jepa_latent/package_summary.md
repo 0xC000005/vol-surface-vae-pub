@@ -144,6 +144,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`.
 - Latest temporal JEPA frozen bakeoff:
   `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`.
+- Latest temporal route decision:
+  `experiments/world/reports/world_model_head174_temporal_route_decision.md`.
 
 ## Fixed Contract
 
@@ -278,6 +280,12 @@ is a representation-learning package for same-market-state masked views.
   and temporal raw+ beats scaled Barlow raw+ on only `1/5` targets. The route
   is `DO_NOT_PROMOTE` and should not be tuned with small context-to-target
   knobs.
+- Temporal route decision: HEAD174 demotes the current temporal
+  context-to-target route as implemented. HEAD172 remains a useful smoke
+  diagnostic, but HEAD173's random-control and scaled-candidate comparisons are
+  negative enough that the correct continuation is provenance/gate work or a
+  genuinely new design gate, not temporal hidden-size, target-len, mask, EMA,
+  epoch, or predictor-depth tuning.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled
@@ -512,6 +520,9 @@ is a representation-learning package for same-market-state masked views.
   temporal raw+learned future utility underperforms both random raw+ and scaled
   Barlow raw+. Do not tune the temporal context-to-target route from this
   result.
+- Treat HEAD174 as the current temporal route decision: the temporal
+  context-to-target route is demoted as implemented, active learned candidate
+  status returns to scaled Barlow `DO_NOT_PROMOTE`, and Part B remains blocked.
 
 ## Next Work Requires Direction
 
@@ -535,8 +546,8 @@ Future work should be one of:
   candidate, without changing the objective;
 - a genuinely new Part 1 design gate only if it first explains how target
   latents will carry state variation before predictor training.
-- a temporal-JEPA route decision or provenance report that preserves HEAD173's
-  negative bakeoff result, without tuning context-to-target knobs.
+- provenance or gate-reconciliation work that preserves HEAD174's temporal
+  route demotion, without tuning context-to-target knobs.
 
 Do not resurrect demoted context-to-target routes through target coverage,
 hidden-size, predictor-depth, EMA, epoch, mask-aggression, or Barlow-weight

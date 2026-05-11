@@ -250,6 +250,9 @@ human-oriented resume guide, not the source of truth.
   guardrail; temporal raw+ improves only `1/5` future targets versus `3/5` for
   both random raw+ and scaled Barlow raw+, so the temporal route is
   `DO_NOT_PROMOTE`.
+- HEAD174: `world_model_head174_temporal_route_decision.md` demotes the
+  current temporal context-to-target route as implemented and blocks temporal
+  knob tuning unless a genuinely new design gate is justified.
 
 ## Packaging And Restart Guardrails
 
@@ -372,6 +375,7 @@ Then read:
 63. `experiments/world/reports/world_model_head116_goal_checker_manual_stop.md`
 64. `experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md`
 65. `experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md`
+66. `experiments/world/reports/world_model_head174_temporal_route_decision.md`
 
 ## Decision
 

@@ -195,6 +195,7 @@
       "additive_gate_reconciliation_report": "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
       "temporal_block_jepa_smoke_report": "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
       "temporal_jepa_bakeoff_report": "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md",
+      "temporal_route_decision_report": "experiments/world/reports/world_model_head174_temporal_route_decision.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -759,6 +760,21 @@
           "future_utility_status": "temporal_raw_plus_underperforms_controls",
           "promotion_decision": "DO_NOT_PROMOTE",
           "part_b_blocked": true
+        },
+        "temporal_route_decision": {
+          "status": "current_temporal_context_target_route_demoted",
+          "demotion_reason": "random_control_and_scaled_candidate_beat_temporal_raw_plus_on_key_head173_comparisons",
+          "active_learned_candidate_remains": "HEAD127_HEAD130_scaled_barlow_not_promoted",
+          "do_not_tune": [
+            "temporal_hidden_size",
+            "temporal_epochs",
+            "temporal_mask",
+            "temporal_target_len",
+            "ema_decay",
+            "predictor_depth"
+          ],
+          "promotion_decision": "DO_NOT_PROMOTE",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -854,7 +870,8 @@
     "experiments/world/reports/world_model_head170_additive_probe_standardization.md",
     "experiments/world/reports/world_model_head171_additive_gate_reconciliation.md",
     "experiments/world/reports/world_model_head172_temporal_block_jepa_smoke.md",
-    "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md"
+    "experiments/world/reports/world_model_head173_temporal_jepa_bakeoff.md",
+    "experiments/world/reports/world_model_head174_temporal_route_decision.md"
   ],
   "guardrail_doc_checks": [
     {
