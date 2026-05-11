@@ -121682,3 +121682,32 @@ This supports the product conditionality story: the initial level is fixed, but 
 Promote this as a paper/demo analysis artifact, not as a new model default. The next principled step is to either incorporate this conditionality report into the narrative-conditioning paper, or run a tiny live casebook around the same start to make the fixed-start narrative contrast more risk-manager-readable with fresh OpenAI narratives.
 
 ---
+## 2026-05-11: NL prefix latent paper conditionality refresh
+
+### Context
+The latest fixed-start conditionality report and live fixed-start Gradio API smoke had been promoted as product/paper evidence, but `paper/narrative_grounded_scenarios/main.tex` still contained stale language from the older recommended-start and cached-casebook workflow.
+
+### Hypothesis
+The paper can be made consistent with the current production contract without changing the model: explicit historical/current start first, live OpenAI grounding for the production demo path, cached artifacts as developer regression, and conditionality measured by fixed-start narrative gaps against start-only and repeat/bootstrap controls.
+
+### Execution
+- Updated the ignored local manuscript `paper/narrative_grounded_scenarios/main.tex`.
+- Replaced recommended-start language with risk-manager-selected historical/current starts or user-supplied joint39 starts.
+- Updated the fixed-start validation table to include the current 36-run, 192-path conditionality row: `30 pass / 6 warn`, `36/36` direction pass, `+17.1%` CRPS, and `+18.5%` energy versus persistence.
+- Added the conditionality report numbers: observed narrative median gap `0.749`, start-only `0.000`, same-narrative repeat `0.337`, and within-run bootstrap `0.339`.
+- Updated the live demo discussion to describe live typed narrative plus explicit start, with the current fixed-start API smoke (`8` support candidates, `10` fan-chart traces, `16` generated samples, `1,853` OpenAI tokens).
+- Changed the static level-state discussion from a required production gate to optional spot-check/audit context, matching the current product direction.
+- Added current artifact paths for the 192-path control suite, conditionality report, and live fixed-start API smoke.
+
+### Result
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` passed in `paper/narrative_grounded_scenarios`.
+- `git -C /home/max/Documents/vol-surface-vae-pub diff --check` passed.
+- The paper directory is ignored (`!! paper/`), so the manuscript update remains local and is not force-added to Git under the no-under-review-paper-upload constraint.
+
+### Mechanism Read
+This iteration did not improve the bridge. It closed paper-contract drift: the manuscript now presents the system as live narrative conditioning plus explicit user-selected start, with historical support mixtures as an auditable support prior and grounding as a sidecar check. It also clarifies conditionality: the narrative changes the generated distribution with the starting level held fixed, but reliability remains start-specific.
+
+### Decision / Next Step
+Record this as a documentation/paper-refresh HEAD iteration, not a model promotion. The next principled step is a post-experiment analysis of the text-to-memory incumbent versus the desired Sora/CLIP-like latent prior direction: identify one falsifiable bridge improvement that can use the existing multi-caption/hard-negative data without adding an unconstrained knob.
+
+---
