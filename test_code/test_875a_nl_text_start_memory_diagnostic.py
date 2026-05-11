@@ -64,6 +64,7 @@ def test_build_input_features_modes_and_validation():
         examples,
         fit_window_indices=np.asarray([0, 1], dtype=np.int64),
         input_mode="text_start",
+        start_feature_weight=0.5,
     )
 
     assert text_only.shape == (2, 2)
@@ -71,6 +72,7 @@ def test_build_input_features_modes_and_validation():
     assert text_start.shape == (2, 3)
     np.testing.assert_allclose(text_only[0], [0.6, 0.8])
     np.testing.assert_allclose(text_start[:, :2], text_only)
+    np.testing.assert_allclose(text_start[:, 2], [-0.5, 0.5])
 
     with pytest.raises(ValueError, match="input_mode"):
         build_input_features(

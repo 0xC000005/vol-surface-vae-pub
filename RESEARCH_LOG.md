@@ -122255,3 +122255,43 @@ The fixed-start channel is not automatically useful when appended naively. The l
 Do not promote text-plus-start concatenation. The next principled iteration is a bounded one-axis calibration of start-channel strength, not a broad sweep: test whether a small start-feature weight preserves the text-only hard-negative geometry while allowing any useful start information through. If even a small start weight fails, keep start compatibility in the support-mixture/audit layer rather than the text-to-memory bridge input.
 
 ---
+## 2026-05-11: NL prefix latent start-channel calibration diagnostic
+
+### Context
+Iteration 122 showed that naive text-plus-start concatenation degrades the narrative-to-generator-memory target. The stated next step was a bounded one-axis calibration of start-channel strength, limited to three small weights, to test whether weak fixed-start information can enter the bridge without destroying text directionality.
+
+### Hypothesis
+A small start-feature weight may preserve the text-only hard-negative geometry while carrying useful fixed-start information. Falsifier: every weighted text-plus-start variant remains below the text-only baseline by more than the target-cosine floor `-0.01` or the hard-negative floor `-0.05`.
+
+### Execution
+Extended `experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py` with `--start-feature-weights`, capped at three values. Reused the same cached OpenAI embeddings, same 182 selected windows, same train/test split, same MLP memory-regression plus hard-negative objective, and no OpenAI calls.
+
+Verification and run commands:
+
+- `uv run black experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py test_code/test_875a_nl_text_start_memory_diagnostic.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py`
+- `uv run pytest test_code/test_875a_nl_text_start_memory_diagnostic.py -q`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875b_start_weight --input-modes text_only,text_start --start-feature-weights 0.05,0.10,0.25 --adapter-steps 700 --device auto --seed 775`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875b_start_weight/text_start_memory_diagnostic.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875b_start_weight/text_start_memory_diagnostic.md`
+
+### Result
+No weighted text-plus-start variant cleared the diagnostic:
+
+- text-only target cosine: `0.8582`, hard-negative gap: `0.8950`, hard-negative margin: `0.6867`
+- weight `0.05`: target cosine `0.7842`, hard-negative gap `0.5091`, margin `0.3539`
+- weight `0.10`: target cosine `0.7908`, hard-negative gap `0.5460`, margin `0.3978`
+- weight `0.25`: target cosine `0.7955`, hard-negative gap `0.4406`, margin `0.3220`
+
+Weight `0.10` and `0.25` tied the best recall@1 at `0.1032`, but exact retrieval is secondary and the memory/direction losses are too large.
+
+### Mechanism Read
+Start state is useful for the product contract, but this experiment says it should not be naively injected into the text-to-memory projection. Even weak start features distort the bridge away from the text-only geometry that preserves hard-negative directionality. This supports the current architecture split: full narrative drives text memory; fixed start compatibility belongs in the support-mixture/audit layer unless a more structured latent-prior model proves otherwise.
+
+### Decision / Next Step
+Do not promote direct text-plus-start memory concatenation. Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to record this as a non-promoted diagnostic. The next principled step is post-analysis or a structured latent-prior design that keeps separate text and start encoders/cross-attention/gating rather than concatenating start features into the frozen text embedding space.
+
+---

@@ -120,6 +120,14 @@ starts and keeps `178` as a hard-case warning, not a normal recommended start.
 - Arbitrary live user narrative plus arbitrary user-supplied joint39 start.
 - Full all-training-window OpenAI labeling for every historical window.
 - A true Sora/DALL-E-style text-plus-start latent prior.
+- Direct text-plus-start concatenation into the generator-memory bridge. The
+  cached diagnostics
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875a/text_start_memory_diagnostic.json`
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875b_start_weight/text_start_memory_diagnostic.json`
+  show that naive and weakly weighted start features degrade held-out
+  target-memory cosine and hard-negative directional separation versus
+  text-only.
 - CLIP/InfoNCE hybrid bridge as default.
 - Bounded residual latent refinement as a proven production mechanism.
 - Exact historical-window retrieval as a success criterion.

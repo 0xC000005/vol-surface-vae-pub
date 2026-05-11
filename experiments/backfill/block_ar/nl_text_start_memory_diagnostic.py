@@ -118,6 +118,7 @@ def build_input_features(
     *,
     fit_window_indices: np.ndarray,
     input_mode: str,
+    start_feature_weight: float = 1.0,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Build text-only, start-only, or text-plus-start bridge inputs."""
 
@@ -135,6 +136,15 @@ def build_input_features(
         example_windows,
         fit_window_indices=np.asarray(fit_window_indices, dtype=np.int64),
     )
+    start_features = (start_features * np.float32(float(start_feature_weight))).astype(
+        np.float32
+    )
+    stats = {
+        **stats,
+        "start_feature_weight": np.asarray(
+            [[float(start_feature_weight)]], dtype=np.float32
+        ),
+    }
     mode = str(input_mode)
     if mode == "text_only":
         return text.astype(np.float32), stats
@@ -237,43 +247,92 @@ def _metric_delta(
 def _decision_block(
     results: dict[str, dict[str, Any]],
     *,
-    candidate: str,
+    candidates: list[str],
     baseline: str,
     target_cosine_floor_delta: float,
     hard_negative_floor_delta: float,
 ) -> dict[str, Any]:
-    target_delta = _metric_delta(
-        results, candidate, baseline, "heldout_mean_target_cosine"
-    )
-    gap_delta = _metric_delta(
-        results, candidate, baseline, "heldout_hard_negative_mean_gap"
-    )
-    margin_delta = _metric_delta(
-        results, candidate, baseline, "heldout_hard_negative_mean_margin"
-    )
-    passes = (
-        target_delta is not None
-        and gap_delta is not None
-        and margin_delta is not None
-        and target_delta >= float(target_cosine_floor_delta)
-        and gap_delta >= float(hard_negative_floor_delta)
-        and margin_delta >= float(hard_negative_floor_delta)
-    )
+    candidate_records: list[dict[str, Any]] = []
+    for candidate in candidates:
+        target_delta = _metric_delta(
+            results, candidate, baseline, "heldout_mean_target_cosine"
+        )
+        gap_delta = _metric_delta(
+            results, candidate, baseline, "heldout_hard_negative_mean_gap"
+        )
+        margin_delta = _metric_delta(
+            results, candidate, baseline, "heldout_hard_negative_mean_margin"
+        )
+        passes = (
+            target_delta is not None
+            and gap_delta is not None
+            and margin_delta is not None
+            and target_delta >= float(target_cosine_floor_delta)
+            and gap_delta >= float(hard_negative_floor_delta)
+            and margin_delta >= float(hard_negative_floor_delta)
+        )
+        candidate_records.append(
+            {
+                "candidate": candidate,
+                "target_cosine_delta": target_delta,
+                "hard_negative_gap_delta": gap_delta,
+                "hard_negative_margin_delta": margin_delta,
+                "passes": bool(passes),
+            }
+        )
+    passing = [item for item in candidate_records if item["passes"]]
+    if passing:
+        selected = max(
+            passing,
+            key=lambda item: (
+                float(item["target_cosine_delta"]),
+                float(item["hard_negative_gap_delta"]),
+            ),
+        )
+    elif candidate_records:
+        selected = max(
+            candidate_records,
+            key=lambda item: (
+                float(item["target_cosine_delta"] or -999.0),
+                float(item["hard_negative_gap_delta"] or -999.0),
+            ),
+        )
+    else:
+        selected = {
+            "candidate": None,
+            "target_cosine_delta": None,
+            "hard_negative_gap_delta": None,
+            "hard_negative_margin_delta": None,
+            "passes": False,
+        }
     return {
-        "status": "pass" if passes else "diagnostic_only",
-        "candidate": candidate,
+        "status": "pass" if passing else "diagnostic_only",
+        "candidate": selected["candidate"],
         "baseline": baseline,
-        "target_cosine_delta": target_delta,
-        "hard_negative_gap_delta": gap_delta,
-        "hard_negative_margin_delta": margin_delta,
+        "target_cosine_delta": selected["target_cosine_delta"],
+        "hard_negative_gap_delta": selected["hard_negative_gap_delta"],
+        "hard_negative_margin_delta": selected["hard_negative_margin_delta"],
         "target_cosine_floor_delta": float(target_cosine_floor_delta),
         "hard_negative_floor_delta": float(hard_negative_floor_delta),
+        "candidate_records": candidate_records,
         "interpretation": (
-            "text_plus_start clears the local target diagnostic"
-            if passes
-            else "text_plus_start does not clear the local target diagnostic"
+            "at least one calibrated text_plus_start variant clears the local target diagnostic"
+            if passing
+            else "no text_plus_start variant clears the local target diagnostic"
         ),
     }
+
+
+def _parse_float_list(raw: str) -> list[float]:
+    values = [float(item.strip()) for item in str(raw).split(",") if item.strip()]
+    if not values:
+        raise ValueError("expected at least one float value")
+    return values
+
+
+def _weight_slug(value: float) -> str:
+    text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+    return text.replace("-", "m").replace(".", "p")
 
 
 def _load_selected_start_states(
@@ -371,32 +430,46 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
     modes = [item.strip() for item in str(args.input_modes).split(",") if item.strip()]
     results: dict[str, dict[str, Any]] = {}
     start_stats: dict[str, dict[str, Any]] = {}
+    start_weights = _parse_float_list(str(args.start_feature_weights))
+    if len(start_weights) > 3:
+        raise ValueError(
+            "bounded calibration allows at most three start-feature weights"
+        )
+    text_start_candidates: list[str] = []
     for mode in modes:
-        features, stats = build_input_features(
-            text_embeddings,
-            start_state,
-            examples,
-            fit_window_indices=np.asarray(split["train_indices"], dtype=np.int64),
-            input_mode=mode,
-        )
-        start_stats[mode] = {
-            "input_dim": int(features.shape[1]),
-            "start_mean_shape": list(stats["start_mean"].shape),
-            "start_std_min": _round(float(np.min(stats["start_std"]))),
-            "start_std_max": _round(float(np.max(stats["start_std"]))),
-        }
-        name = f"mlp_mse_contrastive__{args.training_policy}__{mode}"
-        results[name] = run_single_method(
-            "mlp_mse_contrastive",
-            str(args.training_policy),
-            examples,
-            features,
-            memory_targets,
-            split,
-            args,
-        )
+        weights = start_weights if mode == "text_start" else [1.0]
+        for weight in weights:
+            features, stats = build_input_features(
+                text_embeddings,
+                start_state,
+                examples,
+                fit_window_indices=np.asarray(split["train_indices"], dtype=np.int64),
+                input_mode=mode,
+                start_feature_weight=float(weight),
+            )
+            suffix = mode
+            if mode == "text_start":
+                suffix = f"{mode}_w{_weight_slug(float(weight))}"
+            start_stats[suffix] = {
+                "input_dim": int(features.shape[1]),
+                "start_feature_weight": float(weight),
+                "start_mean_shape": list(stats["start_mean"].shape),
+                "start_std_min": _round(float(np.min(stats["start_std"]))),
+                "start_std_max": _round(float(np.max(stats["start_std"]))),
+            }
+            name = f"mlp_mse_contrastive__{args.training_policy}__{suffix}"
+            if mode == "text_start":
+                text_start_candidates.append(name)
+            results[name] = run_single_method(
+                "mlp_mse_contrastive",
+                str(args.training_policy),
+                examples,
+                features,
+                memory_targets,
+                split,
+                args,
+            )
     baseline = f"mlp_mse_contrastive__{args.training_policy}__text_only"
-    candidate = f"mlp_mse_contrastive__{args.training_policy}__text_start"
     report = {
         "status": "ok",
         "scope_note": (
@@ -412,6 +485,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         "embedding_backend": pipeline_report.get("embedding_backend"),
         "embedding_model": pipeline_report.get("embedding_model"),
         "input_modes": modes,
+        "start_feature_weights": start_weights,
         "training_policy": str(args.training_policy),
         "split": split,
         "caption_coverage": caption_coverage_audit(examples, split),
@@ -419,7 +493,7 @@ def run_text_start_memory_diagnostic(args: argparse.Namespace) -> dict[str, Any]
         "summary": summarize_bakeoff(results),
         "decision": _decision_block(
             results,
-            candidate=candidate,
+            candidates=text_start_candidates,
             baseline=baseline,
             target_cosine_floor_delta=float(args.target_cosine_floor_delta),
             hard_negative_floor_delta=float(args.hard_negative_floor_delta),
@@ -448,6 +522,14 @@ def main() -> None:
         "--input-modes",
         default="text_only,text_start,start_only",
         help="Comma-separated modes: text_only,text_start,start_only.",
+    )
+    parser.add_argument(
+        "--start-feature-weights",
+        default="1.0",
+        help=(
+            "Comma-separated start-channel weights for text_start variants. "
+            "Use at most three values for bounded calibration runs."
+        ),
     )
     parser.add_argument("--training-policy", default="multi_caption_with_negatives")
     parser.add_argument("--adapter-steps", type=int, default=700)
