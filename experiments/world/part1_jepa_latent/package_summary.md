@@ -154,6 +154,8 @@ is a representation-learning package for same-market-state masked views.
   `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`.
 - Latest factor-panel probe scaffold:
   `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`.
+- Latest factor-panel probe bakeoff:
+  `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`.
 
 ## Fixed Contract
 
@@ -313,6 +315,11 @@ is a representation-learning package for same-market-state masked views.
   `test_code/test_world_model_factor_panel_probes.py`. It builds split-safe
   factor-panel history/future windows and downstream-only factor future targets
   from `data/multi_factor_data.npz`; it does not change Part 1 pretraining.
+- Factor-panel probe bakeoff: HEAD179 compares raw factor histories, scaled
+  Barlow embeddings, and raw-plus-scaled features on four downstream-only
+  factor future targets. Scale-only wins `4/4` best-raw comparisons and
+  raw-plus-scale improves raw-last `4/4`, but raw-plus-scale beats the best raw
+  baseline only `3/4`; this is smoke-scale factor-panel signal, not promotion.
 - Exact-state retention literature gate: HEAD135 says not to add an ad hoc
   exact-value auxiliary loss next. First audit the representation surface
   (per-time or flattened sequence embeddings). If that fails, the principled

@@ -73,15 +73,16 @@ probe that consumes the Part 1 world-model reference candidate.
 64. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
 65. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
 66. `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`
-67. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
-68. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
-69. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
-70. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
-71. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
-72. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
-73. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
-74. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
-75. latest tail of `RESEARCH_LOG.md`
+67. `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`
+68. `experiments/world/reports/world_model_head082_part1_scorecard_health.md`
+69. `experiments/world/reports/world_model_head083_mask_artifact_audit.md`
+70. `experiments/world/reports/world_model_head084_stratified_mask_audit.md`
+71. `experiments/world/reports/world_model_head086_downstream_probe_interpretation.md`
+72. `experiments/world/reports/world_model_head097_mask_policy_coverage_audit.md`
+73. `experiments/world/reports/world_model_head100_sample_scale_caveat.md`
+74. `experiments/world/reports/world_model_head102_downstream_probe_reporting_audit.md`
+75. `experiments/world/reports/world_model_head105_downstream_target_scope_audit.md`
+76. latest tail of `RESEARCH_LOG.md`
 
 ## Fixed Reference Candidate
 

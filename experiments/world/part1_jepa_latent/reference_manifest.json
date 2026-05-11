@@ -200,6 +200,7 @@
       "post_temporal_gate_reconciliation_report": "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
       "additive_probe_coverage_inventory_report": "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
       "factor_panel_probe_scaffold_report": "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md",
+      "factor_panel_probe_bakeoff_report": "experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md",
       "result_json": "results/world/part1_quality_gate_assessment_head119.json",
       "failure_analysis_json": "results/world/part1_quality_gate_failure_analysis_head120.json",
       "jepa_fit_diagnosis_json": "results/world/part1_jepa_fit_diagnosis_head121.json",
@@ -249,6 +250,7 @@
       "additive_probe_standardization_json": "results/world/additive_probe_standardization_head170.json",
       "temporal_block_jepa_smoke_json": "results/world/temporal_block_jepa_smoke_head172.json",
       "temporal_jepa_bakeoff_json": "results/world/temporal_jepa_bakeoff_head173.json",
+      "factor_panel_probe_bakeoff_json": "results/world/factor_panel_probe_bakeoff_head179.json",
       "quality_gate_passed": false,
       "promotion_decision": "DO_NOT_PROMOTE",
       "part1_ready_for_part_b": false,
@@ -834,6 +836,22 @@
           "target_scope": "factor_panel_future_downstream_probe_only",
           "uses_future_targets_as_pretraining": false,
           "part_b_blocked": true
+        },
+        "factor_panel_probe_bakeoff": {
+          "status": "factor_panel_signal_present_smoke_only",
+          "objective_family": "downstream_probe_factor_panel_bakeoff",
+          "uses_future_targets_as_pretraining": false,
+          "scale_standalone_factor_wins": "4/4",
+          "raw_plus_scale_improves_raw_last": "4/4",
+          "raw_plus_scale_beats_best_raw": "3/4",
+          "caveats": [
+            "smoke_scale_128_train_64_val",
+            "raw_unit_mse_not_column_standardized",
+            "target_family_breakdown_missing"
+          ],
+          "promotion_decision": "PROBE_ONLY_DO_NOT_PROMOTE",
+          "next_step": "factor_family_normalized_probe_audit_before_promotion",
+          "part_b_blocked": true
         }
       },
       "layer_status": {
@@ -934,7 +952,8 @@
     "experiments/world/reports/world_model_head175_temporal_stale_route_scan.md",
     "experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md",
     "experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md",
-    "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md"
+    "experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md",
+    "experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md"
   ],
   "guardrail_doc_checks": [
     {

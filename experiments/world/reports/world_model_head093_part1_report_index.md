@@ -264,6 +264,11 @@ human-oriented resume guide, not the source of truth.
 - HEAD178: `world_model_head178_factor_panel_probe_scaffold.md` adds the
   factor-panel future-probe data/target scaffold for downstream frozen
   evaluation.
+- HEAD179: `world_model_head179_factor_panel_probe_bakeoff.md` runs the frozen
+  factor-panel downstream probe bakeoff. Scale-only beats best raw baselines
+  on `4/4` targets and raw-plus-scale improves raw-last on `4/4`, but
+  raw-plus-scale beats the best raw baseline on only `3/4`; result is
+  probe-only smoke evidence, not Part 1 promotion.
 
 ## Packaging And Restart Guardrails
 
@@ -391,6 +396,7 @@ Then read:
 68. `experiments/world/reports/world_model_head176_post_temporal_gate_reconciliation.md`
 69. `experiments/world/reports/world_model_head177_additive_probe_coverage_inventory.md`
 70. `experiments/world/reports/world_model_head178_factor_panel_probe_scaffold.md`
+71. `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`
 
 ## Decision
 

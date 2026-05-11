@@ -75,6 +75,14 @@
       "sha256": "75245f6f44cb084945803599636a166356b1c81758a1793c55f8e9bf7ada7de6",
       "tracked": false,
       "ignored": true
+    },
+    {
+      "role": "factor_panel_probe_bakeoff_result",
+      "path": "results/world/factor_panel_probe_bakeoff_head179.json",
+      "bytes": 37241,
+      "sha256": "a27074925d9146c0cc928243f3e6cd68938852097847aa8c1df0e3f98652fd47",
+      "tracked": false,
+      "ignored": true
     }
   ]
 }

@@ -120520,3 +120520,47 @@ This iteration implements the factor-panel future-probe scaffold identified by H
 HEAD178 is data/target scaffolding for downstream factor-panel probe bakeoffs. It is not Part 1 promotion evidence and does not change pretraining. Part 1 remains `DO_NOT_PROMOTE`; Part B remains blocked.
 
 ---
+## 2026-05-11: World model HEAD179 factor-panel probe bakeoff
+
+### Context
+
+HEAD178 added the factor-panel downstream probe scaffold but did not yet run a
+learned-versus-raw bakeoff. HEAD179 keeps the objective family as downstream
+probe evaluation only: future factor-panel targets are not Part 1 pretraining
+losses and no decoder work is authorized.
+
+### Work
+
+- Added `experiments/world/part1_jepa_latent/analyze_factor_panel_probe_bakeoff.py`.
+- Added `test_code/test_world_model_factor_panel_bakeoff.py`.
+- Ran a frozen bakeoff using factor-panel raw histories, scaled Barlow
+  embeddings, and raw-factor-last plus scaled Barlow features.
+- Report: `experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`.
+- Result JSON: `results/world/factor_panel_probe_bakeoff_head179.json`.
+
+### Findings
+
+- Scale-only beats the best raw factor baseline on `4/4` factor future targets.
+- Raw-factor-last plus scale improves raw-factor-last on `4/4` targets.
+- Raw-factor-last plus scale beats the best raw baseline on `3/4` targets.
+- The result is smoke-scale only: 128 train windows and 64 validation windows.
+- The target MSEs are in raw factor units, so high-scale level columns can
+  dominate aggregate scores.
+- Target-family breakdown is still missing.
+
+### Decision
+
+Promotion decision: `PROBE_ONLY_DO_NOT_PROMOTE`.
+
+This is useful factor-panel downstream signal for the scaled Barlow
+representation, but it is not enough to promote Part 1 or start Part B. The
+next principled step is a factor-family normalized probe audit that separates
+level and return geometry before any stronger quality claim.
+
+### Validation
+
+- `python -m pytest test_code/test_world_model_factor_panel_bakeoff.py test_code/test_world_model_factor_panel_probes.py -q`
+- `python -m py_compile experiments/world/part1_jepa_latent/analyze_factor_panel_probe_bakeoff.py experiments/world/evaluation/factor_panel_data.py`
+- `python experiments/world/part1_jepa_latent/analyze_factor_panel_probe_bakeoff.py --device cpu --history_len 30 --future_len 30 --max_train_windows 128 --max_val_windows 64 --batch_size 64 --ridge_alpha 10.0 --output_json results/world/factor_panel_probe_bakeoff_head179.json --report_md experiments/world/reports/world_model_head179_factor_panel_probe_bakeoff.md`
+
+---
