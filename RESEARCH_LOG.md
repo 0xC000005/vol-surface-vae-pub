@@ -120731,3 +120731,139 @@ Promote `mlp_mse_contrastive + multi_caption_with_negatives` as the current text
 - Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_850a_manifest_policy_testflight/bridge_architecture_bakeoff_report.json`.
 
 ---
+## 2026-05-11: HEAD NLP Prefix-Latent 91: Text-Latent Policy Seed Stability
+
+### Context
+
+Iteration 90 showed a promising single-seed result: `mlp_mse_contrastive__multi_caption_with_negatives` won most text-to-memory alignment metrics on the cached representative manifest split. This iteration tested whether that conclusion was stable across random seeds before any larger OpenAI caption refresh.
+
+### Hypothesis
+
+If multi-caption hard-negative training is a real improvement rather than a seed artifact, it should consistently improve hard-negative separation and remain competitive on held-out generator-memory target cosine across several seeds.
+
+### Execution
+
+Ran three additional no-new-OpenAI MLP-only bake-offs using the cached representative OpenAI embeddings and manifest split:
+
+- Seed 851: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_851a_seed851/bridge_architecture_bakeoff_report.json`.
+- Seed 852: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_851b_seed852/bridge_architecture_bakeoff_report.json`.
+- Seed 853: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_851c_seed853/bridge_architecture_bakeoff_report.json`.
+
+Aggregated seed 850 from iteration 90 plus seeds 851-853 into:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_851d_seed_stability/policy_stability_summary.json`.
+
+### Result
+
+Across four seeds, `mlp_mse_contrastive__multi_caption_with_negatives` won:
+
+- hard-negative mean gap: 4/4 seeds;
+- hard-negative mean margin: 4/4 seeds;
+- held-out mean target cosine: 3/4 seeds;
+- recall@1 test pool: 3/4 seeds;
+- recall@3 test pool: 1/4 seeds.
+
+Mean metrics across four seeds:
+
+- `anchor_only`: target cosine `0.8279`, hard-negative gap `0.4217`, hard-negative margin `0.2416`, recall@1 `0.0694`, recall@3 `0.1984`.
+- `multi_caption_no_negatives`: target cosine `0.8559`, hard-negative gap `0.3644`, hard-negative margin `0.1821`, recall@1 `0.0714`, recall@3 `0.1964`.
+- `multi_caption_with_negatives`: target cosine `0.8562`, hard-negative gap `0.9359`, hard-negative margin `0.7442`, recall@1 `0.0813`, recall@3 `0.1964`.
+
+### Mechanism Read
+
+The result is stable enough to treat multi-caption hard-negative training as the current text-memory bridge baseline. Multi-captioning alone improves target cosine relative to anchor-only, but it weakens directional separation. Adding hard negatives restores and greatly improves separation while preserving essentially the same target cosine.
+
+Exact retrieval is still weak and noisy. Recall@3 does not improve, which reinforces that the bridge should not be sold as exact historical-window retrieval. The useful claim is stronger latent alignment and directional separation for conditioning, with support retrieval remaining an audit/provenance layer.
+
+### Decision / Next Step
+
+Promote `mlp_mse_contrastive + multi_caption_with_negatives` as the stable baseline for the next text-to-latent bridge experiment.
+
+The next principled step is not a large OpenAI run yet. It is to improve the CLIP/InfoNCE-style objective or introduce a distributional text/start latent-prior objective while using this MLP hard-negative bridge as the baseline. The failure to beat the MLP on target cosine suggests the current CLIP hybrid is underbalanced, not that CLIP-style alignment is a dead end.
+
+### Validation
+
+- Each seed run completed successfully with no OpenAI API calls.
+- Aggregation artifact written to `policy_stability_summary.json`.
+
+---
+## 2026-05-11: HEAD NLP Prefix-Latent 92: CLIP Hybrid MSE-Weight Sweep
+
+### Context
+
+Iteration 91 promoted `mlp_mse_contrastive + multi_caption_with_negatives` as the stable cached text-to-memory bridge baseline. The next question was whether the more Sora/CLIP-like `clip_infonce_hybrid` bridge only failed because its direct generator-memory regression term was underweighted.
+
+### Hypothesis
+
+Increasing the CLIP hybrid's MSE weight should close the target-cosine gap to the MLP hard-negative baseline while preserving some retrieval benefit from the contrastive target-table objective.
+
+### Execution
+
+Ran an offline no-new-OpenAI MSE-weight sweep on the cached representative split, always using `multi_caption_with_negatives`:
+
+- `clip_mse1`: `--clip-mse-weight 1.0`;
+- `clip_mse5`: `--clip-mse-weight 5.0`;
+- `clip_mse10`: `--clip-mse-weight 10.0`.
+
+Each run compared `clip_infonce_hybrid` directly against the stable `mlp_mse_contrastive` baseline.
+
+### Result
+
+Increasing MSE weight improved CLIP target alignment, but it still did not beat the MLP baseline.
+
+Representative comparison:
+
+- MLP baseline: target cosine `0.8557`, hard-negative gap `0.9214`, hard-negative margin `0.7442`, recall@1 `0.0714`, recall@3 `0.1905`.
+- CLIP MSE=1: target cosine `0.4983`, hard-negative gap `0.6677`, hard-negative margin `0.4058`, recall@1 `0.0952`, recall@3 `0.1905`.
+- CLIP MSE=5: target cosine `0.7803`, hard-negative gap `0.7765`, hard-negative margin `0.5666`, recall@1 `0.1111`, recall@3 `0.1587`.
+- CLIP MSE=10: target cosine `0.8162`, hard-negative gap `0.7248`, hard-negative margin `0.4816`, recall@1 `0.1032`, recall@3 `0.1667`.
+
+### Mechanism Read
+
+The CLIP/InfoNCE objective is not useless: increasing the MSE term moves it much closer to the generator-memory target, and it improves recall@1 versus the MLP baseline in these runs. However, it remains weaker on target cosine and hard-negative separation. The current CLIP hybrid is therefore not the default bridge.
+
+This suggests the next Sora/CLIP-like improvement should not be a simple target-table cross-entropy. A better next architecture is likely a distributional text/start latent prior or a supervised contrastive objective that keeps direct generator-memory regression as the main anchor.
+
+### Decision / Next Step
+
+Stop the current auto-research loop per user instruction. When resumed, treat `mlp_mse_contrastive + multi_caption_with_negatives` as the baseline and design the next experiment as a distributional or text+start latent-prior bridge, not another simple CLIP MSE-weight sweep.
+
+### Validation
+
+- Three offline bake-off runs completed successfully with no OpenAI API calls.
+- Aggregation artifact written to `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852d_clip_mse_sweep/clip_mse_sweep_summary.json`.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852a_clip_mse1/bridge_architecture_bakeoff_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852b_clip_mse5/bridge_architecture_bakeoff_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852c_clip_mse10/bridge_architecture_bakeoff_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_852d_clip_mse_sweep/clip_mse_sweep_summary.json`
+
+---
+## 2026-05-11: Autoresearch Workflow Verification And Literature Gates
+
+### Context
+
+After stopping the NLP prefix-latent auto-research loop at iteration 92, we reviewed the auto-research workflow itself. The user requested explicit safeguards so future auto-research iterations invoke independent verification when needed, brainstorm before nontrivial design changes, research online when external method claims matter, and always append results to the research log using the proper tail-append skill.
+
+### Workflow Changes
+
+- Added independent-verifier gates to the narrative prefix-latent, world-model, and general HEAD auto-research skills.
+- Added brainstorming gates before new architecture families, objective families, product workflows, conditioning contracts, UX changes, or other nontrivial design changes.
+- Added primary-source literature / online research gates before adopting or promoting external method claims, current API/deployment behavior, UI best practices, or related-work positioning.
+- Reinforced that research-log appends must use `research-log-tail-append`, and that HEAD entries should summarize verifier verdicts, brainstorming alternatives, and citations when those gates are triggered.
+
+### Decision
+
+Future auto-research loops should not promote a model, bridge, support policy, incumbent, production-readiness claim, paper-facing result, or paradigm shift without an independent verification pass over the actual code, artifacts, metrics, and research-log context.
+
+Future nontrivial design moves should first articulate alternatives and falsifiers. Future external-method or deployment claims should include a primary-source literature or documentation check, with citations recorded in `RESEARCH_LOG.md`.
+
+### Verification
+
+- YAML frontmatter parsed successfully for all three edited auto-research skill files.
+- Search confirmed the expected `independent-verifier`, brainstorming, online research, citation, and `research-log-tail-append` triggers are present.
+- `git diff --check` passed.
+
+---

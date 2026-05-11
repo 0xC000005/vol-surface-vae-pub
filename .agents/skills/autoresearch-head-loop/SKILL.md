@@ -38,6 +38,10 @@ Use `research-log-tail-append` for **every** append to `RESEARCH_LOG.md`.
 
 Never append to the research log with a generic patch against `---`.
 
+Use `independent-verifier` before promoting a model, changing an incumbent,
+making a paradigm-shift decision, claiming production readiness, or turning a
+result into a paper-facing claim.
+
 ## Persistent Files
 
 Read these first:
@@ -102,6 +106,31 @@ Instead:
 3. choose `paradigm_shift` if the active decomposition itself now looks wrong.
 
 The goal is not only `11/11`. The goal is `11/11` with a model that remains elegant, publishable, and defensible as a generalizable conditional scenario generator.
+
+## Verification, Brainstorming, And Literature Gates
+
+Invoke `independent-verifier` before:
+
+- declaring a framework, model, decoder, or workflow promotable;
+- claiming production readiness, paper-level evidence, or a new incumbent;
+- making a paradigm-shift decision;
+- scaling from a smoke/testflight result to a larger training or evaluation run;
+- accepting a surprising result whose mechanism is not yet clear.
+
+The verifier must inspect actual code, configs, artifacts, metrics, and
+research-log context. If the verdict is mixed or weak, choose
+`post_experiment_analysis` or `research_ideation` before running another model
+change.
+
+Use brainstorming before adding a new objective family, decoder family, major
+evaluation protocol, product workflow, or other nontrivial design change. Record
+the alternatives, recommendation, falsifier, and deliberate non-goals before
+implementation.
+
+Run online research when the iteration depends on external method claims,
+current library/API behavior, deployment choices, UI best practices, or
+related-work positioning. Use primary sources whenever possible and record
+citations plus the design impact in `RESEARCH_LOG.md`.
 
 ## Single-Framework Candidate Gate
 
@@ -356,6 +385,8 @@ Every iteration’s appended log entry should include:
 - result
 - mechanism read
 - decision / next step
+- independent-verifier verdict when a verification gate was triggered
+- brainstorming alternatives and literature citations when those gates were triggered
 - artifact paths when applicable
 
 Keep it concise, but enough to resume from the log alone.
