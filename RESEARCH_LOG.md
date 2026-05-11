@@ -121197,3 +121197,32 @@ Update the natural-language conditioning paper with this fixed-start conditional
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_fixed_start_conditioning_analysis.py --bakeoff-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_matrix_858b/start_conditioned_bakeoff.json --contrast-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_narrative_contrast_858b/fixed_start_narrative_contrast.json --gate-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_gate_858b/fixed_start_conditioning_gate.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_conditioning_analysis_859a` passed.
 
 ---
+## 2026-05-11: NL prefix latent paper update with fixed-start conditionality
+
+### Context
+Updated the ignored natural-language conditioning paper draft to reflect the latest fixed-start conditionality evidence. The paper had stale wording that emphasized the older 9-row direction-check grid and did not explain the newer 36-run same-start narrative-contrast result.
+
+### Paper Update
+- File edited locally: `paper/narrative_grounded_scenarios/main.tex` (the `paper/` folder is intentionally ignored and should not be uploaded to GitHub).
+- Added `graphicx` support for the generated fixed-start conditionality figures.
+- Updated the abstract to mention the 36-run fixed-start conditionality matrix.
+- Added the expanded fixed-start conditionality row to the product-validation table.
+- Added a paper figure with:
+  - `fixed_start_narrative_gap_by_start.png`;
+  - `fixed_start_quality_by_start.png`.
+- Added text explaining that same-start narrative changes move the scenario distribution, while starts `0` and `178` damp narrative influence and should be treated as audit-warning regimes.
+- Clarified that support/direction pass is separate from operational validation pass.
+- Updated the limitations and conclusion to replace the stale "9-row grid is the strongest current result" framing with the 36-run six-start conditionality matrix.
+- Added artifact paths for the 859a analysis packet and 858b conditioning gate.
+
+### Verification
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` passed in `paper/narrative_grounded_scenarios`.
+- The generated `main.pdf` includes the two fixed-start conditionality plots.
+
+### Decision
+Keep the paper ignored. The content is useful for local drafting and presentation, but the repo policy remains that the under-review paper should not be uploaded to GitHub.
+
+### Next Principled Step
+Continue production hardening through the tracked code path: either add a compact demo endpoint/panel that displays the fixed-start conditionality packet, or add a start-aware calibration diagnostic for the damped-support regimes before considering any new bridge architecture.
+
+---
