@@ -79,6 +79,17 @@ Current supported claim:
 - current CLIP/InfoNCE hybrid is not promoted because it trails the incumbent on
   generator-memory target cosine and hard-negative separation.
 
+Diagnostic, not yet promoted:
+
+- bounded start-residual bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
+  Across seeds `775`, `776`, and `777`, the bounded residual preserves the
+  text-only memory target (`-0.0007` mean cosine delta) and hard-negative
+  separation (`-0.0065` mean gap delta, `-0.0081` mean margin delta), and
+  improves recall@3 by `+0.0159`. It is not a default until downstream
+  scenario-level evaluation shows that the preserved residual signal actually
+  affects fixed-start narrative scenario distributions.
+
 ### Fixed-Start Conditionality
 
 - Tracked case spec:

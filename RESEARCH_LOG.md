@@ -122372,3 +122372,47 @@ The result supports the structured-fusion diagnosis: start information can be in
 Do not promote the start-residual bridge yet. The next principled step is seed stability for the same cached diagnostic. If the preservation gate holds across seeds, then evaluate whether the residual changes fixed-start scenario conditionality or remains too small to matter. If stability fails, keep start compatibility in support/audit and avoid further start-bridge architecture work.
 
 ---
+## 2026-05-11: NL prefix latent bounded start-residual seed stability
+
+### Context
+Iteration 125 showed that a bounded start residual can preserve text-memory alignment in one seed. The promotion discipline requires seed stability before treating this as more than a one-off diagnostic.
+
+### Hypothesis
+The bounded start-residual bridge should preserve target-memory cosine and hard-negative separation across multiple bridge seeds. Falsifier: any seed fails the predeclared preservation gate of target-cosine delta below `-0.01` or hard-negative gap/margin delta below `-0.05` versus text-only.
+
+### Execution
+Added `experiments/backfill/block_ar/nl_text_start_memory_stability.py` and `test_code/test_876a_nl_text_start_memory_stability.py`. Ran two additional cached diagnostics for seeds `776` and `777`, then summarized seeds `775`, `776`, and `777`. No OpenAI calls were made.
+
+Verification and run commands:
+
+- `uv run black experiments/backfill/block_ar/nl_text_start_memory_stability.py test_code/test_876a_nl_text_start_memory_stability.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_text_start_memory_stability.py`
+- `uv run pytest test_code/test_876a_nl_text_start_memory_stability.py test_code/test_875a_nl_text_start_memory_diagnostic.py -q`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_876a_seed776 --input-modes text_only,text_start --start-feature-weights 0.10 --include-start-residual --adapter-steps 700 --start-residual-steps 350 --start-residual-scale 0.10 --start-residual-l2-weight 0.10 --device auto --seed 776`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_diagnostic.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_876b_seed777 --input-modes text_only,text_start --start-feature-weights 0.10 --include-start-residual --adapter-steps 700 --start-residual-steps 350 --start-residual-scale 0.10 --start-residual-l2-weight 0.10 --device auto --seed 777`
+- `uv run python experiments/backfill/block_ar/nl_text_start_memory_stability.py --report 775:experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_875c_start_residual/text_start_memory_diagnostic.json --report 776:experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_876a_seed776/text_start_memory_diagnostic.json --report 777:experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_876b_seed777/text_start_memory_diagnostic.json --baseline mlp_mse_contrastive__multi_caption_with_negatives__text_only --candidate mlp_start_residual__multi_caption_with_negatives --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.md`
+
+### Result
+The bounded start-residual bridge passed the preservation gate in all three seeds:
+
+- pass count: `3/3`
+- candidate-minus-text-only mean target cosine delta: `-0.0007`
+- mean hard-negative gap delta: `-0.0065`
+- mean hard-negative margin delta: `-0.0081`
+- mean recall@1 test-pool delta: `+0.0026`
+- mean recall@3 test-pool delta: `+0.0159`
+
+The failed concatenation control remained clearly worse in the individual runs.
+
+### Mechanism Read
+The result supports the structured-fusion mechanism: a small residual after the text bridge can carry start-conditioned information without erasing narrative directionality. However, this is still a bridge-level preservation result. It does not yet prove that the residual materially improves scenario distributions or fixed-start conditionality.
+
+### Decision / Next Step
+Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to mark the bounded start-residual bridge as a diagnostic, not a promoted default. The next principled step is downstream scenario-level evaluation or a fixed-start narrative conditionality check using this residual bridge. Promotion requires independent verification and scenario-level evidence, not just memory-space preservation.
+
+---
