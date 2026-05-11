@@ -92,6 +92,11 @@ DEFAULT_USER_START_STATE_JSON = (
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
     "user_start_state_18.json"
 )
+DEFAULT_PREFIX_START_RELIABILITY_MANIFEST = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_start_reliability_gate_865d_full_s192_symmetric/"
+    "start_reliability_gate.json"
+)
 DEFAULT_BOSS_DEMO_PACK_JSON = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_boss_demo_pack_829a_live_casebook/"
@@ -1661,6 +1666,13 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         f"- Operational interpretation: `{prefix_trust_interpretation(report)}`",
         f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
     ]
+    start_reliability = _as_dict(report.get("start_reliability_gate"))
+    if start_reliability:
+        lines.append(
+            "- Start reliability: "
+            f"`{start_reliability.get('product_status', 'n/a')}` - "
+            f"{start_reliability.get('decision', '')}"
+        )
     product_gate = _as_dict(report.get("condition_only_product_gate"))
     decision = _as_dict(product_gate.get("production_decision"))
     if decision:
@@ -1708,15 +1720,25 @@ def prefix_latent_product_status_markdown(report: dict[str, Any]) -> str:
         or decision.get("reason")
         or "No blocking issue was found for this narrative and selected start."
     )
+    start_reliability = _as_dict(report.get("start_reliability_gate"))
+    reliability_note = ""
+    if start_reliability:
+        reliability_note = (
+            f"- Start reliability: `{start_reliability.get('product_status', 'n/a')}` - "
+            f"{start_reliability.get('decision', '')}"
+        )
+    lines = [
+        "## Scenario Workflow Status",
+        "",
+        f"- Status: {status}",
+        f"- Story support: `{prefix_trust_interpretation(report)}`",
+        f"- Result note: {result_note}",
+    ]
+    if reliability_note:
+        lines.append(reliability_note)
+    lines.append(f"- Next step: {next_step}")
     return "\n".join(
-        [
-            "## Scenario Workflow Status",
-            "",
-            f"- Status: {status}",
-            f"- Story support: `{prefix_trust_interpretation(report)}`",
-            f"- Result note: {result_note}",
-            f"- Next step: {next_step}",
-        ]
+        lines
     )
 
 
@@ -2071,6 +2093,11 @@ def build_prefix_latent_run_args(
         grounding_max_output_tokens=1200,
         embedding_model="text-embedding-3-small",
         bridge_adapter=DEFAULT_BRIDGE_ADAPTER,
+        start_reliability_manifest=(
+            DEFAULT_PREFIX_START_RELIABILITY_MANIFEST
+            if Path(DEFAULT_PREFIX_START_RELIABILITY_MANIFEST).exists()
+            else None
+        ),
         dotenv=".env",
         start_mode=str(start_mode),
         explicit_start_window_index=explicit_start_window_index,

@@ -121516,3 +121516,26 @@ The independent-verifier pass agreed with the narrow claim: five of six selected
 Use the full 192-path reliability manifest as the current demo reliability manifest. Do not claim arbitrary-start production readiness. The production demo can show five supported starts and one hard-case warned start; stronger claims need a wider repeat-seed certificate or a broader start universe.
 
 ---
+## 2026-05-11: NL prefix latent demo start reliability integration
+
+### Context
+After the full 192-path start reliability manifest was promoted, the local Gradio/demo path still needed to consume that manifest. Otherwise a scenario report could pass validation while hiding that the selected start is a known reliability hard case.
+
+### Execution
+- Updated `nl_risk_manager_story_gradio_app.py` to pass the verified full 192-path start reliability manifest into prefix-latent story-smoke runs when the local manifest exists.
+- Added concise start-reliability lines to the run status and scenario workflow status.
+- Kept the fallback safe: if the ignored local manifest is absent, the app still runs without crashing.
+
+### Result
+The demo path now surfaces the same product-facing start reliability used by the backend:
+
+- supported starts report `pass`;
+- `fixed_start_178` reports `warn_high_instability`;
+- unknown or unmanifested starts remain warning states rather than silent passes.
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_864a_nl_prefix_latent_start_reliability_gate.py -q` -> `42 passed`.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` -> passed.
+- `git diff --check` -> passed.
+
+---
