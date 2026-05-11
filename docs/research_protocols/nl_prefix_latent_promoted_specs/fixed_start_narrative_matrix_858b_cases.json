@@ -1,0 +1,220 @@
+{
+  "cases": [
+    {
+      "case_name": "fragile_risk_on_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "defensive_risk_off_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "rates_selloff_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "commodity_inflation_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "dollar_liquidity_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "safe_haven_gold_start0",
+      "start_name": "fixed_start_0",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 0
+    },
+    {
+      "case_name": "fragile_risk_on_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "defensive_risk_off_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "rates_selloff_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "commodity_inflation_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "dollar_liquidity_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "safe_haven_gold_start18",
+      "start_name": "fixed_start_18",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 18
+    },
+    {
+      "case_name": "fragile_risk_on_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "defensive_risk_off_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "rates_selloff_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "commodity_inflation_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "dollar_liquidity_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "safe_haven_gold_start22",
+      "start_name": "fixed_start_22",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 22
+    },
+    {
+      "case_name": "fragile_risk_on_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "defensive_risk_off_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "rates_selloff_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "commodity_inflation_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "dollar_liquidity_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "safe_haven_gold_start40",
+      "start_name": "fixed_start_40",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 40
+    },
+    {
+      "case_name": "fragile_risk_on_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "defensive_risk_off_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "rates_selloff_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "commodity_inflation_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "dollar_liquidity_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "safe_haven_gold_start77",
+      "start_name": "fixed_start_77",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 77
+    },
+    {
+      "case_name": "fragile_risk_on_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809a_fragile/condition_only_report.json",
+      "candidate_index": 178
+    },
+    {
+      "case_name": "defensive_risk_off_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809b_defensive/condition_only_report.json",
+      "candidate_index": 178
+    },
+    {
+      "case_name": "rates_selloff_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_809c_rates/condition_only_report.json",
+      "candidate_index": 178
+    },
+    {
+      "case_name": "commodity_inflation_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_822a_commodity/condition_only_report.json",
+      "candidate_index": 178
+    },
+    {
+      "case_name": "dollar_liquidity_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823a_dollar/condition_only_report.json",
+      "candidate_index": 178
+    },
+    {
+      "case_name": "safe_haven_gold_start178",
+      "start_name": "fixed_start_178",
+      "condition_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_report_823b_safe_haven/condition_only_report.json",
+      "candidate_index": 178
+    }
+  ]
+}

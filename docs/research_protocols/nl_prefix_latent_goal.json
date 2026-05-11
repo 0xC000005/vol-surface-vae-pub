@@ -1,0 +1,40 @@
+{
+  "objective": "Develop a risk-manager-facing narrative-conditioned scenario generator for the frozen joint39 SNI generator. The user narrative describes current or recent market conditions; the risk manager must manually select a historical/current joint39 start or provide an explicit joint39 start before any narrative-conditioned mixture is formed.",
+  "loop_name": "HEAD",
+  "workflow": "nl-prefix-latent-autoresearch",
+  "production_modes": [
+    "narrative_plus_manual_historical_or_current_start",
+    "narrative_plus_user_specified_joint39_start"
+  ],
+  "disallowed_default_modes": [
+    "narrative_only_model_chosen_start",
+    "hidden_model_chosen_start",
+    "future_outcome_as_conditioning_target"
+  ],
+  "core_contract": [
+    "preserve_full_narrative_as_primary_story_channel",
+    "use_grounding_sidecar_for_direction_checks_and_warnings",
+    "exclude_forward_looking_or_desired_future_language_from_conditioning_targets",
+    "resolve_user_selected_or_user_supplied_start_before_support_mixture",
+    "condition_support_mixture_on_full_narrative_and_fixed_start",
+    "use_weighted_historical_analogue_mixtures_as_auditable_support_priors",
+    "report_support_weights_start_distance_direction_checks_and_damping_warnings",
+    "reuse_frozen_sni_generator_native_autoregressive_rollout",
+    "do_not_reduce_product_to_single_nearest_neighbor_replay",
+    "append_research_log_via_research_log_tail_append",
+    "save_verifier_artifacts_for_promoted_claims"
+  ],
+  "primary_acceptance_metrics": [
+    "energy_score_improvement_vs_persistence",
+    "ensemble_crps_improvement_vs_persistence",
+    "coverage_80",
+    "per_start_quality_floor",
+    "fixed_start_narrative_separation",
+    "same_narrative_repeat_stability",
+    "shuffled_narrative_null_gap",
+    "decoded_prefix_memory_cosine",
+    "hard_case_validation",
+    "start_state_sensitivity"
+  ],
+  "first_gate": "Promoted fixed-start narrative conditioning claims must include tracked case specs, artifact paths, verifier report, fixed-start equality, support-direction checks, per-start quality, null or repeat baselines, and start-damping diagnostics before production promotion."
+}

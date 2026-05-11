@@ -121275,3 +121275,85 @@ A damped start should be treated as a trust warning on the chosen starting level
 Stop here per user instruction after the current task. The next principled research step would be to expose this damping diagnostic as a production trust signal, but not to add another architecture knob until we decide whether the weak starts are acceptable user warnings or require start-aware calibration.
 
 ---
+## 2026-05-11: NL prefix latent autoresearch workflow hardening
+
+### Context
+
+The narrative prefix-latent autoresearch loop was useful, but the independent
+workflow review found that it was only partially disciplined enough for
+production research. The main issues were stale local goal state, verifier
+results that lived only in chat/log prose, promoted fixed-start evidence that
+depended on ignored artifacts, missing null/repeat controls, and no explicit
+policy for when multi-agent sidecars should be used.
+
+### Hypothesis
+
+The workflow will be more reliable if promoted claims require a tracked goal,
+a tracked current-truth index, durable verifier reports, promoted case specs,
+fixed-start/null/repeat controls, and a bounded multi-agent sidecar policy.
+
+### Execution
+
+- Added tracked production goal:
+  `docs/research_protocols/nl_prefix_latent_goal.json`.
+- Added tracked current-truth index:
+  `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+- Added tracked verifier report:
+  `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-11_workflow_audit.md`.
+- Added tracked promoted case spec:
+  `docs/research_protocols/nl_prefix_latent_promoted_specs/fixed_start_narrative_matrix_858b_cases.json`.
+- Updated the autoresearch plan to require promotion artifacts,
+  per-start floors, fixed-start equality, null/repeat controls, and
+  start-damping pass/warn/fail status before fixed-start conditionality claims
+  can be promoted.
+- Added regression coverage in
+  `test_code/test_861a_nl_prefix_latent_autoresearch_workflow_policy.py`.
+- Updated the local ignored
+  `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md` so future local runs
+  follow the same policy.
+
+### Online Auto-Research Review
+
+I searched current automated-research and multi-agent scientific-discovery
+workflows before setting the multi-agent policy:
+
+- AI Scientist: https://arxiv.org/abs/2408.06292
+- Agent Laboratory: https://arxiv.org/abs/2501.04227
+- FutureHouse Robin: https://www.futurehouse.org/research-announcements/demonstrating-end-to-end-scientific-discovery-with-robin-a-multi-agent-system
+- Google AI co-scientist: https://research.google/blog/accelerating-scientific-breakthroughs-with-an-ai-co-scientist/
+- Google agent-scaling study: https://research.google/blog/towards-a-science-of-scaling-agent-systems-when-and-why-agent-systems-work/
+- Automated scientific discovery survey:
+  https://link.springer.com/article/10.1007/s10994-025-06955-2
+
+The resulting policy is to keep one centralized HEAD orchestrator, but add
+bounded sidecar roles at decision gates: Literature Scout, Experiment Critic,
+Artifact Verifier, Report Auditor, and disjoint-scope Implementation Worker.
+The workflow should not use multi-agent debate to decide metric truth, should
+not split narrow sequential debugging, and should not use broad agent/sweep
+experimentation as a substitute for mechanism-driven hypotheses.
+
+The review artifact is tracked at:
+`docs/research_protocols/nl_prefix_autoresearch_multiagent_review.md`.
+
+### Verification
+
+- `uv run pytest test_code/test_861a_nl_prefix_latent_autoresearch_workflow_policy.py -q`
+  passed with `5 passed`.
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json`
+  passed.
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_promoted_specs/fixed_start_narrative_matrix_858b_cases.json`
+  passed.
+- `uv run python -c "... yaml.safe_load(...)"` confirmed the local
+  `nl-prefix-latent-autoresearch` skill header parses.
+- `git diff --check` passed.
+
+### Decision
+
+Promote this as a workflow-policy checkpoint, not as a model-quality result.
+The next principled research step remains a bounded fixed-start control pass:
+same-narrative repeats, shuffled-narrative/null controls, and start-damping
+status tied to the current `soft_topk_narrative_start_checked` production
+contract. New model families should wait until those controls show that the
+current text-to-latent bridge is the actual bottleneck.
+
+---

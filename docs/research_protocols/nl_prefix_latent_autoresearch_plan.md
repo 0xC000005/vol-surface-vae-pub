@@ -11,6 +11,12 @@ autoregressive rollout.
 Current boss-demo runbook:
 `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
 
+Tracked current goal:
+`docs/research_protocols/nl_prefix_latent_goal.json`.
+
+Tracked current-truth index:
+`docs/research_protocols/nl_prefix_latent_current_truth.md`.
+
 The long-run product contract has one fixed-start requirement with two start
 input routes:
 
@@ -380,6 +386,13 @@ then add prefix-latent baselines in this order:
    analogue-top-k generation, direct memory, residual memory, raw text embedding
    retrieval, no-contrastive bridge, contrastive bridge, mixture without
    residual, and residual without mixture support.
+7. **Null and repeat controls.** Before promoting a fixed-start conditionality
+   claim, include controls that separate narrative signal from sampling noise
+   and support-pool geometry:
+   - same narrative, same fixed start, different rollout seeds;
+   - shuffled narratives assigned to the same fixed starts;
+   - no-narrative or memory-only support mixture;
+   - same narrative across different fixed starts.
 
 Primary metrics:
 
@@ -398,6 +411,20 @@ analogue-conditioned generator on distributional scenario metrics and reduce
 explicit implication mismatch versus the current `0.50` balanced-start and
 `0.4706` two-candidate-reranker baselines. Exact historical-window retrieval is
 not the target; auditable support plus story-consistent distributions is.
+
+For any paper-facing, demo-facing, or default-promoting fixed-start
+conditionality claim, promotion additionally requires:
+
+- a tracked case spec or manifest under
+  `docs/research_protocols/nl_prefix_latent_promoted_specs/`;
+- a verifier report under
+  `docs/research_protocols/nl_prefix_latent_verifier_reports/`;
+- a current-truth update in
+  `docs/research_protocols/nl_prefix_latent_current_truth.md`;
+- fixed-start equality;
+- per-start quality floors, not only mean quality across all starts;
+- null/repeat controls or a documented reason they are not yet available;
+- visible start-damping pass/warn/fail status.
 
 ## HEAD Loop Setup
 
@@ -419,6 +446,10 @@ AI Scientist also show recurring risks: weak novelty checks, failed or
 misleading experiments, stale citations, hallucinated numbers, and structural
 report errors.
 
+The current online multi-agent review is tracked at
+`docs/research_protocols/nl_prefix_autoresearch_multiagent_review.md`. It is a
+standing policy artifact for this workflow, not a one-off note.
+
 Before adopting a new model family, bridge objective, agent workflow, or
 deployment architecture, create a short related-work artifact under
 `docs/research_protocols/` or the relevant experiment output directory. The
@@ -433,6 +464,29 @@ artifact should contain:
 
 Do not use web search as decoration after the decision has already been made.
 Use it to constrain the next HEAD hypothesis.
+
+### Multi-Agent Sidecar Policy
+
+Keep the narrative prefix-latent workflow as a centralized HEAD orchestrator.
+Use sub-agents or independent sidecars only when the task is separable enough to
+produce a bounded artifact that can be checked against local evidence. The
+default sidecar roles are:
+
+- **Literature Scout:** searches primary sources before adopting a new external
+  method analogy or agent workflow.
+- **Experiment Critic:** reviews a proposed hypothesis before adding a model
+  family, loss, reranker, threshold, or other knob.
+- **Artifact Verifier:** checks code, commands, metrics, artifacts, and
+  research-log context before promotion.
+- **Report Auditor:** checks paper/demo claims for stale text, missing figures,
+  unsupported causal language, and mismatch with the current-truth index.
+- **Implementation Worker:** edits only a disjoint write scope that the
+  orchestrator can later integrate and verify.
+
+Do not use multi-agent workflows for narrow sequential debugging, same-file
+edits, metric truth by debate, broad hyperparameter sweeps, or replacing human
+approval of product-contract changes. Use them at research decision gates, not
+as a default way to make every iteration larger.
 
 ### Sweep And Hyperparameter Policy
 
@@ -467,9 +521,20 @@ claim, or paper-facing result, the verifier should check:
   missing figures, placeholder text, or stale paths presented as evidence;
 - the result still satisfies the fixed-start contract and does not reintroduce
   hidden model-chosen starts.
+- the tracked current-truth index is updated, or the claim is explicitly marked
+  non-promoted;
+- promoted case specs/manifests are tracked, not only stored under ignored
+  `autoresearch-session/`;
+- null/repeat controls and per-start floors exist for fixed-start
+  conditionality claims, or their absence is called out as a limitation.
 
 If the verifier cannot answer these from local artifacts, the next step is
 `post_experiment_analysis` or `research_ideation`, not promotion.
+
+Verifier outputs must be durable artifacts. Save each promotion verifier report
+under `docs/research_protocols/nl_prefix_latent_verifier_reports/` and cite it
+from the research-log entry. A prose statement in `RESEARCH_LOG.md` is not
+enough for promotion.
 
 ### Artifact Lifecycle Policy
 
@@ -477,11 +542,16 @@ Autoresearch creates many scripts, reports, and intermediate branches. Prevent
 stale artifacts from becoming current truth:
 
 - maintain one current default artifact path per production gate;
+- maintain `docs/research_protocols/nl_prefix_latent_current_truth.md` as the
+  tracked index of promoted claims, incumbent methods, and non-promoted results;
 - mark superseded branches in local state when possible with `superseded_by`
   and `superseded_reason`;
 - cite older reports only as baselines or historical context;
 - if two reports conflict, run `post_experiment_analysis` before using either
   as evidence for a product or paper claim.
+- copy promoted ignored manifests or case specs into
+  `docs/research_protocols/nl_prefix_latent_promoted_specs/` so a clean checkout
+  can identify the exact setup behind a claim.
 
 ### Commit and Artifact Policy
 
