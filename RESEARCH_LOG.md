@@ -122104,3 +122104,77 @@ as exploratory.
 - `uv run python experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json --candidate-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_quality_decomposition_873e_calibrated_alpha025`
 
 ---
+## 2026-05-11: NL prefix latent calibrated-support seed stability
+
+### Context
+Iteration 119 produced a promising but small generator-calibrated support
+rerank gain at seed `776`. Because the gain was small and coverage was lower,
+the next principled step was seed stability rather than promotion or another
+support-policy knob.
+
+### Hypothesis
+If generator-calibrated support reranking is a real bridge improvement, then
+its energy and CRPS gains should persist under paired repeated generator seeds,
+not appear only at one seed.
+
+### Execution
+- Re-ran the current representative baseline under seeds `777` and `778`.
+- Re-ran the generator-calibrated alpha-0.25 policy under seeds `777` and
+  `778`.
+- Added
+  `experiments/backfill/block_ar/nl_prefix_latent_policy_stability.py`.
+- Added tests in
+  `test_code/test_874a_nl_prefix_latent_policy_stability.py`.
+- Summarized the paired seed comparison across seeds `776`, `777`, and `778`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874e_summary/policy_stability_summary.json`.
+
+### Result
+- Unit tests passed: `9 passed`.
+- Syntax, formatting, and whitespace checks passed.
+- Baseline policy across three seeds:
+  - mean energy improvement: `+21.34%`;
+  - mean CRPS improvement: `+17.18%`;
+  - mean coverage: `0.6397`;
+  - energy std: `0.18%`;
+  - CRPS std: `0.22%`.
+- Calibrated policy across three seeds:
+  - mean energy improvement: `+20.72%`;
+  - mean CRPS improvement: `+16.70%`;
+  - mean coverage: `0.6122`;
+  - energy std: `0.47%`;
+  - CRPS std: `0.70%`.
+- Paired calibrated-minus-baseline deltas:
+  - energy: `-0.62%`;
+  - CRPS: `-0.48%`;
+  - coverage: `-2.75%`;
+  - mean-path MAE improvement: `-0.61%`;
+  - positive energy seeds: `1/3`;
+  - positive CRPS seeds: `1/3`.
+
+### Mechanism Read
+The seed-776 calibrated-policy improvement was not robust. The support
+calibration idea remains mechanistically useful as a diagnostic, but the
+current train-self-calibration reranker is too noisy and too coverage-negative
+to replace the representative bridge. This confirms the workflow rule that
+memory/retrieval improvements must clear generator-level stability before
+promotion.
+
+### Decision / Next Step
+Do not promote generator-calibrated support reranking. Keep the current
+representative narrative bridge and `soft_topk_narrative_start_checked`
+product path as the default. The next principled step is post-analysis or
+research ideation focused on a less brittle way to use generator calibration,
+or to return to the higher-level text-to-latent objective instead of adding
+more support-policy knobs.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874a_baseline_seed777 --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda --seed 777`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874b_baseline_seed778 --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda --seed 778`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874c_calibrated_seed777 --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda --seed 777`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873c_alpha025_rerank/generator_calibrated_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874d_calibrated_seed778 --samples 4 --n-steps 30 --top-k 3 --max_windows 441 --device cuda --seed 778`
+- `uv run black experiments/backfill/block_ar/nl_prefix_latent_policy_stability.py test_code/test_874a_nl_prefix_latent_policy_stability.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_policy_stability.py`
+- `uv run pytest test_code/test_874a_nl_prefix_latent_policy_stability.py test_code/test_873a_nl_prefix_latent_generator_calibrated_support.py -q`
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_policy_stability.py --report baseline:776:experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220/scenario_level_eval_report.json --report baseline:777:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874a_baseline_seed777/scenario_level_eval_report.json --report baseline:778:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874b_baseline_seed778/scenario_level_eval_report.json --report calibrated:776:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_calibrated_support_873d_alpha025_scenario_eval/scenario_level_eval_report.json --report calibrated:777:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874c_calibrated_seed777/scenario_level_eval_report.json --report calibrated:778:experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874d_calibrated_seed778/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_policy_stability_874e_summary`
+
+---
