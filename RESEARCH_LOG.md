@@ -121597,3 +121597,45 @@ This was a product-operation verification, not a bridge-quality improvement. The
 Checkpoint this smoke harness as a coherent product-readiness test. The next principled step is to remove stale start-selection wording from the boss-demo/runbook layer and add a small API or launch smoke that verifies the current simplified fixed-start path remains understandable to a risk manager.
 
 ---
+## 2026-05-11: NL prefix latent live fixed-start API smoke
+
+### Context
+After the cached Gradio reliability smoke passed, the next product-readiness bottleneck was stale boss-demo/API wording. The runbook and API smoke still described the old cached casebook / balanced-start path, while the current product demo is typed narrative plus explicit historical starting level.
+
+### Hypothesis
+The demo should have one live production path: typed story -> fresh OpenAI grounding/text memory -> explicit historical start -> support mixture -> frozen-generator rollout. The API smoke should hit that public Gradio endpoint directly and should fail if the story support, start status, condition validation, candidate support, fan chart, or chart redraw are missing.
+
+### Execution
+- Updated `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md` to describe the live fixed-start path and demote cached smokes to developer regression checks.
+- Added stable Gradio API names for `run_live_openai_prefix_for_app` and `refresh_fan_chart`.
+- Reworked `experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py` to call the public live fixed-start endpoint instead of the old raw wrapper endpoint.
+- Fixed the API smoke to respect Gradio's public state contract: internal state inputs/outputs are hidden from the client, so the run endpoint receives factor/scope/story/start and the redraw endpoint receives factor/scope.
+- Added app report metadata so live app runs clearly state that OpenAI was called for grounding/text memory before the downstream prefix rollout reused the fresh condition report.
+- Ran:
+  - `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_api_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+  - Launched the app on port `7862`, ran the live API smoke, then shut the app down.
+
+### Result
+- Focused tests passed: `50 passed`.
+- Syntax and whitespace checks passed.
+- Live API smoke passed:
+  - summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_api_smoke_868b_live_fixed_start/gradio_api_smoke_summary.json`
+  - status: `ok`
+  - selected start status: `pass`
+  - condition-only validation: `pass`
+  - support candidates: `8`
+  - fan trace count: `10`
+  - redraw trace count: `10`
+  - generator sample count: `16`
+  - OpenAI usage: `1853` total tokens
+- The persisted prefix report now has `live_app_openai_conditioning.status = fresh_condition_report` and the scope note says OpenAI was called by the app before rollout.
+
+### Mechanism Read
+This iteration fixed product/API contract drift, not model quality. The important mechanism issue was that the full app performs OpenAI conditioning before passing an external condition report into the prefix-smoke runner; without explicit app-level metadata, the downstream report could misleadingly read like a cached replay.
+
+### Decision / Next Step
+Checkpoint the live fixed-start API smoke. The next principled step is post-experiment analysis of product conditionality evidence: inspect whether the live safe-haven run's support mixture and generated scenario summary visibly explain how the narrative changed the scenario, and decide whether the next experiment should be a small fixed-start narrative-contrast casebook for the paper/demo or more bridge training.
+
+---

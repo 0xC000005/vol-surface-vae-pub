@@ -76,7 +76,10 @@ def test_make_client_passes_auth_only_when_supplied(monkeypatch) -> None:
     ]
 
 
-def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> None:
+def test_run_gradio_api_smoke_uses_live_fixed_start_endpoint(
+    monkeypatch,
+    tmp_path,
+) -> None:
     calls = []
 
     class FakeClient:
@@ -85,22 +88,10 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
 
         def predict(self, *args, api_name: str):
             calls.append((api_name, args))
-            if api_name == "/cached_prefix_casebook_update":
-                return (
-                    "Safe-haven story.",
-                    True,
-                    18,
-                    False,
-                    False,
-                    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-                    "prefix_latent_condition_only_report_823b_safe_haven/"
-                    "condition_only_report.json",
-                    "## Cached Casebook\n\n- OpenAI calls: `none for this cached run`",
-                )
-            if api_name == "/run_prefix_latent_for_app":
+            if api_name == "/run_live_openai_prefix_for_app":
                 return (
                     "report markdown",
-                    "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+                    "## Scenario Workflow Status\n\n- Story support: `pass`",
                     _frame(1),
                     _frame(1),
                     _frame(2),
@@ -109,6 +100,12 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
                     json.dumps(
                         {
                             "status": "ok",
+                            "condition_only_case": {
+                                "condition_only_validation": {
+                                    "status": "pass",
+                                    "forward_warning_count": 1,
+                                }
+                            },
                             "artifact_paths": {
                                 "report": "prefix_report.json",
                                 "markdown": "prefix_report.md",
@@ -168,7 +165,7 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
                     _frame(0),
                     {"choices": [["joint39_val_0036", "18"]]},
                 )
-            if api_name == "/refresh_fan_chart_2":
+            if api_name == "/refresh_fan_chart":
                 return _plot(8)
             raise AssertionError(f"unexpected api_name: {api_name}")
 
@@ -177,7 +174,8 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
         SimpleNamespace(
             url="http://127.0.0.1:7861",
             output_dir=str(tmp_path),
-            casebook_choice="safe_haven_gold_bid:18",
+            mode="live_condition_only",
+            story="Safe-haven story.",
             expected_start_index=18,
             samples=2,
             fan_market="SPX",
@@ -195,9 +193,11 @@ def test_run_gradio_api_smoke_uses_cached_casebook(monkeypatch, tmp_path) -> Non
     assert summary["support_top_candidates"][0]["window_id"] == "joint39_val_0036"
     assert summary["market_implications"][0]["market"] == "GOLD"
     assert summary["forward_warnings"][0]["handling"] == "ignore_for_conditioning"
-    assert calls[0][0] == "/cached_prefix_casebook_update"
-    assert calls[1][0] == "/run_prefix_latent_for_app"
-    assert calls[2] == ("/refresh_fan_chart_2", ("IV_ATM_3M", "ALL"))
+    assert calls[0] == (
+        "/run_live_openai_prefix_for_app",
+        ("SPX", "ALL", "Safe-haven story.", 18),
+    )
+    assert calls[1] == ("/refresh_fan_chart", ("IV_ATM_3M", "ALL"))
     assert (tmp_path / "gradio_api_smoke_summary.json").exists()
 
 
@@ -210,13 +210,11 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
 
         def predict(self, *args, api_name: str):
             nonlocal captured_run_args
-            if api_name == "/cached_prefix_casebook_update":
-                raise AssertionError("live mode should not call cached casebook")
-            if api_name == "/run_prefix_latent_for_app":
+            if api_name == "/run_live_openai_prefix_for_app":
                 captured_run_args = args
                 return (
                     "report markdown",
-                    "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+                    "## Scenario Workflow Status\n\n- Story support: `pass`",
                     _frame(1),
                     _frame(1),
                     _frame(2),
@@ -284,7 +282,7 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
                     _frame(0),
                     {"choices": [["joint39_val_0036", "18"]]},
                 )
-            if api_name == "/refresh_fan_chart_2":
+            if api_name == "/refresh_fan_chart":
                 return _plot(8)
             raise AssertionError(f"unexpected api_name: {api_name}")
 
@@ -294,7 +292,6 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
             url="http://127.0.0.1:7861",
             output_dir=str(tmp_path),
             mode="live_condition_only",
-            casebook_choice="safe_haven_gold_bid:18",
             story="A live story with a forward risk warning.",
             expected_start_index=18,
             samples=2,
@@ -304,11 +301,12 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
     )
 
     assert captured_run_args is not None
-    assert captured_run_args[4] is True
-    assert captured_run_args[6] == ""
-    assert captured_run_args[7] is True
-    assert captured_run_args[8] is True
-    assert captured_run_args[9] == 18
+    assert captured_run_args == (
+        "SPX",
+        "ALL",
+        "A live story with a forward risk warning.",
+        18,
+    )
     assert summary["mode"] == "live_condition_only"
     assert summary["condition_only_validation_status"] == "pass"
     assert summary["condition_only_forward_warning_count"] == 1

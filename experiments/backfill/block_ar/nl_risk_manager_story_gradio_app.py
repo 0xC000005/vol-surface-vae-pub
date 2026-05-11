@@ -1653,12 +1653,12 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
     metrics = _operational_score_metrics(report)
     artifacts = _as_dict(report.get("artifact_paths"))
     lines = [
-        "## Prefix-Latent Run Status",
+        "## Scenario Workflow Diagnostics",
         "",
         f"- Cached query: `{query.get('window_id', 'n/a')}` / `{query.get('kind', 'n/a')}`",
         f"- Condition source: `{query.get('condition_source', 'n/a')}`",
         f"- Text memory dimension: `{query.get('text_memory_dim', 'n/a')}`",
-        f"- Selected-start: `{gate.get('selected_start_status', gate.get('operational_status', 'n/a'))}`",
+        f"- Selected start status: `{gate.get('selected_start_status', gate.get('operational_status', 'n/a'))}`",
         f"- Diagnostic baseline: `{gate.get('diagnostic_baseline_status', 'n/a')}`",
         f"- Research overall: `{gate.get('overall_status', 'n/a')}`",
         f"- Stress: `{gate.get('stress_status', 'n/a')}`",
@@ -2030,6 +2030,46 @@ def enrich_prefix_report_with_product_gate(report: dict[str, Any]) -> dict[str, 
     return enriched
 
 
+def mark_live_app_conditioning(
+    report: dict[str, Any],
+    condition_report_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Mark reports whose condition report was freshly created by the app."""
+
+    case = _as_dict(condition_report_payload.get("condition_only_case"))
+    metadata = _as_dict(case.get("metadata"))
+    live_note = (
+        "Live Gradio narrative workflow. OpenAI was called in the app to ground "
+        "the typed story and build the text-memory condition; the downstream "
+        "prefix rollout then reused that freshly generated condition report with "
+        "the explicit historical start."
+    )
+    enriched = {
+        **report,
+        "scope_note": live_note,
+        "live_app_openai_conditioning": {
+            "status": "fresh_condition_report",
+            "grounding_model": metadata.get("model", metadata.get("grounding_model", "")),
+            "response_id": metadata.get("response_id", ""),
+            "usage": metadata.get("usage", {}),
+        },
+    }
+    report_path = Path(_as_dict(enriched.get("artifact_paths")).get("report", ""))
+    if report_path.exists():
+        _write_json(report_path, enriched)
+    markdown_path = Path(_as_dict(enriched.get("artifact_paths")).get("markdown", ""))
+    if markdown_path.exists():
+        markdown = markdown_path.read_text(encoding="utf-8")
+        if live_note not in markdown:
+            markdown = markdown.replace(
+                "## Product Contract",
+                f"## Live App Conditioning Note\n\n{live_note}\n\n## Product Contract",
+                1,
+            )
+            markdown_path.write_text(markdown, encoding="utf-8")
+    return enriched
+
+
 def build_run_args(
     *,
     story: str,
@@ -2310,6 +2350,7 @@ def run_prefix_latent_for_app(
             report["condition_only_case"] = condition_report_payload.get(
                 "condition_only_case"
             )
+            report = mark_live_app_conditioning(report, condition_report_payload)
         report = enrich_prefix_report_with_product_gate(report)
         if runner is run_prefix_latent_story_smoke:
             run_record_path = Path(output_dir) / "run_record" / "prefix_latent_run_record.json"
@@ -2752,12 +2793,14 @@ def build_demo() -> Any:
             ],
             show_progress="full",
             show_progress_on=prefix_status,
+            api_name="run_live_openai_prefix_for_app",
         )
         prefix_fan_market.change(
             fn=refresh_fan_chart,
             inputs=[prefix_report_state, prefix_fan_market, prefix_analogue_scope],
             outputs=prefix_fan_plot,
             show_progress="hidden",
+            api_name="refresh_fan_chart",
         )
     return demo
 

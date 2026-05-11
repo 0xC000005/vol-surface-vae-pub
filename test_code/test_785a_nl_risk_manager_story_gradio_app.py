@@ -588,7 +588,7 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     diagnostic = prefix_diagnostic_start_table(report)
     validation = prefix_validation_table(report)
 
-    assert "Selected-start: `pass`" in markdown
+    assert "Selected start status: `pass`" in markdown
     assert "Research overall: `pass`" in markdown
     assert "Rollout temperature: `0.500`" in markdown
     assert "Scenario CRPS vs persistence: `+14.5%`" in markdown
@@ -1319,4 +1319,7 @@ def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> 
 
     assert "OpenAI grounding sidecar" in first[1]
     assert calls == [(str(tmp_path / "condition_only_report.json"), False)], final[7]
+    assert "OpenAI was called" in final[8]["scope_note"]
+    assert final[8]["live_app_openai_conditioning"]["status"] == "fresh_condition_report"
+    assert final[8]["live_app_openai_conditioning"]["grounding_model"] == "fixture"
     assert final[10].iloc[0]["Market"] == "SPX"

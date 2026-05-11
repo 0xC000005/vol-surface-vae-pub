@@ -14,17 +14,12 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (  # noqa: E402
-    DEFAULT_USER_START_STATE_JSON,
-)
-
 
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-    "prefix_latent_gradio_api_smoke_825a"
+    "prefix_latent_gradio_api_smoke_868b_live_fixed_start"
 )
-DEFAULT_URL = "http://127.0.0.1:7861"
-DEFAULT_CASEBOOK_CHOICE = "safe_haven_gold_bid:18"
+DEFAULT_URL = "http://127.0.0.1:7860"
 DEFAULT_LIVE_STORY = (
     "This looks like a safe-haven bid with softer risk appetite: gold is "
     "rallying, Treasury yields are lower, equities are choppy, volatility "
@@ -180,80 +175,78 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mode = str(getattr(args, "mode", "cached_casebook"))
-    if mode == "cached_casebook":
-        casebook = client.predict(
-            str(args.casebook_choice),
-            api_name="/cached_prefix_casebook_update",
+    mode = str(getattr(args, "mode", "live_condition_only"))
+    if mode != "live_condition_only":
+        raise ValueError(
+            "the production API smoke only supports mode='live_condition_only'; "
+            "use nl_prefix_latent_gradio_cached_smoke.py for no-OpenAI regression checks"
         )
-        if len(casebook) != 7:
-            raise RuntimeError(f"unexpected casebook output length: {len(casebook)}")
-        (
-            story,
-            use_explicit_start,
-            explicit_start_index,
-            condition_only_story,
-            live_story,
-            cached_condition_report,
-            casebook_status,
-        ) = casebook
-    elif mode == "live_condition_only":
-        story = str(args.story)
-        use_explicit_start = True
-        explicit_start_index = int(args.expected_start_index)
-        condition_only_story = True
-        live_story = True
-        cached_condition_report = ""
-        casebook_status = "live condition-only OpenAI TestFlight"
-    else:
-        raise ValueError(f"unknown mode: {mode!r}")
+    story = str(args.story)
+    explicit_start_index = int(args.expected_start_index)
+    mode_note = "live OpenAI condition generation with explicit historical start"
 
     run_outputs = client.predict(
-        "balanced_memory_start",
-        int(args.samples),
         str(args.fan_market),
         "ALL",
-        bool(live_story),
         str(story),
-        str(cached_condition_report),
-        bool(condition_only_story),
-        bool(use_explicit_start),
         int(explicit_start_index),
-        False,
-        str(DEFAULT_USER_START_STATE_JSON),
-        api_name="/run_prefix_latent_for_app",
+        api_name="/run_live_openai_prefix_for_app",
     )
-    if len(run_outputs) != 16:
+    if len(run_outputs) not in {16, 17}:
         raise RuntimeError(f"unexpected prefix run output length: {len(run_outputs)}")
-
-    (
-        report_markdown,
-        status_markdown,
-        selected_table,
-        diagnostic_table,
-        validation_table,
-        scenario_table,
-        fan_plot,
-        report_json,
-        analogue_scope_update,
-        condition_table,
-        warning_table,
-        warning_component_table,
-        shift_factor_table,
-        candidate_table,
-        user_start_table,
-        historical_start_candidate_update,
-    ) = run_outputs
+    if len(run_outputs) == 17:
+        (
+            report_markdown,
+            status_markdown,
+            selected_table,
+            diagnostic_table,
+            validation_table,
+            scenario_table,
+            fan_plot,
+            report_json,
+            report_state,
+            analogue_scope_update,
+            condition_table,
+            warning_table,
+            warning_component_table,
+            shift_factor_table,
+            candidate_table,
+            user_start_table,
+            historical_start_candidate_update,
+        ) = run_outputs
+    else:
+        (
+            report_markdown,
+            status_markdown,
+            selected_table,
+            diagnostic_table,
+            validation_table,
+            scenario_table,
+            fan_plot,
+            report_json,
+            analogue_scope_update,
+            condition_table,
+            warning_table,
+            warning_component_table,
+            shift_factor_table,
+            candidate_table,
+            user_start_table,
+            historical_start_candidate_update,
+        ) = run_outputs
+        report_state = None
 
     report = json.loads(str(report_json))
+    if report_state is None:
+        report_state = report
     redraw_plot = client.predict(
         str(args.redraw_market),
         "ALL",
-        api_name="/refresh_fan_chart_2",
+        api_name="/refresh_fan_chart",
     )
 
     query = report.get("cached_query", {}) if isinstance(report, dict) else {}
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
+    generation = _as_dict(report.get("generation"))
     artifact_paths = _as_dict(report.get("artifact_paths"))
     embedding_metadata = _as_dict(_as_dict(query).get("embedding_metadata"))
     memory_prior = _as_dict(_as_dict(query).get("memory_prior"))
@@ -279,27 +272,20 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         else {}
     )
     errors: list[str] = []
-    if mode == "cached_casebook" and "OpenAI calls: `none" not in str(casebook_status):
-        errors.append("casebook_no_openai_status_missing")
-    if mode == "cached_casebook" and bool(live_story):
-        errors.append("casebook_live_story_true")
-    if not bool(use_explicit_start):
-        errors.append("explicit_start_false")
     if int(explicit_start_index) != int(args.expected_start_index):
         errors.append("start_index_mismatch")
     if str(query.get("condition_source", "")) != "external_condition_report":
         errors.append("condition_source_mismatch")
-    if mode == "live_condition_only":
-        if not isinstance(condition_only_validation, dict):
-            errors.append("condition_only_validation_missing")
-        elif str(condition_only_validation.get("status", "")) != "pass":
-            errors.append("condition_only_validation_not_pass")
-        forward_warning_count = condition_only_validation.get(
-            "forward_warning_count",
-            0,
-        )
-        if int(forward_warning_count or 0) < 1:
-            errors.append("forward_warning_count_missing")
+    if not isinstance(condition_only_validation, dict):
+        errors.append("condition_only_validation_missing")
+    elif str(condition_only_validation.get("status", "")) != "pass":
+        errors.append("condition_only_validation_not_pass")
+    forward_warning_count = condition_only_validation.get(
+        "forward_warning_count",
+        0,
+    )
+    if int(forward_warning_count or 0) < 1:
+        errors.append("forward_warning_count_missing")
     if report.get("status") != "ok":
         errors.append("report_not_ok")
     if str(gate.get("selected_start_status", "")) != "pass":
@@ -322,8 +308,8 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("fan_plot_empty")
     if _plot_trace_count(redraw_plot) < 1:
         errors.append("redraw_plot_empty")
-    if "Selected-start:" not in str(status_markdown):
-        errors.append("status_selected_start_missing")
+    if "Story support:" not in str(status_markdown):
+        errors.append("status_story_support_missing")
 
     summary = {
         "status": "ok" if not errors else "fail",
@@ -331,9 +317,10 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "url": str(args.url),
         "auth_used": auth is not None,
         "mode": mode,
-        "casebook_choice": str(args.casebook_choice),
-        "casebook_start_index": int(explicit_start_index),
-        "casebook_status_length": len(str(casebook_status)),
+        "start_index": int(explicit_start_index),
+        "requested_cli_samples": int(args.samples),
+        "generator_sample_count": int(generation.get("sample_count", 0) or 0),
+        "mode_note_length": len(str(mode_note)),
         "condition_source": str(query.get("condition_source", "")),
         "prefix_report_path": str(artifact_paths.get("report", "")),
         "prefix_markdown_path": str(artifact_paths.get("markdown", "")),
@@ -403,10 +390,9 @@ def main() -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--mode",
-        choices=["cached_casebook", "live_condition_only"],
-        default="cached_casebook",
+        choices=["live_condition_only"],
+        default="live_condition_only",
     )
-    parser.add_argument("--casebook-choice", default=DEFAULT_CASEBOOK_CHOICE)
     parser.add_argument("--story", default=DEFAULT_LIVE_STORY)
     parser.add_argument("--expected-start-index", type=int, default=18)
     parser.add_argument("--samples", type=int, default=2)
