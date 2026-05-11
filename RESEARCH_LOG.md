@@ -121562,3 +121562,38 @@ The Gradio path now makes the current start universe explicit:
 - `git diff --check` -> passed.
 
 ---
+## 2026-05-11: NL prefix latent Gradio reliability smoke
+
+### Context
+The Gradio demo now surfaces the full s192 start-reliability manifest in product-facing status and selected-start output. The remaining operational question was whether the cached Gradio wrapper smoke still verified the simplified UI wording and the new reliability status without making OpenAI calls.
+
+### Hypothesis
+The cached casebook smoke should fail if the app drops the current `Scenario Workflow Status` progress text, the product `Story support` line, or a `start_reliability_gate.product_status` when a reliability manifest is attached to the run report.
+
+### Execution
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py` to check the simplified production UI wording and require start-reliability status when `artifact_inputs.start_reliability_manifest` is present.
+- Updated `test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py` fixtures to match the current UI contract and to cover the reliability-manifest branch.
+- Ran:
+  - `uv run pytest test_code/test_793a_nl_prefix_latent_gradio_cached_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+  - `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+  - `git -C /home/max/Documents/vol-surface-vae-pub diff --check`
+  - `uv run python experiments/backfill/block_ar/nl_prefix_latent_gradio_cached_smoke.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_868a_reliability_fixed --cached-casebook-choice safe_haven_gold_bid:18 --samples 2 --fan-market SPX --redraw-market IV_ATM_3M`
+
+### Result
+- Focused tests passed: `43 passed`.
+- Syntax and whitespace checks passed.
+- Real cached casebook smoke passed with no OpenAI calls:
+  - status: `ok`
+  - selected start status: `pass`
+  - start reliability status: `pass`
+  - fan trace count: `8`
+  - redraw fan trace count: `8`
+  - summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_cached_smoke_868a_reliability_fixed/gradio_cached_casebook_smoke_summary.json`
+
+### Mechanism Read
+This was a product-operation verification, not a bridge-quality improvement. The cached smoke now guards against stale app status text and against silently omitting the start-reliability gate from manifest-backed demo runs.
+
+### Decision / Next Step
+Checkpoint this smoke harness as a coherent product-readiness test. The next principled step is to remove stale start-selection wording from the boss-demo/runbook layer and add a small API or launch smoke that verifies the current simplified fixed-start path remains understandable to a risk manager.
+
+---

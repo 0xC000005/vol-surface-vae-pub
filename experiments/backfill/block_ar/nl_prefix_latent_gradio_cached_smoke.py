@@ -153,10 +153,10 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     warning_table = _prefix_output(final, 11)
     candidate_table = _prefix_output(final, 14)
     errors: list[str] = []
-    if "Prefix-latent run started" not in str(first[1]):
+    if "Scenario Workflow Status" not in str(first[1]) or "Run started:" not in str(first[1]):
         errors.append("progress_status_missing")
-    if "Selected-start:" not in str(status_markdown):
-        errors.append("selected_status_missing")
+    if "Story support:" not in str(status_markdown):
+        errors.append("story_support_status_missing")
     if _table_rows(selected_table) < 1:
         errors.append("selected_table_empty")
     if _table_rows(diagnostic_table) < 1:
@@ -180,6 +180,19 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
     if not isinstance(gate, dict) or "selected_start_status" not in gate:
         errors.append("gate_selected_status_missing")
+    artifact_inputs = report.get("artifact_inputs", {}) if isinstance(report, dict) else {}
+    start_reliability = (
+        report.get("start_reliability_gate", {}) if isinstance(report, dict) else {}
+    )
+    manifest_expected = bool(
+        isinstance(artifact_inputs, dict)
+        and artifact_inputs.get("start_reliability_manifest")
+    )
+    if manifest_expected and not (
+        isinstance(start_reliability, dict)
+        and start_reliability.get("product_status")
+    ):
+        errors.append("start_reliability_status_missing")
     query = report.get("cached_query", {}) if isinstance(report, dict) else {}
     condition_source = (
         str(query.get("condition_source", "")) if isinstance(query, dict) else ""
@@ -250,6 +263,11 @@ def run_gradio_cached_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "redraw_market": redraw_market,
         "redraw_fan_trace_count": int(len(getattr(redraw_plot, "data", []))),
         "selected_start_status": str(gate.get("selected_start_status", "")),
+        "start_reliability_status": (
+            str(start_reliability.get("product_status", ""))
+            if isinstance(start_reliability, dict)
+            else ""
+        ),
         "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "research_overall_status": str(gate.get("overall_status", "")),
         "path_labels": sorted(set(path_labels)),

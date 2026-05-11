@@ -24,7 +24,7 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(
     def fake_run_prefix_latent_for_app(**kwargs):
         yield (
             "in progress",
-            "## Prefix-Latent Run Status\n\n- Prefix-latent run started: `0.0s ago`",
+            "## Scenario Workflow Status\n\n- Run started: `0.0s ago`",
             pd.DataFrame(),
             pd.DataFrame(),
             pd.DataFrame(),
@@ -35,7 +35,7 @@ def test_run_gradio_cached_smoke_validates_wrapper_outputs(
         )
         yield (
             "markdown",
-            "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+            "## Scenario Workflow Status\n\n- Story support: `warning`",
             pd.DataFrame([{"Variant": "balanced_memory_start"}]),
             pd.DataFrame([{"Variant": "original"}]),
             pd.DataFrame([{"Status": "pass"}]),
@@ -108,7 +108,7 @@ def test_run_gradio_live_smoke_requires_live_condition_source(
         captured.update(kwargs)
         yield (
             "in progress",
-            "## Prefix-Latent Run Status\n\n- Prefix-latent run started: `0.0s ago`",
+            "## Scenario Workflow Status\n\n- Run started: `0.0s ago`",
             pd.DataFrame(),
             pd.DataFrame(),
             pd.DataFrame(),
@@ -119,7 +119,7 @@ def test_run_gradio_live_smoke_requires_live_condition_source(
         )
         yield (
             "markdown",
-            "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+            "## Scenario Workflow Status\n\n- Story support: `warning`",
             pd.DataFrame([{"Variant": "balanced_memory_start"}]),
             pd.DataFrame([{"Variant": "original"}]),
             pd.DataFrame([{"Status": "pass"}]),
@@ -190,7 +190,7 @@ def test_run_gradio_cached_casebook_smoke_uses_cached_report(
         captured.update(kwargs)
         yield (
             "in progress",
-            "## Prefix-Latent Run Status\n\n- Prefix-latent run started: `0.0s ago`",
+            "## Scenario Workflow Status\n\n- Run started: `0.0s ago`",
             pd.DataFrame(),
             pd.DataFrame(),
             pd.DataFrame(),
@@ -201,7 +201,7 @@ def test_run_gradio_cached_casebook_smoke_uses_cached_report(
         )
         yield (
             "markdown",
-            "## Prefix-Latent Run Status\n\n- Selected-start: `pass`",
+            "## Scenario Workflow Status\n\n- Story support: `pass`",
             pd.DataFrame([{"Variant": "explicit_start_window"}]),
             pd.DataFrame([{"Variant": "original"}]),
             pd.DataFrame([{"Status": "pass"}]),
@@ -216,6 +216,10 @@ def test_run_gradio_cached_casebook_smoke_uses_cached_report(
                     "diagnostic_baseline_status": "pass",
                     "overall_status": "pass",
                 },
+                "artifact_inputs": {
+                    "start_reliability_manifest": "start_reliability_gate.json"
+                },
+                "start_reliability_gate": {"product_status": "pass"},
                 "generation": {
                     "path_quantiles": [
                         {
@@ -276,5 +280,6 @@ def test_run_gradio_cached_casebook_smoke_uses_cached_report(
     assert "safe-haven" in captured["story"].lower()
     assert summary["mode"] == "cached_casebook"
     assert summary["condition_source"] == "external_condition_report"
+    assert summary["start_reliability_status"] == "pass"
     assert summary["redraw_fan_trace_count"] > 0
     assert (tmp_path / "gradio_cached_casebook_smoke_summary.json").exists()
