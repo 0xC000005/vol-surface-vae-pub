@@ -120678,3 +120678,56 @@ This better matches mature text-conditioned generation systems: the text does no
 The next experiment should hold the starting level fixed and vary the narrative. We should measure whether the generated distributions differ in sensible, directionally auditable ways across day 1, day 7, day 14, and day 30. If narratives do not move the distribution, the bridge is too weak. If they move the distribution without on-manifold support or direction consistency, the bridge is hallucinating.
 
 ---
+## 2026-05-11: HEAD NLP Prefix-Latent 90: Multi-Caption Hard-Negative Text-Latent TestFlight
+
+### Context
+
+Started the renewed NLP text-to-latent autoresearch direction after cleaning the worktree. The objective for this iteration was to avoid large new OpenAI calls until we can prove, on cached artifacts, that richer captions and hard negatives improve the mapping from narrative text to the frozen generator's condition-memory space.
+
+### Hypothesis
+
+Using multiple risk-manager-style captions per historical window plus contrastive hard negatives should improve held-out text-to-memory alignment and directional separation versus anchor-only or multi-caption-without-negative training.
+
+### Execution
+
+- Updated `experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py` so the offline bake-off can compare training policies:
+  - `anchor_only`;
+  - `multi_caption_no_negatives`;
+  - `multi_caption_with_negatives`.
+- Added manifest-split support so the bake-off can use the representative OpenAI labeling split rather than only a sequential 40/10 split.
+- Added a regression test for the caption/negative policy selector.
+- Ran a no-new-OpenAI TestFlight on cached representative artifacts:
+  `uv run python experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py --input-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_schema_v2_representative_220/narrative_pipeline_report.json --input-npz experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_schema_v2_representative_220/narrative_pipeline_arrays.npz --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_850a_manifest_policy_testflight --split-source manifest --methods mlp_mse_contrastive,clip_infonce_hybrid --training-policies anchor_only,multi_caption_no_negatives,multi_caption_with_negatives --adapter-steps 300 --top-k 5 --seed 850`.
+
+### Result
+
+The best method on most held-out metrics was `mlp_mse_contrastive__multi_caption_with_negatives`.
+
+Key TestFlight metrics:
+
+- `mlp_mse_contrastive__multi_caption_with_negatives`: target cosine `0.8583`, hard-negative gap `0.9588`, hard-negative margin `0.7815`, recall@1 test pool `0.0794`, recall@3 test pool `0.1905`.
+- `mlp_mse_contrastive__multi_caption_no_negatives`: target cosine `0.8552`, hard-negative gap `0.3310`, hard-negative margin `0.1744`.
+- `mlp_mse_contrastive__anchor_only`: target cosine `0.8276`, hard-negative gap `0.4240`, hard-negative margin `0.2409`.
+- `clip_infonce_hybrid` variants improved some separation metrics relative to each other but had poor target cosine in this TestFlight, suggesting the current CLIP-style objective is not yet balanced correctly for the generator memory target.
+
+### Mechanism Read
+
+The cached representative data already supports the main intuition: multi-caption training helps target alignment, and adding hard negatives dramatically improves directional separation without hurting target cosine. This means the next larger OpenAI captioning run is justified only if it preserves the same target contract: multiple captions per window plus deliberate directional hard negatives.
+
+The CLIP/InfoNCE hybrid is not yet production-ready as configured. It likely over-optimizes classification-style alignment against the target table and under-weights direct generator-memory regression. This is a useful architecture direction, but not the immediate default.
+
+### Decision / Next Step
+
+Promote `mlp_mse_contrastive + multi_caption_with_negatives` as the current text-to-memory TestFlight baseline. The next HEAD iteration should stress-test the conclusion across seeds and/or adapter steps before scaling new OpenAI labels. If the win is stable, then proceed to a small live OpenAI caption refresh for a few carefully selected hard windows.
+
+### Validation
+
+- `uv run pytest test_code/test_777a_nl_bridge_architecture_bakeoff.py -q` passed: 4 tests.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py` passed.
+- `git diff --check` passed.
+
+### Artifacts
+
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_850a_manifest_policy_testflight/bridge_architecture_bakeoff_report.json`.
+
+---

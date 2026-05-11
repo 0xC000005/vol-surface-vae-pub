@@ -6,6 +6,7 @@ sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_bridge_architecture_bakeoff import (
     choose_best_method,
+    filter_training_examples,
     summarize_bakeoff,
     train_clip_condition_adapter,
 )
@@ -92,6 +93,34 @@ def test_summarize_bakeoff_compares_methods_and_keeps_best() -> None:
     assert summary["best_by_heldout_mean_target_cosine"] == "clip"
     assert summary["best_by_heldout_recall_at_3_test_pool"] == "clip"
     assert summary["methods"]["clip"]["heldout_hard_negative_mean_margin"] == 0.40
+
+
+def test_filter_training_examples_supports_caption_and_negative_policies() -> None:
+    examples = [
+        {"window_index": 0, "role": "anchor"},
+        {"window_index": 0, "role": "positive"},
+        {"window_index": 0, "role": "negative"},
+        {"window_index": 1, "role": "anchor"},
+        {"window_index": 1, "role": "positive"},
+        {"window_index": 1, "role": "negative"},
+        {"window_index": 2, "role": "anchor"},
+    ]
+
+    assert filter_training_examples(
+        examples,
+        train_indices=[0, 1],
+        policy="anchor_only",
+    ) == [0, 3]
+    assert filter_training_examples(
+        examples,
+        train_indices=[0, 1],
+        policy="multi_caption_no_negatives",
+    ) == [0, 1, 3, 4]
+    assert filter_training_examples(
+        examples,
+        train_indices=[0, 1],
+        policy="multi_caption_with_negatives",
+    ) == [0, 1, 2, 3, 4, 5]
 
 
 def test_choose_best_method_ignores_missing_metric() -> None:

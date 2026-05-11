@@ -29,6 +29,7 @@ from experiments.backfill.block_ar.nl_condition_bridge_evaluation import (  # no
     evaluate_condition_bridge,
     load_pipeline_artifacts,
     select_train_test_windows,
+    select_train_test_windows_from_report,
     summarize_bridge_metrics,
 )
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
@@ -233,19 +234,63 @@ def evaluate_condition_vectors(
     }
 
 
+def filter_training_examples(
+    examples: list[dict[str, Any]],
+    *,
+    train_indices: list[int],
+    policy: str,
+) -> list[int]:
+    """Select training rows for caption/negative ablations."""
+
+    train_set = set(int(idx) for idx in train_indices)
+    selected: list[int] = []
+    for row_idx, example in enumerate(examples):
+        if int(example["window_index"]) not in train_set:
+            continue
+        role = str(example.get("role", ""))
+        if policy == "anchor_only":
+            keep = role == "anchor"
+        elif policy == "multi_caption_no_negatives":
+            keep = role in {"anchor", "positive"}
+        elif policy == "multi_caption_with_negatives":
+            keep = role in {"anchor", "positive", "negative"}
+        else:
+            raise ValueError(
+                "training policy must be anchor_only, "
+                "multi_caption_no_negatives, or multi_caption_with_negatives"
+            )
+        if keep:
+            selected.append(row_idx)
+    if not selected:
+        raise ValueError(f"training policy {policy!r} selected no examples")
+    return selected
+
+
 def run_single_method(
     method: str,
+    training_policy: str,
     examples: list[dict[str, Any]],
     text_embeddings: np.ndarray,
     memory_targets: np.ndarray,
     split: dict[str, list[int]],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
-    train_embeddings, _train_examples, target_indices, roles, groups = _train_example_slice(
+    row_indices = filter_training_examples(
         examples,
-        text_embeddings,
-        split["train_indices"],
+        train_indices=split["train_indices"],
+        policy=training_policy,
     )
+    train_embeddings = text_embeddings[np.asarray(row_indices, dtype=np.int64)]
+    train_examples = [examples[idx] for idx in row_indices]
+    target_indices = np.asarray(
+        [
+            -1 if example["target_index"] is None else int(example["target_index"])
+            for example in train_examples
+        ],
+        dtype=np.int64,
+    )
+    roles = [str(example["role"]) for example in train_examples]
+    groups = [str(example["window_id"]) for example in train_examples]
     if method == "mlp_mse_contrastive":
         train_result = train_narrative_adapter(
             train_embeddings,
@@ -307,6 +352,12 @@ def run_single_method(
     )
     return {
         "method": method,
+        "training_policy": training_policy,
+        "train_example_count": len(train_examples),
+        "train_role_counts": {
+            role: int(sum(1 for item in roles if item == role))
+            for role in sorted(set(roles))
+        },
         "adapter_training": {
             "loss_first": _round_float(float(train_result["loss_first"])),
             "loss_last": _round_float(float(train_result["loss_last"])),
@@ -370,23 +421,39 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
     memory_targets = np.asarray(arrays["memory_targets"], dtype=np.float32)
     if text_embeddings.shape[0] != len(examples):
         raise ValueError("text_embeddings rows do not match rebuilt examples")
-    split = select_train_test_windows(
-        int(memory_targets.shape[0]),
-        train_windows=int(args.train_windows),
-        test_windows=int(args.test_windows),
-    )
-    requested = [item.strip() for item in str(args.methods).split(",") if item.strip()]
-    results = {
-        method: run_single_method(
-            method,
-            examples,
-            text_embeddings,
-            memory_targets,
-            split,
-            args,
+    if str(args.split_source) == "manifest":
+        split = select_train_test_windows_from_report(
+            report,
+            int(memory_targets.shape[0]),
+            train_windows=int(args.train_windows),
+            test_windows=int(args.test_windows),
         )
-        for method in requested
-    }
+    else:
+        split = select_train_test_windows(
+            int(memory_targets.shape[0]),
+            train_windows=int(args.train_windows),
+            test_windows=int(args.test_windows),
+        )
+        split["source"] = "sequential"
+    requested = [item.strip() for item in str(args.methods).split(",") if item.strip()]
+    policies = [
+        item.strip()
+        for item in str(args.training_policies).split(",")
+        if item.strip()
+    ]
+    results = {}
+    for method in requested:
+        for policy in policies:
+            name = f"{method}__{policy}"
+            results[name] = run_single_method(
+                method,
+                policy,
+                examples,
+                text_embeddings,
+                memory_targets,
+                split,
+                args,
+            )
     summary = summarize_bakeoff(results)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -402,6 +469,7 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
         "embedding_model": report.get("embedding_model"),
         "split": split,
         "methods_requested": requested,
+        "training_policies_requested": policies,
         "summary": summary,
         "results": results,
         "artifact_paths": {
@@ -424,6 +492,20 @@ def main() -> None:
     )
     parser.add_argument("--train-windows", type=int, default=40)
     parser.add_argument("--test-windows", type=int, default=10)
+    parser.add_argument(
+        "--split-source",
+        choices=["sequential", "manifest"],
+        default="sequential",
+        help="Use manifest train/test labels when available, otherwise sequential.",
+    )
+    parser.add_argument(
+        "--training-policies",
+        default="multi_caption_with_negatives",
+        help=(
+            "Comma-separated policies: anchor_only, multi_caption_no_negatives, "
+            "multi_caption_with_negatives."
+        ),
+    )
     parser.add_argument("--adapter-steps", type=int, default=700)
     parser.add_argument("--adapter-lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int)
