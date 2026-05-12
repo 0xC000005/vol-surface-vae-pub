@@ -123063,3 +123063,65 @@ Resume autoresearch with an exploration-lane learned support-reranker or learned
 - `git diff --check`
 
 ---
+## 2026-05-11: HEAD nl-prefix 136 learned support reranker TestFlight
+
+### Context
+The current objective is to improve the narrative-to-mixture workflow without abandoning the historical support mixture. The previous policy update made the simple mixture the promotion floor while allowing low-cost exploratory regressions when they clarify mechanism.
+
+### Hypothesis
+A learned support reranker trained on historical query/candidate pairs can improve support ordering versus raw narrative-memory cosine by learning which support windows have future paths closer to the query window.
+
+### Research Lane
+`exploration`.
+
+### Result Status
+`mechanism_found_but_candidate_rejected`.
+
+### Benchmark Floor Status
+`below_floor`; this was not promoted.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_learned_support_reranker_testflight.py`.
+- Added `test_code/test_879a_nl_learned_support_reranker.py`.
+- The reranker is a small ridge model over candidate-level features: memory cosine, fixed-start distance, start similarity, memory-minus-start-distance, candidate recent-prefix delta norm, and candidate start norm.
+- The training label is negative standardized historical replay loss between a train query future and a candidate future. This deliberately tests whether support-quality signal exists before adding a heavier model.
+- Ran the artifact-only TestFlight:
+  `uv run python experiments/backfill/block_ar/nl_learned_support_reranker_testflight.py --candidate-pool-size 16 --top-k 3 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight`
+- Because replay signal was positive, ran same-seed 5-window frozen-generator smoke tests on reranked and original support orderings:
+  `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight/learned_support_reranked_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879b_scenario_smoke --max-windows-eval 5 --top-k 3 --samples 4 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 879 --device cpu --max_windows 441`
+  and the matching original-support command with output directory `nl_learned_support_reranker_879c_original_scenario_smoke`.
+- Ran support-quality decomposition:
+  `uv run python experiments/backfill/block_ar/nl_prefix_latent_support_quality_decomposition.py --base-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --base-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879c_original_scenario_smoke/scenario_level_eval_report.json --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight/learned_support_reranked_bridge_report.json --candidate-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879b_scenario_smoke/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879d_support_quality_decomposition --top-k 3`
+
+### Result
+- Artifact-only replay TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight/learned_support_reranker_report.json`
+  - replay CRPS delta: `+0.021770278955`;
+  - replay energy delta: `+0.005914704312`;
+  - replay coverage delta: `-0.013527851459`;
+  - result status: `mechanism_found`.
+- Same-seed 5-window generator smoke:
+  - original narrative-generator CRPS improvement vs persistence: `+13.2096%`;
+  - reranked narrative-generator CRPS improvement vs persistence: `+12.9012%`;
+  - original narrative-generator energy improvement vs persistence: `+17.6832%`;
+  - reranked narrative-generator energy improvement vs persistence: `+17.5147%`.
+- Support-quality decomposition:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879d_support_quality_decomposition/support_quality_decomposition.json`
+  - historical replay CRPS improvement delta: `+0.029394921905`;
+  - historical replay energy improvement delta: `+0.013553790238`;
+  - narrative-generator CRPS improvement delta: `-0.003084240497`;
+  - narrative-generator energy improvement delta: `-0.001684883345`;
+  - mechanism: `support_replay_generator_mismatch`.
+
+### Mechanism Read
+The learned reranker found real signal for selecting historical supports whose realized futures replay closer to the held-out future. That does not automatically improve the frozen SNI generator, because the generator conditions on the retrieved recent prefix and its learned rollout dynamics, not on historical future replay quality. This is the same failure pattern as earlier support-quality work: better historical replay support can move the frozen generator into less calibrated analogue histories.
+
+### Decision / Next Step
+Do not promote this reranker. The next principled step is `post_experiment_analysis` on `support_replay_generator_mismatch`, followed by a generator-calibrated support-weight objective if the mechanism remains clear. A better reranker should optimize frozen-generator rollout compatibility or use generator self-calibration as a label/auxiliary feature, not only historical replay closeness.
+
+### Verification
+- `uv run pytest test_code/test_879a_nl_learned_support_reranker.py -q`
+- `uv run black experiments/backfill/block_ar/nl_learned_support_reranker_testflight.py test_code/test_879a_nl_learned_support_reranker.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_learned_support_reranker_testflight.py`
+
+---

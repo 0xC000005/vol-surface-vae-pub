@@ -215,6 +215,21 @@ Diagnostic, not yet promoted:
   associated with higher top-1 support similarity (`-0.248` correlation), so
   the current residual bridge does not yet show a clean support-quality
   mechanism.
+- learned support-reranker TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight/learned_support_reranker_report.json`.
+  This exploration-lane branch trained a small ridge reranker on train-window
+  query/candidate features with negative standardized replay loss as the label.
+  It found support signal at the replay level: held-out replay CRPS improved by
+  `+0.0218` z-score units and replay energy improved by `+0.0059`, while
+  coverage fell by `-0.0135`. A same-seed 5-window frozen-generator smoke did
+  not promote the idea: historical replay improved, but narrative-generator
+  CRPS regressed by `-0.0031` and energy by `-0.0017` versus the original
+  support ordering. The decomposition
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879d_support_quality_decomposition/support_quality_decomposition.json`
+  labels the mechanism `support_replay_generator_mismatch`. Treat this as
+  evidence that future support rerankers should optimize generator-calibrated
+  rollout compatibility or include a frozen-generator-aware loss, not only
+  historical replay closeness.
 
 ### Fixed-Start Conditionality
 
