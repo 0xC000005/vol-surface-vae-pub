@@ -98,6 +98,14 @@ Diagnostic, not yet promoted:
   with the current top-k incumbent (`+17.4%` CRPS, `+21.6%` energy, `0.650`
   80% coverage), but the gain is marginal and mixed across metrics. Treat it as
   a promising diagnostic, not a promoted production default.
+- residual attribution diagnostic:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_residual_scenario_attribution_878b/residual_scenario_attribution.json`.
+  Alpha `0.25` improves average CRPS by only `0.0014` z-score units over the
+  incumbent and wins CRPS on `14/29` windows; alpha `0.10`, alpha `0.50`, and
+  direct-memory replacement are worse. Residual gains are not positively
+  associated with higher top-1 support similarity (`-0.248` correlation), so
+  the current residual bridge does not yet show a clean support-quality
+  mechanism.
 
 ### Fixed-Start Conditionality
 

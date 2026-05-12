@@ -122489,3 +122489,44 @@ residual helps or hurts by window/regime before adding another architecture
 knob.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 129: residual attribution before more knobs
+
+### Context
+The prior HEAD cycle showed that bounded residual-over-support can tie the
+current support-mixture incumbent, but not clearly beat it. Per the workflow's
+mechanism-before-knobs rule, the next step was post-experiment attribution
+rather than adding another residual architecture or tuning alpha.
+
+### Execute
+- Added `experiments/backfill/block_ar/nl_residual_scenario_attribution.py`.
+  It compares a candidate scenario method against an incumbent per held-out
+  window and reports positive-is-better metric deltas, win rates, best/worst
+  windows, and support-similarity correlations.
+- Added focused tests in
+  `test_code/test_878b_nl_residual_scenario_attribution.py`.
+- Ran attribution for `narrative_residual_topk_a010`,
+  `narrative_residual_topk_a025`, `narrative_residual_topk_a050`, and
+  `narrative_direct_memory` against the current `narrative_generator_topk`
+  incumbent.
+
+### Findings
+- `narrative_residual_topk_a025` is the only competitive residual variant, but
+  it is not a broad win: average CRPS delta is only `+0.0014` z-score units and
+  CRPS wins on `14/29` windows.
+- Alpha `0.10` and alpha `0.50` both lose to the incumbent on average CRPS,
+  energy, coverage, and mean-path MAE.
+- Direct text-predicted memory is clearly not viable as a replacement for
+  support-conditioned rollout: CRPS win rate is `5/29`, energy win rate is
+  `4/29`, and coverage loses on all `29/29` windows.
+- Residual gains do not appear stronger when support retrieval is more
+  confident: top-1 cosine versus CRPS-gain correlation is `-0.248` for alpha
+  `0.25`.
+
+### Decision
+This does not support another alpha sweep or a direct-memory product path. Keep
+the support-mixture incumbent as the production default. The next principled
+research move is to improve the text-to-latent target itself, most likely by
+training/evaluating richer multi-caption hard-negative alignment on more
+training windows, while keeping residual refinement behind a diagnostic gate.
+
+---
