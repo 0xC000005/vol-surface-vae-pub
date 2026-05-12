@@ -123594,3 +123594,83 @@ method-story gate and has a clear historical-backtest falsifier.
 - `python -m json.tool autoresearch-session/nl_prefix_latent_state.json`
 
 ---
+## 2026-05-12: HEAD nl-prefix 142 linear mixture policy post-analysis
+
+### Context
+HEAD 141 found a useful but non-promotable result. The train-window
+rollout-response mixture labels have strong oracle signal, but the first linear
+mixture policy does not beat the simple mixture on held-out historical
+backtests.
+
+### Hypothesis
+The failure is likely not the lack of generator-response labels. It is more
+likely that the linear policy cannot model the held-out generator-response
+surface from the current inference-available mixture features.
+
+### Research Lane
+`exploration` / `post_experiment_analysis`.
+
+### Result Status
+`post_analysis_complete_linear_policy_underfits`.
+
+### Benchmark Floor Status
+`below_floor`; no promotion.
+
+### Execution
+Analyzed the learned policy from:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_886b_32train_to_fullheldout/learned_mixture_policy_report.json`
+
+against the full held-out candidate-mixture oracle pool:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/scenario_eval/scenario_level_eval_report.json`.
+
+The post-analysis artifact is:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_887a_post_analysis/linear_policy_post_analysis.json`.
+
+### Result
+- Held-out candidate rows: `290`.
+- Held-out query windows: `29`.
+- Correlation between learned policy score and negative generator energy:
+  `0.095`.
+- Correlation between learned policy score and negative generator CRPS:
+  `0.173`.
+- Exact energy-oracle mixture selected: `2/29`.
+- Mean predicted-rank position of the energy oracle: `5.24`.
+- Candidate-pool predicted-best minus default: `+0.0185` energy and
+  `+0.0235` CRPS, where positive is worse.
+- Candidate-pool oracle minus default remains strong: `-0.0594` energy and
+  `-0.0506` CRPS.
+
+### Mechanism Read
+The oracle label signal remains real, but the linear policy does not recover it
+out of sample. The mechanism is now
+`linear_policy_underfits_generator_response_surface`. This is a better failure
+description than "more labels needed" alone: the policy score is weakly aligned
+with the generator-response labels even on the held-out candidate pool where the
+oracle improvement is available.
+
+### Decision / Next Step
+Do not add another ad hoc feature knob. The next method needs to pass the new
+method-story gate first. The most plausible next research-ideation candidates
+are:
+
+1. a listwise or pairwise learned mixture ranker trained on within-query
+   candidate comparisons, because the task is inherently ranking among support
+   subsets;
+2. a prototype-aware mixture policy that learns market-regime support structure
+   before ranking mixtures;
+3. a small cross-attention or late-interaction scorer over narrative/start and
+   support items, if related work and the small label set justify it.
+
+The next HEAD step should research/justify one of these and define its
+`method_story`, `related_work_basis`, `novelty_claim`, `elegance_check`,
+`backtest_gate`, and `kill_condition` before implementation.
+
+### Verification
+- Parsed `linear_policy_post_analysis.json`.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+- Updated local ignored state `autoresearch-session/nl_prefix_latent_state.json`.
+
+---

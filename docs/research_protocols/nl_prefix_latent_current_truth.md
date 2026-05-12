@@ -302,6 +302,16 @@ Diagnostic, not yet promoted:
   coverage (`0.5796` vs `0.5651`). This means generator-response labels are a
   viable training target, but the current linear mixture policy is too weak or
   under-labeled to beat the simple baseline.
+- linear mixture policy post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_887a_post_analysis/linear_policy_post_analysis.json`.
+  On the held-out candidate-mixture pool, the linear policy score has weak
+  out-of-sample correlation with actual generator-response labels
+  (`0.095` versus negative energy, `0.173` versus negative CRPS). It chooses
+  the exact energy-oracle mixture in only `2/29` windows and makes the
+  candidate-pool result worse than default on average (`+0.0185` energy,
+  `+0.0235` CRPS versus the default candidate mixture). The failure mechanism
+  is now `linear_policy_underfits_generator_response_surface`, not lack of
+  oracle signal.
 
 ### Fixed-Start Conditionality
 
