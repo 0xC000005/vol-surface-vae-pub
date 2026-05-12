@@ -110,6 +110,13 @@ Diagnostic, not yet promoted:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_caption_grounding_audit_878j_repair_hardcases/caption_grounding_audit.json`
   still has five low-margin cases and increases low-gap cases from `1` to `3`.
   Do not scale this deterministic negative wrapper.
+- low-margin embedding geometry:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_geometry_hardcases_878k/embedding_geometry_hardcases.json`.
+  All five low-margin windows are already low-margin in raw OpenAI embedding
+  space. Mean raw hard margin is `0.278`; the learned bridge improves the mean
+  margin to `0.382` but does not fully repair it. The bottleneck is therefore
+  primarily text-embedding/representation geometry for risk-on/reflation
+  contrastive cases, not just the MLP adapter.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the

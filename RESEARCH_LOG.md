@@ -122658,3 +122658,37 @@ geometry before and after the learned bridge to determine whether the collapse
 comes from the embedding model or from adapter training.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 133: low-margin embedding geometry
+
+### Context
+The hard-negative repair TestFlight falsified a simple wording-prefix fix. The
+next mechanism question was whether low hard-negative margins come from raw
+text embedding geometry or from the learned text-to-memory adapter.
+
+### Execute
+- Added `experiments/backfill/block_ar/nl_embedding_geometry_hardcases.py`.
+  It compares anchor/positive/negative cosine geometry in raw text-embedding
+  space versus learned condition-vector space for selected windows.
+- Added `test_code/test_878k_nl_embedding_geometry_hardcases.py`.
+- Ran the analyzer on the five low-margin windows from the expanded audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_geometry_hardcases_878k/embedding_geometry_hardcases.json`.
+
+### Findings
+- All five low-margin windows are already low-margin in raw OpenAI embedding
+  space.
+- Mean raw hard margin is `0.278`.
+- Mean learned-condition hard margin is `0.382`, so the adapter improves the
+  average margin by about `0.104`, but it cannot fully repair the raw embedding
+  geometry.
+- Four of the five cases improve after the bridge; `joint39_val_0377` remains
+  especially weak.
+
+### Decision
+The low-margin issue is primarily an embedding/representation problem for
+risk-on/reflation contrastive cases, not merely an adapter-training failure.
+The next principled step is to run a tiny embedding-model or representation
+ablation on the same five cases, such as OpenAI `text-embedding-3-large` or a
+more explicitly directional factor-token representation, before changing the
+bridge architecture.
+
+---
