@@ -230,3 +230,36 @@ Decision: weighted sampling is operational and tested, but naive cosine
 sharpening is not useful. Keep equal sampling as the default. The next TestFlight
 should train listwise weights from generator-response labels rather than assume
 retrieval cosine should be sharpened.
+
+## Minimal Listwise Policy Result
+
+Status: `not_promoted_to_scenario_rollout`.
+
+Artifacts:
+
+- policy report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889j_128train_to_fullheldout/learned_mixture_policy_report.json`
+- weighted bridge report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889j_128train_to_fullheldout/learned_mixture_policy_bridge_report.json`
+- candidate-pool post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889k_candidate_analysis/listwise_policy_candidate_analysis.json`
+
+Result:
+
+- train score correlation with negative energy: `0.270`;
+- train pairwise accuracy: `0.553`;
+- held-out score correlation with negative energy: `0.093`;
+- held-out score correlation with negative CRPS: `0.133`;
+- held-out pairwise accuracy: `0.523`;
+- exact held-out energy-oracle selection: `3/29`;
+- selected-minus-default candidate-pool deltas: `+0.0048` energy and
+  `+0.0022` CRPS;
+- mean support effective `N`: `4.99`, meaning the marginal weights are almost
+  uniform over the top support pool.
+
+Interpretation: the listwise formulation is directionally better than the
+support-set ranker because held-out correlations are positive again, but the
+minimal linear policy is too weak and too uniform. Do not spend a full
+scenario-level rollout on this version. The next mechanism question is whether
+the label target is too diffuse, whether candidate features are too weak, or
+whether a prototype/regime-conditioned listwise model is needed.

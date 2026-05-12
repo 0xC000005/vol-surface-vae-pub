@@ -132,6 +132,28 @@ class PairwiseMixtureRanker:
 
 
 @dataclass(frozen=True)
+class ListwiseMixturePolicy:
+    coefficients: np.ndarray
+    intercept: float
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
+    feature_names: list[str]
+    learning_rate: float
+    epochs: int
+    l2: float
+    query_count: int
+    probability_temperature: float
+    policy_kind: str = "listwise_mixture_policy"
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        x = np.asarray(features, dtype=np.float64)
+        if x.ndim == 1:
+            x = x.reshape(1, -1)
+        z = (x - self.feature_mean[None, :]) / self.feature_std[None, :]
+        return (z @ self.coefficients + float(self.intercept)).astype(np.float64)
+
+
+@dataclass(frozen=True)
 class SupportSetItemRanker:
     item_w1: np.ndarray
     item_b1: np.ndarray
@@ -578,6 +600,85 @@ def fit_pairwise_mixture_ranker(
     )
 
 
+def _query_groups(query_ids: list[Any]) -> dict[str, list[int]]:
+    groups: dict[str, list[int]] = {}
+    for idx, query_id in enumerate(query_ids):
+        groups.setdefault(str(query_id), []).append(idx)
+    return groups
+
+
+def fit_listwise_mixture_policy(
+    features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    query_ids: list[Any],
+    feature_names: list[str] | None = None,
+    learning_rate: float = 0.05,
+    epochs: int = 500,
+    l2: float = 1e-4,
+    probability_temperature: float = 1.0,
+    seed: int = 0,
+) -> ListwiseMixturePolicy:
+    """Fit a listwise policy over candidate mixtures within each query."""
+
+    x = np.asarray(features, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if x.ndim != 2 or x.shape[0] != y.shape[0]:
+        raise ValueError("features and labels must have compatible shapes")
+    if x.shape[0] != len(query_ids):
+        raise ValueError("query_ids length must match feature rows")
+    groups = {
+        key: indices
+        for key, indices in _query_groups(query_ids).items()
+        if len(indices) > 1
+    }
+    if not groups:
+        raise ValueError("listwise policy requires at least one multi-candidate query")
+    mean = x.mean(axis=0)
+    std = np.maximum(x.std(axis=0), 1e-8)
+    z = ((x - mean[None, :]) / std[None, :]).astype(np.float32)
+
+    torch.manual_seed(int(seed))
+    features_t = torch.as_tensor(z, dtype=torch.float32)
+    labels_t = torch.as_tensor(y.astype(np.float32), dtype=torch.float32)
+    layer = torch.nn.Linear(int(x.shape[1]), 1)
+    optimizer = torch.optim.Adam(layer.parameters(), lr=float(learning_rate))
+    group_tensors = [
+        torch.as_tensor(indices, dtype=torch.long) for indices in groups.values()
+    ]
+    for _ in range(int(epochs)):
+        optimizer.zero_grad(set_to_none=True)
+        scores = layer(features_t).squeeze(-1)
+        losses: list[torch.Tensor] = []
+        for indices_t in group_tensors:
+            group_labels = labels_t[indices_t]
+            centered = group_labels - group_labels.mean()
+            scale = torch.clamp(torch.std(group_labels), min=1e-6)
+            target = torch.softmax(centered / scale, dim=0)
+            log_prob = torch.log_softmax(scores[indices_t], dim=0)
+            losses.append(-(target * log_prob).sum())
+        loss = torch.stack(losses).mean()
+        penalty = torch.zeros((), dtype=torch.float32)
+        for param in layer.parameters():
+            penalty = penalty + torch.sum(param * param)
+        loss = loss + float(l2) * penalty
+        loss.backward()
+        optimizer.step()
+    names = list(feature_names) if feature_names is not None else list(FEATURE_NAMES)
+    return ListwiseMixturePolicy(
+        coefficients=layer.weight.detach().cpu().numpy().reshape(-1).astype(np.float64),
+        intercept=float(layer.bias.detach().cpu().numpy().reshape(-1)[0]),
+        feature_mean=mean.astype(np.float64),
+        feature_std=std.astype(np.float64),
+        feature_names=names,
+        learning_rate=float(learning_rate),
+        epochs=int(epochs),
+        l2=float(l2),
+        query_count=int(len(groups)),
+        probability_temperature=float(probability_temperature),
+    )
+
+
 def _preference_pairs(
     labels: np.ndarray,
     query_ids: list[Any],
@@ -696,6 +797,66 @@ def _group_candidate_rows(
     return groups
 
 
+def _softmax(values: np.ndarray, *, temperature: float) -> np.ndarray:
+    temp = max(float(temperature), 1e-8)
+    raw = np.asarray(values, dtype=np.float64).reshape(-1)
+    shifted = (raw - float(np.max(raw))) / temp
+    exp_values = np.exp(shifted)
+    denom = float(np.sum(exp_values))
+    if denom <= 0.0 or not np.isfinite(denom):
+        return np.full(raw.shape, 1.0 / max(raw.size, 1), dtype=np.float64)
+    return exp_values / denom
+
+
+def listwise_support_weights_for_candidates(
+    candidates: list[dict[str, Any]],
+    scores: np.ndarray,
+    *,
+    probability_temperature: float = 1.0,
+) -> tuple[list[dict[str, Any]], list[float]]:
+    """Marginalize candidate-mixture probabilities into support-window weights."""
+
+    if not candidates:
+        raise ValueError("candidates must be non-empty")
+    probs = _softmax(
+        np.asarray(scores, dtype=np.float64),
+        temperature=float(probability_temperature),
+    )
+    support: dict[int, dict[str, Any]] = {}
+    raw_weights: dict[int, float] = {}
+    for candidate, prob in zip(candidates, probs, strict=True):
+        items = candidate.get("top_train_pool", [])
+        if not isinstance(items, list) or not items:
+            continue
+        for item in items:
+            if not isinstance(item, dict) or item.get("window_index") is None:
+                continue
+            idx = int(item["window_index"])
+            raw_weights[idx] = raw_weights.get(idx, 0.0) + float(prob)
+            existing = support.get(idx)
+            if existing is None or float(item.get("cosine", 0.0) or 0.0) > float(
+                existing.get("cosine", 0.0) or 0.0
+            ):
+                support[idx] = json.loads(json.dumps(item))
+    total = float(sum(raw_weights.values()))
+    if total <= 0.0:
+        raise ValueError("candidate support rows are empty")
+    rows: list[dict[str, Any]] = []
+    for idx, item in support.items():
+        row = json.loads(json.dumps(item))
+        row["window_index"] = idx
+        row["weight"] = float(raw_weights[idx] / total)
+        rows.append(row)
+    rows.sort(
+        key=lambda item: (
+            -float(item.get("weight", 0.0) or 0.0),
+            -float(item.get("cosine", 0.0) or 0.0),
+            int(item.get("window_index", 0)),
+        )
+    )
+    return rows, [float(value) for value in probs]
+
+
 def rerank_bridge_report_with_mixture_policy(
     *,
     bridge_report: dict[str, Any],
@@ -703,7 +864,12 @@ def rerank_bridge_report_with_mixture_policy(
     condition_vectors: np.ndarray,
     memory_targets: np.ndarray,
     history_level: np.ndarray,
-    model: LinearMixturePolicy | PairwiseMixtureRanker | SupportSetItemRanker,
+    model: (
+        LinearMixturePolicy
+        | PairwiseMixtureRanker
+        | ListwiseMixturePolicy
+        | SupportSetItemRanker
+    ),
 ) -> dict[str, Any]:
     """Replace each query's support pool with the best predicted support mixture."""
 
@@ -715,6 +881,51 @@ def rerank_bridge_report_with_mixture_policy(
         if not isinstance(row, dict) or int(row.get("window_index", -1)) not in groups:
             continue
         candidates = groups[int(row["window_index"])]
+        if getattr(model, "policy_kind", "") == "listwise_mixture_policy":
+            features = np.stack(
+                [
+                    mixture_feature_vector(
+                        candidate,
+                        condition_vectors=condition_vectors,
+                        memory_targets=memory_targets,
+                        history_level=history_level,
+                    )
+                    for candidate in candidates
+                ]
+            ).astype(np.float32)
+            scores = model.predict(features)
+            support_rows, candidate_probs = listwise_support_weights_for_candidates(
+                candidates,
+                scores,
+                probability_temperature=float(model.probability_temperature),
+            )
+            best_pos = int(np.argmax(candidate_probs))
+            row["top_train_pool"] = support_rows
+            row["support_policy"] = {
+                "name": "learned_generator_response_mixture_policy",
+                "policy_kind": str(getattr(model, "policy_kind", "unknown")),
+                "selected_query_id": str(candidates[best_pos].get("query_id", "")),
+                "selected_score": float(scores[best_pos]),
+                "candidate_count": len(candidates),
+                "candidate_probabilities": [
+                    {
+                        "query_id": str(candidate.get("query_id", "")),
+                        "probability": float(probability),
+                        "score": float(score),
+                    }
+                    for candidate, probability, score in zip(
+                        candidates, candidate_probs, scores, strict=True
+                    )
+                ],
+                "selected_support_window_indices": [
+                    int(item["window_index"]) for item in support_rows
+                ],
+                "selected_support_weights": [
+                    float(item.get("weight", 0.0) or 0.0) for item in support_rows
+                ],
+            }
+            changed += 1
+            continue
         scored: list[tuple[float, dict[str, Any]]] = []
         for candidate in candidates:
             if getattr(model, "policy_kind", "") == "support_set_item_ranker":
@@ -766,7 +977,12 @@ def rerank_bridge_report_with_mixture_policy(
 
 
 def _model_payload(
-    model: LinearMixturePolicy | PairwiseMixtureRanker | SupportSetItemRanker,
+    model: (
+        LinearMixturePolicy
+        | PairwiseMixtureRanker
+        | ListwiseMixturePolicy
+        | SupportSetItemRanker
+    ),
 ) -> dict[str, Any]:
     if isinstance(model, SupportSetItemRanker):
         payload = {
@@ -804,6 +1020,12 @@ def _model_payload(
         payload["l2"] = float(getattr(model, "l2"))
     if getattr(model, "pair_count", None) is not None:
         payload["pair_count"] = int(getattr(model, "pair_count"))
+    if getattr(model, "query_count", None) is not None:
+        payload["query_count"] = int(getattr(model, "query_count"))
+    if getattr(model, "probability_temperature", None) is not None:
+        payload["probability_temperature"] = float(
+            getattr(model, "probability_temperature")
+        )
     return payload
 
 
@@ -829,7 +1051,12 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             method=str(args.method),
             metric=str(args.metric),
         )
-        model: LinearMixturePolicy | PairwiseMixtureRanker = fit_linear_mixture_policy(
+        model: (
+            LinearMixturePolicy
+            | PairwiseMixtureRanker
+            | ListwiseMixturePolicy
+            | SupportSetItemRanker
+        ) = fit_linear_mixture_policy(
             table.features,
             table.labels,
             ridge_alpha=float(args.ridge_alpha),
@@ -856,6 +1083,30 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             epochs=int(args.pairwise_epochs),
             l2=float(args.pairwise_l2),
             min_label_gap=float(args.pairwise_min_label_gap),
+        )
+        training_row_count = int(table.features.shape[0])
+        training_rows = table.rows
+        training_labels = table.labels
+    elif str(args.policy_kind) == "listwise":
+        table = build_mixture_policy_training_table(
+            candidate_bridge=train_candidate_bridge,
+            scenario_report=scenario_report,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+            method=str(args.method),
+            metric=str(args.metric),
+        )
+        model = fit_listwise_mixture_policy(
+            table.features,
+            table.labels,
+            query_ids=[row["window_index"] for row in table.rows],
+            feature_names=table.feature_names,
+            learning_rate=float(args.listwise_learning_rate),
+            epochs=int(args.listwise_epochs),
+            l2=float(args.listwise_l2),
+            probability_temperature=float(args.listwise_probability_temperature),
+            seed=int(args.listwise_seed),
         )
         training_row_count = int(table.features.shape[0])
         training_rows = table.rows
@@ -959,7 +1210,7 @@ def main() -> None:
     parser.add_argument("--metric", default="energy_score_z")
     parser.add_argument(
         "--policy-kind",
-        choices=["linear", "pairwise", "support_set"],
+        choices=["linear", "pairwise", "listwise", "support_set"],
         default="linear",
     )
     parser.add_argument("--ridge-alpha", type=float, default=1.0)
@@ -967,6 +1218,11 @@ def main() -> None:
     parser.add_argument("--pairwise-epochs", type=int, default=500)
     parser.add_argument("--pairwise-l2", type=float, default=1e-3)
     parser.add_argument("--pairwise-min-label-gap", type=float, default=1e-8)
+    parser.add_argument("--listwise-learning-rate", type=float, default=0.05)
+    parser.add_argument("--listwise-epochs", type=int, default=500)
+    parser.add_argument("--listwise-l2", type=float, default=1e-4)
+    parser.add_argument("--listwise-probability-temperature", type=float, default=1.0)
+    parser.add_argument("--listwise-seed", type=int, default=0)
     parser.add_argument("--set-hidden-dim", type=int, default=8)
     parser.add_argument("--set-learning-rate", type=float, default=0.01)
     parser.add_argument("--set-epochs", type=int, default=500)

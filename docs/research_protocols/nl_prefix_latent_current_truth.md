@@ -403,7 +403,16 @@ Diagnostic, not yet promoted:
   (`0.6894` versus `0.6882`) and energy (`0.9921` versus `0.9907`) while only
   improving coverage (`0.570` versus `0.565`). Naive similarity sharpening is
   therefore not promoted; learned listwise weights still need a separate
-  TestFlight.
+  TestFlight. The first minimal listwise TestFlight is also diagnostic, not
+  promoted:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889k_candidate_analysis/listwise_policy_candidate_analysis.json`.
+  It improves the sign of held-out candidate-pool alignment versus the
+  support-set ranker (`0.093` energy correlation and `0.133` CRPS correlation),
+  but exact energy-oracle selection is only `3/29`, selected mixtures are still
+  worse than default by `+0.0048` energy and `+0.0022` CRPS, and the average
+  support weights are nearly uniform (`effective_n` about `4.99`). Do not run
+  this policy as a scenario-level candidate until the listwise weights become
+  materially more discriminative.
 
 ### Fixed-Start Conditionality
 

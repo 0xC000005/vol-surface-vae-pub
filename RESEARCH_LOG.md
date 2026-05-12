@@ -124323,3 +124323,68 @@ Keep equal sampling as the production default. Proceed to a minimal listwise can
 Independent verification was not triggered because this is an exploration result and no new default was promoted.
 
 ---
+## 2026-05-12: HEAD nl-prefix 151 minimal listwise mixture policy
+
+### Context
+HEAD 150 made support weights operational in the scenario evaluator and showed that naive cosine sharpening is not a useful policy. The next bounded step was to train a minimal listwise candidate-probability policy from existing generator-response mixture labels and inspect candidate-pool alignment before any rollout.
+
+### Hypothesis
+A listwise candidate policy should be less brittle than hard subset selection because it learns a within-query distribution over candidate mixtures and marginalizes that distribution into support-window weights.
+
+### Research Lane
+`exploration` / `experiment`.
+
+### Result Status
+`candidate_rejected_before_rollout`.
+
+### Benchmark Floor Status
+`below_floor`; no scenario-level rollout was run because the candidate-pool gate did not pass.
+
+### Execution
+Added a minimal listwise policy to:
+
+`experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+
+Added focused tests to:
+
+`test_code/test_885a_nl_learned_mixture_policy.py`
+
+The policy trains a linear scorer with a within-query listwise cross-entropy target from generator-response labels. At inference it marginalizes candidate probabilities into support-window weights so the weighted sampler can consume them later.
+
+### Result
+Artifacts:
+
+- policy report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889j_128train_to_fullheldout/learned_mixture_policy_report.json`
+- weighted bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889j_128train_to_fullheldout/learned_mixture_policy_bridge_report.json`
+- candidate-pool analysis: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889k_candidate_analysis/listwise_policy_candidate_analysis.json`
+
+Candidate-pool metrics:
+
+- train score correlation with negative energy: `0.270`;
+- train pairwise accuracy: `0.553`;
+- held-out score correlation with negative energy: `0.093`;
+- held-out score correlation with negative CRPS: `0.133`;
+- held-out pairwise accuracy: `0.523`;
+- exact held-out energy-oracle selection: `3/29`;
+- selected-minus-default candidate-pool deltas: `+0.0048` energy and `+0.0022` CRPS;
+- mean support effective `N`: `4.99`.
+
+### Mechanism Read
+The mechanism is:
+
+`minimal_listwise_policy_restores_positive_alignment_but_is_too_uniform`.
+
+This is better than the support-set ranker in sign: held-out energy/CRPS correlations are positive again. But the signal is weak, exact oracle selection is poor, selected hard candidates are still worse than default, and the marginal support weights are almost uniform. That is not strong enough to justify scenario-level rollout.
+
+### Decision / Next Step
+Do not promote and do not run rollout for this minimal listwise policy. The next HEAD step should be post-experiment analysis on target diffuseness and feature weakness. If the listwise target is too flat, consider a principled sharper target or prototype/regime-conditioned listwise policy; do not add another architecture knob without that mechanism check.
+
+### Verification
+- `uv run pytest test_code/test_885a_nl_learned_mixture_policy.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py --policy-kind listwise ...`
+- Candidate-pool post-analysis JSON generated from existing held-out candidate labels.
+
+Independent verification was not triggered because this is an exploration result rejected before promotion.
+
+---
