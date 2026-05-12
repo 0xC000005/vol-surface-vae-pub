@@ -124195,3 +124195,66 @@ Tracked docs updated:
 - Independent verification was not triggered because this was a non-promotional diagnostic.
 
 ---
+## 2026-05-12: HEAD nl-prefix 149 soft listwise mixture method intake
+
+### Context
+HEAD 148 showed that the support-set item ranker can partially overfit train candidate preferences but does not generalize to held-out generator-response mixture quality. The next step needed research ideation rather than another hard-ranker capacity tweak.
+
+### Hypothesis
+The next candidate should replace brittle hard subset selection with a soft listwise support-mixture policy. The policy should learn a distribution over candidate support mixtures, marginalize it into auditable support-window weights, and make the frozen-generator rollout honor those weights.
+
+### Research Lane
+`exploration` / `research_ideation`.
+
+### Result Status
+`method_intake_ready`.
+
+### Benchmark Floor Status
+`not_tested`; no model default changed.
+
+### Execution
+Added the method-intake artifact:
+
+`docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md`
+
+Updated current truth:
+
+`docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+Local code inspection also found that `sample_normal_generator_for_retrieved_analogues` currently samples from each selected analogue equally. That means learned support weights are not yet operational in scenario-level evaluation unless the sampler/evaluator is extended.
+
+### Related Work Basis
+Primary-source checks used for the method story:
+
+- RankNet / pairwise learning-to-rank: https://www.microsoft.com/en-us/research/publication/learning-to-rank-using-gradient-descent/
+- ListNet / listwise learning-to-rank: https://www.microsoft.com/en-us/research/?p=153086
+- Adaptive mixtures of local experts: https://direct.mit.edu/neco/article/3/1/79/5560/Adaptive-Mixtures-of-Local-Experts
+- Prototypical Networks: https://papers.nips.cc/paper/6996-prototypical-networks-for-fe
+- Deep Sets: https://papers.nips.cc/paper/6931-deep-sets
+- Set Transformer: https://proceedings.mlr.press/v97/lee19d.html
+
+### Method Story
+The proposed candidate is `soft_listwise_mixture_policy`:
+
+```text
+narrative/start query
++ candidate support pool
++ generator-response labels during historical backtest training
+-> listwise candidate probabilities
+-> marginal support-window weights
+-> weighted frozen SNI analogue rollout
+-> CRPS / energy / coverage / audit comparison
+```
+
+The output remains an auditable support mixture. It does not remove the support store, does not call OpenAI, and does not fine-tune the frozen generator.
+
+### Decision / Next Step
+The intake is ready for a bounded TestFlight. The first implementation step should not train the policy yet. It should add TDD-covered weighted analogue sampling to the scenario evaluator and run a weighted-sampler-only baseline using incumbent similarity weights. If merely honoring existing weights hurts the incumbent, the listwise policy branch should be killed or redesigned before model training.
+
+### Verification
+- Method intake saved under `docs/research_protocols/`.
+- Current-truth index updated.
+- Related-work links recorded above.
+- No independent verifier was triggered because this is an ideation/intake step, not a promotion.
+
+---

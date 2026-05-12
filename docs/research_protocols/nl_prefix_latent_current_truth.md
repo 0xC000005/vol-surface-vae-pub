@@ -386,6 +386,15 @@ Diagnostic, not yet promoted:
   remains near zero (`-0.011`) and held-out pairwise accuracy falls below
   random (`0.452`). The failure is therefore not solved by simply adding set
   encoder capacity.
+- next method-intake candidate after the support-set ranker failure:
+  `docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md`.
+  The new candidate is `soft_listwise_mixture_policy`: learn a listwise
+  distribution over candidate support mixtures from generator-response labels,
+  marginalize that distribution into auditable support-window weights, and make
+  the scenario evaluator honor those weights instead of treating all selected
+  analogues equally. This is not implemented or promoted. The reason to try it
+  is specific: the prior hard-selection rankers are brittle, while the product
+  already needs support weights to be more than display-only provenance.
 
 ### Fixed-Start Conditionality
 
