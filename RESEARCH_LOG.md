@@ -123125,3 +123125,80 @@ Do not promote this reranker. The next principled step is `post_experiment_analy
 - `uv run python -m py_compile experiments/backfill/block_ar/nl_learned_support_reranker_testflight.py`
 
 ---
+## 2026-05-11: HEAD nl-prefix 137 support generator proxy analysis
+
+### Context
+Iteration 136 showed a learned support reranker that improved historical replay
+support quality but regressed in the same-seed frozen-generator smoke. The
+workflow called for `post_experiment_analysis` before adding another support
+policy knob.
+
+### Hypothesis
+The failure might be caused by optimizing an indirect proxy. If replay loss and
+train-window generator self-calibration agree with the reranker while actual
+rollout still regresses, then the proxy itself is not reliable enough for
+promotion.
+
+### Execution
+- Added
+  `experiments/backfill/block_ar/nl_support_generator_mismatch_analysis.py`.
+- Added tests in
+  `test_code/test_880a_nl_support_generator_mismatch_analysis.py`.
+- Compared the incumbent bridge
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json`
+  against the learned reranked bridge
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879a_testflight/learned_support_reranked_bridge_report.json`.
+- Used the existing train self-calibration report
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_generator_self_calibration_873b_train128/scenario_level_eval_report.json`
+  as the proxy generator-quality map.
+- Attached the actual same-seed rollout decomposition
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_support_reranker_879d_support_quality_decomposition/support_quality_decomposition.json`.
+
+### Result
+The post-analysis artifact is:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_generator_mismatch_analysis_880a/support_generator_mismatch_analysis.json`
+
+Across `126` compared rows at top-k `3`, the learned reranker looked better on
+the full proxy stack:
+
+- replay loss delta: `-0.053239` lower is better;
+- generator self-calibration energy delta: `-0.033081` lower is better;
+- generator self-calibration CRPS delta: `-0.029691` lower is better;
+- generator self-calibration coverage delta: `+0.004954` higher is better;
+- start-distance delta: `-1.157513` lower is better;
+- memory-cosine delta: `-0.003095`.
+
+But the actual same-seed frozen-generator smoke still regressed:
+
+- historical replay CRPS improvement delta: `+0.029395`;
+- historical replay energy improvement delta: `+0.013554`;
+- narrative-generator CRPS improvement delta: `-0.003084`;
+- narrative-generator energy improvement delta: `-0.001685`.
+
+The mechanism label is therefore `generator_proxy_false_positive`.
+
+### Mechanism Read
+Historical replay closeness and train-window self-calibration are not sufficient
+labels for learned support reranking. They can both say that a support policy is
+better while the actual frozen generator produces slightly worse scenario
+distributions. The current bottleneck is not simply "make support closer"; it is
+"learn support weights that improve generator-level response under rollout."
+
+### Decision / Next Step
+Do not promote the learned reranker. Do not add another replay-only or
+self-calibration-only ranking knob. The next principled experiment is a small
+rollout-response-label TestFlight: build candidate-specific bridge rows, run a
+low-sample frozen-generator evaluation to label support candidates by actual
+generator response, and train or score mixture weights against that
+generator-level response. This requires either allowing duplicate query rows in
+the scenario evaluator or using stable synthetic query IDs so multiple support
+candidates for the same query can be evaluated.
+
+### Verification
+- `uv run pytest test_code/test_880a_nl_support_generator_mismatch_analysis.py -q`
+- `uv run black experiments/backfill/block_ar/nl_support_generator_mismatch_analysis.py test_code/test_880a_nl_support_generator_mismatch_analysis.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_support_generator_mismatch_analysis.py`
+- `uv run python experiments/backfill/block_ar/nl_support_generator_mismatch_analysis.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_generator_mismatch_analysis_880a --top-k 3`
+
+---

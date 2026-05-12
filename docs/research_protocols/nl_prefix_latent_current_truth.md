@@ -230,6 +230,19 @@ Diagnostic, not yet promoted:
   evidence that future support rerankers should optimize generator-calibrated
   rollout compatibility or include a frozen-generator-aware loss, not only
   historical replay closeness.
+- replay/generator mismatch post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_generator_mismatch_analysis_880a/support_generator_mismatch_analysis.json`.
+  The learned reranker improves the support proxy stack on all `126` compared
+  rows: mean replay loss delta is `-0.0532`, mean generator self-calibration
+  energy delta is `-0.0331`, mean generator self-calibration CRPS delta is
+  `-0.0297`, mean start-distance delta is `-1.1575`, and coverage proxy delta
+  is `+0.0050`. But the actual same-seed rollout smoke still regresses
+  (`-0.0031` CRPS and `-0.0017` energy improvement deltas). The current
+  mechanism label is therefore `generator_proxy_false_positive`: train-window
+  self-calibration and historical replay are insufficient proxy labels for a
+  support reranker. The next candidate should use direct rollout-response
+  labels or a stability-aware generator-level objective, not another replay or
+  self-calibration ranking knob.
 
 ### Fixed-Start Conditionality
 
