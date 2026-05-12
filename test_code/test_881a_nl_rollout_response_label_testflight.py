@@ -95,10 +95,22 @@ def test_summarize_rollout_response_labels_groups_by_query() -> None:
     summary = summarize_rollout_response_labels(
         candidate_bridge,
         scenario_report,
+        baseline_scenario_report={
+            "summary": {
+                "narrative_generator_topk": {
+                    "energy_score_z_mean": 0.55,
+                    "ensemble_crps_z_mean": 0.45,
+                }
+            }
+        },
     )
 
     assert summary["summary"]["query_count"] == 1
     assert summary["summary"]["candidate_row_count"] == 2
     assert summary["summary"]["best_generator_not_top1_count"] == 1
     assert summary["summary"]["mean_best_minus_top1_energy_score_z"] == -0.4
+    assert summary["summary"]["best_generator_energy_score_z_mean"] == 0.6
+    assert summary["summary"]["best_single_minus_baseline_topk_energy_score_z"] == (
+        0.6 - 0.55
+    )
     assert summary["groups"][0]["best_generator_support_window_index"] == 1

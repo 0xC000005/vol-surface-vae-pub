@@ -146,6 +146,7 @@ def _candidate_lookup(candidate_bridge: dict[str, Any]) -> dict[str, dict[str, A
 def summarize_rollout_response_labels(
     candidate_bridge: dict[str, Any],
     scenario_report: dict[str, Any],
+    baseline_scenario_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Summarize candidate-specific generator labels from scenario evaluation."""
 
@@ -251,26 +252,81 @@ def summarize_rollout_response_labels(
         for group in groups
         if group.get("best_minus_top1_ensemble_crps_z") is not None
     ]
+    best_energy_values = [
+        float(group["best_generator_energy_score_z"])
+        for group in groups
+        if group.get("best_generator_energy_score_z") is not None
+    ]
+    top1_energy_values = [
+        float(group["top1_generator_energy_score_z"])
+        for group in groups
+        if group.get("top1_generator_energy_score_z") is not None
+    ]
+    best_crps_values = [
+        float(group["best_generator_ensemble_crps_z"])
+        for group in groups
+        if group.get("best_generator_ensemble_crps_z") is not None
+    ]
+    top1_crps_values = [
+        float(group["top1_generator_ensemble_crps_z"])
+        for group in groups
+        if group.get("top1_generator_ensemble_crps_z") is not None
+    ]
+    summary = {
+        "query_count": len(groups),
+        "candidate_row_count": len(rows),
+        "best_generator_not_top1_count": int(best_not_top1),
+        "best_generator_not_top1_fraction": (
+            None if not groups else float(best_not_top1 / len(groups))
+        ),
+        "top1_generator_energy_score_z_mean": (
+            None if not top1_energy_values else float(np.mean(top1_energy_values))
+        ),
+        "best_generator_energy_score_z_mean": (
+            None if not best_energy_values else float(np.mean(best_energy_values))
+        ),
+        "mean_best_minus_top1_energy_score_z": (
+            None if not energy_gain_values else float(np.mean(energy_gain_values))
+        ),
+        "top1_generator_ensemble_crps_z_mean": (
+            None if not top1_crps_values else float(np.mean(top1_crps_values))
+        ),
+        "best_generator_ensemble_crps_z_mean": (
+            None if not best_crps_values else float(np.mean(best_crps_values))
+        ),
+        "mean_best_minus_top1_ensemble_crps_z": (
+            None if not crps_gain_values else float(np.mean(crps_gain_values))
+        ),
+    }
+    if baseline_scenario_report is not None:
+        baseline = baseline_scenario_report.get("summary", {}).get(
+            "narrative_generator_topk", {}
+        )
+        baseline_energy = baseline.get("energy_score_z_mean")
+        baseline_crps = baseline.get("ensemble_crps_z_mean")
+        summary["baseline_topk_energy_score_z_mean"] = baseline_energy
+        summary["baseline_topk_ensemble_crps_z_mean"] = baseline_crps
+        if (
+            baseline_energy is not None
+            and summary["best_generator_energy_score_z_mean"] is not None
+        ):
+            summary["best_single_minus_baseline_topk_energy_score_z"] = float(
+                summary["best_generator_energy_score_z_mean"] - float(baseline_energy)
+            )
+        if (
+            baseline_crps is not None
+            and summary["best_generator_ensemble_crps_z_mean"] is not None
+        ):
+            summary["best_single_minus_baseline_topk_ensemble_crps_z"] = float(
+                summary["best_generator_ensemble_crps_z_mean"] - float(baseline_crps)
+            )
     return {
         "status": "ok",
         "scope_note": (
             "Candidate-specific rollout-response labels. Lower generator energy "
             "and CRPS are better."
         ),
-        "summary": {
-            "query_count": len(groups),
-            "candidate_row_count": len(rows),
-            "best_generator_not_top1_count": int(best_not_top1),
-            "best_generator_not_top1_fraction": (
-                None if not groups else float(best_not_top1 / len(groups))
-            ),
-            "mean_best_minus_top1_energy_score_z": (
-                None if not energy_gain_values else float(np.mean(energy_gain_values))
-            ),
-            "mean_best_minus_top1_ensemble_crps_z": (
-                None if not crps_gain_values else float(np.mean(crps_gain_values))
-            ),
-        },
+        "summary": summary,
         "groups": groups,
         "rows": rows,
     }
@@ -293,12 +349,22 @@ def build_command(args: argparse.Namespace) -> None:
 def summarize_command(args: argparse.Namespace) -> None:
     candidate_bridge = _load_json(args.candidate_bridge_report)
     scenario_report = _load_json(args.scenario_report)
-    summary = summarize_rollout_response_labels(candidate_bridge, scenario_report)
+    baseline_report = (
+        _load_json(args.baseline_scenario_report)
+        if args.baseline_scenario_report
+        else None
+    )
+    summary = summarize_rollout_response_labels(
+        candidate_bridge,
+        scenario_report,
+        baseline_scenario_report=baseline_report,
+    )
     output_dir = Path(args.output_dir)
     report_path = output_dir / "rollout_response_label_summary.json"
     summary["artifact_paths"] = {
         "candidate_bridge_report": str(args.candidate_bridge_report),
         "scenario_report": str(args.scenario_report),
+        "baseline_scenario_report": str(args.baseline_scenario_report),
         "report": str(report_path),
     }
     _write_json(report_path, summary)
@@ -323,6 +389,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     summarize = subparsers.add_parser("summarize")
     summarize.add_argument("--candidate-bridge-report", required=True)
     summarize.add_argument("--scenario-report", required=True)
+    summarize.add_argument("--baseline-scenario-report")
     summarize.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     summarize.set_defaults(func=summarize_command)
 

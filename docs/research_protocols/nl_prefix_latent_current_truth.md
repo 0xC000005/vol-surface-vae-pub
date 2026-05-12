@@ -254,6 +254,19 @@ Diagnostic, not yet promoted:
   This is not a promoted model result because it is tiny and low-sample, but it
   is a positive mechanism TestFlight: direct rollout-response labels contain
   support-ranking signal that cosine/replay/self-calibration proxies miss.
+- scaled rollout-response upper-bound:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/rollout_response_label_summary.json`.
+  Scaling the candidate label bridge to all `29` held-out query windows with
+  the top `5` candidate supports (`145` candidate rows) confirmed that direct
+  rollout-response labels contain ranking signal: best actual generator-response
+  support was not the cosine top-1 support in `22/29` cases. The within-pool
+  best-vs-top1 deltas were `-0.0898` generator energy and `-0.0746` generator
+  CRPS, lower-is-better. However, the best single support upper bound still did
+  not beat the same-seed simple top-k mixture baseline:
+  best-single energy/CRPS means were `1.1265`/`0.7868`, while the top-k3
+  baseline was `0.9826`/`0.6814`. This means the next learned method should
+  stay mixture-level; replacing the auditable mixture with a learned single
+  support is the wrong direction.
 
 ### Fixed-Start Conditionality
 

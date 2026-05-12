@@ -123272,3 +123272,133 @@ Promotion would require seed stability and held-out scenario-level evidence.
 - `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/candidate_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/scenario_eval/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a`
 
 ---
+## 2026-05-11: NL prefix historical backtest evaluation framing
+
+### Context
+We clarified how to evaluate a narrative-conditioned scenario generator when
+there is no observable "true conditional distribution" for a risk-manager
+narrative. The user explicitly wants the paper and research workflow to use
+historical backtests as the justification once the pipeline is mature enough.
+
+### Evaluation Framing
+For a historical holdout date, we can simulate a live risk-management use case:
+
+1. select a historical date/window that was not used for training;
+2. use only information available up to that date, especially the past/current
+   30-day joint scenario and its starting level;
+3. describe that past/current state with one or more narratives;
+4. run the narrative-to-mixture-to-embedding pipeline;
+5. generate next-30-day scenario distributions with the frozen SNI generator;
+6. compare the generated distribution with the realized next-30-day path.
+
+The realized path is not the full ground-truth distribution. It is one sample
+from the historical future. Therefore, one individual backtest cannot prove that
+a narrative-conditioned distribution is correct. But across many holdout
+windows, proper scoring rules can test whether a method assigns better
+probability mass to realized outcomes than baselines.
+
+### Metrics
+The relevant historical-backtest metrics are:
+
+- CRPS and energy score for distributional quality;
+- coverage for fan-chart calibration;
+- seed stability and per-start quality floors;
+- comparison against persistence, historical replay, direct text-memory
+  projection, cosine/top-k support mixture, and any learned support-weighting
+  candidate.
+
+### Research Decision
+This becomes the concrete quality target for the more sophisticated
+narrative-to-mixture-to-embedding pipeline. The goal is not merely better text
+cosine, nearest-neighbor retrieval, or replay closeness. The goal is to improve
+historical backtest distributional quality while preserving auditability of the
+support mixture.
+
+The current strong benchmark remains the simple
+`soft_topk_narrative_start_checked` / `narrative_generator_topk` pipeline. New
+learned support-weighting or rollout-response-aware methods must be evaluated
+against that benchmark on held-out historical backtests before any promotion.
+
+### Next Autoresearch Direction
+Resume with the generator-response-label direction: use historical backtests to
+create small direct rollout-response labels for support candidates, train or
+score a learned support-weighting policy against those labels, and compare it
+with the current simple mixture. This keeps the historical support mixture as
+the auditable backbone while making the narrative-to-mixture step more
+generator-aware.
+
+---
+## 2026-05-11: HEAD nl-prefix 139 rollout response upper bound
+
+### Context
+The historical-backtest framing gives a concrete objective for the more
+sophisticated narrative-to-mixture-to-embedding pipeline: improve held-out
+distributional scenario quality versus the strong simple mixture. Iteration 138
+found direct rollout-response signal on a tiny `4`-query smoke. The next
+bounded step was to scale that label set across all held-out queries and compare
+the best single-support upper bound against the simple top-k mixture baseline.
+
+### Hypothesis
+If generator-response labels are a useful support-selection signal, then the
+best support inside the candidate pool should often differ from cosine top-1.
+If a learned single-support reranker is enough to challenge the incumbent, the
+best single-support upper bound should approach or beat the same-seed top-k
+mixture baseline.
+
+### Execution
+- Built a candidate-label bridge over all `29` held-out query windows with the
+  top `5` support candidates each:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/candidate_label_bridge_report.json`.
+- Ran a CUDA top-k1 candidate-label evaluation with `145` duplicate query rows,
+  `2` samples per candidate, seed `882`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/scenario_eval/scenario_level_eval_report.json`.
+- Ran the incumbent simple top-k3 mixture under the same small evaluation
+  settings:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_baseline_882a_topk3_s2_seed882/scenario_level_eval_report.json`.
+- Extended
+  `experiments/backfill/block_ar/nl_rollout_response_label_testflight.py` so the
+  label summary can attach a same-seed baseline comparison.
+
+### Result
+The scaled label summary is:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/rollout_response_label_summary.json`
+
+Key results:
+
+- candidate rows: `145`;
+- query windows: `29`;
+- best generator-response support was not cosine top-1 in `22/29` queries;
+- best-vs-top1 generator energy delta: `-0.089844`, lower is better;
+- best-vs-top1 generator CRPS delta: `-0.074604`, lower is better;
+- best-single generator energy mean: `1.126483`;
+- best-single generator CRPS mean: `0.786845`;
+- same-seed simple top-k3 generator energy mean: `0.982598`;
+- same-seed simple top-k3 generator CRPS mean: `0.681362`.
+
+### Mechanism Read
+Direct rollout-response labels clearly contain support-ranking signal: cosine
+top-1 is not usually the best generator-response support. But the best single
+support upper bound is still worse than the simple top-k3 mixture. This means
+the current production instinct is correct: the historical mixture is doing
+important distributional work. The next learned method should not replace the
+mixture with one support; it should learn mixture weights, subset selection, or
+bounded mixture refinement at the support-set level.
+
+### Decision / Next Step
+Do not promote a single-support reranker. Keep the simple top-k mixture as the
+benchmark floor. The next principled experiment is a mixture-level
+rollout-response TestFlight: evaluate small candidate subsets or weighted
+mixtures within the top support pool and test whether a best-in-pool mixture
+upper bound can beat the simple top-k3 baseline before training a learned
+mixture-weight policy.
+
+### Verification
+- `uv run pytest test_code/test_881a_nl_rollout_response_label_testflight.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_rollout_response_label_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py build-bridge --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout --max-query-windows 29 --candidate-pool-size 5`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/candidate_label_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/scenario_eval --allow-duplicate-query-windows --top-k 1 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 882 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_baseline_882a_topk3_s2_seed882 --max-windows-eval 29 --top-k 3 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 882 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/candidate_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/scenario_eval/scenario_level_eval_report.json --baseline-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_baseline_882a_topk3_s2_seed882/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout`
+
+---
