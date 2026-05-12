@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -64,6 +65,16 @@ FEATURE_NAMES = [
     "recent_delta_norm_std",
 ]
 
+ITEM_FEATURE_NAMES = [
+    "support_cosine",
+    "support_position",
+    "query_support_memory_cosine",
+    "query_support_memory_distance",
+    "support_start_distance",
+    "support_recent_delta_norm",
+    "support_query_delta_distance",
+]
+
 
 @dataclass(frozen=True)
 class MixturePolicyTrainingTable:
@@ -71,6 +82,14 @@ class MixturePolicyTrainingTable:
     labels: np.ndarray
     rows: list[dict[str, Any]]
     feature_names: list[str]
+
+
+@dataclass(frozen=True)
+class SupportSetTrainingTable:
+    item_features: np.ndarray
+    labels: np.ndarray
+    rows: list[dict[str, Any]]
+    item_feature_names: list[str]
 
 
 @dataclass(frozen=True)
@@ -110,6 +129,40 @@ class PairwiseMixtureRanker:
             x = x.reshape(1, -1)
         z = (x - self.feature_mean[None, :]) / self.feature_std[None, :]
         return (z @ self.coefficients + float(self.intercept)).astype(np.float64)
+
+
+@dataclass(frozen=True)
+class SupportSetItemRanker:
+    item_w1: np.ndarray
+    item_b1: np.ndarray
+    out_w: np.ndarray
+    out_b: float
+    item_feature_mean: np.ndarray
+    item_feature_std: np.ndarray
+    item_feature_names: list[str]
+    hidden_dim: int
+    learning_rate: float
+    epochs: int
+    l2: float
+    pair_count: int
+    policy_kind: str = "support_set_item_ranker"
+
+    @property
+    def feature_names(self) -> list[str]:
+        return list(self.item_feature_names)
+
+    def predict(self, item_features: np.ndarray) -> np.ndarray:
+        x = np.asarray(item_features, dtype=np.float64)
+        if x.ndim == 2:
+            x = x.reshape(1, x.shape[0], x.shape[1])
+        z = (x - self.item_feature_mean[None, None, :]) / self.item_feature_std[
+            None, None, :
+        ]
+        hidden = np.maximum(
+            0.0, np.einsum("nkd,dh->nkh", z, self.item_w1) + self.item_b1
+        )
+        pooled = hidden.mean(axis=1)
+        return (pooled @ self.out_w + float(self.out_b)).reshape(-1).astype(np.float64)
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
@@ -231,6 +284,67 @@ def mixture_feature_vector(
     return np.asarray(values, dtype=np.float32)
 
 
+def support_item_feature_matrix(
+    row: dict[str, Any],
+    *,
+    condition_vectors: np.ndarray,
+    memory_targets: np.ndarray,
+    history_level: np.ndarray,
+) -> np.ndarray:
+    """Build per-support item features for one candidate support mixture."""
+
+    query_memory = np.asarray(
+        condition_vectors[int(row["embedding_index"])],
+        dtype=np.float32,
+    )
+    support = np.asarray(_support_indices(row), dtype=np.int64)
+    positions = np.asarray(_support_positions(row), dtype=np.float32)
+    cosines = _support_cosines(row).astype(np.float32)
+    if support.size == 0:
+        raise ValueError("candidate row has no support indices")
+    if positions.size != support.size:
+        positions = np.arange(1, support.size + 1, dtype=np.float32)
+    if cosines.size != support.size:
+        cosines = np.resize(cosines, support.size).astype(np.float32)
+    memory = np.asarray(memory_targets, dtype=np.float32)
+    history = np.asarray(history_level, dtype=np.float32)
+    support_memory = memory[support]
+    support_starts = history[support, -1, :]
+    query_history = history[int(row["window_index"])]
+    query_start = query_history[-1, :]
+    query_recent_delta = query_history[-1, :] - query_history[0, :]
+    support_recent_delta = history[support, -1, :] - history[support, 0, :]
+    memory_cosines = np.asarray(
+        [_cosine(query_memory, item) for item in support_memory],
+        dtype=np.float32,
+    )
+    memory_distances = np.linalg.norm(
+        support_memory - query_memory[None, :],
+        axis=1,
+    ).astype(np.float32)
+    start_distances = np.linalg.norm(
+        support_starts - query_start[None, :],
+        axis=1,
+    ).astype(np.float32)
+    recent_norm = np.linalg.norm(support_recent_delta, axis=1).astype(np.float32)
+    delta_distance = np.linalg.norm(
+        support_recent_delta - query_recent_delta[None, :],
+        axis=1,
+    ).astype(np.float32)
+    return np.stack(
+        [
+            cosines,
+            positions,
+            memory_cosines,
+            memory_distances,
+            start_distances,
+            recent_norm,
+            delta_distance,
+        ],
+        axis=1,
+    ).astype(np.float32)
+
+
 def _score_lookup(scenario_report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
     for row in scenario_report.get("window_scores", []):
@@ -295,6 +409,62 @@ def build_mixture_policy_training_table(
         labels=np.asarray(labels, dtype=np.float32),
         rows=rows,
         feature_names=list(FEATURE_NAMES),
+    )
+
+
+def build_support_set_training_table(
+    *,
+    candidate_bridge: dict[str, Any],
+    scenario_report: dict[str, Any],
+    condition_vectors: np.ndarray,
+    memory_targets: np.ndarray,
+    history_level: np.ndarray,
+    method: str = "narrative_generator_topk",
+    metric: str = "energy_score_z",
+) -> SupportSetTrainingTable:
+    """Build candidate-mixture rows as per-support-item feature sets."""
+
+    scores = _score_lookup(scenario_report)
+    item_features: list[np.ndarray] = []
+    labels: list[float] = []
+    rows: list[dict[str, Any]] = []
+    support_count: int | None = None
+    for row in candidate_bridge.get("evaluation", {}).get("heldout_examples", []):
+        if not isinstance(row, dict) or not row.get("query_id"):
+            continue
+        score = scores.get(str(row["query_id"]))
+        if score is None:
+            continue
+        value = _metric(score, method, metric)
+        if value is None:
+            continue
+        feature = support_item_feature_matrix(
+            row,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+        )
+        if support_count is None:
+            support_count = int(feature.shape[0])
+        if int(feature.shape[0]) != support_count:
+            raise ValueError("support-set ranker requires fixed support count per run")
+        item_features.append(feature)
+        labels.append(-float(value))
+        rows.append(
+            {
+                "query_id": str(row["query_id"]),
+                "window_index": int(row["window_index"]),
+                "support_window_indices": _support_indices(row),
+                f"generator_{metric}": float(value),
+            }
+        )
+    if not item_features:
+        raise ValueError("no labeled support-set rows built")
+    return SupportSetTrainingTable(
+        item_features=np.stack(item_features).astype(np.float32),
+        labels=np.asarray(labels, dtype=np.float32),
+        rows=rows,
+        item_feature_names=list(ITEM_FEATURE_NAMES),
     )
 
 
@@ -408,6 +578,114 @@ def fit_pairwise_mixture_ranker(
     )
 
 
+def _preference_pairs(
+    labels: np.ndarray,
+    query_ids: list[Any],
+    *,
+    min_label_gap: float = 1e-8,
+) -> np.ndarray:
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if y.shape[0] != len(query_ids):
+        raise ValueError("labels and query_ids must have compatible shapes")
+    groups: dict[str, list[int]] = {}
+    for idx, query_id in enumerate(query_ids):
+        groups.setdefault(str(query_id), []).append(idx)
+    pairs: list[tuple[int, int]] = []
+    for indices in groups.values():
+        for left_pos in range(len(indices)):
+            for right_pos in range(left_pos + 1, len(indices)):
+                left = indices[left_pos]
+                right = indices[right_pos]
+                gap = float(y[left] - y[right])
+                if abs(gap) <= float(min_label_gap):
+                    continue
+                if gap > 0:
+                    pairs.append((left, right))
+                else:
+                    pairs.append((right, left))
+    if not pairs:
+        raise ValueError("no within-query label preferences found")
+    return np.asarray(pairs, dtype=np.int64)
+
+
+def fit_support_set_item_ranker(
+    item_features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    query_ids: list[Any],
+    item_feature_names: list[str] | None = None,
+    hidden_dim: int = 8,
+    learning_rate: float = 0.01,
+    epochs: int = 500,
+    l2: float = 1e-4,
+    min_label_gap: float = 1e-8,
+    seed: int = 0,
+) -> SupportSetItemRanker:
+    """Fit a small DeepSets-style scorer over candidate support items."""
+
+    x = np.asarray(item_features, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if x.ndim != 3:
+        raise ValueError("item_features must have shape [rows, support, features]")
+    if x.shape[0] != y.shape[0] or x.shape[0] != len(query_ids):
+        raise ValueError("item_features, labels, and query_ids must match")
+    if int(hidden_dim) <= 0:
+        raise ValueError("hidden_dim must be positive")
+    flat = x.reshape(-1, x.shape[-1])
+    mean = flat.mean(axis=0)
+    std = np.maximum(flat.std(axis=0), 1e-8)
+    z = ((x - mean[None, None, :]) / std[None, None, :]).astype(np.float32)
+    pairs = _preference_pairs(
+        y,
+        query_ids,
+        min_label_gap=float(min_label_gap),
+    )
+
+    torch.manual_seed(int(seed))
+    features_t = torch.as_tensor(z, dtype=torch.float32)
+    preferred_t = torch.as_tensor(pairs[:, 0], dtype=torch.long)
+    worse_t = torch.as_tensor(pairs[:, 1], dtype=torch.long)
+    item_layer = torch.nn.Linear(int(x.shape[-1]), int(hidden_dim))
+    out_layer = torch.nn.Linear(int(hidden_dim), 1)
+    optimizer = torch.optim.Adam(
+        [*item_layer.parameters(), *out_layer.parameters()],
+        lr=float(learning_rate),
+    )
+    for _ in range(int(epochs)):
+        optimizer.zero_grad(set_to_none=True)
+        hidden = torch.relu(item_layer(features_t))
+        pooled = hidden.mean(dim=1)
+        scores = out_layer(pooled).squeeze(-1)
+        margin = scores[preferred_t] - scores[worse_t]
+        rank_loss = torch.nn.functional.softplus(-margin).mean()
+        penalty = torch.zeros((), dtype=torch.float32)
+        for param in [*item_layer.parameters(), *out_layer.parameters()]:
+            penalty = penalty + torch.sum(param * param)
+        loss = rank_loss + float(l2) * penalty
+        loss.backward()
+        optimizer.step()
+
+    names = (
+        list(item_feature_names)
+        if item_feature_names is not None
+        else list(ITEM_FEATURE_NAMES)
+    )
+    return SupportSetItemRanker(
+        item_w1=item_layer.weight.detach().cpu().numpy().T.astype(np.float64),
+        item_b1=item_layer.bias.detach().cpu().numpy().astype(np.float64),
+        out_w=out_layer.weight.detach().cpu().numpy().reshape(-1).astype(np.float64),
+        out_b=float(out_layer.bias.detach().cpu().numpy().reshape(-1)[0]),
+        item_feature_mean=mean.astype(np.float64),
+        item_feature_std=std.astype(np.float64),
+        item_feature_names=names,
+        hidden_dim=int(hidden_dim),
+        learning_rate=float(learning_rate),
+        epochs=int(epochs),
+        l2=float(l2),
+        pair_count=int(pairs.shape[0]),
+    )
+
+
 def _group_candidate_rows(
     candidate_bridge: dict[str, Any],
 ) -> dict[int, list[dict[str, Any]]]:
@@ -425,7 +703,7 @@ def rerank_bridge_report_with_mixture_policy(
     condition_vectors: np.ndarray,
     memory_targets: np.ndarray,
     history_level: np.ndarray,
-    model: LinearMixturePolicy | PairwiseMixtureRanker,
+    model: LinearMixturePolicy | PairwiseMixtureRanker | SupportSetItemRanker,
 ) -> dict[str, Any]:
     """Replace each query's support pool with the best predicted support mixture."""
 
@@ -439,13 +717,21 @@ def rerank_bridge_report_with_mixture_policy(
         candidates = groups[int(row["window_index"])]
         scored: list[tuple[float, dict[str, Any]]] = []
         for candidate in candidates:
-            feature = mixture_feature_vector(
-                candidate,
-                condition_vectors=condition_vectors,
-                memory_targets=memory_targets,
-                history_level=history_level,
-            )
-        scored.append((float(model.predict(feature)[0]), candidate))
+            if getattr(model, "policy_kind", "") == "support_set_item_ranker":
+                feature = support_item_feature_matrix(
+                    candidate,
+                    condition_vectors=condition_vectors,
+                    memory_targets=memory_targets,
+                    history_level=history_level,
+                )
+            else:
+                feature = mixture_feature_vector(
+                    candidate,
+                    condition_vectors=condition_vectors,
+                    memory_targets=memory_targets,
+                    history_level=history_level,
+                )
+            scored.append((float(model.predict(feature)[0]), candidate))
         scored.sort(key=lambda item: item[0], reverse=True)
         score, best = scored[0]
         row["top_train_pool"] = json.loads(json.dumps(best["top_train_pool"]))
@@ -480,8 +766,26 @@ def rerank_bridge_report_with_mixture_policy(
 
 
 def _model_payload(
-    model: LinearMixturePolicy | PairwiseMixtureRanker,
+    model: LinearMixturePolicy | PairwiseMixtureRanker | SupportSetItemRanker,
 ) -> dict[str, Any]:
+    if isinstance(model, SupportSetItemRanker):
+        payload = {
+            "policy_kind": model.policy_kind,
+            "feature_names": model.feature_names,
+            "item_feature_names": model.item_feature_names,
+            "item_w1": model.item_w1.astype(float).tolist(),
+            "item_b1": [float(value) for value in model.item_b1],
+            "out_w": [float(value) for value in model.out_w],
+            "out_b": float(model.out_b),
+            "item_feature_mean": [float(value) for value in model.item_feature_mean],
+            "item_feature_std": [float(value) for value in model.item_feature_std],
+            "hidden_dim": int(model.hidden_dim),
+            "learning_rate": float(model.learning_rate),
+            "epochs": int(model.epochs),
+            "l2": float(model.l2),
+            "pair_count": int(model.pair_count),
+        }
+        return payload
     payload = {
         "policy_kind": str(getattr(model, "policy_kind", "unknown")),
         "feature_names": model.feature_names,
@@ -512,24 +816,37 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
     scenario_report = _load_json(args.scenario_report)
     bridge_arrays = _load_npz(args.bridge_arrays)
     oracle_arrays = _load_npz(args.oracle_arrays)
-    table = build_mixture_policy_training_table(
-        candidate_bridge=train_candidate_bridge,
-        scenario_report=scenario_report,
-        condition_vectors=np.asarray(
-            bridge_arrays["condition_vectors"], dtype=np.float32
-        ),
-        memory_targets=np.asarray(bridge_arrays["memory_targets"], dtype=np.float32),
-        history_level=np.asarray(oracle_arrays["history_level"], dtype=np.float32),
-        method=str(args.method),
-        metric=str(args.metric),
-    )
+    condition_vectors = np.asarray(bridge_arrays["condition_vectors"], dtype=np.float32)
+    memory_targets = np.asarray(bridge_arrays["memory_targets"], dtype=np.float32)
+    history_level = np.asarray(oracle_arrays["history_level"], dtype=np.float32)
     if str(args.policy_kind) == "linear":
+        table = build_mixture_policy_training_table(
+            candidate_bridge=train_candidate_bridge,
+            scenario_report=scenario_report,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+            method=str(args.method),
+            metric=str(args.metric),
+        )
         model: LinearMixturePolicy | PairwiseMixtureRanker = fit_linear_mixture_policy(
             table.features,
             table.labels,
             ridge_alpha=float(args.ridge_alpha),
         )
+        training_row_count = int(table.features.shape[0])
+        training_rows = table.rows
+        training_labels = table.labels
     elif str(args.policy_kind) == "pairwise":
+        table = build_mixture_policy_training_table(
+            candidate_bridge=train_candidate_bridge,
+            scenario_report=scenario_report,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+            method=str(args.method),
+            metric=str(args.metric),
+        )
         model = fit_pairwise_mixture_ranker(
             table.features,
             table.labels,
@@ -540,16 +857,42 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             l2=float(args.pairwise_l2),
             min_label_gap=float(args.pairwise_min_label_gap),
         )
+        training_row_count = int(table.features.shape[0])
+        training_rows = table.rows
+        training_labels = table.labels
+    elif str(args.policy_kind) == "support_set":
+        support_table = build_support_set_training_table(
+            candidate_bridge=train_candidate_bridge,
+            scenario_report=scenario_report,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+            method=str(args.method),
+            metric=str(args.metric),
+        )
+        model = fit_support_set_item_ranker(
+            support_table.item_features,
+            support_table.labels,
+            query_ids=[row["window_index"] for row in support_table.rows],
+            item_feature_names=support_table.item_feature_names,
+            hidden_dim=int(args.set_hidden_dim),
+            learning_rate=float(args.set_learning_rate),
+            epochs=int(args.set_epochs),
+            l2=float(args.set_l2),
+            min_label_gap=float(args.set_min_label_gap),
+            seed=int(args.set_seed),
+        )
+        training_row_count = int(support_table.item_features.shape[0])
+        training_rows = support_table.rows
+        training_labels = support_table.labels
     else:
         raise ValueError(f"unsupported policy kind: {args.policy_kind}")
     reranked = rerank_bridge_report_with_mixture_policy(
         bridge_report=base_bridge,
         candidate_bridge=rerank_candidate_bridge,
-        condition_vectors=np.asarray(
-            bridge_arrays["condition_vectors"], dtype=np.float32
-        ),
-        memory_targets=np.asarray(bridge_arrays["memory_targets"], dtype=np.float32),
-        history_level=np.asarray(oracle_arrays["history_level"], dtype=np.float32),
+        condition_vectors=condition_vectors,
+        memory_targets=memory_targets,
+        history_level=history_level,
         model=model,
     )
     output_dir = Path(args.output_dir)
@@ -581,12 +924,12 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
         "method": str(args.method),
         "metric": str(args.metric),
         "policy_kind": str(args.policy_kind),
-        "training_row_count": int(table.features.shape[0]),
+        "training_row_count": int(training_row_count),
         "training_query_count": int(
-            len({int(row["window_index"]) for row in table.rows})
+            len({int(row["window_index"]) for row in training_rows})
         ),
-        "label_mean": float(np.mean(table.labels)),
-        "label_std": float(np.std(table.labels)),
+        "label_mean": float(np.mean(training_labels)),
+        "label_std": float(np.std(training_labels)),
         "model": _model_payload(model),
         "artifact_paths": {
             "report": str(report_path),
@@ -615,13 +958,21 @@ def main() -> None:
     parser.add_argument("--method", default="narrative_generator_topk")
     parser.add_argument("--metric", default="energy_score_z")
     parser.add_argument(
-        "--policy-kind", choices=["linear", "pairwise"], default="linear"
+        "--policy-kind",
+        choices=["linear", "pairwise", "support_set"],
+        default="linear",
     )
     parser.add_argument("--ridge-alpha", type=float, default=1.0)
     parser.add_argument("--pairwise-learning-rate", type=float, default=0.05)
     parser.add_argument("--pairwise-epochs", type=int, default=500)
     parser.add_argument("--pairwise-l2", type=float, default=1e-3)
     parser.add_argument("--pairwise-min-label-gap", type=float, default=1e-8)
+    parser.add_argument("--set-hidden-dim", type=int, default=8)
+    parser.add_argument("--set-learning-rate", type=float, default=0.01)
+    parser.add_argument("--set-epochs", type=int, default=500)
+    parser.add_argument("--set-l2", type=float, default=1e-4)
+    parser.add_argument("--set-min-label-gap", type=float, default=1e-8)
+    parser.add_argument("--set-seed", type=int, default=0)
     args = parser.parse_args()
     report = run_testflight(args)
     print(

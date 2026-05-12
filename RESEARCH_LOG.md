@@ -124054,3 +124054,84 @@ branch stays diagnostic.
 - `git diff --check` before commit.
 
 ---
+## 2026-05-12: HEAD nl-prefix 147 support-set item ranker TestFlight
+
+### Context
+HEAD 146 selected `support_set_item_ranker` as the next bounded exploration candidate after the pooled-feature pairwise ranker failed even with `128` train-query generator-response labels. The bottleneck hypothesis was that pooled summary features under-represent support-set item composition and interactions.
+
+### Hypothesis
+A small DeepSets-style support-set item encoder over per-support candidate features should fit the generator-response mixture label surface better than the pooled-feature ranker while preserving the auditable historical support-mixture output.
+
+### Research Lane
+`exploration` / `experiment`.
+
+### Result Status
+`candidate_rejected`.
+
+### Benchmark Floor Status
+`below_floor`; no production default changed.
+
+### Execution
+Implemented the support-set ranker in:
+
+`experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+
+Added focused tests in:
+
+`test_code/test_885a_nl_learned_mixture_policy.py`
+
+The TestFlight used the existing `128` train-query / `1280` candidate-mixture generator-response label set, with no new OpenAI calls:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_888a_128q/`
+
+It reranked the full held-out candidate bridge and then ran same-seed frozen-generator scenario evaluation on CUDA.
+
+### Result
+Artifacts:
+
+- policy report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889b_128train_to_fullheldout/learned_mixture_policy_report.json`
+- reranked bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889b_128train_to_fullheldout/learned_mixture_policy_bridge_report.json`
+- held-out scenario report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889c_128train_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- post-analysis: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889d_128train_post_analysis/support_set_ranker_post_analysis.json`
+
+Held-out scenario comparison versus the same-seed simple mixture:
+
+- support-set energy: `0.9896` vs simple `0.9907`;
+- support-set CRPS: `0.6902` vs simple `0.6882`;
+- support-set 80% coverage: `0.580` vs simple `0.565`.
+
+Candidate-pool audit:
+
+- train score correlation with negative energy: `0.127`;
+- held-out score correlation with negative energy: `-0.120`;
+- held-out score correlation with negative CRPS: `-0.063`;
+- exact energy-oracle selection: `4/29`;
+- selected-minus-default candidate-pool deltas: `+0.0147` energy and `+0.0197` CRPS.
+
+### Mechanism Read
+The mechanism label is:
+
+`set_ranker_adds_capacity_but_still_misses_candidate_pool_oracle`.
+
+The set-aware representation is more faithful to the method story than hand-pooled features, but this first DeepSets-style scorer still does not fit the generator-response label surface and does not produce reliable held-out candidate-pool ranking. The slight scenario-energy improvement is not enough to offset worse CRPS and negative candidate-pool alignment.
+
+### Decision / Next Step
+Do not promote the support-set ranker. Do not run a broad hyperparameter sweep. The next HEAD step should be post-experiment analysis: determine whether the failure is caused by hard candidate selection, lack of within-query/listwise normalization, regime/prototype heterogeneity, or the need to learn soft mixture weights rather than selecting one candidate subset.
+
+Tracked docs updated:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- `docs/research_protocols/nl_prefix_latent_set_ranker_method_intake.md`
+
+### Verification
+Commands run:
+
+- `uv run pytest test_code/test_885a_nl_learned_mixture_policy.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+- `uv run black experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py test_code/test_885a_nl_learned_mixture_policy.py`
+- `uv run python experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py --policy-kind support_set ...`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report ...889b... --device cuda --top-k 3 --samples 2 --seed 886 --max_windows 441`
+
+Independent verification was not triggered because this is a rejected exploration result, not a promotion or production-readiness claim.
+
+---

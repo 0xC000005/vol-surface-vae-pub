@@ -1,6 +1,6 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
@@ -365,10 +365,20 @@ Diagnostic, not yet promoted:
   `docs/research_protocols/nl_prefix_latent_set_ranker_method_intake.md`.
   The next proposed exploration candidate is `support_set_item_ranker`: a
   DeepSets-style support-set item encoder that scores candidate mixtures from
-  per-support item features plus query/start context. It is not implemented and
-  not promoted. The reason to try it is now specific: the existing
-  pooled-feature ranker under-represents support-set interactions even when the
-  generator-response label set is scaled.
+  per-support item features plus query/start context. The 128-query TestFlight
+  is implemented and not promoted. Artifacts:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889b_128train_to_fullheldout/learned_mixture_policy_report.json`,
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889c_128train_fullheldout_scenario_eval/scenario_level_eval_report.json`,
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889d_128train_post_analysis/support_set_ranker_post_analysis.json`.
+  The support-set ranker slightly improves held-out energy versus the same-seed
+  simple mixture (`0.9896` versus `0.9907`) and improves 80% coverage (`0.580`
+  versus `0.565`), but worsens CRPS (`0.6902` versus `0.6882`). More
+  importantly, its held-out candidate-pool scores are negatively correlated
+  with actual generator-response energy and CRPS (`-0.120` and `-0.063`), and
+  the selected mixtures are worse than the default candidate mixture by
+  `+0.0147` energy and `+0.0197` CRPS. The current mechanism read is
+  `set_ranker_adds_capacity_but_still_misses_candidate_pool_oracle`.
 
 ### Fixed-Start Conditionality
 

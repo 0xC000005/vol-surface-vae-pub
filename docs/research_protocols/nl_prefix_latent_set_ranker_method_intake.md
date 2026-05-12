@@ -189,3 +189,38 @@ and the utility analysis ruled out metric conflict as the main explanation.
 The smallest justified next method is therefore a richer support-set
 representation that remains compatible with the support-mixture contract.
 
+## TestFlight Result
+
+Status: `not_promoted`.
+
+Artifacts:
+
+- policy report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889b_128train_to_fullheldout/learned_mixture_policy_report.json`
+- held-out scenario report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889c_128train_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889d_128train_post_analysis/support_set_ranker_post_analysis.json`
+
+Result:
+
+- train labels: `128` query windows and `1280` candidate mixtures;
+- held-out scenario energy: `0.9896` versus simple mixture `0.9907`;
+- held-out scenario CRPS: `0.6902` versus simple mixture `0.6882`;
+- held-out 80% coverage: `0.580` versus simple mixture `0.565`;
+- train score correlation with negative energy: `0.127`;
+- held-out candidate-pool score correlation with negative energy: `-0.120`;
+- held-out candidate-pool score correlation with negative CRPS: `-0.063`;
+- exact held-out energy-oracle selection: `4/29`;
+- selected-minus-default candidate-pool deltas: `+0.0147` energy and
+  `+0.0197` CRPS.
+
+Mechanism read:
+`set_ranker_adds_capacity_but_still_misses_candidate_pool_oracle`.
+
+Decision: do not promote. The support-set representation is more aligned with
+the method story than pooled features, but the first DeepSets-style scorer does
+not fit the generator-response label surface and does not produce reliable
+held-out candidate-pool rankings. The next step should be post-experiment
+analysis or a cleaner listwise/prototype objective, not a broad hyperparameter
+sweep.
