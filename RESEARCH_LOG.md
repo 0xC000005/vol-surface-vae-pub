@@ -123980,3 +123980,77 @@ still beat the simple mixture floor before promotion.
   artifacts.
 
 ---
+## 2026-05-12: HEAD nl-prefix 146 support-set ranker method intake
+
+### Context
+HEAD 145 found that the pairwise ranker failure is not mainly energy/CRPS
+metric conflict and is not fixed by scaling generator-response labels from
+`32` to `128` train queries. The current bottleneck is representation/model
+structure for support-mixture scoring.
+
+### Hypothesis
+The next sophisticated candidate should score candidate support mixtures as
+sets of support items rather than hand-pooled summary vectors. This preserves
+the auditable historical mixture output while giving the scorer enough
+structure to model which support windows work well together for a
+narrative/start query.
+
+### Research Lane
+`exploration` / `research_ideation`.
+
+### Result Status
+`method_intake_ready`.
+
+### Benchmark Floor Status
+`not_tested`; no model default changed.
+
+### Execution
+Added the next method-intake artifact:
+
+`docs/research_protocols/nl_prefix_latent_set_ranker_method_intake.md`
+
+Updated current truth to point to the intake.
+
+### Related Work Basis
+The intake keeps the same learning-to-rank foundation and adds a set-model
+basis:
+
+- RankNet for within-query pairwise ranking:
+  https://www.microsoft.com/en-us/research/publication/learning-to-rank-using-gradient-descent/
+- ListNet for listwise candidate ranking:
+  https://www.microsoft.com/en-us/research/publication/learning-to-rank-from-pairwise-approach-to-listwise-approach-2/
+- Deep Sets for minimal permutation-invariant set encoders:
+  https://papers.nips.cc/paper/6931-deep-sets
+- Set Transformer as the heavier attention-based set encoder, explicitly out
+  of scope for the first TestFlight:
+  https://icml.cc/virtual/2019/oral/4842
+
+### Method Story
+The proposed candidate is `support_set_item_ranker`:
+
+```text
+narrative/start query
++ candidate support set items
+-> permutation-aware support-set ranker
+-> selected or softly weighted support mixture
+-> frozen SNI rollout
+-> historical-backtest CRPS/energy/coverage
+```
+
+The output remains an auditable historical support mixture. There are no new
+OpenAI calls, no generator fine-tuning, and no hidden model-chosen start.
+
+### Decision / Next Step
+The intake is ready for a bounded TestFlight. The implementation should start
+with a small DeepSets-style item encoder over existing candidate support-item
+features. The falsifier is explicit: if it cannot fit the 128-query training
+label surface better than the pooled-feature ranker, or if held-out
+candidate-pool alignment/scenario metrics remain below the simple mixture, the
+branch stays diagnostic.
+
+### Verification
+- Method intake saved under `docs/research_protocols/`.
+- Current-truth index updated.
+- `git diff --check` before commit.
+
+---

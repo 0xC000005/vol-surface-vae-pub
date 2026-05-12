@@ -361,6 +361,14 @@ Diagnostic, not yet promoted:
   mixture by `+0.0155` energy and `+0.0150` CRPS. The current bottleneck is
   therefore representation/model structure for support-mixture scoring, not
   merely metric scalarization or too few train labels.
+- next method-intake candidate:
+  `docs/research_protocols/nl_prefix_latent_set_ranker_method_intake.md`.
+  The next proposed exploration candidate is `support_set_item_ranker`: a
+  DeepSets-style support-set item encoder that scores candidate mixtures from
+  per-support item features plus query/start context. It is not implemented and
+  not promoted. The reason to try it is now specific: the existing
+  pooled-feature ranker under-represents support-set interactions even when the
+  generator-response label set is scaled.
 
 ### Fixed-Start Conditionality
 
