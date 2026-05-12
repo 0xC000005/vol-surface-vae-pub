@@ -28,6 +28,8 @@
     "keep_historical_support_mixture_as_production_backbone",
     "improve_narrative_to_mixture_scoring_weighting_or_refinement",
     "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
+    "separate_low_cost_exploration_from_default_promotion",
+    "allow_exploratory_regressions_when_the_mechanism_value_is_documented",
     "allow_small_regressions_only_when_mechanism_and_tradeoff_are_documented",
     "reject_or_mark_diagnostic_methods_with_drastic_distributional_regression",
     "require_publishable_novelty_to_be_in_conditioning_bridge_reranker_weighting_or_latent_refinement_not_in_removing_support"
@@ -38,6 +40,36 @@
     "distributional_floor": "New methods must be at least competitive with the simple mixture on ensemble CRPS, energy score, and 80% coverage before promotion. A small regression is acceptable only if it buys clear trust, stability, or conditionality gains and is documented as a trade-off.",
     "non_promotion_rule": "Do not promote methods that materially regress below the simple mixture while only improving retrieval rank, target cosine, or an isolated diagnostic."
   },
+  "research_lanes": {
+    "exploration": "Cheap mechanism-seeking tests may regress, including severe regression, if the result is low cost and explains whether to continue, change, or kill the branch.",
+    "candidate": "A plausible method may tolerate moderate regression only when the trade-off and falsifier were stated before the run.",
+    "promotion": "A candidate must be competitive with the simple mixture on held-out scenario metrics, support audits, fixed-start controls, and null or repeat checks before it changes defaults or paper claims.",
+    "production_demo": "User-facing defaults may not drastically regress; small regressions require a visible trust, warning, OOD, provenance, or fixed-start stability benefit."
+  },
+  "result_status_labels": [
+    "exploratory",
+    "mechanism_found",
+    "dead_end",
+    "candidate",
+    "candidate_rejected",
+    "promotion_candidate",
+    "promoted",
+    "not_promoted"
+  ],
+  "benchmark_floor_status_labels": [
+    "not_applicable",
+    "not_tested",
+    "below_floor",
+    "competitive",
+    "beats_floor"
+  ],
+  "workflow_philosophy": [
+    "explore_like_a_scientist_promote_like_an_engineer",
+    "prefer_scalable_learned_mechanisms_and_data_backed_memory_over_hand_coded_market_rules",
+    "treat_simple_mixture_as_promotion_floor_not_exploration_leash",
+    "avoid_eval_overfitting_to_target_cosine_retrieval_rank_or_single_metric_improvements",
+    "use_independent_verifier_before_promotion_not_for_every_low_cost_probe"
+  ],
   "primary_acceptance_metrics": [
     "energy_score_improvement_vs_persistence",
     "ensemble_crps_improvement_vs_persistence",

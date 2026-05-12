@@ -38,6 +38,29 @@ desired-future language is warning-only and must not become the future target.
   sidecars only at literature, critique, verification, report-audit, or
   disjoint-implementation gates.
 
+## Current Autoresearch Policy
+
+The NL prefix-latent workflow now separates research exploration from product
+promotion:
+
+- **Exploration lane:** cheap local tests, literature checks, and mechanism
+  probes may regress below the simple-mixture floor. A bad result is acceptable
+  when it teaches why a method should be promoted, modified, or killed.
+- **Candidate lane:** a method with a plausible mechanism can tolerate moderate
+  regression only if the expected trade-off was stated before the run.
+- **Promotion lane:** a method must be competitive with the incumbent simple
+  mixture on held-out scenario-level quality, fixed-start controls, support
+  audits, and null/repeat checks before it changes defaults or paper claims.
+- **Production/demo lane:** no drastic regression is allowed. Small regressions
+  are acceptable only for clear trust, warning-quality, OOD-rejection,
+  provenance, or fixed-start-stability gains.
+
+Every future HEAD entry should name `research_lane`, `result_status`, and
+`benchmark_floor_status`. The simple mixture remains the promotion floor and
+production backbone, but it should not prevent low-cost exploration of learned
+support rerankers, contrastive support alignment, prototype-aware mixture
+weights, or bounded residual refinements.
+
 ## Benchmark Floor For New Narrative Methods
 
 The current long-term objective is to improve the narrative-to-mixture workflow,

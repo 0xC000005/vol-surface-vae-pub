@@ -123026,3 +123026,40 @@ and fixed-start conditionality. Embedding-only or retrieval-only improvements
 are insufficient for promotion.
 
 ---
+## 2026-05-11: NL prefix autoresearch exploration and promotion policy
+
+### Context
+The narrative-conditioned scenario-generator workflow needed a clearer policy for balancing scientific exploration against production promotion. The user explicitly wants to keep the historical support mixture as the backbone, but also wants room to investigate more sophisticated narrative-to-mixture methods without prematurely rejecting informative regressions.
+
+### Hypothesis
+A two-lane research policy will make the autoresearch loop more useful: exploration should allow cheap mechanism-seeking regressions, while promotion should still require competitiveness with the incumbent `soft_topk_narrative_start_checked` mixture and independent verification.
+
+### Research Lane
+Workflow policy update / research ideation. This is not a model promotion.
+
+### Result Status
+`policy_updated`.
+
+### Benchmark Floor Status
+`not_applicable`; no model was promoted.
+
+### Execution
+- Updated `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` with an "Explore like a scientist, promote like an engineer" doctrine, explicit exploration/candidate/promotion/production-demo lanes, status labels, a ladder for new ideas, and sweep placement rules.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json` with research lane labels, benchmark-floor status labels, and the workflow philosophy.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` so the current promoted state records the new autoresearch policy.
+- Updated `docs/research_protocols/nl_prefix_autoresearch_guardrail_sources.md` with the research-philosophy sources: Sutton's Bitter Lesson, Karpathy's Software 2.0, LeCun's autonomous-intelligence position paper, Hinton's Forward-Forward note, and the Sutskever/Dwarkesh generalization/eval discussion.
+- Updated the local ignored `nl-prefix-latent-autoresearch` skill and local ignored resume state so future in-session runs use the same lane policy.
+
+### Mechanism Read
+The incumbent mixture should remain the production and promotion floor because it currently gives the strongest scenario-level distributional quality. However, it should not block low-cost exploratory probes that may temporarily regress while clarifying a better learned support-reranker, contrastive support-alignment, prototype mixture, or bounded residual-refinement mechanism.
+
+### Decision / Next Step
+Resume autoresearch with an exploration-lane learned support-reranker or learned mixture-weighting TestFlight using existing artifacts first. Benchmark against the simple mixture before any promotion, and invoke independent verification only when a candidate is about to change defaults, paper claims, or demo/product readiness.
+
+### Verification
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json`
+- `python -m json.tool autoresearch-session/nl_prefix_latent_state.json`
+- local skill YAML parse and description type check
+- `git diff --check`
+
+---

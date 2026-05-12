@@ -18,6 +18,17 @@ handling.
 - Google Rules of ML: https://developers.google.com/machine-learning/guides/rules-of-ml/
 - Google ML Test Score: https://research.google/pubs/the-ml-test-score-a-rubric-for-ml-production-readiness-and-technical-debt-reduction/
 - OpenAI eval best practices: https://developers.openai.com/api/docs/guides/evaluation-best-practices
+- Sutton, The Bitter Lesson:
+  http://www.incompleteideas.net/IncIdeas/BitterLesson.html
+- Karpathy, Software 2.0:
+  https://karpathy.github.io/2017/11/11/software2/
+- LeCun, A Path Towards Autonomous Machine Intelligence:
+  https://openreview.net/forum?id=BZ5a1r-kVsf
+- Hinton, The Forward-Forward Algorithm:
+  https://arxiv.org/abs/2212.13345
+- Sutskever/Dwarkesh discussion of generalization, value functions, and
+  eval-overfitting risk:
+  https://www.dwarkesh.com/p/ilya-sutskever-2
 
 ## What Transfers
 
@@ -27,6 +38,14 @@ handling.
 - Keep human intervention points explicit, especially before promotion.
 - Treat evaluation datasets, held-out checks, and regression tests as first-class
   workflow objects.
+- Prefer scalable learned mechanisms and data-backed memory over hand-coded
+  market-rule layers when the data and evaluation can support it.
+- Treat failures and regressions as useful scientific evidence in exploration,
+  while keeping production promotion tied to the incumbent benchmark.
+- Define long-horizon value in terms of mechanism clarity, generalization,
+  product trust, and auditability rather than only the next metric improvement.
+- Beware eval overfitting: a method can optimize visible diagnostics without
+  improving the risk-manager task.
 
 ## What Does Not Transfer
 
@@ -56,8 +75,15 @@ promotion claims, the workflow has failed and must switch to
 
 - Fixed start first: user-selected historical/current start or user-specified
   joint39 state before mixture.
+- Two-lane regression policy: exploratory regressions are allowed when they are
+  cheap and mechanism-informative; promotion regressions are allowed only when
+  they buy documented trust, stability, OOD rejection, warning quality, or
+  provenance.
 - Sweep cap: one axis, at most three values by default.
 - Related-work artifact before new model families or major workflow changes.
 - Independent verifier checklist before promotion.
 - One current default artifact path per production gate; older reports are
   baselines unless explicitly revalidated.
+- Simple mixture is the promotion floor and production backbone, not a ban on
+  exploring learned support rerankers, contrastive alignment, prototype-aware
+  mixtures, or bounded residual refinements.

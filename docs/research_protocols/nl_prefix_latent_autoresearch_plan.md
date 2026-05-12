@@ -89,6 +89,83 @@ Current representative floor:
 This evidence makes the mixture a benchmark and backbone, not a disposable
 interpretability layer.
 
+## Research Operating Doctrine: Explore Like A Scientist, Promote Like An Engineer
+
+The simple mixture is the production and promotion floor, not a leash on
+research exploration. If every idea is required to beat the incumbent
+immediately, the loop will avoid informative failures and converge to small
+metric-chasing edits. If every idea is allowed into the demo because it is
+interesting, the product will regress. The workflow therefore separates
+exploration from promotion.
+
+This follows three practical principles:
+
+- **Bitter lesson discipline.** Prefer scalable learned mechanisms, data-backed
+  memory, and broad objectives over brittle hand-coded market rules. The
+  historical support store is useful because it is a data-backed memory, not
+  because nearest-neighbor replay is the final scientific claim.
+- **First-principles failure diagnosis.** Treat a failed run as information
+  about the mechanism. Before adding a knob, state the causal failure and the
+  smallest test that can falsify the next idea.
+- **Evaluation humility.** Avoid optimizing one visible score until the method
+  loses real-world usefulness. A candidate can have excellent target cosine or
+  retrieval rank while still failing scenario-level CRPS, energy, support audit,
+  or risk-manager interpretability.
+
+### Research Lanes
+
+Each HEAD iteration must be assigned one lane before execution:
+
+1. **Exploration.** Cheap, local, mechanism-seeking work. Regression is allowed,
+   including severe regression, if the run is low cost and teaches something
+   concrete. Output status is `exploratory`, `mechanism_found`, or `dead_end`.
+   These runs do not change defaults.
+2. **Candidate.** A method with a plausible mechanism and at least one positive
+   diagnostic. Moderate regression is allowed only if the trade-off is named
+   before the run. Output status is `candidate` or `candidate_rejected`.
+3. **Promotion.** A candidate is compared against the incumbent simple mixture
+   on held-out scenario-level metrics, fixed-start controls, support audits, and
+   null/repeat checks. Promotion requires independent verification and current
+   truth updates. Output status is `promotion_candidate`, `promoted`, or
+   `not_promoted`.
+4. **Production/demo.** User-facing defaults. No drastic regression is allowed.
+   A method can be slightly worse than the simple mixture only if it clearly
+   improves trust, warning quality, OOD rejection, provenance, or fixed-start
+   stability and the trade-off is visible in the demo/paper.
+
+### Ladder For New Ideas
+
+New narrative-to-mixture methods should move through this ladder instead of
+jumping straight to a large run:
+
+0. **Problem statement.** Name the bottleneck and why the incumbent is
+   insufficient.
+1. **Literature or first-principles check.** Use primary sources or local
+   mechanism analysis to constrain the idea.
+2. **Tiny TestFlight.** Run a small, cheap, mostly local experiment. OpenAI
+   calls are allowed only after schema and artifact shape are clear.
+3. **Mechanism diagnostic.** Decide whether the result explains a failure class
+   or only moved a metric.
+4. **Candidate benchmark.** Compare against the simple mixture, direct text
+   memory, raw narrative, implication-only, and narrative-plus-grounding
+   baselines where applicable.
+5. **Scenario-level evaluation.** Use CRPS, energy, coverage, per-start floors,
+   fixed-start conditionality, null/repeat controls, and support audits.
+6. **Promotion review.** Run independent verification, update current truth,
+   append the research log, and make one coherent checkpoint commit.
+
+The research value function is long-run value, not immediate score gain:
+
+```text
++ mechanism clarity
++ scalable learned method potential
++ chance to beat or strengthen the incumbent
++ product trust or auditability gain
+- computation/API cost
+- added knobs and operational complexity
+- risk of stale or cherry-picked evidence
+```
+
 ## Research Objective: Improve The Mixture, Do Not Replace It
 
 The next publishable method family should improve narrative-conditioned mixture
@@ -490,8 +567,9 @@ Primary metrics:
 Promotion criterion:
 
 The new narrative-to-mixture method must beat or remain competitive with the
-incumbent simple mixture on distributional scenario metrics. The minimum
-benchmark is:
+incumbent simple mixture before it can become a production or paper-facing
+default. Exploration can regress, but promotion cannot ignore the distributional
+floor. The minimum promotion benchmark is:
 
 - ensemble CRPS and energy score versus persistence;
 - 80% coverage and interval behavior;
@@ -500,11 +578,12 @@ benchmark is:
 - fixed-start narrative sensitivity and repeat/null controls;
 - comparison against direct text-predicted memory without support.
 
-Small regressions are allowed only when the trade-off is explicit and valuable:
-for example, better OOD rejection, materially better warning quality, better
-support provenance, or stronger fixed-start stability. Drastic regression below
-the simple mixture is not acceptable for a boss-facing or paper-facing method.
-Exact historical-window retrieval is not the target; auditable support plus
+Small promotion regressions are allowed only when the trade-off is explicit and
+valuable: for example, better OOD rejection, materially better warning quality,
+better support provenance, or stronger fixed-start stability. Drastic
+regression below the simple mixture is acceptable for exploratory learning but
+not for a boss-facing, product-facing, or paper-facing method. Exact
+historical-window retrieval is not the target; auditable support plus
 story-consistent distributions is.
 
 For any paper-facing, demo-facing, or default-promoting fixed-start
@@ -531,6 +610,21 @@ Use the repo's HEAD discipline:
 - **Decide:** update persistent state, append the research log, and recommend
   the next iteration.
 
+Every HEAD entry must also name:
+
+- `research_lane`: `exploration`, `candidate`, `promotion`, or
+  `production_demo`;
+- `result_status`: `exploratory`, `mechanism_found`, `dead_end`, `candidate`,
+  `candidate_rejected`, `promotion_candidate`, `promoted`, or `not_promoted`;
+- `benchmark_floor_status`: `not_applicable`, `not_tested`, `below_floor`,
+  `competitive`, or `beats_floor`;
+- whether independent verification was required and, if so, the saved verifier
+  artifact path.
+
+Exploration entries can end below the simple-mixture floor. Promotion entries
+cannot. This distinction is required so the loop can learn from bad ideas
+without silently weakening the deployable workflow.
+
 ### Autoresearch Guardrails
 
 The workflow should learn from autonomous-research systems without copying
@@ -544,6 +638,15 @@ report errors.
 The current online multi-agent review is tracked at
 `docs/research_protocols/nl_prefix_autoresearch_multiagent_review.md`. It is a
 standing policy artifact for this workflow, not a one-off note.
+
+The broader research philosophy is tracked in
+`docs/research_protocols/nl_prefix_autoresearch_guardrail_sources.md`. The
+current interpretation is not "try every architecture." It is to use scalable
+learned representations and data-backed memory where possible, while keeping the
+product contract simple enough to audit. Human knowledge should define the
+problem, constraints, evaluation, and safety gates; the model should learn the
+high-dimensional narrative-to-support mapping from data whenever the evidence
+justifies the added complexity.
 
 Before adopting a new model family, bridge objective, agent workflow, or
 deployment architecture, create a short related-work artifact under
@@ -601,6 +704,12 @@ a preceding `research_ideation` decision and a saved analysis note explaining
 why the mechanism cannot be tested more directly. A sweep cannot promote a new
 default by itself; promotion still requires mechanism attribution, held-out
 validation, and independent verification.
+
+Sweeps belong mostly in the `exploration` or `candidate` lane. A promotion-lane
+sweep is allowed only when the mechanism is already understood and the sweep is
+calibrating a narrow operational parameter around an already competitive
+candidate. If the best value is selected only because it won the sweep, the
+result is not promoted.
 
 ### Independent Verifier Checklist
 
