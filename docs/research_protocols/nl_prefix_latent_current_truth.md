@@ -103,6 +103,13 @@ Diagnostic, not yet promoted:
   are mostly risk-on/reflation descriptions where positive and negative
   catalyst language can become too semantically close. This points to caption
   repair/hard-negative wording before another bridge architecture.
+- hard-negative wording repair TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_hard_negative_repair_878j_hardcases/hard_negative_repair_report.json`.
+  Re-embedding the artificial negative controls for the five low-margin
+  hard-case windows did not fix separation. The follow-up audit
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_caption_grounding_audit_878j_repair_hardcases/caption_grounding_audit.json`
+  still has five low-margin cases and increases low-gap cases from `1` to `3`.
+  Do not scale this deterministic negative wrapper.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the

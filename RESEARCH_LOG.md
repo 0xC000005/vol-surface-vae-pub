@@ -122620,3 +122620,41 @@ semantically entangled, then rerun the bridge bakeoff before any scenario-level
 promotion.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 132: hard-negative repair TestFlight
+
+### Context
+The caption audit isolated five low hard-negative-margin windows. The next
+TestFlight asked whether the problem was merely weak artificial negative
+wording: if explicit contrastive-control wording improved separation, we could
+repair hard negatives without changing the market narrative channel.
+
+### Execute
+- Added `experiments/backfill/block_ar/nl_hard_negative_repair_testflight.py`.
+  It leaves market narratives and memory targets unchanged, rewrites selected
+  artificial negative texts as explicit hard-negative controls, re-embeds only
+  those texts, retrains the bridge, and evaluates held-out separation.
+- Added tests in
+  `test_code/test_878j_nl_hard_negative_repair_testflight.py`.
+- Ran the hard-case-only OpenAI embedding repair for `38` negative examples
+  across `joint39_val_0377`, `0379`, `0384`, `0386`, and `0430`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_hard_negative_repair_878j_hardcases/hard_negative_repair_report.json`.
+- Re-ran the caption audit on the repaired bridge report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_caption_grounding_audit_878j_repair_hardcases/caption_grounding_audit.json`.
+
+### Findings
+- The deterministic hard-negative wrapper did not improve the bridge.
+- Held-out target cosine stayed at the expanded bakeoff level (`0.8496`), but
+  hard-negative separation did not improve.
+- The repaired hard-case audit still has five low-margin cases, and low-gap
+  cases increased from `1` to `3`.
+- Therefore the issue is not simply that the artificial negative text lacked an
+  explicit "this is a hard negative" prefix.
+
+### Decision
+Do not scale the deterministic hard-negative wrapper. The next principled move
+is not more prompt wrapping; it is deeper mechanism analysis of the low-margin
+risk-on/reflation cluster, likely comparing the raw OpenAI text embedding
+geometry before and after the learned bridge to determine whether the collapse
+comes from the embedding model or from adapter training.
+
+---
