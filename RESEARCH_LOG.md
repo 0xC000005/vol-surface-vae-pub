@@ -122584,3 +122584,39 @@ quality-focused caption/grounding audit and repair pass for rejected or
 hard-case labels before another architecture change.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 131: caption grounding hard-case audit
+
+### Context
+Expanded labeling showed feasibility but not an unambiguous bridge improvement:
+target cosine stayed strong, but hard-negative separation and retrieval recall
+weakened. Per the workflow, the next step was label-quality hard-case audit
+before adding another architecture or tuning knob.
+
+### Execute
+- Added `experiments/backfill/block_ar/nl_caption_grounding_audit.py`.
+  It joins pipeline label validation failures with bridge hard-negative
+  separation failures and emits a compact JSON/Markdown audit.
+- Added tests in `test_code/test_878i_nl_caption_grounding_audit.py`.
+- Ran the audit on the expanded OpenAI pipeline and expanded bridge report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_caption_grounding_audit_878i/caption_grounding_audit.json`.
+
+### Findings
+- The expanded label set has a small hard-case surface: `6` cases total.
+- One label requires repair/regeneration: `joint39_val_0240`, rejected due an
+  external-catalyst grounding error.
+- Five held-out windows have low hard-negative margin:
+  `joint39_val_0377`, `0379`, `0384`, `0386`, and `0430`.
+- Only `joint39_val_0377` also has low hard-negative gap under the current
+  threshold.
+- The low-margin cases cluster around risk-on/reflation descriptions where
+  positive and contrastive catalyst language can become semantically similar
+  even when the market directions differ.
+
+### Decision
+Do not add a new bridge architecture yet. The next principled step is a small
+caption repair TestFlight for the rejected label and low-margin windows:
+tighten hard-negative wording so opposite-direction scenarios are less
+semantically entangled, then rerun the bridge bakeoff before any scenario-level
+promotion.
+
+---

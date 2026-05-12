@@ -95,6 +95,14 @@ Diagnostic, not yet promoted:
   `28` overlapping old test windows it slightly improves CRPS and energy while
   lowering coverage. Treat this as evidence that label scaling is feasible but
   not by itself a solved text-to-latent upgrade.
+- expanded caption hard-case audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_caption_grounding_audit_878i/caption_grounding_audit.json`.
+  The current quality hard cases are narrow: one rejected label
+  (`joint39_val_0240`) and five low hard-negative-margin windows
+  (`joint39_val_0377`, `0379`, `0384`, `0386`, `0430`). The low-margin cases
+  are mostly risk-on/reflation descriptions where positive and negative
+  catalyst language can become too semantically close. This points to caption
+  repair/hard-negative wording before another bridge architecture.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the
