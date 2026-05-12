@@ -1,7 +1,8 @@
 {
-  "objective": "Develop a risk-manager-facing narrative-conditioned scenario generator for the frozen joint39 SNI generator. The user narrative describes current or recent market conditions; the risk manager must manually select a historical/current joint39 start or provide an explicit joint39 start before any narrative-conditioned mixture is formed. The long-term research objective is a novel, publishable narrative-to-mixture method that improves the narrative-to-embedding/support-weighting workflow while preserving the historical support mixture as the auditable production backbone.",
+  "objective": "Develop a risk-manager-facing narrative-conditioned, support-grounded latent scenario generator for the frozen joint39 SNI generator. The user narrative describes current or recent market conditions; the risk manager must manually select a historical/current joint39 start or provide an explicit joint39 start before any narrative-conditioned mixture is formed. The long-term research objective is a novel, publishable text/start-conditioned support prior over historical prefixes or prototypes: language shapes an auditable distribution over on-manifold support, and the frozen SNI generator produces the 30-day scenario distribution.",
   "loop_name": "HEAD",
   "workflow": "nl-prefix-latent-autoresearch",
+  "method_identity": "support_grounded_latent_scenario_generation",
   "production_modes": [
     "narrative_plus_manual_historical_or_current_start",
     "narrative_plus_user_specified_joint39_start"
@@ -18,6 +19,9 @@
     "resolve_user_selected_or_user_supplied_start_before_support_mixture",
     "condition_support_mixture_on_full_narrative_and_fixed_start",
     "use_weighted_historical_analogue_mixtures_as_auditable_support_priors",
+    "treat_historical_support_mixture_as_core_inductive_bias_not_fallback",
+    "keep_support_weights_operational_in_rollout_not_display_only",
+    "frame_method_as_support_grounded_latent_scenario_generation_not_pure_text_to_time_series",
     "report_support_weights_start_distance_direction_checks_and_damping_warnings",
     "reuse_frozen_sni_generator_native_autoregressive_rollout",
     "do_not_reduce_product_to_single_nearest_neighbor_replay",
@@ -25,8 +29,11 @@
     "save_verifier_artifacts_for_promoted_claims"
   ],
   "research_objective": [
+    "build_narrative_conditioned_support_grounded_latent_scenario_generator",
     "keep_historical_support_mixture_as_production_backbone",
     "improve_narrative_to_mixture_scoring_weighting_or_refinement",
+    "improve_support_distribution_prototypes_calibration_or_auditability_not_generic_text_embedding_complexity",
+    "prefer_one_elegant_learned_support_prior_or_prototype_prior_over_many_independent_ranker_knobs",
     "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
     "require_method_intake_artifact_before_sophisticated_candidates_leave_ideation",
     "require_sophisticated_methods_to_have_method_story_related_work_basis_novelty_claim_elegance_check_backtest_gate_and_kill_condition",
@@ -34,6 +41,7 @@
     "allow_exploratory_regressions_when_the_mechanism_value_is_documented",
     "allow_small_regressions_only_when_mechanism_and_tradeoff_are_documented",
     "reject_or_mark_diagnostic_methods_with_drastic_distributional_regression",
+    "reject_support_free_text_latents_without_separate_paradigm_shift_gate_and_verifier",
     "require_publishable_novelty_to_be_in_conditioning_bridge_reranker_weighting_or_latent_refinement_not_in_removing_support"
   ],
   "incumbent_benchmark": {
@@ -68,14 +76,16 @@
   "workflow_philosophy": [
     "explore_like_a_scientist_promote_like_an_engineer",
     "prefer_scalable_learned_mechanisms_and_data_backed_memory_over_hand_coded_market_rules",
+    "treat_historical_support_as_financial_inductive_bias_not_retrieval_crutch",
     "treat_simple_mixture_as_promotion_floor_not_exploration_leash",
+    "avoid_complexity_without_a_clean_support_grounded_method_story",
     "avoid_eval_overfitting_to_target_cosine_retrieval_rank_or_single_metric_improvements",
     "require_candidate_method_story_related_work_and_kill_condition_before_experiment_launch",
     "require_coherent_method_story_and_related_work_support_before_promotion",
     "use_independent_verifier_before_promotion_not_for_every_low_cost_probe"
   ],
   "tracked_method_intake_template": "docs/research_protocols/nl_prefix_latent_method_intake_template.md",
-  "current_next_candidate_method_story": "docs/research_protocols/nl_prefix_latent_mixture_policy_method_story.md",
+  "current_next_candidate_method_story": "docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md",
   "sophisticated_method_gate": {
     "method_story": "Explain how the method turns a risk-manager narrative plus fixed start into an auditable support mixture.",
     "related_work_basis": "Cite primary related work or first-principles local evidence supporting the design family.",

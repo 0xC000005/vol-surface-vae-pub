@@ -124448,3 +124448,23 @@ Do not sharpen the listwise target by fiat and do not run a broad temperature sw
 - Independent verification was not triggered because this is a diagnostic mechanism read.
 
 ---
+## 2026-05-12: HEAD nl-prefix 153 support-grounded objective refinement
+
+### Context
+Recent HEAD iterations tried increasingly sophisticated support-ranker and listwise mixture policies, but the simple narrative-conditioned support mixture remains the strongest production floor. The user flagged the right objective risk: making the text-to-latent bridge more sophisticated should not mean abandoning the historical support store or overcomplicating the method until the elegance of the pipeline is lost.
+
+### Decision
+The NL prefix-latent workflow objective is now sharpened as **support-grounded latent scenario generation**. The historical support mixture is a core financial inductive bias, not a fallback or disposable interpretability layer. A risk-manager narrative plus fixed starting level should produce an auditable support distribution over historical prefixes or learned support prototypes, and those support weights must be operational in the frozen SNI rollout.
+
+Future sophistication should improve support weights, regime prototypes, calibration, warning quality, directional audits, or bounded latent refinement around support. A larger embedding model, another ranker feature, or a support-free text latent is not enough unless it survives the separate paradigm-shift gate and verifier.
+
+### Workflow Updates
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json` with `method_identity = support_grounded_latent_scenario_generation` and explicit anti-drift contract items.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to state that support is the operational prior and production backbone, not single-neighbor replay and not a support-free latent.
+- Updated `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` so candidate methods must explain how they improve support weights, prototypes, calibration, warnings, or bounded refinement around support.
+- Updated the local NL prefix-latent skill/state so the next autoresearch loop resumes from this support-grounded objective.
+
+### Next Research Direction
+The next principled branch should be compact and support-grounded: a learned text/start-conditioned support-weight or prototype prior that is benchmarked against `soft_topk_narrative_start_checked` on held-out distributional backtests, null/repeat controls, fixed-start conditionality, and support audits. Do not launch broad sweeps or generic embedding upgrades without a method-intake story and kill condition.
+
+---

@@ -25,13 +25,33 @@ There is no hidden model-chosen starting level in the production default. A
 narrative describes current or recent market conditions; forward-looking or
 desired-future language is warning-only and must not become the future target.
 
+## Current Method Identity
+
+The current objective is **support-grounded latent scenario generation**, not a
+generic text-to-time-series generator and not an agentic LLM distribution
+forecaster. The full narrative and fixed starting level define an auditable
+support distribution over historical prefixes or learned support prototypes.
+Those support weights must be operational in the frozen SNI rollout, not merely
+shown as an explanatory table after a separate text latent has already driven
+the generator.
+
+This resolves the latest objective drift risk. The historical mixture is not a
+fallback, a weakness, or a disposable interpretability layer. It is the
+financial inductive bias that keeps language-conditioned generation on the
+learned market manifold. Future sophistication should improve the support prior
+itself: better support weights, regime prototypes, calibration, warning quality,
+directional audits, or bounded latent refinement around support. A stronger
+generic text embedding or a more complex ranker is not enough unless it improves
+held-out scenario quality or trust under this support-grounded contract.
+
 ## Current Incumbent
 
 - Support prior: `soft_topk_narrative_start_checked`.
 - Text bridge incumbent: `mlp_mse_contrastive + multi_caption_with_negatives`.
 - Grounding role: sidecar audit/check, not a replacement for the full
   narrative.
-- Retrieval role: provenance and support audit, not the publication target.
+- Retrieval role: operational support prior, provenance, and support audit; not
+  single-neighbor replay and not a support-free text latent.
 - Generator: frozen joint39 SNI checkpoint through the native autoregressive
   rollout path.
 - Autoresearch orchestration: centralized HEAD loop with bounded multi-agent

@@ -9,12 +9,20 @@ frozen state-aware normalized-innovation (SNI) conditional scenario generator
 and its native autoregressive rollout.
 
 The current long-term research objective is a novel, publishable
-**narrative-to-mixture** method. The method may use richer text embeddings,
-contrastive alignment, learned support reranking, prototype-aware weighting, or
-bounded residual latent refinement, but it must keep the historical support
-mixture as the production backbone. Novelty should come from making the
-language-conditioned support prior more faithful, auditable, and performant,
-not from removing the support store.
+**support-grounded latent scenario generation** method. The method may use
+richer text embeddings, contrastive alignment, learned support reranking,
+prototype-aware weighting, or bounded residual latent refinement, but it must
+keep the historical support mixture as the production backbone. Novelty should
+come from making the language-conditioned support prior more faithful,
+auditable, and performant, not from removing the support store.
+
+This is now an explicit anti-drift rule: "more sophisticated text-to-latent"
+does not mean a support-free text embedding, a hidden nearest-neighbor system,
+or a growing pile of ranker knobs. It means one clean learned mechanism that
+improves how narrative plus fixed start produces an operational support
+distribution over historical prefixes or prototypes. The support distribution
+must affect the generated scenarios, remain inspectable, and survive
+distributional historical backtesting against the simple mixture floor.
 
 Current boss-demo runbook:
 `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
@@ -234,7 +242,9 @@ The research value function is long-run value, not immediate score gain:
 ## Research Objective: Improve The Mixture, Do Not Replace It
 
 The next publishable method family should improve narrative-conditioned mixture
-construction. Candidate families are:
+construction. If a candidate cannot explain how it improves support weights,
+support prototypes, calibration, warning quality, or bounded refinement around
+support, it is probably solving the wrong problem. Candidate families are:
 
 1. **Learned support reranker.** Train a cross-encoder, late-interaction
    reranker, or compact MLP over `(narrative representation, fixed start,
@@ -265,6 +275,22 @@ Every candidate must include the incumbent simple mixture as the primary
 benchmark. The preferred first TestFlight is a learned support-reranking or
 mixture-weighting experiment because it directly targets the production path
 without discarding the proven support prior.
+
+The preferred research shape is therefore:
+
+```text
+full narrative + fixed start
+-> learned support-weight or prototype prior
+-> auditable support-grounded prefix/memory mixture
+-> frozen SNI autoregressive rollout
+-> distributional backtest and support audit
+```
+
+Avoid branches whose main pitch is only "larger embedding model", "more
+features", or "more ranker parameters". Those are implementation details, not
+paper claims. A publishable branch should have a compact mechanism and a clear
+finance reason for why support-grounding improves trust and distributional
+scenario quality.
 
 ## Workflow Revision: Grounding Is A Sidecar, Not The Narrative
 
