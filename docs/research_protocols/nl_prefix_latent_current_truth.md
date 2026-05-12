@@ -394,7 +394,16 @@ Diagnostic, not yet promoted:
   the scenario evaluator honor those weights instead of treating all selected
   analogues equally. This is not implemented or promoted. The reason to try it
   is specific: the prior hard-selection rankers are brittle, while the product
-  already needs support weights to be more than display-only provenance.
+  already needs support weights to be more than display-only provenance. The
+  weighted-sampler implementation is now TDD-covered and diagnostic only:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889i_baseline_analysis/weighted_sampler_baseline_analysis.json`.
+  Equal sampling remains the default. Softmax-cosine weighting at temperature
+  `1.0` is a no-op because all `29` held-out windows allocate `[2,2,2]`
+  samples, while a sharper diagnostic temperature `0.02` worsens CRPS
+  (`0.6894` versus `0.6882`) and energy (`0.9921` versus `0.9907`) while only
+  improving coverage (`0.570` versus `0.565`). Naive similarity sharpening is
+  therefore not promoted; learned listwise weights still need a separate
+  TestFlight.
 
 ### Fixed-Start Conditionality
 

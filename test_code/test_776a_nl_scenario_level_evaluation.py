@@ -8,6 +8,7 @@ from experiments.backfill.block_ar.nl_scenario_level_evaluation import (
     build_delta_scale,
     bridge_local_to_block_indices,
     bridge_report_arrays_path,
+    build_support_sampling_plan,
     direct_memory_condition_for_query,
     future_delta_paths,
     memory_residual_method_name,
@@ -15,6 +16,7 @@ from experiments.backfill.block_ar.nl_scenario_level_evaluation import (
     score_sample_distribution,
     select_heldout_query_rows,
     summarize_method_scores,
+    weighted_sample_counts,
 )
 
 
@@ -226,3 +228,49 @@ def test_summarize_method_scores_computes_improvement_against_persistence() -> N
         summary["narrative_generator"]["mean_path_mae_z_improvement_vs_persistence"],
         1.0 / 3.0,
     )
+
+
+def test_weighted_sample_counts_preserves_total_with_largest_remainder() -> None:
+    counts = weighted_sample_counts(
+        np.asarray([0.60, 0.30, 0.10], dtype=np.float32),
+        total_count=10,
+    )
+
+    assert counts.tolist() == [6, 3, 1]
+    assert int(counts.sum()) == 10
+
+
+def test_build_support_sampling_plan_repeats_rows_by_field_weight() -> None:
+    rows = [
+        {"index": 10, "cosine": 0.9, "weight": 0.75},
+        {"index": 11, "cosine": 0.8, "weight": 0.25},
+    ]
+
+    plan = build_support_sampling_plan(
+        rows,
+        samples_per_analogue=2,
+        mode="field_weight",
+    )
+
+    assert plan["samples_per_row"] == 1
+    assert [row["index"] for row in plan["analogue_rows"]] == [10, 10, 10, 11]
+    assert plan["sample_counts"] == [3, 1]
+    assert np.allclose(plan["weights"], [0.75, 0.25])
+
+
+def test_build_support_sampling_plan_keeps_equal_mode_unchanged() -> None:
+    rows = [
+        {"index": 10, "cosine": 0.9, "weight": 0.99},
+        {"index": 11, "cosine": 0.8, "weight": 0.01},
+    ]
+
+    plan = build_support_sampling_plan(
+        rows,
+        samples_per_analogue=2,
+        mode="equal",
+    )
+
+    assert plan["samples_per_row"] == 2
+    assert [row["index"] for row in plan["analogue_rows"]] == [10, 11]
+    assert plan["sample_counts"] == [2, 2]
+    assert np.allclose(plan["weights"], [0.5, 0.5])

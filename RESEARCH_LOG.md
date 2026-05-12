@@ -124258,3 +124258,68 @@ The intake is ready for a bounded TestFlight. The first implementation step shou
 - No independent verifier was triggered because this is an ideation/intake step, not a promotion.
 
 ---
+## 2026-05-12: HEAD nl-prefix 150 weighted analogue sampler TestFlight
+
+### Context
+HEAD 149 prepared the `soft_listwise_mixture_policy` intake and found that the scenario-level evaluator treated selected analogues equally. Before training listwise weights, the workflow needed to make support weights operational and test whether incumbent similarity weights help by themselves.
+
+### Hypothesis
+If support weights are a useful production primitive, the evaluator should be able to allocate generated paths by analogue weights while preserving the old equal-sampling default. A weighted-sampler-only baseline should be tested before adding a learned listwise policy.
+
+### Research Lane
+`exploration` / `experiment`.
+
+### Result Status
+`sampler_ready_policy_not_tested`.
+
+### Benchmark Floor Status
+`competitive` for the default equal mode; naive sharpened cosine weighting is below the same-seed simple mixture.
+
+### Execution
+Added TDD-covered weighted analogue sampling support in:
+
+`experiments/backfill/block_ar/nl_scenario_level_evaluation.py`
+
+Tests added in:
+
+`test_code/test_776a_nl_scenario_level_evaluation.py`
+
+The new `--support-sampling-mode` supports:
+
+- `equal` as the backward-compatible default;
+- `field_weight` for future learned support weights;
+- `softmax_cosine` for a diagnostic incumbent-similarity baseline.
+
+### Result
+Artifacts:
+
+- softmax-cosine temperature `1.0`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889g_softmax_cosine_fullheldout/scenario_level_eval_report.json`
+- softmax-cosine temperature `0.02`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889h_softmax_cosine_t002_fullheldout/scenario_level_eval_report.json`
+- comparison summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889i_baseline_analysis/weighted_sampler_baseline_analysis.json`
+
+Same-seed held-out comparison:
+
+- equal baseline CRPS / energy / coverage: `0.6882` / `0.9907` / `0.565`;
+- softmax-cosine temperature `1.0`: identical to equal sampling because all `29/29` windows allocate `[2,2,2]` samples;
+- softmax-cosine temperature `0.02`: CRPS `0.6894`, energy `0.9921`, coverage `0.570`;
+- non-equal allocation at `0.02`: `[3,2,1]` for `11/29`, `[4,1,1]` for `2/29`, equal `[2,2,2]` for `16/29`.
+
+### Mechanism Read
+The mechanism is:
+
+`honoring_weights_is_operational_but_naive_similarity_sharpening_is_not_enough`.
+
+Support weights now matter to rollout sampling, but simply sharpening retrieval cosine is not a better policy. It increases coverage slightly while worsening CRPS and energy, so the branch should not promote manual cosine weighting.
+
+### Decision / Next Step
+Keep equal sampling as the production default. Proceed to a minimal listwise candidate-probability policy using existing generator-response labels. The first learned-policy gate should be candidate-pool alignment and support-weight sanity before another scenario-level run.
+
+### Verification
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --support-sampling-mode softmax_cosine --support-weight-temperature 1.0 ...`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --support-sampling-mode softmax_cosine --support-weight-temperature 0.02 ...`
+
+Independent verification was not triggered because this is an exploration result and no new default was promoted.
+
+---

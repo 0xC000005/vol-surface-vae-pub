@@ -145,6 +145,100 @@ def parse_memory_residual_alphas(raw: str) -> list[float]:
     return values
 
 
+def weighted_sample_counts(weights: np.ndarray, total_count: int) -> np.ndarray:
+    """Allocate an integer sample count with largest-remainder rounding."""
+
+    total = int(total_count)
+    if total <= 0:
+        raise ValueError("total_count must be positive")
+    raw = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if raw.size == 0:
+        raise ValueError("weights must be non-empty")
+    clean = np.where(np.isfinite(raw) & (raw > 0.0), raw, 0.0)
+    if float(clean.sum()) <= 0.0:
+        clean = np.ones_like(clean, dtype=np.float64)
+    prob = clean / float(clean.sum())
+    expected = prob * float(total)
+    counts = np.floor(expected).astype(np.int64)
+    remainder = int(total - int(counts.sum()))
+    if remainder > 0:
+        order = np.argsort(-(expected - counts))
+        counts[order[:remainder]] += 1
+    return counts.astype(np.int64)
+
+
+def _softmax(values: np.ndarray, *, temperature: float) -> np.ndarray:
+    temp = max(float(temperature), 1e-8)
+    raw = np.asarray(values, dtype=np.float64).reshape(-1)
+    shifted = (raw - float(np.max(raw))) / temp
+    weights = np.exp(shifted)
+    denom = float(np.sum(weights))
+    if denom <= 0.0 or not np.isfinite(denom):
+        return np.full(raw.shape, 1.0 / max(raw.size, 1), dtype=np.float64)
+    return weights / denom
+
+
+def build_support_sampling_plan(
+    analogue_rows: list[dict[str, Any]],
+    *,
+    samples_per_analogue: int,
+    mode: str = "equal",
+    weight_temperature: float = 1.0,
+) -> dict[str, Any]:
+    """Build the analogue rows and per-row sample count for generator rollout."""
+
+    if not analogue_rows:
+        raise ValueError("analogue_rows must be non-empty")
+    samples = int(samples_per_analogue)
+    if samples <= 0:
+        raise ValueError("samples_per_analogue must be positive")
+    if str(mode) == "equal":
+        count = len(analogue_rows)
+        return {
+            "mode": "equal",
+            "analogue_rows": list(analogue_rows),
+            "samples_per_row": samples,
+            "sample_counts": [samples for _ in analogue_rows],
+            "weights": [float(1.0 / count) for _ in analogue_rows],
+        }
+    if str(mode) == "field_weight":
+        weights = np.asarray(
+            [float(row.get("weight", 0.0) or 0.0) for row in analogue_rows],
+            dtype=np.float64,
+        )
+    elif str(mode) == "softmax_cosine":
+        weights = _softmax(
+            np.asarray(
+                [float(row.get("cosine", 0.0) or 0.0) for row in analogue_rows],
+                dtype=np.float64,
+            ),
+            temperature=float(weight_temperature),
+        )
+    else:
+        raise ValueError(f"unsupported support sampling mode: {mode}")
+    total = len(analogue_rows) * samples
+    counts = weighted_sample_counts(weights, total_count=total)
+    normalized = np.asarray(weights, dtype=np.float64)
+    if float(np.sum(np.maximum(normalized, 0.0))) <= 0.0:
+        normalized = np.ones_like(normalized, dtype=np.float64)
+    normalized = np.maximum(normalized, 0.0)
+    normalized = normalized / float(normalized.sum())
+    expanded: list[dict[str, Any]] = []
+    for row, count in zip(analogue_rows, counts, strict=True):
+        for _ in range(int(count)):
+            expanded.append(dict(row))
+    if not expanded:
+        expanded = [dict(analogue_rows[int(np.argmax(normalized))])]
+        counts[int(np.argmax(normalized))] = 1
+    return {
+        "mode": str(mode),
+        "analogue_rows": expanded,
+        "samples_per_row": 1,
+        "sample_counts": [int(value) for value in counts],
+        "weights": [float(value) for value in normalized],
+    }
+
+
 def memory_residual_method_name(prefix: str, alpha: float) -> str:
     """Build stable report keys for alpha-grid residual methods."""
 
@@ -578,15 +672,24 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
             {"index": idx, "cosine": float(item.get("cosine", 0.0))}
             for idx, item in zip(top_train, top_train_items)
         ]
+        for analogue_row, item in zip(analogue_rows, top_train_items, strict=True):
+            if item.get("weight") is not None:
+                analogue_row["weight"] = float(item.get("weight", 0.0) or 0.0)
+        support_sampling = build_support_sampling_plan(
+            analogue_rows,
+            samples_per_analogue=int(args.samples),
+            mode=str(args.support_sampling_mode),
+            weight_temperature=float(args.support_weight_temperature),
+        )
         sampled = sample_normal_generator_for_retrieved_analogues(
             model,
-            analogue_rows,
+            support_sampling["analogue_rows"],
             history_level,
             history_norm,
             center,
             scale,
             drift_feature,
-            n_samples=int(args.samples),
+            n_samples=int(support_sampling["samples_per_row"]),
             n_steps=int(args.n_steps),
             chunk_size=int(args.chunk_size),
             temperature=float(args.temperature),
@@ -819,6 +922,12 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                     float(item.get("cosine", 0.0))
                     for item in query.get("top_train_pool", [])[: int(args.top_k)]
                 ],
+                "support_sampling": {
+                    "mode": support_sampling["mode"],
+                    "sample_counts": support_sampling["sample_counts"],
+                    "weights": support_sampling["weights"],
+                    "samples_per_row": support_sampling["samples_per_row"],
+                },
                 "methods": methods,
             }
         )
@@ -841,6 +950,8 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         "allow_duplicate_query_windows": bool(args.allow_duplicate_query_windows),
         "top_k": int(args.top_k),
         "samples": int(args.samples),
+        "support_sampling_mode": str(args.support_sampling_mode),
+        "support_weight_temperature": float(args.support_weight_temperature),
         "n_steps": int(args.n_steps),
         "seed": int(args.seed),
         "direct_memory": {
@@ -905,6 +1016,12 @@ def main() -> None:
     parser.add_argument("--max-windows-eval", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--samples", type=int, default=4)
+    parser.add_argument(
+        "--support-sampling-mode",
+        choices=["equal", "field_weight", "softmax_cosine"],
+        default="equal",
+    )
+    parser.add_argument("--support-weight-temperature", type=float, default=1.0)
     parser.add_argument("--n-steps", type=int, default=30)
     parser.add_argument("--chunk-size", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=1.0)

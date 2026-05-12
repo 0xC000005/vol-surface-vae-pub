@@ -202,3 +202,31 @@ Decision rationale: the last failure analysis points away from larger hard
 rankers and toward softer support allocation. This candidate directly targets
 the brittleness of hard subset selection while keeping the historical mixture
 as the auditable production backbone.
+
+## Weighted-Sampler Baseline Result
+
+Status: `sampler_ready_policy_not_tested`.
+
+Artifacts:
+
+- no-op softmax-cosine sampler:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889g_softmax_cosine_fullheldout/scenario_level_eval_report.json`
+- sharper softmax-cosine diagnostic:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889h_softmax_cosine_t002_fullheldout/scenario_level_eval_report.json`
+- comparison summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_weighted_sampler_889i_baseline_analysis/weighted_sampler_baseline_analysis.json`
+
+Result:
+
+- equal baseline CRPS/energy/coverage: `0.6882` / `0.9907` / `0.565`;
+- softmax-cosine temperature `1.0`: identical to equal sampling because every
+  held-out window keeps `[2,2,2]` sample allocation;
+- softmax-cosine temperature `0.02`: CRPS `0.6894`, energy `0.9921`, coverage
+  `0.570`;
+- diagnostic allocation patterns at `0.02`: `[2,2,2]` for `16/29`, `[3,2,1]`
+  for `11/29`, `[4,1,1]` for `2/29`.
+
+Decision: weighted sampling is operational and tested, but naive cosine
+sharpening is not useful. Keep equal sampling as the default. The next TestFlight
+should train listwise weights from generator-response labels rather than assume
+retrieval cosine should be sharpened.
