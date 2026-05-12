@@ -263,3 +263,28 @@ minimal linear policy is too weak and too uniform. Do not spend a full
 scenario-level rollout on this version. The next mechanism question is whether
 the label target is too diffuse, whether candidate features are too weak, or
 whether a prototype/regime-conditioned listwise model is needed.
+
+## Target-Diffuseness Analysis
+
+Artifact:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889l_target_diffuseness/listwise_target_diffuseness_analysis.json`
+
+Result:
+
+- train target effective candidate count: `5.67` out of `10`;
+- held-out target effective candidate count: `5.36` out of `10`;
+- held-out target max probability: `0.330`;
+- held-out best-minus-default label: `0.0594`;
+- held-out best-minus-second label: `0.0280`;
+- minimal listwise predicted effective candidate count: `9.89`;
+- minimal listwise predicted max probability: `0.116`;
+- strongest individual held-out feature correlation with negative energy:
+  `support_cosine_min` at `0.129`.
+
+Interpretation: the target distribution is not fully flat. It is only
+moderately sharp, but materially sharper than the minimal listwise model's
+predictions. The current bottleneck is therefore feature/model weakness, not a
+pure label-diffuseness issue. A next candidate should either add a principled
+regime/prototype conditioning layer or improve candidate features before making
+the scorer more complex.

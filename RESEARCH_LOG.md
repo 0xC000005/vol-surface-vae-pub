@@ -124388,3 +124388,63 @@ Do not promote and do not run rollout for this minimal listwise policy. The next
 Independent verification was not triggered because this is an exploration result rejected before promotion.
 
 ---
+## 2026-05-12: HEAD nl-prefix 152 listwise target diffuseness analysis
+
+### Context
+HEAD 151 rejected the minimal listwise policy before rollout. It restored positive held-out candidate-pool correlations but predicted nearly uniform support weights and still selected worse-than-default mixtures on average.
+
+### Hypothesis
+The next mechanism check should determine whether the listwise target itself is too diffuse, or whether the minimal model/features are failing to recover a sharper generator-response distribution.
+
+### Research Lane
+`exploration` / `post_experiment_analysis`.
+
+### Result Status
+`mechanism_found`.
+
+### Benchmark Floor Status
+`not_applicable`; this was diagnostic analysis, not a deployable candidate.
+
+### Execution
+Analyzed train and held-out candidate-label distributions, predicted listwise probability sharpness, and single-feature correlations.
+
+Artifact:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889l_target_diffuseness/listwise_target_diffuseness_analysis.json`
+
+### Result
+Held-out target distribution:
+
+- target effective candidate count: `5.36` out of `10`;
+- target max probability: `0.330`;
+- best-minus-default label: `0.0594`;
+- best-minus-second label: `0.0280`.
+
+Minimal listwise prediction:
+
+- predicted effective candidate count: `9.89`;
+- predicted max probability: `0.116`;
+- score correlation with negative energy: `0.093`.
+
+Feature read:
+
+- strongest individual held-out feature correlation with negative energy is `support_cosine_min` at `0.129`;
+- `mixture_memory_cosine` is `0.109`;
+- most other existing hand-pooled features are weaker.
+
+### Mechanism Read
+The mechanism is:
+
+`targets_are_moderately_sharp_but_linear_features_predict_diffuse_weights`.
+
+The label target is not fully flat. It is only moderately sharp, but it is much sharper than the minimal listwise model's predictions. The current bottleneck is feature/model weakness rather than pure target diffuseness.
+
+### Decision / Next Step
+Do not sharpen the listwise target by fiat and do not run a broad temperature sweep. The next step should be research ideation for a prototype/regime-conditioned listwise policy or better generator-relevant candidate features. The method must explain why it should generalize rather than merely overfit the 128-query label set.
+
+### Verification
+- JSON analysis produced from existing train and held-out generator-response candidate labels.
+- No OpenAI calls, no generator changes, and no production default changes.
+- Independent verification was not triggered because this is a diagnostic mechanism read.
+
+---

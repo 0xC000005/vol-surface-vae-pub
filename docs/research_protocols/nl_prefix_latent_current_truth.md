@@ -412,7 +412,14 @@ Diagnostic, not yet promoted:
   worse than default by `+0.0048` energy and `+0.0022` CRPS, and the average
   support weights are nearly uniform (`effective_n` about `4.99`). Do not run
   this policy as a scenario-level candidate until the listwise weights become
-  materially more discriminative.
+  materially more discriminative. Follow-up analysis
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_listwise_mixture_policy_889l_target_diffuseness/listwise_target_diffuseness_analysis.json`
+  shows why: the target distribution is moderately sharp (`target_effective_n`
+  about `5.36` out of `10`, max probability about `0.33`), but the model
+  predicts almost uniform candidate probabilities (`pred_effective_n` about
+  `9.89`, max probability about `0.116`). The bottleneck is not that the target
+  is fully flat; the current linear features/model fail to recover the sharper
+  generator-response mixture distribution.
 
 ### Fixed-Start Conditionality
 
