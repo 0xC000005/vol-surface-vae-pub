@@ -123674,3 +123674,101 @@ The next HEAD step should research/justify one of these and define its
 - Updated local ignored state `autoresearch-session/nl_prefix_latent_state.json`.
 
 ---
+## 2026-05-12: HEAD nl-prefix 143 method intake gate and ranker story
+
+### Context
+The user asked that the more sophisticated narrative-conditioning pipeline be
+not only higher performing, but also coherent, related-work-supported, elegant,
+and justifiable. The immediate bottleneck is that HEAD 142 showed the first
+linear learned mixture policy underfits the generator-response surface even
+though oracle mixture labels show that better mixtures exist inside the same
+candidate pool.
+
+### Hypothesis
+A future sophisticated method should not launch just because it is more
+expressive. It should first pass a method-intake gate: method story,
+related-work basis, novelty claim, elegance check, training/inference contract,
+baseline/backtest plan, and kill condition. For the next candidate, the clean
+story is a query-relative pairwise or listwise support-mixture ranker, because
+the task is naturally "choose the best mixture among candidates for this
+narrative/start query", not pointwise regression on independent rows.
+
+### Research Lane
+`exploration` / `research_ideation`.
+
+### Result Status
+`method_intake_gate_added`.
+
+### Benchmark Floor Status
+`not_tested`; this iteration changes the workflow gate and candidate story, not
+the model default.
+
+### Execution
+Added a tracked method-intake template:
+
+`docs/research_protocols/nl_prefix_latent_method_intake_template.md`
+
+Updated the tracked autoresearch plan, current-truth index, and goal JSON so a
+sophisticated candidate must have a method-intake artifact before leaving
+ideation. Also updated the local ignored goal and local skill text so future
+sessions use the same discipline.
+
+Recorded the next candidate method story:
+
+`docs/research_protocols/nl_prefix_latent_mixture_policy_method_story.md`
+
+### Related Work Basis
+Checked primary or near-primary sources for the proposed candidate:
+
+- RankNet / "Learning to Rank using Gradient Descent":
+  https://www.microsoft.com/en-us/research/publication/learning-to-rank-using-gradient-descent/
+- ListNet / "Learning to Rank: From Pairwise Approach to Listwise Approach":
+  https://www.microsoft.com/en-us/research/publication/learning-to-rank-from-pairwise-approach-to-listwise-approach/
+- Deep Sets:
+  https://papers.neurips.cc/paper/6931-deep-sets
+- Set Transformer:
+  https://proceedings.mlr.press/v97/lee19d.html
+
+What transfers: learning-to-rank fits within-query support-mixture comparison,
+and permutation-invariant set models fit candidate mixtures whose support
+window order should not matter. What does not transfer: web/document-ranking
+losses and generic set encoders do not define financial scenario quality. The
+local labels must remain generator-response labels from historical backtesting,
+and promotion still depends on held-out CRPS, energy, coverage, fixed-start
+controls, and support audits.
+
+### Method Story
+The candidate is a query-relative pairwise/listwise set-ranker. It keeps the
+existing product contract:
+
+```text
+narrative + fixed start
+-> candidate support mixtures
+-> rank or weight mixtures using generator-response-trained scorer
+-> auditable selected/weighted support mixture
+-> frozen SNI rollout
+-> held-out historical backtest
+```
+
+The novelty claim is local: a narrative-conditioned, generator-response-trained
+support-mixture policy, not a generic text-to-time-series generator and not a
+support-free prompt latent. The ranker should be the smallest justified upgrade
+over the failed pointwise linear policy because the labels are meaningful only
+relative to other candidate mixtures for the same query.
+
+### Decision / Next Step
+Do not run a larger model or another feature knob until the candidate passes the
+method-intake checklist. The next experiment, if approved by the intake, should
+be a no-OpenAI TestFlight using existing generator-response mixture labels:
+within-query pairwise/listwise training, DeepSets-style pooled support features
+first, same-seed held-out comparison against the simple mixture floor, and a
+kill condition if score correlation, oracle selection rate, CRPS, or energy
+remain worse than the incumbent.
+
+### Verification
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json`
+- `python -m json.tool autoresearch-session/nl_prefix_latent_goal.json`
+- `python -m json.tool autoresearch-session/nl_prefix_latent_state.json`
+- `git diff --check`
+
+---

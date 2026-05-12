@@ -70,6 +70,16 @@ methodologically justified, not just more complicated, and it must still beat or
 remain competitive with the simple mixture on historical backtesting before it
 changes defaults or paper claims.
 
+The tracked method-intake template is:
+
+`docs/research_protocols/nl_prefix_latent_method_intake_template.md`
+
+Use it before a sophisticated candidate leaves ideation. A candidate that lacks
+an intake artifact is not eligible for promotion, even if it improves a narrow
+metric. The intake must explain why the method is the smallest justified change,
+which related work supports it, what the local novelty is, what held-out
+backtest will decide it, and what result kills it.
+
 ## Benchmark Floor For New Narrative Methods
 
 The current long-term objective is to improve the narrative-to-mixture workflow,
@@ -312,6 +322,15 @@ Diagnostic, not yet promoted:
   `+0.0235` CRPS versus the default candidate mixture). The failure mechanism
   is now `linear_policy_underfits_generator_response_surface`, not lack of
   oracle signal.
+- current next-candidate method story:
+  `docs/research_protocols/nl_prefix_latent_mixture_policy_method_story.md`.
+  The ideation candidate is query-relative pairwise/listwise support-mixture
+  ranking. It is related-work-supported by learning-to-rank for within-query
+  candidate comparison and permutation-invariant set models for support-mixture
+  inputs. It is not promoted. Its required next gate is a no-OpenAI TestFlight
+  that trains on existing generator-response mixture labels and compares
+  same-seed held-out CRPS, energy, coverage, and support audits against the
+  simple mixture floor.
 
 ### Fixed-Start Conditionality
 

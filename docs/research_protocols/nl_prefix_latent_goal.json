@@ -28,6 +28,7 @@
     "keep_historical_support_mixture_as_production_backbone",
     "improve_narrative_to_mixture_scoring_weighting_or_refinement",
     "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
+    "require_method_intake_artifact_before_sophisticated_candidates_leave_ideation",
     "require_sophisticated_methods_to_have_method_story_related_work_basis_novelty_claim_elegance_check_backtest_gate_and_kill_condition",
     "separate_low_cost_exploration_from_default_promotion",
     "allow_exploratory_regressions_when_the_mechanism_value_is_documented",
@@ -69,9 +70,12 @@
     "prefer_scalable_learned_mechanisms_and_data_backed_memory_over_hand_coded_market_rules",
     "treat_simple_mixture_as_promotion_floor_not_exploration_leash",
     "avoid_eval_overfitting_to_target_cosine_retrieval_rank_or_single_metric_improvements",
+    "require_candidate_method_story_related_work_and_kill_condition_before_experiment_launch",
     "require_coherent_method_story_and_related_work_support_before_promotion",
     "use_independent_verifier_before_promotion_not_for_every_low_cost_probe"
   ],
+  "tracked_method_intake_template": "docs/research_protocols/nl_prefix_latent_method_intake_template.md",
+  "current_next_candidate_method_story": "docs/research_protocols/nl_prefix_latent_mixture_policy_method_story.md",
   "sophisticated_method_gate": {
     "method_story": "Explain how the method turns a risk-manager narrative plus fixed start into an auditable support mixture.",
     "related_work_basis": "Cite primary related work or first-principles local evidence supporting the design family.",

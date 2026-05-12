@@ -31,6 +31,9 @@ Current text-to-latent prior research note:
 Current structured text/start fusion note:
 `docs/research_protocols/nl_prefix_latent_structured_text_start_fusion_plan.md`.
 
+Method intake template for sophisticated candidates:
+`docs/research_protocols/nl_prefix_latent_method_intake_template.md`.
+
 The long-run product contract has one fixed-start requirement with two start
 input routes:
 
@@ -125,6 +128,31 @@ historical holdout setup: choose a historical query date, use only the preceding
 market state and its generated narrative condition, produce a 30-day scenario
 distribution, and score it against the realized next 30 days across many
 windows.
+
+Before any new sophisticated method moves from `research_ideation` into
+`experiment`, create or update a method-intake artifact using
+`docs/research_protocols/nl_prefix_latent_method_intake_template.md`. The
+intake is the pre-flight contract for the run. It must specify the local
+bottleneck, the candidate's method story, related-work basis, novelty claim,
+elegance check, training/inference contract, required baselines, backtest gate,
+kill condition, and verifier trigger. If these fields cannot be filled without
+hand-waving, the next HEAD iteration remains `research_ideation` or
+`post_experiment_analysis`; do not launch another model just because it is easy
+to run.
+
+For this workflow, "innovative" means the candidate improves a clear part of
+the narrative-to-mixture contract:
+
+- better use of the full narrative without collapsing it to market labels;
+- better within-query mixture ranking or weighting;
+- better generator-response alignment than replay/cosine proxies;
+- better fixed-start conditionality or null/repeat separation;
+- better auditability, OOD warnings, or provenance without hiding the support
+  set.
+
+It does not mean replacing the proven support mixture with a support-free text
+latent unless a separate paradigm-shift gate and verifier report justify that
+move.
 
 ## Research Operating Doctrine: Explore Like A Scientist, Promote Like An Engineer
 
