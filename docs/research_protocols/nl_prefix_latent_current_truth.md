@@ -117,6 +117,15 @@ Diagnostic, not yet promoted:
   margin to `0.382` but does not fully repair it. The bottleneck is therefore
   primarily text-embedding/representation geometry for risk-on/reflation
   contrastive cases, not just the MLP adapter.
+- embedding-model/representation ablation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_model_hardcase_ablation_878l_large_full/embedding_model_hardcase_ablation.json`
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_model_hardcase_ablation_878l_small_factor_tokens/embedding_model_hardcase_ablation.json`.
+  `text-embedding-3-large` on full text worsens mean hard margin to `0.226`,
+  and factor-token-only text with `text-embedding-3-small` worsens it to
+  `0.096`. Generic larger embeddings and stripping to factor tokens are not the
+  current fix; the likely direction is a hybrid narrative embedding plus
+  explicit directional structure.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the

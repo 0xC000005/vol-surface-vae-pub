@@ -122692,3 +122692,40 @@ more explicitly directional factor-token representation, before changing the
 bridge architecture.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 134: embedding model hard-case ablation
+
+### Context
+The low-margin hard cases were already weak in raw `text-embedding-3-small`
+space. The next tiny ablation tested whether a larger generic embedding model
+or stripping to explicit factor tokens fixes the issue before changing the
+bridge.
+
+### Execute
+- Added `experiments/backfill/block_ar/nl_embedding_model_hardcase_ablation.py`.
+  It embeds selected hard-case rows with a chosen OpenAI embedding model and
+  text representation, then computes anchor/positive/negative separation.
+- Added `test_code/test_878l_nl_embedding_model_hardcase_ablation.py`.
+- Ran `text-embedding-3-large` on full hard-case texts:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_model_hardcase_ablation_878l_large_full/embedding_model_hardcase_ablation.json`.
+- Ran `text-embedding-3-small` on factor-token-only hard-case texts:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_embedding_model_hardcase_ablation_878l_small_factor_tokens/embedding_model_hardcase_ablation.json`.
+
+### Findings
+- Baseline raw `text-embedding-3-small` full-text mean hard margin on these
+  cases was `0.278`.
+- `text-embedding-3-large` full text is worse: mean hard margin `0.226`, with
+  all five cases still below the `0.50` threshold.
+- Factor-token-only `text-embedding-3-small` is worse still: mean hard margin
+  `0.096`, with all five cases below threshold.
+- The learned bridge condition space from the prior run was better than both
+  embedding-only ablations (`0.382` mean hard margin), even though it did not
+  fully repair the hard cases.
+
+### Decision
+Do not switch to `text-embedding-3-large` and do not replace narratives with
+factor-token-only embeddings. The next principled direction is a hybrid
+representation: keep the full narrative embedding for nuance, but add explicit
+directional structure as an auxiliary channel or loss so the model does not ask
+a generic sentence embedding to learn "rates up" versus "rates down" by itself.
+
+---
