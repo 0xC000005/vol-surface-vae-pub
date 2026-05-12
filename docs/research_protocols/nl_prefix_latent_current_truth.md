@@ -81,6 +81,20 @@ Current supported claim:
 
 Diagnostic, not yet promoted:
 
+- expanded OpenAI label manifest:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_expansion_878e_openai_full/narrative_pipeline_report.json`.
+  The larger manifest produced `240` usable labeled windows, `2974` text
+  examples, and one rejected label (`joint39_val_0240`) due an
+  external-catalyst grounding violation. The expanded bridge report
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_expansion_878g/bridge_eval_report.json`
+  keeps target cosine near the incumbent (`0.8590`) on `42` held-out windows,
+  but hard-negative gap (`0.8252`) and recall@3 test-pool (`0.1326`) are weaker
+  than the representative 182-window run. Scenario-level evaluation
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_expansion_878h/scenario_level_eval_report.json`
+  remains distributionally useful (`+16.5%` CRPS, `+20.6%` energy), and on the
+  `28` overlapping old test windows it slightly improves CRPS and energy while
+  lowering coverage. Treat this as evidence that label scaling is feasible but
+  not by itself a solved text-to-latent upgrade.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the

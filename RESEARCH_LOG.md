@@ -122530,3 +122530,57 @@ training/evaluating richer multi-caption hard-negative alignment on more
 training windows, while keeping residual refinement behind a diagnostic gate.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 130: expanded OpenAI labels and bridge evaluation
+
+### Context
+After residual attribution showed that direct text-memory replacement is weak
+and residual alpha tuning is not the right next move, the next principled
+question was whether the text-to-latent bridge is bottlenecked by data coverage
+and caption richness. This HEAD cycle expanded the labeled manifest with a
+pilot-first OpenAI flow.
+
+### Execute
+- Built an offline expansion manifest:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/window_selection_manifest_expansion_878c/window_selection_manifest.json`.
+  It selected `279` windows before embargo, with `174` train, `25`
+  validation, and `42` test windows after embargo.
+- Audited the existing label cache and found `74` missing labels for the
+  expansion manifest.
+- Ran a 10-window OpenAI pilot:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_expansion_878d_openai_pilot/narrative_pipeline_report.json`.
+  The pilot passed with `10/10` valid labels and `115` text examples.
+- Scaled to the full expansion:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_expansion_878e_openai_full/narrative_pipeline_report.json`.
+- Ran expanded bridge bakeoff:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_latent_bakeoff_878f_expanded_manifest/bridge_architecture_bakeoff_report.json`.
+- Ran expanded bridge evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_expansion_878g/bridge_eval_report.json`.
+- Ran expanded scenario-level evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_expansion_878h/scenario_level_eval_report.json`.
+
+### Findings
+- The full expansion produced `240` usable labeled windows and `2974` text
+  examples. One label was rejected: `joint39_val_0240`, due an
+  external-catalyst grounding violation.
+- The expanded bridge keeps held-out target cosine essentially at the prior
+  level: `0.8590` mean and `0.8699` median over `42` held-out windows.
+- Expanded hard-negative separation is weaker than the prior representative
+  run: hard-negative gap `0.8252` and margin `0.6776`.
+- Retrieval remains weak: recall@1 test-pool `0.0663`, recall@3 test-pool
+  `0.1326`.
+- Scenario quality remains distributionally useful on the expanded held-out
+  split: `+16.5%` ensemble CRPS and `+20.6%` energy versus persistence, with
+  `0.596` 80% coverage.
+- On the `28` overlapping old held-out windows, the expanded bridge slightly
+  improves mean CRPS (`-0.0030` z-score), energy (`-0.0062` z-score), and
+  mean-path MAE (`-0.0014` z-score), but lowers coverage by about `0.0246`.
+
+### Decision
+Label expansion is feasible and low-friction after a pilot, but it is not a
+standalone solution. More labeled windows help scenario shape a little on the
+overlap, but the weaker hard-negative gap and lower coverage mean the expanded
+bridge is diagnostic rather than promoted. The next principled step is a
+quality-focused caption/grounding audit and repair pass for rejected or
+hard-case labels before another architecture change.
+
+---
