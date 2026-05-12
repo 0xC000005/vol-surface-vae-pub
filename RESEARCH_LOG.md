@@ -122812,3 +122812,217 @@ candidate rather than promoting a model, workflow default, production claim, or
 paper-facing result.
 
 ---
+## 2026-05-11: Keep mixture as narrative-conditioning backbone
+
+### Context
+
+We clarified the current design direction for the natural-language conditioned
+scenario generator. The goal is not to abandon historical links, analogue
+support, or the support mixture. The goal is to improve how the risk-manager
+narrative selects, weights, audits, and possibly refines the historical mixture.
+
+The current representative evidence strongly supports keeping the mixture:
+
+- direct text-predicted memory without support mixture is weak:
+  - ensemble CRPS improvement versus persistence: `+1.9%`;
+  - energy improvement versus persistence: `+8.3%`;
+  - 80% coverage: `0.390`;
+- narrative top-k support generator is much stronger:
+  - ensemble CRPS improvement versus persistence: `+17.2%`;
+  - energy improvement versus persistence: `+21.6%`;
+  - 80% coverage: `0.645`;
+- residual over top-k support is similar/slightly stronger:
+  - ensemble CRPS improvement versus persistence: `+17.4%`;
+  - energy improvement versus persistence: `+21.6%`;
+  - 80% coverage: `0.650`.
+
+Primary artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`
+
+### Literature Check
+
+The external literature supports the same broad architecture: keep an explicit
+retrieval/support memory, but learn better conditioning around it.
+
+- RAG combines parametric generation with non-parametric dense retrieval and
+  motivates retrieval for provenance, updateability, factuality, and more
+  specific/diverse generation:
+  `https://proceedings.neurips.cc/paper/2020/hash/6b493230205f780e1bc26945df7481e5-Abstract.html`.
+- RETRO conditions an autoregressive model on retrieved chunks through a frozen
+  retriever, differentiable encoder, and chunked cross-attention, showing that
+  explicit memory can improve generation without simply scaling the parametric
+  model:
+  `https://proceedings.mlr.press/v162/borgeaud22a.html`.
+- DALL-E 2 is a useful analogy for a two-stage prior/decoder design: text
+  predicts an intermediate representation, and a decoder generates from that
+  representation, instead of asking text alone to directly emit the final object:
+  `https://openai.com/index/hierarchical-text-conditional-image-generation-with-clip-latents/`.
+- Retrieval-Augmented Diffusion Models are directly relevant as a generative
+  precedent for conditioning a generator on retrieved neighbors rather than
+  treating retrieval as only a post-hoc explanation:
+  `https://dblp.org/rec/journals/corr/abs-2204-11824`.
+- BRIDGE argues that text can provide domain and instance-level temporal
+  guidance for time-series generation and combines text descriptions with
+  semantic prototypes:
+  `https://proceedings.mlr.press/v267/li25ah.html`.
+- T2S aligns textual representations with time-series latent embeddings using a
+  VAE, flow matching, and a DiT denoiser:
+  `https://www.ijcai.org/proceedings/2025/580`.
+- VerbalTS motivates unstructured text as a richer condition than predefined
+  structured metadata and uses multi-focal alignment/generation:
+  `https://proceedings.mlr.press/v267/gu25a.html`.
+
+### Mechanism Read
+
+The historical mixture is not merely an interpretability add-on. In the current
+evidence it is the main on-manifold prior that makes scenario-level distribution
+quality work. Removing support and using direct text-predicted memory sharply
+weakens distributional quality. Therefore the research target should be:
+
+```text
+full narrative + fixed start
+-> smarter narrative-conditioned support scoring / weighting
+-> auditable historical support mixture
+-> optional bounded residual or latent prior
+-> frozen SNI autoregressive rollout
+```
+
+not:
+
+```text
+full narrative -> direct latent -> no historical support
+```
+
+### Candidate Improvements While Keeping The Mixture
+
+1. **Learned support reranker.** Train a cross-encoder or late-interaction
+   reranker over `(narrative, fixed start, candidate prefix diagnostics)` to
+   improve support weights. This is closest to RAG/RETRO: retrieval remains the
+   memory, but the conditioning model learns how to use it.
+2. **Contrastive support alignment.** Train CLIP-style or SupCon objectives
+   where positives are same-window/matched-regime narratives and negatives are
+   directionally opposite regimes. The objective should improve retrieval and
+   mixture weights, not replace the mixture.
+3. **Prototype-aware mixture.** Borrow from BRIDGE's semantic-prototype idea:
+   learn a small set of market-regime prototypes and combine prototype
+   membership with historical-prefix support. This could reduce noisy neighbor
+   selection while keeping provenance.
+4. **Text/start-conditioned latent prior over mixture weights.** Instead of
+   predicting a standalone memory vector, predict a distribution over support
+   weights or a bounded residual around the mixture. This keeps the direct
+   generator input tied to real prefix support.
+5. **Auxiliary directional/probe loss rather than naive feature concatenation.**
+   The 878m TestFlight showed that equal-norm direction-feature concatenation
+   worsened broad hard-negative separation. Directional information should
+   likely enter as an auxiliary consistency loss, calibration probe, or late
+   audit constraint.
+6. **Mixture-level conditionality evaluation.** For the same fixed start, vary
+   narratives and measure whether the selected support weights, terminal
+   distribution, fan chart, and direction-check outcomes move materially and
+   plausibly. This directly answers where conditionality enters the product.
+
+### Decision / Next Step
+
+Keep the historical support mixture as the production backbone. The next
+principled research step is not to replace it, but to improve
+narrative-conditioned mixture construction. The highest-ROI TestFlight should
+be a learned support-reranking or mixture-weighting experiment with a strict
+baseline:
+
+- incumbent `soft_topk_narrative_start_checked`;
+- raw-narrative similarity only;
+- implication-only scoring;
+- narrative-plus-grounding scoring;
+- learned reranker / learned support weights.
+
+Promotion should require scenario-level distributional improvement, support
+audit quality, and fixed-start conditionality evidence, not only better
+retrieval rank.
+
+---
+## 2026-05-11: Narrative-to-mixture objective and benchmark floor
+
+### Context
+
+The project direction has been clarified: improving the natural-language
+conditioning stack does **not** mean abandoning historical links or support
+mixtures. The mixture is the proven production backbone. The research objective
+is now to develop a novel, publishable **narrative-to-mixture** method that
+improves how narratives select, weight, audit, and refine the historical
+support mixture.
+
+### Workflow Update
+
+Updated the tracked objective and protocol files:
+
+- `docs/research_protocols/nl_prefix_latent_goal.json`
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+Also updated the local autoresearch skill and local ignored goal state:
+
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `autoresearch-session/nl_prefix_latent_goal.json`
+
+### New Long-Term Objective
+
+The new objective is:
+
+```text
+full narrative + fixed start
+-> smarter narrative-conditioned support scoring / weighting
+-> auditable historical support mixture
+-> optional bounded residual or latent prior
+-> frozen SNI autoregressive rollout
+```
+
+Novelty should come from the conditioning bridge, support reranker, mixture
+weighting, contrastive alignment, prototype-aware support, or bounded residual
+refinement. It should not come from removing the support store.
+
+### Benchmark Floor
+
+Every new method must benchmark against the working simple mixture:
+
+- incumbent: `soft_topk_narrative_start_checked` /
+  `narrative_generator_topk`;
+- artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`;
+- direct text-predicted memory without support mixture:
+  `+1.9%` ensemble CRPS, `+8.3%` energy, `0.390` 80% coverage versus
+  persistence;
+- narrative top-k support generator:
+  `+17.2%` ensemble CRPS, `+21.6%` energy, `0.645` 80% coverage versus
+  persistence;
+- residual over top-k support at alpha `0.25`:
+  `+17.4%` ensemble CRPS, `+21.6%` energy, `0.650` 80% coverage versus
+  persistence.
+
+A small regression is allowed only when it buys a clearly documented
+improvement in trust, support auditability, warning quality, OOD rejection,
+fixed-start stability, or conditionality diagnostics. A method that materially
+regresses below the simple mixture remains diagnostic even if it improves
+retrieval rank, target cosine, or an isolated hard-case metric.
+
+### Candidate Method Families
+
+The protocol now names the candidate families to benchmark:
+
+1. learned support reranker or learned support weights;
+2. contrastive support alignment for better mixture selection;
+3. prototype-aware mixture over learned market-regime support;
+4. text/start-conditioned prior over mixture weights or bounded residuals;
+5. auxiliary directional losses or probes, not naive direction-feature
+   concatenation as a default;
+6. mixture-level conditionality analysis under fixed-start controls.
+
+### Decision
+
+The next experiments should benchmark new narrative-to-mixture methods against
+the incumbent simple mixture first. Promotion requires scenario-level evidence
+on CRPS, energy, coverage, per-start floors, support-direction audit quality,
+and fixed-start conditionality. Embedding-only or retrieval-only improvements
+are insufficient for promotion.
+
+---

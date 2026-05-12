@@ -1,5 +1,5 @@
 {
-  "objective": "Develop a risk-manager-facing narrative-conditioned scenario generator for the frozen joint39 SNI generator. The user narrative describes current or recent market conditions; the risk manager must manually select a historical/current joint39 start or provide an explicit joint39 start before any narrative-conditioned mixture is formed.",
+  "objective": "Develop a risk-manager-facing narrative-conditioned scenario generator for the frozen joint39 SNI generator. The user narrative describes current or recent market conditions; the risk manager must manually select a historical/current joint39 start or provide an explicit joint39 start before any narrative-conditioned mixture is formed. The long-term research objective is a novel, publishable narrative-to-mixture method that improves the narrative-to-embedding/support-weighting workflow while preserving the historical support mixture as the auditable production backbone.",
   "loop_name": "HEAD",
   "workflow": "nl-prefix-latent-autoresearch",
   "production_modes": [
@@ -24,6 +24,20 @@
     "append_research_log_via_research_log_tail_append",
     "save_verifier_artifacts_for_promoted_claims"
   ],
+  "research_objective": [
+    "keep_historical_support_mixture_as_production_backbone",
+    "improve_narrative_to_mixture_scoring_weighting_or_refinement",
+    "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
+    "allow_small_regressions_only_when_mechanism_and_tradeoff_are_documented",
+    "reject_or_mark_diagnostic_methods_with_drastic_distributional_regression",
+    "require_publishable_novelty_to_be_in_conditioning_bridge_reranker_weighting_or_latent_refinement_not_in_removing_support"
+  ],
+  "incumbent_benchmark": {
+    "name": "soft_topk_narrative_start_checked / narrative_generator_topk",
+    "representative_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json",
+    "distributional_floor": "New methods must be at least competitive with the simple mixture on ensemble CRPS, energy score, and 80% coverage before promotion. A small regression is acceptable only if it buys clear trust, stability, or conditionality gains and is documented as a trade-off.",
+    "non_promotion_rule": "Do not promote methods that materially regress below the simple mixture while only improving retrieval rank, target cosine, or an isolated diagnostic."
+  },
   "primary_acceptance_metrics": [
     "energy_score_improvement_vs_persistence",
     "ensemble_crps_improvement_vs_persistence",

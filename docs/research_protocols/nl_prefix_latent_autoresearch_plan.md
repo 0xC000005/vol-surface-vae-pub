@@ -3,10 +3,18 @@
 ## Objective
 
 Build a risk-manager-facing narrative-conditioned scenario generator that uses
-historical analogue mixtures as an auditable latent support prior, then learns a
-narrative-and-start residual refinement before reusing the frozen state-aware
-normalized-innovation (SNI) conditional scenario generator and its native
-autoregressive rollout.
+historical analogue mixtures as an auditable latent support prior, then improves
+how narratives select, weight, audit, and refine that mixture before reusing the
+frozen state-aware normalized-innovation (SNI) conditional scenario generator
+and its native autoregressive rollout.
+
+The current long-term research objective is a novel, publishable
+**narrative-to-mixture** method. The method may use richer text embeddings,
+contrastive alignment, learned support reranking, prototype-aware weighting, or
+bounded residual latent refinement, but it must keep the historical support
+mixture as the production backbone. Novelty should come from making the
+language-conditioned support prior more faithful, auditable, and performant,
+not from removing the support store.
 
 Current boss-demo runbook:
 `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
@@ -54,6 +62,67 @@ level. It is conditioned on the level the user supplied or manually selected.
 The system must expose the analogue weights, support diagnostics, and
 post-rollout implication checks so a risk manager can see whether the generated
 distribution is supported, weakly supported, or rejected.
+
+The incumbent performance floor is the simple working mixture:
+`soft_topk_narrative_start_checked` / `narrative_generator_topk`. New methods
+must be benchmarked against this incumbent before promotion. A small regression
+is allowed only when it buys a clear and documented improvement in trust,
+stability, fixed-start conditionality, warning quality, or support auditability.
+A method that materially underperforms the simple mixture on scenario-level
+distributional quality remains diagnostic even if it improves retrieval rank,
+target cosine, or an isolated hard-case metric.
+
+Current representative floor:
+
+- artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`;
+- direct text-predicted memory without support mixture:
+  `+1.9%` ensemble CRPS, `+8.3%` energy, `0.390` 80% coverage versus
+  persistence;
+- narrative top-k support generator:
+  `+17.2%` ensemble CRPS, `+21.6%` energy, `0.645` 80% coverage versus
+  persistence;
+- residual over top-k support at alpha `0.25`:
+  `+17.4%` ensemble CRPS, `+21.6%` energy, `0.650` 80% coverage versus
+  persistence.
+
+This evidence makes the mixture a benchmark and backbone, not a disposable
+interpretability layer.
+
+## Research Objective: Improve The Mixture, Do Not Replace It
+
+The next publishable method family should improve narrative-conditioned mixture
+construction. Candidate families are:
+
+1. **Learned support reranker.** Train a cross-encoder, late-interaction
+   reranker, or compact MLP over `(narrative representation, fixed start,
+   candidate prefix diagnostics)` to improve support weights. Retrieval remains
+   the memory; the learned model improves how the memory is used.
+2. **Contrastive support alignment.** Train CLIP-style, InfoNCE, or supervised
+   contrastive objectives where positives are same-window or matched-regime
+   narratives and negatives are directionally opposite regimes. The target is
+   better mixture selection and weighting, not direct support-free generation.
+3. **Prototype-aware mixture.** Learn a small set of market-regime prototypes
+   and combine prototype membership with historical-prefix support. This should
+   reduce noisy neighbor selection while preserving provenance.
+4. **Text/start-conditioned mixture-weight prior.** Predict a distribution over
+   support weights or a bounded residual around the mixture instead of
+   predicting a standalone condition memory. The final condition remains tied
+   to real historical prefix support.
+5. **Auxiliary directional consistency.** Use explicit directional facts as an
+   auxiliary loss, probe, or late audit constraint. Do not naively concatenate
+   direction tokens into the main embedding as a promoted default unless a
+   held-out scenario-level benchmark proves it beats the incumbent.
+6. **Mixture-level conditionality analysis.** With the same fixed start, vary
+   narratives and measure whether support weights, scenario fans, terminal
+   distributions, and direction checks move materially and plausibly. With the
+   same narrative, vary starts and verify that mixture weights change for the
+   right reason.
+
+Every candidate must include the incumbent simple mixture as the primary
+benchmark. The preferred first TestFlight is a learned support-reranking or
+mixture-weighting experiment because it directly targets the production path
+without discarding the proven support prior.
 
 ## Workflow Revision: Grounding Is A Sidecar, Not The Narrative
 
@@ -371,11 +440,15 @@ recommendation feature would need its own product gate, user approval step, and
 evaluation set; it must not be folded into the core narrative-conditioning
 claim.
 
-## Evaluation Plan
+## Benchmarking Plan Against The Working Pipeline
 
 Use the existing representative manifest and scenario-level evaluation harness,
 then add prefix-latent baselines in this order:
 
+0. **Incumbent simple mixture.** Always include
+   `soft_topk_narrative_start_checked` / `narrative_generator_topk` as the
+   working-pipeline benchmark. This is the production floor for any new
+   narrative-to-mixture method.
 1. **Oracle decoded prefix.** Encode true historical prefix to `z`, decode it,
    and run the frozen generator. This tests whether the prefix autoencoder
    preserves generator-relevant information.
@@ -383,16 +456,20 @@ then add prefix-latent baselines in this order:
    measure the KNN-style baseline explicitly.
 3. **Analogue-mixture prior.** Blend top-k analogue latents/prefixes without a
    learned residual and roll out.
-4. **Mixture plus residual.** Predict a residual from narrative, starting
-   state, and mixture diagnostics, then decode and roll out.
-5. **Fixed-start narrative sensitivity.** Hold the selected start fixed and vary
+4. **Learned support reranker / learned mixture weights.** Use narrative,
+   fixed start, candidate prefix diagnostics, grounding sidecar, and support
+   features to produce support weights, then roll out through the frozen
+   generator.
+5. **Mixture plus residual.** Predict a bounded residual from narrative,
+   starting state, and mixture diagnostics, then decode and roll out.
+6. **Fixed-start narrative sensitivity.** Hold the selected start fixed and vary
    narratives, then hold the narrative fixed and vary starts. The scenario
    distribution should change for the right reason in both directions.
-6. **Ablations.** Compare against historical replay, persistence, current
+7. **Ablations.** Compare against historical replay, persistence, current
    analogue-top-k generation, direct memory, residual memory, raw text embedding
    retrieval, no-contrastive bridge, contrastive bridge, mixture without
    residual, and residual without mixture support.
-7. **Null and repeat controls.** Before promoting a fixed-start conditionality
+8. **Null and repeat controls.** Before promoting a fixed-start conditionality
    claim, include controls that separate narrative signal from sampling noise
    and support-pool geometry:
    - same narrative, same fixed start, different rollout seeds;
@@ -412,11 +489,23 @@ Primary metrics:
 
 Promotion criterion:
 
-The mixture-supported residual system must beat or match the single-neighbor
-analogue-conditioned generator on distributional scenario metrics and reduce
-explicit implication mismatch versus the current `0.50` balanced-start and
-`0.4706` two-candidate-reranker baselines. Exact historical-window retrieval is
-not the target; auditable support plus story-consistent distributions is.
+The new narrative-to-mixture method must beat or remain competitive with the
+incumbent simple mixture on distributional scenario metrics. The minimum
+benchmark is:
+
+- ensemble CRPS and energy score versus persistence;
+- 80% coverage and interval behavior;
+- per-start floors rather than only aggregate means;
+- support-direction audit quality;
+- fixed-start narrative sensitivity and repeat/null controls;
+- comparison against direct text-predicted memory without support.
+
+Small regressions are allowed only when the trade-off is explicit and valuable:
+for example, better OOD rejection, materially better warning quality, better
+support provenance, or stronger fixed-start stability. Drastic regression below
+the simple mixture is not acceptable for a boss-facing or paper-facing method.
+Exact historical-window retrieval is not the target; auditable support plus
+story-consistent distributions is.
 
 For any paper-facing, demo-facing, or default-promoting fixed-start
 conditionality claim, promotion additionally requires:

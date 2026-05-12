@@ -38,6 +38,37 @@ desired-future language is warning-only and must not become the future target.
   sidecars only at literature, critique, verification, report-audit, or
   disjoint-implementation gates.
 
+## Benchmark Floor For New Narrative Methods
+
+The current long-term objective is to improve the narrative-to-mixture workflow,
+not to remove the historical support mixture. New candidate methods must be
+benchmarked against the working simple mixture before promotion.
+
+Primary floor:
+
+- incumbent: `soft_topk_narrative_start_checked` /
+  `narrative_generator_topk`;
+- representative artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`;
+- direct text-predicted memory without support mixture:
+  `+1.9%` ensemble CRPS, `+8.3%` energy, `0.390` 80% coverage versus
+  persistence;
+- narrative top-k support generator:
+  `+17.2%` ensemble CRPS, `+21.6%` energy, `0.645` 80% coverage versus
+  persistence;
+- residual over top-k support at alpha `0.25`:
+  `+17.4%` ensemble CRPS, `+21.6%` energy, `0.650` 80% coverage versus
+  persistence.
+
+A small distributional regression may be acceptable only when it buys clear
+trust, stability, fixed-start conditionality, warning quality, or support
+auditability. A method with drastic regression below the simple mixture remains
+diagnostic even if it improves target cosine, retrieval rank, or an isolated
+hard-case metric. Publishable novelty should come from learned support
+reranking, contrastive support alignment, prototype-aware weighting,
+text/start-conditioned mixture weights, or bounded residual refinement around
+the mixture.
+
 ## Promoted Evidence
 
 ### Representative Bridge And Scenario Evaluation
