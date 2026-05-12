@@ -12,6 +12,7 @@ No OpenAI calls are made here.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -124,6 +125,69 @@ def build_candidate_label_bridge(
     return output
 
 
+def build_mixture_label_bridge(
+    bridge_report: dict[str, Any],
+    *,
+    max_query_windows: int = 4,
+    candidate_pool_size: int = 5,
+    mixture_size: int = 3,
+    max_mixtures_per_query: int = 0,
+) -> dict[str, Any]:
+    """Return duplicate rows for candidate support subsets."""
+
+    selected = _anchor_rows(bridge_report, max_query_windows=int(max_query_windows))
+    mixture_rows: list[dict[str, Any]] = []
+    for query in selected:
+        pool = query.get("top_train_pool", [])
+        if not isinstance(pool, list) or len(pool) < int(mixture_size):
+            continue
+        query_id = str(query.get("window_id", f"window_{query['window_index']}"))
+        pool_slice = [
+            item for item in pool[: int(candidate_pool_size)] if isinstance(item, dict)
+        ]
+        combos = list(itertools.combinations(range(len(pool_slice)), int(mixture_size)))
+        if int(max_mixtures_per_query) > 0:
+            combos = combos[: int(max_mixtures_per_query)]
+        for rank, combo in enumerate(combos, start=1):
+            support_items = [json.loads(json.dumps(pool_slice[pos])) for pos in combo]
+            support_ids = [
+                str(item.get("window_id", f"support_{item['window_index']}"))
+                for item in support_items
+            ]
+            row = json.loads(json.dumps(query))
+            row["kind"] = "rollout_response_mixture_label"
+            row["query_id"] = (
+                f"{_safe_id(query_id)}__mixture_{rank:03d}__"
+                f"{_safe_id('-'.join(support_ids))}"
+            )
+            row["candidate_mixture_rank"] = int(rank)
+            row["candidate_mixture_positions"] = [int(pos + 1) for pos in combo]
+            row["candidate_support_window_indices"] = [
+                int(item["window_index"]) for item in support_items
+            ]
+            row["candidate_support_window_ids"] = support_ids
+            row["top_train_pool"] = support_items
+            mixture_rows.append(row)
+    if not mixture_rows:
+        raise ValueError("no mixture-specific rows built")
+
+    output = json.loads(json.dumps(bridge_report))
+    output["purpose"] = "rollout_response_mixture_labels"
+    output["scope_note"] = (
+        "Mixture-specific duplicate query bridge. Use the scenario evaluator "
+        "with --allow-duplicate-query-windows and --top-k equal to mixture_size."
+    )
+    output["candidate_label_config"] = {
+        "max_query_windows": int(max_query_windows),
+        "candidate_pool_size": int(candidate_pool_size),
+        "mixture_size": int(mixture_size),
+        "max_mixtures_per_query": int(max_mixtures_per_query),
+        "candidate_row_count": len(mixture_rows),
+    }
+    output["evaluation"]["heldout_examples"] = mixture_rows
+    return output
+
+
 def _metric(row: dict[str, Any], method: str, metric: str) -> float | None:
     raw = row.get("methods", {}).get(method, {}).get(metric)
     if raw is None:
@@ -143,6 +207,40 @@ def _candidate_lookup(candidate_bridge: dict[str, Any]) -> dict[str, dict[str, A
     return lookup
 
 
+def _support_payload(source: dict[str, Any]) -> dict[str, Any]:
+    if source.get("candidate_support_window_indices") is not None:
+        return {
+            "candidate_rank": int(source.get("candidate_mixture_rank", 0)),
+            "support_window_indices": [
+                int(value) for value in source["candidate_support_window_indices"]
+            ],
+            "support_window_ids": [
+                str(value) for value in source.get("candidate_support_window_ids", [])
+            ],
+            "support_positions": [
+                int(value) for value in source.get("candidate_mixture_positions", [])
+            ],
+            "support_cosines": [
+                float(item.get("cosine", 0.0))
+                for item in source.get("top_train_pool", [])
+                if isinstance(item, dict)
+            ],
+        }
+    return {
+        "candidate_rank": int(source["candidate_support_rank"]),
+        "support_window_indices": [int(source["candidate_support_window_index"])],
+        "support_window_ids": [str(source.get("candidate_support_window_id", ""))],
+        "support_positions": [int(source["candidate_support_rank"])],
+        "support_cosines": [
+            (
+                float(source["top_train_pool"][0].get("cosine", 0.0))
+                if source.get("top_train_pool")
+                else 0.0
+            )
+        ],
+    }
+
+
 def summarize_rollout_response_labels(
     candidate_bridge: dict[str, Any],
     scenario_report: dict[str, Any],
@@ -159,19 +257,18 @@ def summarize_rollout_response_labels(
         source = lookup.get(query_id)
         if source is None:
             continue
+        support = _support_payload(source)
         rows.append(
             {
                 "query_id": query_id,
                 "window_index": int(source["window_index"]),
                 "window_id": str(source.get("window_id", "")),
-                "candidate_support_rank": int(source["candidate_support_rank"]),
-                "candidate_support_window_index": int(
-                    source["candidate_support_window_index"]
-                ),
-                "candidate_support_window_id": str(
-                    source.get("candidate_support_window_id", "")
-                ),
-                "support_cosine": float(source["top_train_pool"][0].get("cosine", 0.0)),
+                "candidate_rank": int(support["candidate_rank"]),
+                "support_window_indices": support["support_window_indices"],
+                "support_window_ids": support["support_window_ids"],
+                "support_positions": support["support_positions"],
+                "support_cosines": support["support_cosines"],
+                "support_cosine": float(np.mean(support["support_cosines"])),
                 "generator_energy_score_z": _metric(
                     score,
                     "narrative_generator_topk",
@@ -208,21 +305,19 @@ def summarize_rollout_response_labels(
         if not valid:
             continue
         best = min(valid, key=lambda row: float(row["generator_energy_score_z"]))
-        top1 = min(group_rows, key=lambda row: int(row["candidate_support_rank"]))
+        top1 = min(group_rows, key=lambda row: int(row["candidate_rank"]))
         groups.append(
             {
                 "window_index": int(window_index),
                 "window_id": str(group_rows[0].get("window_id", "")),
                 "candidate_count": len(group_rows),
-                "top1_support_window_index": int(
-                    top1["candidate_support_window_index"]
-                ),
+                "top1_support_window_indices": top1["support_window_indices"],
+                "top1_support_positions": top1["support_positions"],
                 "top1_generator_energy_score_z": top1.get("generator_energy_score_z"),
                 "top1_generator_ensemble_crps_z": top1.get("generator_ensemble_crps_z"),
-                "best_generator_support_window_index": int(
-                    best["candidate_support_window_index"]
-                ),
-                "best_generator_support_rank": int(best["candidate_support_rank"]),
+                "best_generator_support_window_indices": best["support_window_indices"],
+                "best_generator_support_positions": best["support_positions"],
+                "best_generator_support_rank": int(best["candidate_rank"]),
                 "best_generator_energy_score_z": best.get("generator_energy_score_z"),
                 "best_generator_ensemble_crps_z": best.get("generator_ensemble_crps_z"),
                 "best_minus_top1_energy_score_z": (
@@ -310,16 +405,20 @@ def summarize_rollout_response_labels(
             baseline_energy is not None
             and summary["best_generator_energy_score_z_mean"] is not None
         ):
-            summary["best_single_minus_baseline_topk_energy_score_z"] = float(
+            energy_delta = float(
                 summary["best_generator_energy_score_z_mean"] - float(baseline_energy)
             )
+            summary["best_candidate_minus_baseline_topk_energy_score_z"] = energy_delta
+            summary["best_single_minus_baseline_topk_energy_score_z"] = energy_delta
         if (
             baseline_crps is not None
             and summary["best_generator_ensemble_crps_z_mean"] is not None
         ):
-            summary["best_single_minus_baseline_topk_ensemble_crps_z"] = float(
+            crps_delta = float(
                 summary["best_generator_ensemble_crps_z_mean"] - float(baseline_crps)
             )
+            summary["best_candidate_minus_baseline_topk_ensemble_crps_z"] = crps_delta
+            summary["best_single_minus_baseline_topk_ensemble_crps_z"] = crps_delta
     return {
         "status": "ok",
         "scope_note": (
@@ -341,6 +440,22 @@ def build_command(args: argparse.Namespace) -> None:
     )
     output_dir = Path(args.output_dir)
     report_path = output_dir / "candidate_label_bridge_report.json"
+    output["artifact_paths"] = {"report": str(report_path)}
+    _write_json(report_path, output)
+    print(f"wrote {report_path} rows={len(output['evaluation']['heldout_examples'])}")
+
+
+def build_mixture_command(args: argparse.Namespace) -> None:
+    bridge = _load_json(args.bridge_report)
+    output = build_mixture_label_bridge(
+        bridge,
+        max_query_windows=int(args.max_query_windows),
+        candidate_pool_size=int(args.candidate_pool_size),
+        mixture_size=int(args.mixture_size),
+        max_mixtures_per_query=int(args.max_mixtures_per_query),
+    )
+    output_dir = Path(args.output_dir)
+    report_path = output_dir / "mixture_label_bridge_report.json"
     output["artifact_paths"] = {"report": str(report_path)}
     _write_json(report_path, output)
     print(f"wrote {report_path} rows={len(output['evaluation']['heldout_examples'])}")
@@ -385,6 +500,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     build.add_argument("--max-query-windows", type=int, default=4)
     build.add_argument("--candidate-pool-size", type=int, default=3)
     build.set_defaults(func=build_command)
+
+    build_mixture = subparsers.add_parser("build-mixture-bridge")
+    build_mixture.add_argument("--bridge-report", default=DEFAULT_BRIDGE_REPORT)
+    build_mixture.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    build_mixture.add_argument("--max-query-windows", type=int, default=4)
+    build_mixture.add_argument("--candidate-pool-size", type=int, default=5)
+    build_mixture.add_argument("--mixture-size", type=int, default=3)
+    build_mixture.add_argument("--max-mixtures-per-query", type=int, default=0)
+    build_mixture.set_defaults(func=build_mixture_command)
 
     summarize = subparsers.add_parser("summarize")
     summarize.add_argument("--candidate-bridge-report", required=True)

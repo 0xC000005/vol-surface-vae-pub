@@ -4,6 +4,7 @@ sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_rollout_response_label_testflight import (
     build_candidate_label_bridge,
+    build_mixture_label_bridge,
     summarize_rollout_response_labels,
 )
 
@@ -26,6 +27,7 @@ def _bridge_report() -> dict:
                         {"window_index": 0, "window_id": "s0", "cosine": 0.95},
                         {"window_index": 1, "window_id": "s1", "cosine": 0.94},
                         {"window_index": 2, "window_id": "s2", "cosine": 0.93},
+                        {"window_index": 3, "window_id": "s3", "cosine": 0.92},
                     ],
                 }
             ]
@@ -110,7 +112,27 @@ def test_summarize_rollout_response_labels_groups_by_query() -> None:
     assert summary["summary"]["best_generator_not_top1_count"] == 1
     assert summary["summary"]["mean_best_minus_top1_energy_score_z"] == -0.4
     assert summary["summary"]["best_generator_energy_score_z_mean"] == 0.6
+    assert summary["summary"]["best_candidate_minus_baseline_topk_energy_score_z"] == (
+        0.6 - 0.55
+    )
     assert summary["summary"]["best_single_minus_baseline_topk_energy_score_z"] == (
         0.6 - 0.55
     )
-    assert summary["groups"][0]["best_generator_support_window_index"] == 1
+    assert summary["groups"][0]["best_generator_support_window_indices"] == [1]
+
+
+def test_build_mixture_label_bridge_builds_candidate_subsets() -> None:
+    report = build_mixture_label_bridge(
+        _bridge_report(),
+        max_query_windows=1,
+        candidate_pool_size=4,
+        mixture_size=3,
+        max_mixtures_per_query=3,
+    )
+
+    rows = report["evaluation"]["heldout_examples"]
+    assert report["purpose"] == "rollout_response_mixture_labels"
+    assert len(rows) == 3
+    assert rows[0]["query_id"] == "q4__mixture_001__s0-s1-s2"
+    assert [item["window_index"] for item in rows[0]["top_train_pool"]] == [0, 1, 2]
+    assert len(rows[1]["top_train_pool"]) == 3

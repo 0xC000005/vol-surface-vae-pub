@@ -267,6 +267,18 @@ Diagnostic, not yet promoted:
   baseline was `0.9826`/`0.6814`. This means the next learned method should
   stay mixture-level; replacing the auditable mixture with a learned single
   support is the wrong direction.
+- mixture-level rollout-response upper-bound:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/rollout_response_label_summary.json`.
+  Evaluating all top-3 support subsets from each held-out query's top-5 support
+  pool (`29` queries, `290` mixture rows) produced a positive upper-bound
+  result. The best generator-response mixture was not the default cosine top-3
+  in `25/29` cases. The best-in-pool mixture improved over the default top-3 by
+  `-0.0594` energy and `-0.0470` CRPS on average, and it beat the same-seed
+  simple top-k3 baseline: best-mixture energy/CRPS means were
+  `0.9118`/`0.6248` versus baseline `0.9895`/`0.6879`. This is still an oracle
+  upper bound, not a deployable learned policy, but it is the first strong
+  evidence that a more sophisticated mixture-level narrative-to-support policy
+  could beat the simple mixture floor.
 
 ### Fixed-Start Conditionality
 

@@ -123402,3 +123402,75 @@ mixture-weight policy.
 - `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/candidate_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout/scenario_eval/scenario_level_eval_report.json --baseline-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_baseline_882a_topk3_s2_seed882/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_882a_fullheldout`
 
 ---
+## 2026-05-12: HEAD nl-prefix 140 mixture rollout response upper bound
+
+### Context
+Iteration 139 showed that direct rollout-response labels improve single-support
+selection but that even the best single support does not beat the simple top-k3
+mixture. The next principled step was to test mixture-level labels, because the
+production workflow conditions through a support mixture rather than one
+support path.
+
+### Hypothesis
+If the simple top-k3 mixture is not the best support subset, then evaluating
+alternative top-3 subsets from the top-5 support pool should reveal an oracle
+mixture upper bound that beats the default cosine top-k3 mixture. If no
+best-in-pool mixture beats the incumbent, learned mixture weighting is unlikely
+to be worth pursuing.
+
+### Execution
+- Extended
+  `experiments/backfill/block_ar/nl_rollout_response_label_testflight.py` with
+  `build-mixture-bridge`.
+- Extended tests in
+  `test_code/test_881a_nl_rollout_response_label_testflight.py`.
+- Ran a 4-query mixture smoke:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_883a_4q/rollout_response_label_summary.json`.
+- Scaled to all `29` held-out query windows. For each query, evaluated all
+  top-3 subsets from the top-5 support pool, giving `290` mixture rows:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/scenario_eval/scenario_level_eval_report.json`.
+- Ran the same-seed simple top-k3 baseline:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_baseline_884a_fullheldout_topk3_s2_seed884/scenario_level_eval_report.json`.
+- Summarized the full mixture upper-bound comparison:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/rollout_response_label_summary.json`.
+
+### Result
+The full mixture upper-bound result is positive:
+
+- query windows: `29`;
+- candidate mixture rows: `290`;
+- best generator-response mixture was not the default top-k3 in `25/29` cases;
+- best-vs-default energy delta: `-0.059425`, lower is better;
+- best-vs-default CRPS delta: `-0.046986`, lower is better;
+- best-in-pool mixture energy mean: `0.911787`;
+- same-seed simple top-k3 energy mean: `0.989495`;
+- best-in-pool mixture CRPS mean: `0.624817`;
+- same-seed simple top-k3 CRPS mean: `0.687869`.
+
+### Mechanism Read
+This is the first strong evidence that a more sophisticated
+narrative-to-mixture-to-embedding pipeline can beat the simple mixture floor,
+but only at the mixture level. The single-support branch was below floor; the
+mixture-subset upper bound is above floor. Therefore, the promising method is
+not "pick one better analogue"; it is "learn which support subset or mixture
+weights make the frozen generator's historical backtest distribution better."
+
+### Decision / Next Step
+Do not promote this as a production method because it uses oracle
+rollout-response labels on the held-out future. Promote it only as a research
+direction. The next principled step is to train a small learned mixture-policy
+model using non-heldout rollout-response labels or cross-fitted labels, then
+evaluate against the simple top-k3 baseline on held-out historical backtests.
+
+### Verification
+- `uv run pytest test_code/test_881a_nl_rollout_response_label_testflight.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_rollout_response_label_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py build-mixture-bridge --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_883a_4q --max-query-windows 4 --candidate-pool-size 5 --mixture-size 3`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_883a_4q/mixture_label_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_883a_4q/scenario_eval --allow-duplicate-query-windows --top-k 3 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 883 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_baseline_883a_4q_topk3_s2_seed883 --max-windows-eval 4 --top-k 3 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 883 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py build-mixture-bridge --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout --max-query-windows 29 --candidate-pool-size 5 --mixture-size 3`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/mixture_label_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/scenario_eval --allow-duplicate-query-windows --top-k 3 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 884 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_baseline_884a_fullheldout_topk3_s2_seed884 --max-windows-eval 29 --top-k 3 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 884 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/mixture_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/scenario_eval/scenario_level_eval_report.json --baseline-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_baseline_884a_fullheldout_topk3_s2_seed884/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout`
+
+---
