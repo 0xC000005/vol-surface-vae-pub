@@ -123202,3 +123202,73 @@ candidates for the same query can be evaluated.
 - `uv run python experiments/backfill/block_ar/nl_support_generator_mismatch_analysis.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_generator_mismatch_analysis_880a --top-k 3`
 
 ---
+## 2026-05-11: HEAD nl-prefix 138 rollout response labels
+
+### Context
+Iteration 137 showed a `generator_proxy_false_positive`: historical replay and
+train-window self-calibration both favored the learned reranker, but the actual
+same-seed frozen rollout regressed. The next bounded step was to create direct
+rollout-response labels instead of adding another indirect proxy.
+
+### Hypothesis
+If support candidates have materially different frozen-generator responses for
+the same narrative query, then a small duplicate-query label set should show
+that the best actual rollout-response candidate is often not the cosine top-1
+candidate. That would justify a future learned support-weighting objective
+trained on generator-level response.
+
+### Execution
+- Updated `experiments/backfill/block_ar/nl_scenario_level_evaluation.py` with
+  an explicit `--allow-duplicate-query-windows` mode so multiple support
+  candidates can be evaluated for the same query window.
+- Added
+  `experiments/backfill/block_ar/nl_rollout_response_label_testflight.py`.
+- Added tests in
+  `test_code/test_881a_nl_rollout_response_label_testflight.py`.
+- Extended
+  `test_code/test_776a_nl_scenario_level_evaluation.py` to cover duplicate
+  query-window selection.
+- Built a candidate-label bridge with `4` query windows by `3` candidate
+  supports:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/candidate_label_bridge_report.json`.
+- Ran a CUDA low-sample rollout label smoke with top-k `1`, `2` samples, and
+  seed `881`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/scenario_eval/scenario_level_eval_report.json`.
+- Summarized candidate-specific labels:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/rollout_response_label_summary.json`.
+
+### Result
+The TestFlight produced `12` candidate rows across `4` query windows.
+
+- Best actual generator-response support was not the cosine top-1 in `3/4`
+  query windows.
+- Mean best-vs-top1 generator energy delta was `-0.052666`, lower is better.
+- Mean best-vs-top1 generator CRPS delta was `-0.043401`, lower is better.
+
+This is not a promoted model result because the run is intentionally tiny and
+low-sample. It is a positive mechanism result: direct frozen-rollout labels have
+support-ranking signal that raw cosine, replay loss, and train self-calibration
+can miss.
+
+### Mechanism Read
+The narrative-to-mixture workflow should not simply learn "which history looks
+closest" or "which history replayed best." It should learn which support
+mixture gives a better response under the frozen SNI generator. The historical
+mixture remains the auditable backbone, but the next learned component should
+use generator-level response labels to select or weight support candidates.
+
+### Decision / Next Step
+Do not promote a new default from this smoke. The next principled continuation
+is to scale this rollout-response-label dataset modestly, still without OpenAI
+calls, then train a small support-weighting/reranking model against the
+generator-response labels and compare it against the current simple mixture.
+Promotion would require seed stability and held-out scenario-level evidence.
+
+### Verification
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_881a_nl_rollout_response_label_testflight.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_rollout_response_label_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py build-bridge --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a --max-query-windows 4 --candidate-pool-size 3`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/candidate_label_bridge_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/scenario_eval --allow-duplicate-query-windows --top-k 1 --samples 2 --n-steps 30 --chunk-size 4 --temperature 1.0 --seed 881 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/candidate_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/scenario_eval/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a`
+
+---

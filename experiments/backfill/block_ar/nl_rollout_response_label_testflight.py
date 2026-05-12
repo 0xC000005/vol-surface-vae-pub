@@ -1,0 +1,338 @@
+#!/usr/bin/env python
+"""Build and summarize rollout-response labels for support candidates.
+
+The learned support reranker showed that replay and self-calibration proxies can
+look good while actual frozen-generator rollout regresses. This TestFlight
+creates candidate-specific duplicate query rows so the existing scenario
+evaluator can score multiple support candidates for the same narrative query.
+
+No OpenAI calls are made here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+DEFAULT_BRIDGE_REPORT = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json"
+)
+DEFAULT_OUTPUT_DIR = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "nl_rollout_response_label_testflight_881a"
+)
+
+
+def _load_json(path: str | Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path}: expected JSON object")
+    return payload
+
+
+def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _anchor_rows(
+    bridge_report: dict[str, Any], *, max_query_windows: int
+) -> list[dict[str, Any]]:
+    rows = bridge_report.get("evaluation", {}).get("heldout_examples", [])
+    selected: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("role", "")) != "anchor":
+            continue
+        window_index = int(row["window_index"])
+        if window_index in seen:
+            continue
+        seen.add(window_index)
+        selected.append(row)
+        if int(max_query_windows) > 0 and len(selected) >= int(max_query_windows):
+            break
+    if not selected:
+        raise ValueError("no anchor rows selected")
+    return selected
+
+
+def _safe_id(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in value)
+
+
+def build_candidate_label_bridge(
+    bridge_report: dict[str, Any],
+    *,
+    max_query_windows: int = 4,
+    candidate_pool_size: int = 3,
+) -> dict[str, Any]:
+    """Return a bridge report with duplicate rows, one support candidate each."""
+
+    selected = _anchor_rows(bridge_report, max_query_windows=int(max_query_windows))
+    candidate_rows: list[dict[str, Any]] = []
+    for query in selected:
+        pool = query.get("top_train_pool", [])
+        if not isinstance(pool, list) or not pool:
+            continue
+        query_id = str(query.get("window_id", f"window_{query['window_index']}"))
+        for rank, candidate in enumerate(pool[: int(candidate_pool_size)], start=1):
+            if not isinstance(candidate, dict):
+                continue
+            support_id = str(
+                candidate.get("window_id", f"support_{candidate['window_index']}")
+            )
+            row = json.loads(json.dumps(query))
+            row["kind"] = "rollout_response_candidate_label"
+            row["query_id"] = (
+                f"{_safe_id(query_id)}__candidate_{rank:03d}__{_safe_id(support_id)}"
+            )
+            row["candidate_support_rank"] = int(rank)
+            row["candidate_support_window_index"] = int(candidate["window_index"])
+            row["candidate_support_window_id"] = support_id
+            row["top_train_pool"] = [candidate]
+            candidate_rows.append(row)
+    if not candidate_rows:
+        raise ValueError("no candidate-specific rows built")
+
+    output = json.loads(json.dumps(bridge_report))
+    output["purpose"] = "rollout_response_candidate_labels"
+    output["scope_note"] = (
+        "Candidate-specific duplicate query bridge. Use the scenario evaluator "
+        "with --allow-duplicate-query-windows and --top-k 1."
+    )
+    output["candidate_label_config"] = {
+        "max_query_windows": int(max_query_windows),
+        "candidate_pool_size": int(candidate_pool_size),
+        "candidate_row_count": len(candidate_rows),
+    }
+    output["evaluation"]["heldout_examples"] = candidate_rows
+    return output
+
+
+def _metric(row: dict[str, Any], method: str, metric: str) -> float | None:
+    raw = row.get("methods", {}).get(method, {}).get(metric)
+    if raw is None:
+        return None
+    value = float(raw)
+    return value if np.isfinite(value) else None
+
+
+def _candidate_lookup(candidate_bridge: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = candidate_bridge.get("evaluation", {}).get("heldout_examples", [])
+    lookup: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("query_id"):
+            lookup[str(row["query_id"])] = row
+    if not lookup:
+        raise ValueError("candidate bridge has no query_id rows")
+    return lookup
+
+
+def summarize_rollout_response_labels(
+    candidate_bridge: dict[str, Any],
+    scenario_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Summarize candidate-specific generator labels from scenario evaluation."""
+
+    lookup = _candidate_lookup(candidate_bridge)
+    rows: list[dict[str, Any]] = []
+    for score in scenario_report.get("window_scores", []):
+        if not isinstance(score, dict) or not score.get("query_id"):
+            continue
+        query_id = str(score["query_id"])
+        source = lookup.get(query_id)
+        if source is None:
+            continue
+        rows.append(
+            {
+                "query_id": query_id,
+                "window_index": int(source["window_index"]),
+                "window_id": str(source.get("window_id", "")),
+                "candidate_support_rank": int(source["candidate_support_rank"]),
+                "candidate_support_window_index": int(
+                    source["candidate_support_window_index"]
+                ),
+                "candidate_support_window_id": str(
+                    source.get("candidate_support_window_id", "")
+                ),
+                "support_cosine": float(source["top_train_pool"][0].get("cosine", 0.0)),
+                "generator_energy_score_z": _metric(
+                    score,
+                    "narrative_generator_topk",
+                    "energy_score_z",
+                ),
+                "generator_ensemble_crps_z": _metric(
+                    score,
+                    "narrative_generator_topk",
+                    "ensemble_crps_z",
+                ),
+                "generator_coverage_80": _metric(
+                    score,
+                    "narrative_generator_topk",
+                    "coverage_80",
+                ),
+                "replay_energy_score_z": _metric(
+                    score,
+                    "historical_replay_topk",
+                    "energy_score_z",
+                ),
+                "replay_ensemble_crps_z": _metric(
+                    score,
+                    "historical_replay_topk",
+                    "ensemble_crps_z",
+                ),
+            }
+        )
+    groups: list[dict[str, Any]] = []
+    for window_index in sorted({row["window_index"] for row in rows}):
+        group_rows = [row for row in rows if row["window_index"] == window_index]
+        valid = [
+            row for row in group_rows if row.get("generator_energy_score_z") is not None
+        ]
+        if not valid:
+            continue
+        best = min(valid, key=lambda row: float(row["generator_energy_score_z"]))
+        top1 = min(group_rows, key=lambda row: int(row["candidate_support_rank"]))
+        groups.append(
+            {
+                "window_index": int(window_index),
+                "window_id": str(group_rows[0].get("window_id", "")),
+                "candidate_count": len(group_rows),
+                "top1_support_window_index": int(
+                    top1["candidate_support_window_index"]
+                ),
+                "top1_generator_energy_score_z": top1.get("generator_energy_score_z"),
+                "top1_generator_ensemble_crps_z": top1.get("generator_ensemble_crps_z"),
+                "best_generator_support_window_index": int(
+                    best["candidate_support_window_index"]
+                ),
+                "best_generator_support_rank": int(best["candidate_support_rank"]),
+                "best_generator_energy_score_z": best.get("generator_energy_score_z"),
+                "best_generator_ensemble_crps_z": best.get("generator_ensemble_crps_z"),
+                "best_minus_top1_energy_score_z": (
+                    None
+                    if top1.get("generator_energy_score_z") is None
+                    else float(best["generator_energy_score_z"])
+                    - float(top1["generator_energy_score_z"])
+                ),
+                "best_minus_top1_ensemble_crps_z": (
+                    None
+                    if top1.get("generator_ensemble_crps_z") is None
+                    else float(best["generator_ensemble_crps_z"])
+                    - float(top1["generator_ensemble_crps_z"])
+                ),
+            }
+        )
+    best_not_top1 = sum(
+        1 for group in groups if int(group["best_generator_support_rank"]) != 1
+    )
+    energy_gain_values = [
+        float(group["best_minus_top1_energy_score_z"])
+        for group in groups
+        if group.get("best_minus_top1_energy_score_z") is not None
+    ]
+    crps_gain_values = [
+        float(group["best_minus_top1_ensemble_crps_z"])
+        for group in groups
+        if group.get("best_minus_top1_ensemble_crps_z") is not None
+    ]
+    return {
+        "status": "ok",
+        "scope_note": (
+            "Candidate-specific rollout-response labels. Lower generator energy "
+            "and CRPS are better."
+        ),
+        "summary": {
+            "query_count": len(groups),
+            "candidate_row_count": len(rows),
+            "best_generator_not_top1_count": int(best_not_top1),
+            "best_generator_not_top1_fraction": (
+                None if not groups else float(best_not_top1 / len(groups))
+            ),
+            "mean_best_minus_top1_energy_score_z": (
+                None if not energy_gain_values else float(np.mean(energy_gain_values))
+            ),
+            "mean_best_minus_top1_ensemble_crps_z": (
+                None if not crps_gain_values else float(np.mean(crps_gain_values))
+            ),
+        },
+        "groups": groups,
+        "rows": rows,
+    }
+
+
+def build_command(args: argparse.Namespace) -> None:
+    bridge = _load_json(args.bridge_report)
+    output = build_candidate_label_bridge(
+        bridge,
+        max_query_windows=int(args.max_query_windows),
+        candidate_pool_size=int(args.candidate_pool_size),
+    )
+    output_dir = Path(args.output_dir)
+    report_path = output_dir / "candidate_label_bridge_report.json"
+    output["artifact_paths"] = {"report": str(report_path)}
+    _write_json(report_path, output)
+    print(f"wrote {report_path} rows={len(output['evaluation']['heldout_examples'])}")
+
+
+def summarize_command(args: argparse.Namespace) -> None:
+    candidate_bridge = _load_json(args.candidate_bridge_report)
+    scenario_report = _load_json(args.scenario_report)
+    summary = summarize_rollout_response_labels(candidate_bridge, scenario_report)
+    output_dir = Path(args.output_dir)
+    report_path = output_dir / "rollout_response_label_summary.json"
+    summary["artifact_paths"] = {
+        "candidate_bridge_report": str(args.candidate_bridge_report),
+        "scenario_report": str(args.scenario_report),
+        "report": str(report_path),
+    }
+    _write_json(report_path, summary)
+    print(
+        f"wrote {report_path} "
+        f"queries={summary['summary']['query_count']} "
+        f"best_not_top1={summary['summary']['best_generator_not_top1_count']}"
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    build = subparsers.add_parser("build-bridge")
+    build.add_argument("--bridge-report", default=DEFAULT_BRIDGE_REPORT)
+    build.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    build.add_argument("--max-query-windows", type=int, default=4)
+    build.add_argument("--candidate-pool-size", type=int, default=3)
+    build.set_defaults(func=build_command)
+
+    summarize = subparsers.add_parser("summarize")
+    summarize.add_argument("--candidate-bridge-report", required=True)
+    summarize.add_argument("--scenario-report", required=True)
+    summarize.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    summarize.set_defaults(func=summarize_command)
+
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

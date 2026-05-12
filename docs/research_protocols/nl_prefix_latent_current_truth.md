@@ -243,6 +243,17 @@ Diagnostic, not yet promoted:
   support reranker. The next candidate should use direct rollout-response
   labels or a stability-aware generator-level objective, not another replay or
   self-calibration ranking knob.
+- rollout-response label TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_label_testflight_881a/rollout_response_label_summary.json`.
+  The scenario evaluator now has an explicit duplicate-query mode for
+  candidate-specific support labels. A small CUDA smoke evaluated `4` query
+  windows by `3` candidate supports each (`12` candidate rows) with top-k `1`.
+  In `3/4` queries, the best actual generator-response support was not the
+  cosine top-1 support. The within-pool best-vs-top1 mean deltas were
+  `-0.0527` generator energy and `-0.0434` generator CRPS, lower-is-better.
+  This is not a promoted model result because it is tiny and low-sample, but it
+  is a positive mechanism TestFlight: direct rollout-response labels contain
+  support-ranking signal that cosine/replay/self-calibration proxies miss.
 
 ### Fixed-Start Conditionality
 

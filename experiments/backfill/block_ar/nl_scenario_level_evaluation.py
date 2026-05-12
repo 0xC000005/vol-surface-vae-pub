@@ -156,6 +156,7 @@ def select_heldout_query_rows(
     *,
     role: str = "anchor",
     max_windows: int = 0,
+    allow_duplicate_windows: bool = False,
 ) -> list[dict[str, Any]]:
     """Select one held-out query row per window from a bridge-eval report."""
 
@@ -168,7 +169,7 @@ def select_heldout_query_rows(
         if str(row.get("role", "")) != str(role):
             continue
         window_index = int(row["window_index"])
-        if window_index in seen:
+        if not bool(allow_duplicate_windows) and window_index in seen:
             continue
         seen.add(window_index)
         selected.append(row)
@@ -179,7 +180,9 @@ def select_heldout_query_rows(
     return selected
 
 
-def bridge_local_to_block_indices(bridge_report: dict[str, Any], n_windows: int) -> np.ndarray:
+def bridge_local_to_block_indices(
+    bridge_report: dict[str, Any], n_windows: int
+) -> np.ndarray:
     """Map bridge-local row indices back to original validation-block indices."""
 
     raw = bridge_report.get("window_indices")
@@ -233,7 +236,9 @@ def _energy_score(samples_flat: np.ndarray, target_flat: np.ndarray) -> float:
     if samples_flat.shape[0] <= 1:
         term_2 = 0.0
     else:
-        distances = np.linalg.norm(samples_flat[:, None, :] - samples_flat[None, :, :], axis=-1)
+        distances = np.linalg.norm(
+            samples_flat[:, None, :] - samples_flat[None, :, :], axis=-1
+        )
         term_2 = 0.5 * float(distances.mean())
     return (term_1 - term_2) / np.sqrt(float(target_flat.size))
 
@@ -276,7 +281,9 @@ def score_sample_distribution(
         "mean_path_rmse_z": _round(float(np.sqrt(sq_error.mean()))),
         "terminal_mae_z": _round(float(np.abs(mean_path[-1] - target_z[-1]).mean())),
         "ensemble_crps_z": _round(crps),
-        "energy_score_z": _round(_energy_score(sample_z.reshape(sample_z.shape[0], -1), target_z.reshape(-1))),
+        "energy_score_z": _round(
+            _energy_score(sample_z.reshape(sample_z.shape[0], -1), target_z.reshape(-1))
+        ),
         "coverage_80": _round(coverage_80) if coverage_80 is not None else None,
     }
 
@@ -347,7 +354,9 @@ def _actual_future_replay_samples(
     future_delta: np.ndarray,
     indices: list[int],
 ) -> np.ndarray:
-    return np.asarray(future_delta[np.asarray(indices, dtype=np.int64)], dtype=np.float32)
+    return np.asarray(
+        future_delta[np.asarray(indices, dtype=np.int64)], dtype=np.float32
+    )
 
 
 def _median_baseline_samples(train_delta: np.ndarray) -> np.ndarray:
@@ -365,7 +374,23 @@ def _states_to_deltas(states: np.ndarray, current_states: np.ndarray) -> np.ndar
         raise ValueError("states must have shape [K,S,T,C]")
     if current.shape != (state_arr.shape[0], state_arr.shape[-1]):
         raise ValueError("current_states must have shape [K,C]")
-    return (state_arr - current[:, None, None, :]).reshape(-1, state_arr.shape[2], state_arr.shape[3])
+    return (state_arr - current[:, None, None, :]).reshape(
+        -1, state_arr.shape[2], state_arr.shape[3]
+    )
+
+
+def _array_key_suffix(
+    row_no: int,
+    query: dict[str, Any],
+    *,
+    allow_duplicates: bool,
+) -> str:
+    window_index = int(query["window_index"])
+    if not bool(allow_duplicates):
+        return str(window_index)
+    raw = str(query.get("query_id", f"query_{row_no:04d}_{window_index}"))
+    safe = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in raw)
+    return f"{row_no:04d}_{safe}"
 
 
 def _sample_direct_memory_deltas(
@@ -467,6 +492,7 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         bridge_report,
         role=args.query_role,
         max_windows=int(args.max_windows_eval),
+        allow_duplicate_windows=bool(args.allow_duplicate_query_windows),
     )
     bridge_arrays: dict[str, np.ndarray] | None = None
     bridge_arrays_source: str | None = None
@@ -487,11 +513,22 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         bridge_arrays_source = str(bridge_arrays_path_value)
     all_window_count = max(
         int(max(row["window_index"] for row in query_rows)) + 1,
-        int(max(idx for row in query_rows for idx in [item["window_index"] for item in row["top_train_pool"]])) + 1,
+        int(
+            max(
+                idx
+                for row in query_rows
+                for idx in [item["window_index"] for item in row["top_train_pool"]]
+            )
+        )
+        + 1,
         int(max(bridge_report.get("split", {}).get("train_indices", [0]))) + 1,
     )
-    local_to_block = bridge_local_to_block_indices(bridge_report, n_windows=all_window_count)
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    local_to_block = bridge_local_to_block_indices(
+        bridge_report, n_windows=all_window_count
+    )
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     model, payload = load_model(args.checkpoint, device)
     (
         history_level,
@@ -505,14 +542,17 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     ) = build_val_block(args, payload)
     n_needed = int(np.max(local_to_block[:all_window_count])) + 1
     if history_raw.shape[0] < n_needed:
-        raise ValueError(f"rebuilt validation block has {history_raw.shape[0]} windows, need {n_needed}")
+        raise ValueError(
+            f"rebuilt validation block has {history_raw.shape[0]} windows, need {n_needed}"
+        )
     n_cells = int(history_raw.shape[-1])
     future_raw = _future_raw_from_block(block, int(history_raw.shape[0]), n_cells)
     future_delta = future_delta_paths(history_raw, future_raw)
     train_indices = [
         int(idx)
         for idx in bridge_report.get("split", {}).get("train_indices", [])
-        if int(idx) < local_to_block.shape[0] and int(local_to_block[int(idx)]) < future_delta.shape[0]
+        if int(idx) < local_to_block.shape[0]
+        and int(local_to_block[int(idx)]) < future_delta.shape[0]
     ]
     if not train_indices:
         raise ValueError("bridge report split has no train_indices")
@@ -524,6 +564,11 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     generated_chunks: dict[str, np.ndarray] = {}
     for row_no, query in enumerate(query_rows):
         window_index = int(query["window_index"])
+        array_suffix = _array_key_suffix(
+            row_no,
+            query,
+            allow_duplicates=bool(args.allow_duplicate_query_windows),
+        )
         target_block_index = int(local_to_block[window_index])
         target = future_delta[target_block_index]
         top_train_items = query.get("top_train_pool", [])[: int(args.top_k)]
@@ -607,7 +652,7 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                 target,
                 scale=delta_scale,
             )
-            generated_chunks[f"direct_memory_{window_index}"] = direct_samples.astype(
+            generated_chunks[f"direct_memory_{array_suffix}"] = direct_samples.astype(
                 np.float32
             )
             if residual_alphas:
@@ -644,9 +689,9 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                         target,
                         scale=delta_scale,
                     )
-                    generated_chunks[
-                        f"{method_name}_{window_index}"
-                    ] = residual_samples.astype(np.float32)
+                    generated_chunks[f"{method_name}_{array_suffix}"] = (
+                        residual_samples.astype(np.float32)
+                    )
                 if bool(args.include_memory_residual_topk_generator):
                     top_base_conditions = np.asarray(
                         bridge_arrays["memory_targets"][np.asarray(top_train_local)],
@@ -686,9 +731,9 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                             target,
                             scale=delta_scale,
                         )
-                        generated_chunks[
-                            f"{method_name}_{window_index}"
-                        ] = topk_residual_samples.astype(np.float32)
+                        generated_chunks[f"{method_name}_{array_suffix}"] = (
+                            topk_residual_samples.astype(np.float32)
+                        )
             if bool(args.include_oracle_generator):
                 true_condition = true_memory_condition_for_window(
                     window_index,
@@ -711,14 +756,16 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                     temperature=float(args.temperature),
                     device=device,
                 )
-                methods["oracle_direct_memory_true_history"] = score_sample_distribution(
-                    oracle_direct_samples,
-                    target,
-                    scale=delta_scale,
+                methods["oracle_direct_memory_true_history"] = (
+                    score_sample_distribution(
+                        oracle_direct_samples,
+                        target,
+                        scale=delta_scale,
+                    )
                 )
-                generated_chunks[
-                    f"oracle_direct_memory_{window_index}"
-                ] = oracle_direct_samples.astype(np.float32)
+                generated_chunks[f"oracle_direct_memory_{array_suffix}"] = (
+                    oracle_direct_samples.astype(np.float32)
+                )
         if bool(args.include_oracle_generator):
             oracle_sampled = sample_normal_generator_for_retrieved_analogues(
                 model,
@@ -739,26 +786,39 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                 oracle_sampled["increments"],
                 specs,
             )
-            oracle_samples = _states_to_deltas(oracle_states, history_raw[[target_block_index], -1, :])
+            oracle_samples = _states_to_deltas(
+                oracle_states, history_raw[[target_block_index], -1, :]
+            )
             methods["oracle_generator_true_history"] = score_sample_distribution(
                 oracle_samples,
                 target,
                 scale=delta_scale,
             )
-            generated_chunks[f"oracle_{window_index}"] = oracle_samples.astype(np.float32)
-        generated_chunks[f"narrative_{window_index}"] = narrative_samples.astype(np.float32)
-        generated_chunks[f"replay_{window_index}"] = replay_samples.astype(np.float32)
+            generated_chunks[f"oracle_{array_suffix}"] = oracle_samples.astype(
+                np.float32
+            )
+        generated_chunks[f"narrative_{array_suffix}"] = narrative_samples.astype(
+            np.float32
+        )
+        generated_chunks[f"replay_{array_suffix}"] = replay_samples.astype(np.float32)
         window_scores.append(
             {
                 "row_no": row_no,
                 "window_index": window_index,
+                "query_id": str(query.get("query_id", "")),
                 "block_window_index": target_block_index,
                 "window_id": query.get("window_id", ""),
                 "query_role": query.get("role", ""),
                 "query_kind": query.get("kind", ""),
                 "top_train_indices": retrieved_indices,
-                "top_train_window_ids": [item.get("window_id", "") for item in query.get("top_train_pool", [])[: int(args.top_k)]],
-                "top_train_cosines": [float(item.get("cosine", 0.0)) for item in query.get("top_train_pool", [])[: int(args.top_k)]],
+                "top_train_window_ids": [
+                    item.get("window_id", "")
+                    for item in query.get("top_train_pool", [])[: int(args.top_k)]
+                ],
+                "top_train_cosines": [
+                    float(item.get("cosine", 0.0))
+                    for item in query.get("top_train_pool", [])[: int(args.top_k)]
+                ],
                 "methods": methods,
             }
         )
@@ -778,6 +838,7 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         "checkpoint": str(args.checkpoint),
         "query_role": str(args.query_role),
         "heldout_window_count": len(window_scores),
+        "allow_duplicate_query_windows": bool(args.allow_duplicate_query_windows),
         "top_k": int(args.top_k),
         "samples": int(args.samples),
         "n_steps": int(args.n_steps),
@@ -820,8 +881,12 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         "train_indices": np.asarray(train_indices, dtype=np.int64),
         "train_block_indices": np.asarray(train_block_indices, dtype=np.int64),
         "local_to_block_indices": local_to_block.astype(np.int64),
-        "evaluated_indices": np.asarray([row["window_index"] for row in window_scores], dtype=np.int64),
-        "evaluated_block_indices": np.asarray([row["block_window_index"] for row in window_scores], dtype=np.int64),
+        "evaluated_indices": np.asarray(
+            [row["window_index"] for row in window_scores], dtype=np.int64
+        ),
+        "evaluated_block_indices": np.asarray(
+            [row["block_window_index"] for row in window_scores], dtype=np.int64
+        ),
     }
     array_payload.update(generated_chunks)
     np.savez_compressed(output_dir / "scenario_level_eval_arrays.npz", **array_payload)
@@ -836,6 +901,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     parser.add_argument("--bridge-arrays")
     parser.add_argument("--query-role", default="anchor")
+    parser.add_argument("--allow-duplicate-query-windows", action="store_true")
     parser.add_argument("--max-windows-eval", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--samples", type=int, default=4)
@@ -851,20 +917,32 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=776)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
-    parser.add_argument("--eval_split", choices=["val", "train", "train_tail"], default="val")
+    parser.add_argument(
+        "--eval_split", choices=["val", "train", "train_tail"], default="val"
+    )
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--max_windows", type=int, default=50)
     parser.add_argument("--iv_count", type=int, default=25)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
-    parser.add_argument("--positive_level_policy", choices=["reference_based", "observed_positive"], default="reference_based")
-    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
+    parser.add_argument(
+        "--iv_transform", choices=["log_level", "bounded_logit"], default="log_level"
+    )
     parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
-    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
+    parser.add_argument(
+        "--drift_feature_mode", choices=["none", "ewma_mean"], default="none"
+    )
     args = parser.parse_args()
     report = run_scenario_level_evaluation(args)
     print(

@@ -63,6 +63,35 @@ def test_select_heldout_query_rows_keeps_one_anchor_per_window() -> None:
     assert [item["window_index"] for item in rows[0]["top_train_pool"]] == [0, 1]
 
 
+def test_select_heldout_query_rows_can_keep_duplicate_query_windows() -> None:
+    report = _bridge_report()
+    report["evaluation"]["heldout_examples"].insert(
+        1,
+        {
+            "window_index": 2,
+            "window_id": "w2_alt",
+            "role": "anchor",
+            "kind": "candidate_label",
+            "query_id": "w2_candidate_1",
+            "top_train_pool": [
+                {"window_index": 1, "window_id": "w1", "cosine": 0.7},
+            ],
+        },
+    )
+
+    rows = select_heldout_query_rows(
+        report,
+        role="anchor",
+        allow_duplicate_windows=True,
+    )
+
+    assert [row.get("query_id", row["window_id"]) for row in rows] == [
+        "w2",
+        "w2_candidate_1",
+        "w3",
+    ]
+
+
 def test_bridge_local_to_block_indices_uses_manifest_window_indices() -> None:
     report = {"window_indices": [4, 1, 8]}
 
@@ -74,8 +103,14 @@ def test_bridge_local_to_block_indices_uses_manifest_window_indices() -> None:
 def test_bridge_report_arrays_path_prefers_explicit_then_artifact() -> None:
     report = {"artifact_paths": {"arrays": "outputs/bridge_arrays.npz"}}
 
-    assert str(bridge_report_arrays_path(report, explicit_path="manual.npz")) == "manual.npz"
-    assert str(bridge_report_arrays_path(report, explicit_path=None)) == "outputs/bridge_arrays.npz"
+    assert (
+        str(bridge_report_arrays_path(report, explicit_path="manual.npz"))
+        == "manual.npz"
+    )
+    assert (
+        str(bridge_report_arrays_path(report, explicit_path=None))
+        == "outputs/bridge_arrays.npz"
+    )
 
 
 def test_direct_memory_condition_for_query_uses_embedding_index() -> None:

@@ -1,0 +1,104 @@
+import sys
+
+sys.path.insert(0, ".")
+
+from experiments.backfill.block_ar.nl_rollout_response_label_testflight import (
+    build_candidate_label_bridge,
+    summarize_rollout_response_labels,
+)
+
+
+def _bridge_report() -> dict:
+    return {
+        "split": {"train_indices": [0, 1, 2, 3], "test_indices": [4]},
+        "window_metadata": [{"window_index": idx} for idx in range(5)],
+        "window_indices": [10, 11, 12, 13, 14],
+        "evaluation": {
+            "heldout_examples": [
+                {
+                    "embedding_index": 0,
+                    "window_index": 4,
+                    "window_id": "q4",
+                    "role": "anchor",
+                    "kind": "primary",
+                    "target_cosine": 0.9,
+                    "top_train_pool": [
+                        {"window_index": 0, "window_id": "s0", "cosine": 0.95},
+                        {"window_index": 1, "window_id": "s1", "cosine": 0.94},
+                        {"window_index": 2, "window_id": "s2", "cosine": 0.93},
+                    ],
+                }
+            ]
+        },
+    }
+
+
+def test_build_candidate_label_bridge_keeps_duplicate_query_rows() -> None:
+    report = build_candidate_label_bridge(
+        _bridge_report(),
+        max_query_windows=1,
+        candidate_pool_size=2,
+    )
+
+    rows = report["evaluation"]["heldout_examples"]
+    assert report["purpose"] == "rollout_response_candidate_labels"
+    assert len(rows) == 2
+    assert rows[0]["window_index"] == rows[1]["window_index"] == 4
+    assert rows[0]["query_id"] == "q4__candidate_001__s0"
+    assert rows[1]["query_id"] == "q4__candidate_002__s1"
+    assert [row["top_train_pool"][0]["window_index"] for row in rows] == [0, 1]
+
+
+def test_summarize_rollout_response_labels_groups_by_query() -> None:
+    candidate_bridge = build_candidate_label_bridge(
+        _bridge_report(),
+        max_query_windows=1,
+        candidate_pool_size=2,
+    )
+    scenario_report = {
+        "window_scores": [
+            {
+                "query_id": "q4__candidate_001__s0",
+                "window_index": 4,
+                "methods": {
+                    "narrative_generator_topk": {
+                        "energy_score_z": 1.0,
+                        "ensemble_crps_z": 0.8,
+                        "coverage_80": 0.4,
+                    },
+                    "historical_replay_topk": {
+                        "energy_score_z": 0.9,
+                        "ensemble_crps_z": 0.7,
+                        "coverage_80": 0.5,
+                    },
+                },
+            },
+            {
+                "query_id": "q4__candidate_002__s1",
+                "window_index": 4,
+                "methods": {
+                    "narrative_generator_topk": {
+                        "energy_score_z": 0.6,
+                        "ensemble_crps_z": 0.5,
+                        "coverage_80": 0.7,
+                    },
+                    "historical_replay_topk": {
+                        "energy_score_z": 0.8,
+                        "ensemble_crps_z": 0.6,
+                        "coverage_80": 0.6,
+                    },
+                },
+            },
+        ]
+    }
+
+    summary = summarize_rollout_response_labels(
+        candidate_bridge,
+        scenario_report,
+    )
+
+    assert summary["summary"]["query_count"] == 1
+    assert summary["summary"]["candidate_row_count"] == 2
+    assert summary["summary"]["best_generator_not_top1_count"] == 1
+    assert summary["summary"]["mean_best_minus_top1_energy_score_z"] == -0.4
+    assert summary["groups"][0]["best_generator_support_window_index"] == 1
