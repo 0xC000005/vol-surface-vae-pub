@@ -165,3 +165,30 @@ held-out candidate-pool alignment with generator-response labels, for example:
 - exact or near-oracle selection remains close to random;
 - held-out scenario-level CRPS/energy remain worse than the simple mixture;
 - gains come only from coverage while CRPS/energy and terminal errors regress.
+
+## 2026-05-12 TestFlight Status
+
+The first no-OpenAI pairwise TestFlight is diagnostic, not promoted:
+
+- policy artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887c_32train_to_fullheldout/learned_mixture_policy_report.json`;
+- scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887d_32train_fullheldout_scenario_eval/scenario_level_eval_report.json`;
+- post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887e_post_analysis/pairwise_policy_post_analysis.json`.
+
+Result against the same-seed simple mixture floor:
+
+- pairwise CRPS: `0.6909`; simple mixture CRPS: `0.6882`;
+- pairwise energy: `0.9936`; simple mixture energy: `0.9907`;
+- pairwise 80% coverage: `0.5748`; simple mixture coverage: `0.5651`;
+- held-out score correlation with negative energy: `0.049`;
+- held-out score correlation with negative CRPS: `0.234`;
+- exact energy-oracle mixture selection: `2/29`.
+
+Decision: reject as a promoted default. The method improved over the prior
+linear policy on CRPS, but it did not beat the simple mixture floor and its
+candidate-pool energy alignment remained weak. The next ranker should not just
+increase capacity; it needs either a better generator-quality target or a
+clearer listwise utility that jointly reflects CRPS and energy without adding a
+large hyperparameter sweep.

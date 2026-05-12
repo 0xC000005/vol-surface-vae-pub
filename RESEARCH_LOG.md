@@ -123772,3 +123772,98 @@ remain worse than the incumbent.
 - `git diff --check`
 
 ---
+## 2026-05-12: HEAD nl-prefix 144 pairwise mixture ranker testflight
+
+### Context
+HEAD 143 added the method-intake gate and identified a query-relative
+pairwise/listwise support-mixture ranker as the clean next candidate. The
+question for this iteration was whether a no-OpenAI pairwise ranker trained on
+existing generator-response mixture labels can beat the simple mixture floor.
+
+### Hypothesis
+The failed linear policy underfit because it treated candidate mixtures as
+independent pointwise rows. A within-query pairwise ranker should better match
+the real decision object: choose the support mixture that is best relative to
+the other candidate mixtures for the same narrative/start query.
+
+### Research Lane
+`exploration` / `experiment`.
+
+### Result Status
+`candidate_rejected`.
+
+### Benchmark Floor Status
+`below_floor`; no promotion.
+
+### Execution
+Added a pairwise logistic mixture ranker to:
+
+`experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+
+and tests in:
+
+`test_code/test_885a_nl_learned_mixture_policy.py`
+
+The ranker uses existing pooled support-mixture features and within-query
+generator-response preferences. It keeps the historical support mixture as the
+output object, does not change the frozen SNI generator, and makes no OpenAI
+calls.
+
+Artifacts:
+
+- policy report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887c_32train_to_fullheldout/learned_mixture_policy_report.json`
+- reranked bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887c_32train_to_fullheldout/learned_mixture_policy_bridge_report.json`
+- held-out scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887d_32train_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887e_post_analysis/pairwise_policy_post_analysis.json`
+
+### Result
+Compared with the same-seed simple mixture baseline
+`nl_learned_mixture_policy_886d_original_fullheldout_scenario_eval`:
+
+- pairwise CRPS: `0.6909`; simple mixture CRPS: `0.6882`;
+- pairwise energy: `0.9936`; simple mixture energy: `0.9907`;
+- pairwise 80% coverage: `0.5748`; simple mixture coverage: `0.5651`.
+
+Compared with the failed linear policy
+`nl_learned_mixture_policy_886c_32train_fullheldout_scenario_eval`:
+
+- pairwise CRPS improves (`0.6909` vs `0.6947`);
+- pairwise energy worsens (`0.9936` vs `0.9915`);
+- pairwise coverage is slightly lower (`0.5748` vs `0.5796`).
+
+Candidate-pool post-analysis:
+
+- held-out score correlation with negative energy: `0.049`;
+- held-out score correlation with negative CRPS: `0.234`;
+- exact energy-oracle mixture selection: `2/29`;
+- selected mixture minus default candidate mixture: `+0.0105` energy and
+  `+0.0052` CRPS, where positive is worse.
+
+### Mechanism Read
+The pairwise objective is a better story than the linear pointwise policy and
+does recover more CRPS signal, but it does not recover generator-quality signal
+well enough to beat the simple mixture. The failure is not "need a bigger
+model" yet. The mechanism is:
+
+`pairwise_ranker_improves_some_crps_alignment_but_not_generator_quality`.
+
+### Decision / Next Step
+Do not promote the pairwise ranker. Do not add capacity or sweep learning-rate
+values as the next move. The next HEAD step should be post-experiment ideation:
+define a better generator-quality utility or listwise target, then require the
+method-intake gate again before implementation. A plausible next candidate is a
+listwise utility that jointly ranks CRPS and energy while keeping the support
+mixture and historical backtest gate, but it needs a clean story and a kill
+condition before code.
+
+### Verification
+- `uv run pytest test_code/test_885a_nl_learned_mixture_policy.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py --policy-kind pairwise ...`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report ... --top-k 3 --samples 2 --seed 886 --device cuda --max_windows 441`
+
+---

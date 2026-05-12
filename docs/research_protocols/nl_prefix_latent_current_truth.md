@@ -331,6 +331,20 @@ Diagnostic, not yet promoted:
   that trains on existing generator-response mixture labels and compares
   same-seed held-out CRPS, energy, coverage, and support audits against the
   simple mixture floor.
+- pairwise mixture-ranker TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_887e_post_analysis/pairwise_policy_post_analysis.json`.
+  This is not promoted. It used existing generator-response mixture labels
+  without OpenAI calls and kept the support mixture as the output object. The
+  pairwise policy improves over the previous linear policy on held-out scenario
+  CRPS (`0.6909` versus `0.6947`) but remains worse than the same-seed simple
+  mixture (`0.6882`). It also trails the simple mixture on energy (`0.9936`
+  versus `0.9907`) while improving coverage (`0.5748` versus `0.5651`). The
+  held-out candidate-pool audit shows weak energy alignment (`0.049`
+  correlation with negative energy), moderate CRPS alignment (`0.234`
+  correlation with negative CRPS), exact energy-oracle selection of only
+  `2/29`, and selected mixtures worse than the default candidate mixture by
+  `+0.0105` energy and `+0.0052` CRPS. The mechanism read is
+  `pairwise_ranker_improves_some_crps_alignment_but_not_generator_quality`.
 
 ### Fixed-Start Conditionality
 

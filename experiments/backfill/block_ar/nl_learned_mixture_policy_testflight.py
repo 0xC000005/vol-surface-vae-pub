@@ -81,6 +81,28 @@ class LinearMixturePolicy:
     feature_std: np.ndarray
     feature_names: list[str]
     ridge_alpha: float
+    policy_kind: str = "linear_ridge"
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        x = np.asarray(features, dtype=np.float64)
+        if x.ndim == 1:
+            x = x.reshape(1, -1)
+        z = (x - self.feature_mean[None, :]) / self.feature_std[None, :]
+        return (z @ self.coefficients + float(self.intercept)).astype(np.float64)
+
+
+@dataclass(frozen=True)
+class PairwiseMixtureRanker:
+    coefficients: np.ndarray
+    intercept: float
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
+    feature_names: list[str]
+    learning_rate: float
+    epochs: int
+    l2: float
+    pair_count: int
+    policy_kind: str = "pairwise_ranker"
 
     def predict(self, features: np.ndarray) -> np.ndarray:
         x = np.asarray(features, dtype=np.float64)
@@ -303,7 +325,92 @@ def fit_linear_mixture_policy(
     )
 
 
-def _group_candidate_rows(candidate_bridge: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+def _pairwise_differences(
+    features: np.ndarray,
+    labels: np.ndarray,
+    query_ids: list[Any],
+    *,
+    min_label_gap: float = 1e-8,
+) -> np.ndarray:
+    x = np.asarray(features, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if x.ndim != 2 or x.shape[0] != y.shape[0] or x.shape[0] != len(query_ids):
+        raise ValueError("features, labels, and query_ids must have compatible shapes")
+    groups: dict[str, list[int]] = {}
+    for idx, query_id in enumerate(query_ids):
+        groups.setdefault(str(query_id), []).append(idx)
+    diffs: list[np.ndarray] = []
+    for indices in groups.values():
+        for left_pos in range(len(indices)):
+            for right_pos in range(left_pos + 1, len(indices)):
+                left = indices[left_pos]
+                right = indices[right_pos]
+                gap = float(y[left] - y[right])
+                if abs(gap) <= float(min_label_gap):
+                    continue
+                if gap > 0:
+                    diffs.append(x[left] - x[right])
+                else:
+                    diffs.append(x[right] - x[left])
+    if not diffs:
+        raise ValueError("no within-query label preferences found")
+    return np.stack(diffs).astype(np.float64)
+
+
+def fit_pairwise_mixture_ranker(
+    features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    query_ids: list[Any],
+    feature_names: list[str] | None = None,
+    learning_rate: float = 0.05,
+    epochs: int = 500,
+    l2: float = 1e-3,
+    min_label_gap: float = 1e-8,
+) -> PairwiseMixtureRanker:
+    """Fit a within-query pairwise logistic ranker for candidate mixtures."""
+
+    x = np.asarray(features, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if x.ndim != 2 or x.shape[0] != y.shape[0]:
+        raise ValueError("features and labels must have compatible shapes")
+    if x.shape[0] != len(query_ids):
+        raise ValueError("query_ids length must match feature rows")
+    mean = x.mean(axis=0)
+    std = np.maximum(x.std(axis=0), 1e-8)
+    z = (x - mean[None, :]) / std[None, :]
+    diffs = _pairwise_differences(
+        z,
+        y,
+        query_ids,
+        min_label_gap=float(min_label_gap),
+    )
+    weights = np.zeros(z.shape[1], dtype=np.float64)
+    lr = float(learning_rate)
+    for _ in range(int(epochs)):
+        margins = diffs @ weights
+        margins = np.clip(margins, -60.0, 60.0)
+        preference_error = 1.0 / (1.0 + np.exp(margins))
+        grad = -(preference_error[:, None] * diffs).mean(axis=0)
+        grad += float(l2) * weights
+        weights -= lr * grad
+    names = list(feature_names) if feature_names is not None else list(FEATURE_NAMES)
+    return PairwiseMixtureRanker(
+        coefficients=weights.astype(np.float64),
+        intercept=0.0,
+        feature_mean=mean.astype(np.float64),
+        feature_std=std.astype(np.float64),
+        feature_names=names,
+        learning_rate=float(learning_rate),
+        epochs=int(epochs),
+        l2=float(l2),
+        pair_count=int(diffs.shape[0]),
+    )
+
+
+def _group_candidate_rows(
+    candidate_bridge: dict[str, Any],
+) -> dict[int, list[dict[str, Any]]]:
     groups: dict[int, list[dict[str, Any]]] = {}
     for row in candidate_bridge.get("evaluation", {}).get("heldout_examples", []):
         if isinstance(row, dict) and row.get("window_index") is not None:
@@ -318,7 +425,7 @@ def rerank_bridge_report_with_mixture_policy(
     condition_vectors: np.ndarray,
     memory_targets: np.ndarray,
     history_level: np.ndarray,
-    model: LinearMixturePolicy,
+    model: LinearMixturePolicy | PairwiseMixtureRanker,
 ) -> dict[str, Any]:
     """Replace each query's support pool with the best predicted support mixture."""
 
@@ -338,12 +445,13 @@ def rerank_bridge_report_with_mixture_policy(
                 memory_targets=memory_targets,
                 history_level=history_level,
             )
-            scored.append((float(model.predict(feature)[0]), candidate))
+        scored.append((float(model.predict(feature)[0]), candidate))
         scored.sort(key=lambda item: item[0], reverse=True)
         score, best = scored[0]
         row["top_train_pool"] = json.loads(json.dumps(best["top_train_pool"]))
         row["support_policy"] = {
             "name": "learned_generator_response_mixture_policy",
+            "policy_kind": str(getattr(model, "policy_kind", "unknown")),
             "selected_query_id": str(best.get("query_id", "")),
             "selected_score": float(score),
             "candidate_count": len(candidates),
@@ -356,25 +464,43 @@ def rerank_bridge_report_with_mixture_policy(
         "research_lane": "exploration",
         "candidate_rows_reranked": int(changed),
         "feature_names": list(model.feature_names),
-        "ridge_alpha": float(model.ridge_alpha),
+        "policy_kind": str(getattr(model, "policy_kind", "unknown")),
+        "ridge_alpha": (
+            None
+            if getattr(model, "ridge_alpha", None) is None
+            else float(getattr(model, "ridge_alpha"))
+        ),
         "method": (
-            "Linear ridge policy trained on candidate support mixtures labeled "
-            "by frozen-generator rollout score. It selects a support mixture; "
+            "Policy trained on candidate support mixtures labeled by "
+            "frozen-generator rollout score. It selects a support mixture; "
             "it does not replace the historical support store."
         ),
     }
     return output
 
 
-def _model_payload(model: LinearMixturePolicy) -> dict[str, Any]:
-    return {
+def _model_payload(
+    model: LinearMixturePolicy | PairwiseMixtureRanker,
+) -> dict[str, Any]:
+    payload = {
+        "policy_kind": str(getattr(model, "policy_kind", "unknown")),
         "feature_names": model.feature_names,
         "coefficients": [float(value) for value in model.coefficients],
         "intercept": float(model.intercept),
         "feature_mean": [float(value) for value in model.feature_mean],
         "feature_std": [float(value) for value in model.feature_std],
-        "ridge_alpha": float(model.ridge_alpha),
     }
+    if getattr(model, "ridge_alpha", None) is not None:
+        payload["ridge_alpha"] = float(getattr(model, "ridge_alpha"))
+    if getattr(model, "learning_rate", None) is not None:
+        payload["learning_rate"] = float(getattr(model, "learning_rate"))
+    if getattr(model, "epochs", None) is not None:
+        payload["epochs"] = int(getattr(model, "epochs"))
+    if getattr(model, "l2", None) is not None:
+        payload["l2"] = float(getattr(model, "l2"))
+    if getattr(model, "pair_count", None) is not None:
+        payload["pair_count"] = int(getattr(model, "pair_count"))
+    return payload
 
 
 def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
@@ -389,21 +515,39 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
     table = build_mixture_policy_training_table(
         candidate_bridge=train_candidate_bridge,
         scenario_report=scenario_report,
-        condition_vectors=np.asarray(bridge_arrays["condition_vectors"], dtype=np.float32),
+        condition_vectors=np.asarray(
+            bridge_arrays["condition_vectors"], dtype=np.float32
+        ),
         memory_targets=np.asarray(bridge_arrays["memory_targets"], dtype=np.float32),
         history_level=np.asarray(oracle_arrays["history_level"], dtype=np.float32),
         method=str(args.method),
         metric=str(args.metric),
     )
-    model = fit_linear_mixture_policy(
-        table.features,
-        table.labels,
-        ridge_alpha=float(args.ridge_alpha),
-    )
+    if str(args.policy_kind) == "linear":
+        model: LinearMixturePolicy | PairwiseMixtureRanker = fit_linear_mixture_policy(
+            table.features,
+            table.labels,
+            ridge_alpha=float(args.ridge_alpha),
+        )
+    elif str(args.policy_kind) == "pairwise":
+        model = fit_pairwise_mixture_ranker(
+            table.features,
+            table.labels,
+            query_ids=[row["window_index"] for row in table.rows],
+            feature_names=table.feature_names,
+            learning_rate=float(args.pairwise_learning_rate),
+            epochs=int(args.pairwise_epochs),
+            l2=float(args.pairwise_l2),
+            min_label_gap=float(args.pairwise_min_label_gap),
+        )
+    else:
+        raise ValueError(f"unsupported policy kind: {args.policy_kind}")
     reranked = rerank_bridge_report_with_mixture_policy(
         bridge_report=base_bridge,
         candidate_bridge=rerank_candidate_bridge,
-        condition_vectors=np.asarray(bridge_arrays["condition_vectors"], dtype=np.float32),
+        condition_vectors=np.asarray(
+            bridge_arrays["condition_vectors"], dtype=np.float32
+        ),
         memory_targets=np.asarray(bridge_arrays["memory_targets"], dtype=np.float32),
         history_level=np.asarray(oracle_arrays["history_level"], dtype=np.float32),
         model=model,
@@ -436,6 +580,7 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
         "oracle_arrays": str(args.oracle_arrays),
         "method": str(args.method),
         "metric": str(args.metric),
+        "policy_kind": str(args.policy_kind),
         "training_row_count": int(table.features.shape[0]),
         "training_query_count": int(
             len({int(row["window_index"]) for row in table.rows})
@@ -469,7 +614,14 @@ def main() -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--method", default="narrative_generator_topk")
     parser.add_argument("--metric", default="energy_score_z")
+    parser.add_argument(
+        "--policy-kind", choices=["linear", "pairwise"], default="linear"
+    )
     parser.add_argument("--ridge-alpha", type=float, default=1.0)
+    parser.add_argument("--pairwise-learning-rate", type=float, default=0.05)
+    parser.add_argument("--pairwise-epochs", type=int, default=500)
+    parser.add_argument("--pairwise-l2", type=float, default=1e-3)
+    parser.add_argument("--pairwise-min-label-gap", type=float, default=1e-8)
     args = parser.parse_args()
     report = run_testflight(args)
     print(
