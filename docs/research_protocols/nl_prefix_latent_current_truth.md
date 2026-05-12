@@ -126,6 +126,16 @@ Diagnostic, not yet promoted:
   `0.096`. Generic larger embeddings and stripping to factor tokens are not the
   current fix; the likely direction is a hybrid narrative embedding plus
   explicit directional structure.
+- hybrid direction-feature bridge TestFlight:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_hybrid_direction_bridge_878m/hybrid_direction_bridge_report.json`.
+  Equal-norm concatenation of the full narrative embedding with explicit
+  direction features is not promoted. It leaves target cosine essentially flat
+  (`+0.00013`) and slightly improves recall@3 test-pool (`+0.00552`), but
+  worsens hard-negative mean margin by `-0.11319` and hard-negative mean gap by
+  `-0.02456`. The old worst case `joint39_val_0377` improves, but broader
+  separation degrades. Treat direction features as likely auxiliary loss,
+  calibration probe, or audit constraint candidates, not as a naive
+  concatenated input default.
 - bounded start-residual bridge:
   `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_stability_876c_start_residual/text_start_memory_stability.json`.
   Across seeds `775`, `776`, and `777`, the bounded residual preserves the

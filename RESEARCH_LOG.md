@@ -122729,3 +122729,86 @@ directional structure as an auxiliary channel or loss so the model does not ask
 a generic sentence embedding to learn "rates up" versus "rates down" by itself.
 
 ---
+## 2026-05-11: HEAD nl-prefix latent 135 hybrid direction feature TestFlight
+
+### Context
+
+Continuation of the natural-language prefix-latent autoresearch loop. The
+previous hard-case diagnostics showed that the five low-margin windows were
+already weak in raw OpenAI embedding space; switching to `text-embedding-3-large`
+and stripping text down to factor tokens both worsened hard-case separation.
+
+### Hypothesis
+
+A hybrid representation that keeps the full narrative embedding while adding a
+small explicit market-direction side channel may repair hard-negative
+separation without collapsing the story into implication labels.
+
+### Execution
+
+Added an offline TestFlight harness:
+
+- `experiments/backfill/block_ar/nl_hybrid_direction_feature_bridge.py`
+- `test_code/test_878m_nl_hybrid_direction_feature_bridge.py`
+
+The harness parses explicit market-direction tokens into signed direction
+features, keeps the saved full OpenAI narrative embeddings as the main text
+channel, fuses the two channels with equal row norm when direction evidence is
+available, and compares `text_only` against `hybrid_equal_norm` on the expanded
+manifest split. It does not call OpenAI and does not run scenario rollout.
+
+Validation commands:
+
+```bash
+uv run pytest test_code/test_878m_nl_hybrid_direction_feature_bridge.py -q
+uv run black experiments/backfill/block_ar/nl_hybrid_direction_feature_bridge.py test_code/test_878m_nl_hybrid_direction_feature_bridge.py
+python -m py_compile experiments/backfill/block_ar/nl_hybrid_direction_feature_bridge.py
+uv run python experiments/backfill/block_ar/nl_hybrid_direction_feature_bridge.py \
+  --input-report experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_expansion_878e_openai_full/narrative_pipeline_report.json \
+  --input-npz experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_expansion_878e_openai_full/narrative_pipeline_arrays.npz \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_hybrid_direction_bridge_878m \
+  --train-windows 174 --test-windows 42 --adapter-steps 700 --top-k 5 \
+  --seed 878 --device cuda
+```
+
+### Result
+
+Artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_hybrid_direction_bridge_878m/hybrid_direction_bridge_report.json`
+
+The run completed on CUDA with `2801` nonzero direction-feature rows and `173`
+zero rows. The hypothesis was falsified:
+
+- target cosine was essentially unchanged: `+0.00013`;
+- median target cosine improved slightly: `+0.00348`;
+- recall@3 test-pool improved slightly: `+0.00552`;
+- hard-negative mean margin worsened by `-0.11319`;
+- hard-negative mean gap worsened by `-0.02456`.
+
+The worst old case `joint39_val_0377` improved from margin `0.0709` to
+`0.2480`, but many broader windows degraded; for example `joint39_val_0401`
+fell by about `-0.5174` margin.
+
+### Mechanism Read
+
+The side channel is not a clean fix. It can help a specific text-embedding
+geometry failure, but equal-norm fusion gives the bridge another shortcut for
+matching coarse directions, which reduces broad positive-vs-negative
+separation. This supports the current concern that explicit grounding features
+are useful as audits and checks, but should not be naively fused into the main
+text-to-memory bridge.
+
+### Decision / Next Step
+
+Do not promote the hybrid equal-norm direction bridge and do not run scenario
+evaluation from this artifact. The next principled step is post-experiment
+analysis or research ideation around a more disciplined representation:
+directional information should probably enter as an auxiliary loss, calibration
+probe, or late audit constraint rather than as equal-norm concatenated input.
+
+No independent verifier was triggered because this iteration rejects the
+candidate rather than promoting a model, workflow default, production claim, or
+paper-facing result.
+
+---
