@@ -89,6 +89,15 @@ Diagnostic, not yet promoted:
   improves recall@3 by `+0.0159`. It is not a default until downstream
   scenario-level evaluation shows that the preserved residual signal actually
   affects fixed-start narrative scenario distributions.
+- downstream residual scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`.
+  On the same 29 held-out representative windows, direct text-predicted memory
+  remains too weak to replace support-conditioned rollout (`+1.9%` CRPS,
+  `+8.3%` energy, `0.390` 80% coverage versus persistence). The best bounded
+  residual-over-top-k variant, `narrative_residual_topk_a025`, is competitive
+  with the current top-k incumbent (`+17.4%` CRPS, `+21.6%` energy, `0.650`
+  80% coverage), but the gain is marginal and mixed across metrics. Treat it as
+  a promising diagnostic, not a promoted production default.
 
 ### Fixed-Start Conditionality
 

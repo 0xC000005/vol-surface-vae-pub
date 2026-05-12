@@ -122446,3 +122446,46 @@ The seed-775 preservation result remains consistent: target-cosine delta `-0.000
 Stop here per user instruction. The next work item, when resumed, is downstream scenario-level evaluation using the exported residual bridge artifacts; no promotion should occur before that evaluation and independent verification.
 
 ---
+## 2026-05-11: HEAD nl-prefix-latent 128: residual bridge scenario-level evaluation
+
+### Context
+Continued the natural-language prefix-latent autoresearch loop after exporting
+bridge-compatible bounded start-residual artifacts. The blocking question was
+whether the richer text/start residual bridge helps when it drives the frozen
+joint39 SNI scenario generator, not only when scored against memory targets.
+
+### Execute
+- Ran a 5-window GPU smoke of
+  `experiments/backfill/block_ar/nl_scenario_level_evaluation.py` with the
+  exported bounded start-residual bridge report and arrays:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_877a_export_seed775/mlp_start_residual__multi_caption_with_negatives_bridge_eval_report.json`
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_text_start_memory_diagnostic_877a_export_seed775/mlp_start_residual__multi_caption_with_negatives_bridge_eval_arrays.npz`.
+- After the smoke passed, ran the full 29-window representative held-out
+  scenario evaluation on CUDA:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json`.
+
+### Findings
+- The incumbent `narrative_generator_topk` remains strong on distributional
+  scenario quality: `+17.2%` ensemble CRPS, `+21.6%` energy score, and `0.645`
+  80% coverage versus persistence on this run.
+- Directly replacing the generator memory with the text-predicted memory is not
+  production-ready: `narrative_direct_memory` reaches only `+1.9%` ensemble
+  CRPS, `+8.3%` energy score, and `0.390` 80% coverage.
+- Residual-over-retrieved-support is more defensible than direct replacement.
+  The best tested variant, `narrative_residual_topk_a025`, gives `+17.4%`
+  ensemble CRPS, `+21.6%` energy score, `0.650` 80% coverage, and a slightly
+  less negative mean-path MAE delta than the top-k incumbent.
+- The result is directionally useful but not large enough for promotion:
+  residual-top-k alpha `0.25` is essentially tied with the existing support
+  mixture, with a small CRPS/coverage/MAE improvement and a tiny energy-score
+  trade-off.
+
+### Decision
+Do not promote direct text-predicted memory. Keep historical support mixtures as
+the production default and treat bounded residual refinement as a diagnostic
+candidate. The next principled step is post-experiment analysis of where the
+residual helps or hurts by window/regime before adding another architecture
+knob.
+
+---
