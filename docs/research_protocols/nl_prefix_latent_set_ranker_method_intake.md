@@ -224,3 +224,28 @@ not fit the generator-response label surface and does not produce reliable
 held-out candidate-pool rankings. The next step should be post-experiment
 analysis or a cleaner listwise/prototype objective, not a broad hyperparameter
 sweep.
+
+## Post-TestFlight Failure Analysis
+
+Artifact:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889e_failure_analysis/support_set_ranker_failure_analysis.json`
+
+Result:
+
+- default item ranker train correlation: `0.127`;
+- default item ranker held-out correlation: `-0.120`;
+- default item ranker train pairwise accuracy: `0.604`;
+- default item ranker held-out pairwise accuracy: `0.509`;
+- overfit stress setting (`hidden_dim=32`, `epochs=2000`, `l2=0`) train
+  correlation: `0.279`;
+- overfit stress held-out correlation: `-0.011`;
+- overfit stress train pairwise accuracy: `0.693`;
+- overfit stress held-out pairwise accuracy: `0.452`.
+
+Interpretation: extra item-encoder capacity can fit the train label surface
+better, but it does not produce held-out generator-response ranking signal. This
+rules out a simple "make the DeepSets scorer larger" next step. The likely
+problem is the hard candidate-selection objective or regime heterogeneity, so
+the next candidate should be a cleaner listwise/soft-weighting or
+prototype-aware support policy rather than another capacity tweak.

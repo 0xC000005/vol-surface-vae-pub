@@ -378,7 +378,14 @@ Diagnostic, not yet promoted:
   with actual generator-response energy and CRPS (`-0.120` and `-0.063`), and
   the selected mixtures are worse than the default candidate mixture by
   `+0.0147` energy and `+0.0197` CRPS. The current mechanism read is
-  `set_ranker_adds_capacity_but_still_misses_candidate_pool_oracle`.
+  `set_ranker_adds_capacity_but_still_misses_candidate_pool_oracle`. A follow-up
+  overfit stress check,
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889e_failure_analysis/support_set_ranker_failure_analysis.json`,
+  shows that a larger no-regularization item ranker improves train correlation
+  to `0.279` and train pairwise accuracy to `0.693`, but held-out correlation
+  remains near zero (`-0.011`) and held-out pairwise accuracy falls below
+  random (`0.452`). The failure is therefore not solved by simply adding set
+  encoder capacity.
 
 ### Fixed-Start Conditionality
 

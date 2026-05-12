@@ -124135,3 +124135,63 @@ Commands run:
 Independent verification was not triggered because this is a rejected exploration result, not a promotion or production-readiness claim.
 
 ---
+## 2026-05-12: HEAD nl-prefix 148 support-set ranker failure analysis
+
+### Context
+HEAD 147 rejected the first `support_set_item_ranker`: it slightly improved held-out energy and coverage but worsened CRPS, and its held-out candidate-pool scores were negatively correlated with generator-response quality. Before adding another method knob, the workflow required post-experiment analysis.
+
+### Hypothesis
+If the support-set ranker failure is mainly capacity or optimization, a deliberately stronger overfit setting should fit the train generator-response label surface much better. If it fits train but still fails held-out, the next move should be objective/representation redesign rather than tuning the same item encoder.
+
+### Research Lane
+`exploration` / `post_experiment_analysis`.
+
+### Result Status
+`mechanism_found`.
+
+### Benchmark Floor Status
+`not_applicable`; this was a diagnostic analysis, not a candidate bridge.
+
+### Execution
+Ran an overfit stress check using the existing `128` train-query / `1280` candidate-mixture labels and the same held-out candidate pool. No OpenAI calls were made.
+
+Artifact:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_support_set_ranker_889e_failure_analysis/support_set_ranker_failure_analysis.json`
+
+### Result
+Default support-set item ranker:
+
+- train correlation with negative energy: `0.127`;
+- held-out correlation with negative energy: `-0.120`;
+- train pairwise accuracy: `0.604`;
+- held-out pairwise accuracy: `0.509`.
+
+Overfit stress setting (`hidden_dim=32`, `epochs=2000`, `l2=0`):
+
+- train correlation with negative energy: `0.279`;
+- held-out correlation with negative energy: `-0.011`;
+- train pairwise accuracy: `0.693`;
+- held-out pairwise accuracy: `0.452`.
+
+### Mechanism Read
+The mechanism is:
+
+`support_set_ranker_can_overfit_but_generalizes_poorly`.
+
+The failure is not solved by simply making the DeepSets-style item ranker bigger. Extra capacity can fit train candidate preferences better, but the signal does not transfer to held-out generator-response mixture quality.
+
+### Decision / Next Step
+Do not run a broad support-set ranker hyperparameter sweep. The next HEAD step should be `research_ideation` with a method-intake gate for a softer, more stable support policy. The leading candidate is a listwise or prototype-aware mixture-weight policy that predicts weights over the candidate support pool instead of hard-selecting one candidate subset. The method story must explain why soft weighting should reduce candidate-label noise and support regime heterogeneity while preserving auditable support mixtures.
+
+Tracked docs updated:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- `docs/research_protocols/nl_prefix_latent_set_ranker_method_intake.md`
+
+### Verification
+- `uv run python ... support_set_ranker_overfit_stress_check` produced the JSON artifact above.
+- The analysis used existing generator-response label artifacts and did not change the frozen generator or production default.
+- Independent verification was not triggered because this was a non-promotional diagnostic.
+
+---
