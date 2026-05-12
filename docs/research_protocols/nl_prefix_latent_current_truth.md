@@ -61,6 +61,15 @@ production backbone, but it should not prevent low-cost exploration of learned
 support rerankers, contrastive support alignment, prototype-aware mixture
 weights, or bounded residual refinements.
 
+Sophisticated narrative-to-mixture methods now require a **story gate** in
+addition to the metric gate. Before a method can be promoted, the workflow must
+record the method story, related-work basis, novelty claim, elegance check,
+historical-backtest comparison, and kill condition. This is meant to keep the
+research line publishable and product-legible: a new method should be
+methodologically justified, not just more complicated, and it must still beat or
+remain competitive with the simple mixture on historical backtesting before it
+changes defaults or paper claims.
+
 ## Benchmark Floor For New Narrative Methods
 
 The current long-term objective is to improve the narrative-to-mixture workflow,
@@ -279,6 +288,20 @@ Diagnostic, not yet promoted:
   upper bound, not a deployable learned policy, but it is the first strong
   evidence that a more sophisticated mixture-level narrative-to-support policy
   could beat the simple mixture floor.
+- learned generator-response mixture policy:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_886b_32train_to_fullheldout/learned_mixture_policy_report.json`.
+  The non-leaky train-label pipeline now builds train-window query bridges from
+  cached text/memory artifacts, scores candidate top-3 support mixtures through
+  the frozen generator, and trains a linear policy on inference-available
+  mixture features. The 32-query label set confirms strong oracle signal:
+  best generator-response mixture is not the default top-3 in `29/32` train
+  queries, with best-vs-default deltas of `-0.1115` energy and `-0.0950` CRPS.
+  However, the first learned policy is not promoted. On the 29 held-out windows
+  at the same seed, it slightly regresses versus the simple mixture on energy
+  (`0.9915` vs `0.9907`) and CRPS (`0.6947` vs `0.6882`) while improving 80%
+  coverage (`0.5796` vs `0.5651`). This means generator-response labels are a
+  viable training target, but the current linear mixture policy is too weak or
+  under-labeled to beat the simple baseline.
 
 ### Fixed-Start Conditionality
 

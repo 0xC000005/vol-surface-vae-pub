@@ -1,10 +1,14 @@
 import sys
 
+import numpy as np
+
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_rollout_response_label_testflight import (
     build_candidate_label_bridge,
+    build_cached_query_bridge_from_bridge_artifacts,
     build_mixture_label_bridge,
+    build_query_bridge_from_examples,
     summarize_rollout_response_labels,
 )
 
@@ -136,3 +140,130 @@ def test_build_mixture_label_bridge_builds_candidate_subsets() -> None:
     assert rows[0]["query_id"] == "q4__mixture_001__s0-s1-s2"
     assert [item["window_index"] for item in rows[0]["top_train_pool"]] == [0, 1, 2]
     assert len(rows[1]["top_train_pool"]) == 3
+
+
+def test_build_query_bridge_from_examples_can_use_train_queries_without_self_support() -> None:
+    examples = [
+        {
+            "window_index": 0,
+            "window_id": "w0",
+            "embedding_index": 0,
+            "role": "anchor",
+            "kind": "primary",
+        },
+        {
+            "window_index": 1,
+            "window_id": "w1",
+            "embedding_index": 1,
+            "role": "anchor",
+            "kind": "primary",
+        },
+        {
+            "window_index": 2,
+            "window_id": "w2",
+            "embedding_index": 2,
+            "role": "anchor",
+            "kind": "primary",
+        },
+    ]
+    vectors = np.asarray(
+        [[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]],
+        dtype=np.float32,
+    )
+
+    report = build_query_bridge_from_examples(
+        examples=examples,
+        condition_vectors=vectors,
+        memory_targets=vectors,
+        query_indices=[0, 1],
+        support_indices=[0, 1, 2],
+        candidate_pool_size=2,
+        exclude_query_from_support=True,
+    )
+
+    rows = report["evaluation"]["heldout_examples"]
+    assert [row["window_index"] for row in rows] == [0, 1]
+    assert rows[0]["top_train_pool"][0]["window_index"] != 0
+    assert rows[1]["top_train_pool"][0]["window_index"] != 1
+
+
+def test_build_cached_query_bridge_from_bridge_artifacts_preserves_mapping() -> None:
+    pipeline_report = {
+        "narrative_bundles": [
+            {
+                "window_id": "w0",
+                "narratives": [
+                    {
+                        "id": "anchor",
+                        "text": "window zero",
+                        "grounding_status": "ok",
+                        "observed_fact_tokens": [],
+                    }
+                ],
+            },
+            {
+                "window_id": "w1",
+                "narratives": [
+                    {
+                        "id": "anchor",
+                        "text": "window one",
+                        "grounding_status": "ok",
+                        "observed_fact_tokens": [],
+                    }
+                ],
+            },
+            {
+                "window_id": "w2",
+                "narratives": [
+                    {
+                        "id": "anchor",
+                        "text": "window two",
+                        "grounding_status": "ok",
+                        "observed_fact_tokens": [],
+                    }
+                ],
+            },
+        ],
+        "embedding_backend": "test",
+        "embedding_model": "unit",
+    }
+    bridge_report = {
+        "split": {
+            "train_indices": [0, 1],
+            "test_indices": [2],
+            "excluded_indices": [],
+        },
+        "window_indices": [100, 101, 102],
+        "window_metadata": [{"window_index": 100 + idx} for idx in range(3)],
+    }
+    arrays = {
+        "condition_vectors": np.asarray(
+            [[1.0, 0.0], [0.8, 0.2], [0.0, 1.0]],
+            dtype=np.float32,
+        ),
+        "memory_targets": np.asarray(
+            [[1.0, 0.0], [0.8, 0.2], [0.0, 1.0]],
+            dtype=np.float32,
+        ),
+    }
+
+    report = build_cached_query_bridge_from_bridge_artifacts(
+        bridge_report=bridge_report,
+        bridge_arrays=arrays,
+        pipeline_report=pipeline_report,
+        query_split="train",
+        support_split="train",
+        max_query_windows=2,
+        candidate_pool_size=1,
+    )
+
+    assert report["purpose"] == "cached_query_bridge"
+    assert report["window_indices"] == [100, 101, 102]
+    assert report["embedding_backend"] == "test"
+    assert [row["window_index"] for row in report["evaluation"]["heldout_examples"]] == [
+        0,
+        1,
+    ]
+    assert report["evaluation"]["heldout_examples"][0]["top_train_pool"][0][
+        "window_index"
+    ] == 1

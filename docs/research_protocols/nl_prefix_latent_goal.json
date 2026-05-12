@@ -28,6 +28,7 @@
     "keep_historical_support_mixture_as_production_backbone",
     "improve_narrative_to_mixture_scoring_weighting_or_refinement",
     "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
+    "require_sophisticated_methods_to_have_method_story_related_work_basis_novelty_claim_elegance_check_backtest_gate_and_kill_condition",
     "separate_low_cost_exploration_from_default_promotion",
     "allow_exploratory_regressions_when_the_mechanism_value_is_documented",
     "allow_small_regressions_only_when_mechanism_and_tradeoff_are_documented",
@@ -68,8 +69,17 @@
     "prefer_scalable_learned_mechanisms_and_data_backed_memory_over_hand_coded_market_rules",
     "treat_simple_mixture_as_promotion_floor_not_exploration_leash",
     "avoid_eval_overfitting_to_target_cosine_retrieval_rank_or_single_metric_improvements",
+    "require_coherent_method_story_and_related_work_support_before_promotion",
     "use_independent_verifier_before_promotion_not_for_every_low_cost_probe"
   ],
+  "sophisticated_method_gate": {
+    "method_story": "Explain how the method turns a risk-manager narrative plus fixed start into an auditable support mixture.",
+    "related_work_basis": "Cite primary related work or first-principles local evidence supporting the design family.",
+    "novelty_claim": "State what is new relative to CLIP-style alignment, retrieval/RAG, text-to-time-series generation, and financial scenario generation.",
+    "elegance_check": "Explain why the added component is necessary and not just another knob.",
+    "backtest_gate": "Compare same-seed held-out historical backtests against the simple mixture floor using CRPS, energy, coverage, fixed-start controls, null/repeat checks, and support audits.",
+    "kill_condition": "State the result that stops the branch before launching the run."
+  },
   "primary_acceptance_metrics": [
     "energy_score_improvement_vs_persistence",
     "ensemble_crps_improvement_vs_persistence",

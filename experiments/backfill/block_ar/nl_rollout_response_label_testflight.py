@@ -24,6 +24,17 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from experiments.backfill.block_ar.nl_condition_bridge_evaluation import (  # noqa: E402
+    _annotate_window_ids,
+    _top_rows,
+    _window_id_lookup,
+    build_bridge_examples,
+    load_pipeline_artifacts,
+)
+from experiments.backfill.block_ar.nl_text_conditioning import (  # noqa: E402
+    cosine_similarity,
+)
+
 
 DEFAULT_BRIDGE_REPORT = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
@@ -33,6 +44,7 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "nl_rollout_response_label_testflight_881a"
 )
+QUERY_SPLIT_CHOICES = ("train", "test", "excluded", "all")
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
@@ -74,6 +86,179 @@ def _anchor_rows(
 
 def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in value)
+
+
+def _anchor_by_window(examples: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    anchors: dict[int, dict[str, Any]] = {}
+    for example in examples:
+        if str(example.get("role", "")) != "anchor":
+            continue
+        window_index = int(example["window_index"])
+        anchors.setdefault(window_index, example)
+    return anchors
+
+
+def build_query_bridge_from_examples(
+    *,
+    examples: list[dict[str, Any]],
+    condition_vectors: np.ndarray,
+    memory_targets: np.ndarray,
+    query_indices: list[int],
+    support_indices: list[int],
+    candidate_pool_size: int = 5,
+    exclude_query_from_support: bool = True,
+) -> dict[str, Any]:
+    """Build query rows from cached condition vectors for arbitrary windows."""
+
+    cond = np.asarray(condition_vectors, dtype=np.float32)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    anchors = _anchor_by_window(examples)
+    window_ids = _window_id_lookup(examples)
+    support_pool_all = [int(idx) for idx in support_indices]
+    rows: list[dict[str, Any]] = []
+    for window_index in [int(idx) for idx in query_indices]:
+        example = anchors.get(window_index)
+        if example is None:
+            continue
+        emb_idx = int(example["embedding_index"])
+        support_pool = [
+            int(idx)
+            for idx in support_pool_all
+            if not bool(exclude_query_from_support) or int(idx) != window_index
+        ]
+        if not support_pool:
+            continue
+        query = cond[emb_idx]
+        target = targets[window_index]
+        row = {
+            "window_index": int(window_index),
+            "window_id": str(example.get("window_id", f"window_{window_index:04d}")),
+            "embedding_index": emb_idx,
+            "role": str(example.get("role", "")),
+            "kind": str(example.get("kind", "")),
+            "target_cosine": float(cosine_similarity(query, target)),
+            "target_mse": float(np.mean((query - target) ** 2)),
+            "top_train_pool": _annotate_window_ids(
+                _top_rows(query, targets, support_pool, top_k=int(candidate_pool_size)),
+                window_ids,
+            ),
+        }
+        rows.append(row)
+    if not rows:
+        raise ValueError("no query rows built from cached examples")
+    return {
+        "status": "ok",
+        "purpose": "cached_query_bridge",
+        "scope_note": (
+            "Query bridge built from cached condition vectors. It can be used "
+            "to create non-heldout rollout-response labels without OpenAI calls."
+        ),
+        "split": {
+            "train_indices": support_pool_all,
+            "test_indices": [int(idx) for idx in query_indices],
+            "source": "cached_query_bridge",
+        },
+        "evaluation": {
+            "heldout_window_count": len({row["window_index"] for row in rows}),
+            "heldout_example_count": len(rows),
+            "heldout_examples": rows,
+        },
+    }
+
+
+def _split_indices(
+    bridge_report: dict[str, Any],
+    *,
+    split_name: str,
+    n_windows: int,
+) -> list[int]:
+    name = str(split_name)
+    if name == "all":
+        return list(range(int(n_windows)))
+    key = f"{name}_indices"
+    raw = bridge_report.get("split", {}).get(key)
+    if not isinstance(raw, list):
+        raise ValueError(f"bridge report split has no {key}")
+    return [int(idx) for idx in raw]
+
+
+def _first_n(indices: list[int], *, max_count: int) -> list[int]:
+    values = [int(idx) for idx in indices]
+    if int(max_count) <= 0:
+        return values
+    return values[: int(max_count)]
+
+
+def _parse_index_list(raw: str | None) -> list[int] | None:
+    if raw is None or not str(raw).strip():
+        return None
+    return [int(item.strip()) for item in str(raw).split(",") if item.strip()]
+
+
+def build_cached_query_bridge_from_bridge_artifacts(
+    *,
+    bridge_report: dict[str, Any],
+    bridge_arrays: dict[str, np.ndarray],
+    pipeline_report: dict[str, Any],
+    query_split: str = "train",
+    support_split: str = "train",
+    query_indices: list[int] | None = None,
+    support_indices: list[int] | None = None,
+    max_query_windows: int = 8,
+    candidate_pool_size: int = 5,
+    exclude_query_from_support: bool = True,
+) -> dict[str, Any]:
+    """Build arbitrary query rows from cached bridge/pipeline artifacts."""
+
+    condition_vectors = np.asarray(bridge_arrays["condition_vectors"], dtype=np.float32)
+    memory_targets = np.asarray(bridge_arrays["memory_targets"], dtype=np.float32)
+    examples = build_bridge_examples(pipeline_report)
+    if condition_vectors.shape[0] != len(examples):
+        raise ValueError(
+            f"condition_vectors rows ({condition_vectors.shape[0]}) do not match "
+            f"rebuilt examples ({len(examples)})"
+        )
+    n_windows = int(memory_targets.shape[0])
+    selected_query = (
+        [int(idx) for idx in query_indices]
+        if query_indices is not None
+        else _split_indices(bridge_report, split_name=query_split, n_windows=n_windows)
+    )
+    selected_support = (
+        [int(idx) for idx in support_indices]
+        if support_indices is not None
+        else _split_indices(bridge_report, split_name=support_split, n_windows=n_windows)
+    )
+    output = build_query_bridge_from_examples(
+        examples=examples,
+        condition_vectors=condition_vectors,
+        memory_targets=memory_targets,
+        query_indices=_first_n(selected_query, max_count=int(max_query_windows)),
+        support_indices=selected_support,
+        candidate_pool_size=int(candidate_pool_size),
+        exclude_query_from_support=bool(exclude_query_from_support),
+    )
+    output["query_bridge_config"] = {
+        "query_split": str(query_split),
+        "support_split": str(support_split),
+        "query_indices": _first_n(selected_query, max_count=int(max_query_windows)),
+        "support_indices": selected_support,
+        "max_query_windows": int(max_query_windows),
+        "candidate_pool_size": int(candidate_pool_size),
+        "exclude_query_from_support": bool(exclude_query_from_support),
+    }
+    for key in (
+        "window_metadata",
+        "source_indices",
+        "window_indices",
+        "embedding_backend",
+        "embedding_model",
+    ):
+        if key in bridge_report:
+            output[key] = bridge_report[key]
+        elif key in pipeline_report:
+            output[key] = pipeline_report[key]
+    return output
 
 
 def build_candidate_label_bridge(
@@ -461,6 +646,55 @@ def build_mixture_command(args: argparse.Namespace) -> None:
     print(f"wrote {report_path} rows={len(output['evaluation']['heldout_examples'])}")
 
 
+def _bridge_arrays_path(
+    bridge_report: dict[str, Any],
+    explicit_path: str | None,
+) -> Path:
+    if explicit_path:
+        return Path(explicit_path)
+    artifact_paths = bridge_report.get("artifact_paths", {})
+    if isinstance(artifact_paths, dict) and artifact_paths.get("arrays"):
+        return Path(str(artifact_paths["arrays"]))
+    raise ValueError("pass --bridge-arrays or use a bridge report with artifact_paths.arrays")
+
+
+def _pipeline_report_path(
+    bridge_report: dict[str, Any],
+    explicit_path: str | None,
+) -> Path:
+    if explicit_path:
+        return Path(explicit_path)
+    if bridge_report.get("input_report"):
+        return Path(str(bridge_report["input_report"]))
+    raise ValueError("pass --pipeline-report or use a bridge report with input_report")
+
+
+def build_query_command(args: argparse.Namespace) -> None:
+    bridge = _load_json(args.bridge_report)
+    pipeline = _load_json(_pipeline_report_path(bridge, args.pipeline_report))
+    _, bridge_arrays = load_pipeline_artifacts(
+        args.bridge_report,
+        _bridge_arrays_path(bridge, args.bridge_arrays),
+    )
+    output = build_cached_query_bridge_from_bridge_artifacts(
+        bridge_report=bridge,
+        bridge_arrays=bridge_arrays,
+        pipeline_report=pipeline,
+        query_split=str(args.query_split),
+        support_split=str(args.support_split),
+        query_indices=_parse_index_list(args.query_indices),
+        support_indices=_parse_index_list(args.support_indices),
+        max_query_windows=int(args.max_query_windows),
+        candidate_pool_size=int(args.candidate_pool_size),
+        exclude_query_from_support=not bool(args.include_self_support),
+    )
+    output_dir = Path(args.output_dir)
+    report_path = output_dir / "query_bridge_report.json"
+    output["artifact_paths"] = {"report": str(report_path)}
+    _write_json(report_path, output)
+    print(f"wrote {report_path} rows={len(output['evaluation']['heldout_examples'])}")
+
+
 def summarize_command(args: argparse.Namespace) -> None:
     candidate_bridge = _load_json(args.candidate_bridge_report)
     scenario_report = _load_json(args.scenario_report)
@@ -509,6 +743,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     build_mixture.add_argument("--mixture-size", type=int, default=3)
     build_mixture.add_argument("--max-mixtures-per-query", type=int, default=0)
     build_mixture.set_defaults(func=build_mixture_command)
+
+    build_query = subparsers.add_parser("build-query-bridge")
+    build_query.add_argument("--bridge-report", default=DEFAULT_BRIDGE_REPORT)
+    build_query.add_argument("--bridge-arrays")
+    build_query.add_argument("--pipeline-report")
+    build_query.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    build_query.add_argument("--query-split", choices=QUERY_SPLIT_CHOICES, default="train")
+    build_query.add_argument("--support-split", choices=QUERY_SPLIT_CHOICES, default="train")
+    build_query.add_argument("--query-indices")
+    build_query.add_argument("--support-indices")
+    build_query.add_argument("--max-query-windows", type=int, default=8)
+    build_query.add_argument("--candidate-pool-size", type=int, default=5)
+    build_query.add_argument("--include-self-support", action="store_true")
+    build_query.set_defaults(func=build_query_command)
 
     summarize = subparsers.add_parser("summarize")
     summarize.add_argument("--candidate-bridge-report", required=True)

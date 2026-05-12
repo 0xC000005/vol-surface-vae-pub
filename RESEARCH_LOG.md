@@ -123474,3 +123474,123 @@ evaluate against the simple top-k3 baseline on held-out historical backtests.
 - `uv run python experiments/backfill/block_ar/nl_rollout_response_label_testflight.py summarize --candidate-bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/mixture_label_bridge_report.json --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout/scenario_eval/scenario_level_eval_report.json --baseline-scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_baseline_884a_fullheldout_topk3_s2_seed884/scenario_level_eval_report.json --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_mixture_testflight_884a_fullheldout`
 
 ---
+## 2026-05-12: HEAD nl-prefix 141 method-story gate and learned mixture policy
+
+### Context
+The long-term objective remains a production-ready and publishable
+narrative-conditioned scenario generator that keeps historical support mixtures
+as the auditable backbone. The user clarified that sophisticated methods must
+not be evaluated on performance alone: they also need a coherent methodological
+story, related-work support, elegance, and material historical-backtest
+improvement over the simple mixture baseline.
+
+### Hypothesis
+The workflow should require both a metric gate and a story gate before any
+sophisticated narrative-to-mixture method can be promoted. Separately, the
+mixture-level rollout-response oracle result suggests a non-leaky learned policy
+may be able to beat the simple mixture if it learns from generator-response
+labels rather than replay proxies.
+
+### Research Lane
+`exploration`.
+
+### Result Status
+`mechanism_found_but_candidate_rejected`.
+
+### Benchmark Floor Status
+`below_floor` for the first learned linear mixture policy; the oracle label
+signal remains positive.
+
+### Method Story Gate Added
+Updated the workflow so future sophisticated methods must record:
+
+- `method_story`: how the method maps a risk-manager narrative plus fixed start
+  into an auditable support mixture;
+- `related_work_basis`: primary related work or first-principles local evidence
+  supporting the method family;
+- `novelty_claim`: what is new relative to CLIP-style alignment, retrieval/RAG,
+  text-to-time-series generation, and financial scenario generation;
+- `elegance_check`: why the design is principled rather than another knob;
+- `backtest_gate`: same-seed historical-backtest comparison against the simple
+  mixture floor;
+- `kill_condition`: what result stops the branch.
+
+Updated artifacts:
+
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- `docs/research_protocols/nl_prefix_latent_goal.json`
+- local ignored state `autoresearch-session/nl_prefix_latent_state.json`
+
+### Execution
+Added cached train-query bridge support and a first learned generator-response
+mixture policy:
+
+- `experiments/backfill/block_ar/nl_rollout_response_label_testflight.py`
+  can now build query bridges for arbitrary train/test splits from cached
+  condition-vector artifacts without OpenAI calls.
+- `experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+  trains a linear ridge policy over inference-available support-mixture
+  features using frozen-generator rollout-response labels.
+- Tests:
+  `test_code/test_881a_nl_rollout_response_label_testflight.py` and
+  `test_code/test_885a_nl_learned_mixture_policy.py`.
+
+Artifacts:
+
+- train query bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_query_bridge_886a_32q/query_bridge_report.json`;
+- train candidate mixtures:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_886a_32q/mixture_label_bridge_report.json`;
+- train rollout-response scenario labels:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_886a_32q/scenario_eval/scenario_level_eval_report.json`;
+- train label summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_886a_32q/rollout_response_label_summary.json`;
+- learned policy:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_886b_32train_to_fullheldout/learned_mixture_policy_report.json`;
+- learned-policy held-out scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_886c_32train_fullheldout_scenario_eval/scenario_level_eval_report.json`;
+- same-seed simple-mixture baseline:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_learned_mixture_policy_886d_original_fullheldout_scenario_eval/scenario_level_eval_report.json`.
+
+### Result
+The non-leaky train-label mechanism works and the oracle label signal is strong:
+
+- train queries: `32`;
+- candidate mixture rows: `320`;
+- best generator-response mixture is not the default top-3 in `29/32` train
+  queries;
+- best-vs-default train-label delta: `-0.1115` energy and `-0.0950` CRPS
+  (lower is better).
+
+The first learned linear policy does not beat the simple mixture on the
+held-out backtest:
+
+- learned policy held-out energy / CRPS: `0.9915` / `0.6947`;
+- same-seed simple mixture energy / CRPS: `0.9907` / `0.6882`;
+- learned policy improves 80% coverage (`0.5796` vs `0.5651`) but regresses
+  CRPS, energy, mean-path MAE, and terminal MAE.
+
+### Mechanism Read
+The positive oracle label result means the simple mixture is not the theoretical
+limit: better support-mixture choices exist inside the same candidate pool. The
+failed learned policy means a small linear feature model trained on 32 query
+labels is not enough to recover that choice out of sample. This branch should
+not be promoted, but it identifies the next bottleneck cleanly: learn a more
+expressive but still elegant mixture policy, or improve the label set, without
+abandoning the historical support mixture.
+
+### Decision / Next Step
+Do not promote the linear mixture policy. The next HEAD step should be
+post-experiment analysis: explain why the policy underfit despite strong oracle
+labels, then propose a candidate method only if it satisfies the new
+method-story gate and has a clear historical-backtest falsifier.
+
+### Verification
+- `uv run pytest test_code/test_881a_nl_rollout_response_label_testflight.py test_code/test_885a_nl_learned_mixture_policy.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_rollout_response_label_testflight.py experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json`
+- `python -m json.tool autoresearch-session/nl_prefix_latent_state.json`
+
+---

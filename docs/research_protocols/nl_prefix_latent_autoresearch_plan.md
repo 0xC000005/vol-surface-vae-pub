@@ -89,6 +89,43 @@ Current representative floor:
 This evidence makes the mixture a benchmark and backbone, not a disposable
 interpretability layer.
 
+## Method Story And Backtest Gate
+
+The next sophisticated pipeline must be more than a clever reranker. It needs a
+coherent research story and a historical-backtest win. Treat this as a two-part
+promotion contract:
+
+1. **Backtest gate.** The method must beat, or be clearly competitive with, the
+   simple `soft_topk_narrative_start_checked` mixture on held-out historical
+   backtests: energy score, ensemble CRPS, 80% coverage, fixed-start controls,
+   null/repeat controls, and support-direction audits. A tiny gain on one metric
+   is not enough if calibration, coverage, support trust, or stability worsens
+   without explanation.
+2. **Story gate.** The method must have a clean methodological narrative. A
+   reviewer should be able to see why the design follows from related work and
+   why it is a local contribution rather than an arbitrary knob. The workflow
+   should record:
+   - `method_story`: how the method turns a risk-manager narrative plus fixed
+     start into an auditable support mixture;
+   - `related_work_basis`: primary papers/docs or first-principles local
+     evidence that justify the design class;
+   - `novelty_claim`: what is new relative to generic CLIP-style alignment,
+     retrieval/RAG, text-to-time-series generation, and financial scenario
+     generation;
+   - `elegance_check`: why the method is simpler, more unified, or more
+     principled than the previous path, or why its added component is necessary;
+   - `kill_condition`: the backtest or mechanism result that would stop the
+     branch.
+
+This gate is meant to prevent two failure modes. First, it prevents
+metric-chasing variants that beat one seed but have no defensible method story.
+Second, it prevents elegant-looking methods from replacing a strong baseline
+without historical-backtest evidence. The current concrete benchmark is the
+historical holdout setup: choose a historical query date, use only the preceding
+market state and its generated narrative condition, produce a 30-day scenario
+distribution, and score it against the realized next 30 days across many
+windows.
+
 ## Research Operating Doctrine: Explore Like A Scientist, Promote Like An Engineer
 
 The simple mixture is the production and promotion floor, not a leash on
