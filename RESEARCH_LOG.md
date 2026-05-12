@@ -123867,3 +123867,116 @@ condition before code.
 - `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report ... --top-k 3 --samples 2 --seed 886 --device cuda --max_windows 441`
 
 ---
+## 2026-05-12: HEAD nl-prefix 145 mixture ranker target and data-scale analysis
+
+### Context
+HEAD 144 rejected the first pairwise support-mixture ranker. Before adding a
+larger model or a new loss knob, this iteration checked whether the failure was
+caused by metric-target conflict or by too few generator-response labels.
+
+### Hypothesis
+If energy and CRPS oracles disagree often, the next method should use a clearer
+listwise utility. If the 32-query training set is simply too small, scaling the
+same generator-response labels to all available train-query windows should
+improve the same pairwise ranker. If neither is true, the bottleneck is likely
+the support-mixture representation/model structure.
+
+### Research Lane
+`exploration` / `post_experiment_analysis`.
+
+### Result Status
+`mechanism_found`.
+
+### Benchmark Floor Status
+`below_floor`; no promotion.
+
+### Execution
+Built a held-out utility analysis:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_mixture_ranker_utility_analysis_887f/mixture_ranker_utility_analysis.json`
+
+Then scaled the train-query generator-response labels from `32` queries to all
+`128` available train-query windows:
+
+- query bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_query_bridge_888a_128q/query_bridge_report.json`
+- mixture bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_888a_128q/mixture_label_bridge_report.json`
+- scenario labels:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_888a_128q/scenario_eval/scenario_level_eval_report.json`
+- label summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_888a_128q/rollout_response_label_summary.json`
+
+Re-trained the same pairwise ranker on the 128-query label set and evaluated it
+on the same held-out windows:
+
+- policy report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_888b_128train_to_fullheldout/learned_mixture_policy_report.json`
+- held-out scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_888c_128train_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_888d_128train_post_analysis/pairwise_policy_128train_post_analysis.json`
+
+### Result
+Metric-target conflict is not the main failure:
+
+- held-out mean within-query energy/CRPS correlation: `0.917`;
+- median within-query energy/CRPS correlation: `0.927`;
+- same candidate is both the energy and CRPS oracle in `22/29` held-out
+  queries;
+- a composite oracle would improve the default candidate mixture by `-0.0589`
+  energy and `-0.0488` CRPS.
+
+Scaling labels confirms strong train-query oracle signal:
+
+- train queries: `128`;
+- candidate mixture rows: `1280`;
+- best generator-response mixture is not the default/top candidate in
+  `114/128` queries;
+- mean best-minus-top1: `-0.0883` energy and `-0.0738` CRPS.
+
+But the same pairwise pooled-feature ranker still does not learn the label
+surface:
+
+- train correlation with negative energy: `0.153`;
+- held-out correlation with negative energy: `0.077`;
+- held-out correlation with negative CRPS: `0.183`;
+- exact energy-oracle selection: `3/29`;
+- selected mixtures are worse than the default candidate mixture by `+0.0155`
+  energy and `+0.0150` CRPS.
+
+The held-out scenario result is unchanged from the 32-query pairwise run:
+
+- pairwise CRPS: `0.6909`; simple mixture CRPS: `0.6882`;
+- pairwise energy: `0.9936`; simple mixture energy: `0.9907`;
+- pairwise 80% coverage: `0.5748`; simple mixture coverage: `0.5651`.
+
+### Mechanism Read
+The bottleneck is not primarily energy-versus-CRPS scalarization, and it is not
+solved by adding more generator-response labels to the current pooled-feature
+pairwise model. The current mechanism is:
+
+`pooled_feature_ranker_underrepresents_support_set_interactions`.
+
+The oracle signal is real, the label set is now larger, and the current model
+still cannot fit the train ranking surface. That points to representation/model
+structure: the ranker likely needs to see per-support item features and
+support-set interactions directly rather than only hand-pooled summary
+features.
+
+### Decision / Next Step
+Do not promote the pairwise ranker. Do not spend the next iteration on metric
+scalarization or more train labels alone. The next candidate should go back
+through the method-intake gate as a richer support-set representation, likely a
+small DeepSets-style item encoder over per-support candidate features plus
+query/start context. It must still output an auditable support mixture and must
+still beat the simple mixture floor before promotion.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report ...888a_128q... --allow-duplicate-query-windows --top-k 3 --samples 2 --seed 888 --device cuda --max_windows 441`
+- `uv run python experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py --policy-kind pairwise ...888a_128q...`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report ...888b... --top-k 3 --samples 2 --seed 886 --device cuda --max_windows 441`
+- JSON verification of the utility, label-summary, and 128-query post-analysis
+  artifacts.
+
+---

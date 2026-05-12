@@ -192,3 +192,33 @@ candidate-pool energy alignment remained weak. The next ranker should not just
 increase capacity; it needs either a better generator-quality target or a
 clearer listwise utility that jointly reflects CRPS and energy without adding a
 large hyperparameter sweep.
+
+## 2026-05-12 Follow-Up Analysis
+
+The follow-up target/data-scale analysis changed the diagnosis:
+
+- utility analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_mixture_ranker_utility_analysis_887f/mixture_ranker_utility_analysis.json`;
+- expanded train labels:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_train_mixture_labels_888a_128q/rollout_response_label_summary.json`;
+- 128-query pairwise post-analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_888d_128train_post_analysis/pairwise_policy_128train_post_analysis.json`.
+
+Energy and CRPS are not the main conflict. On the held-out candidate pool, the
+mean within-query energy/CRPS correlation is `0.917`, and `22/29` queries have
+the same energy and CRPS oracle. A composite oracle would still improve the
+default candidate mixture by about `-0.0589` energy and `-0.0488` CRPS.
+
+Scaling labels also does not rescue the current pairwise pooled-feature model.
+The 128-query train label set has strong oracle signal (`114/128` best mixtures
+are not the default top candidate; mean best-minus-top1 is `-0.0883` energy and
+`-0.0738` CRPS), but the ranker still has weak training correlation (`0.153`)
+and weak held-out energy correlation (`0.077`). It selects held-out mixtures
+worse than the default candidate mixture by `+0.0155` energy and `+0.0150`
+CRPS.
+
+Updated decision: the next method should not merely swap energy for a composite
+label or add more train labels. It needs a better support-mixture
+representation, likely one that sees per-support item features and support-set
+interactions directly, while preserving the same historical mixture output and
+the same simple-mixture backtest floor.

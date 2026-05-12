@@ -345,6 +345,22 @@ Diagnostic, not yet promoted:
   `2/29`, and selected mixtures worse than the default candidate mixture by
   `+0.0105` energy and `+0.0052` CRPS. The mechanism read is
   `pairwise_ranker_improves_some_crps_alignment_but_not_generator_quality`.
+- mixture-ranker target/data-scale analysis:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_mixture_ranker_utility_analysis_887f/mixture_ranker_utility_analysis.json`
+  and
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_pairwise_mixture_policy_888d_128train_post_analysis/pairwise_policy_128train_post_analysis.json`.
+  Energy and CRPS candidate oracles are highly aligned within held-out
+  candidate pools: mean within-query correlation is `0.917`, and the same
+  candidate is both the energy and CRPS oracle in `22/29` held-out queries.
+  Therefore the pairwise failure is not mainly a metric-conflict problem.
+  Scaling generator-response labels from `32` train queries (`320` candidate
+  mixtures) to `128` train queries (`1280` mixtures) also does not fix the
+  current pooled-feature pairwise model. The 128-query ranker has only `0.153`
+  training correlation with negative energy, `0.077` held-out correlation with
+  negative energy, and selects mixtures worse than the default candidate
+  mixture by `+0.0155` energy and `+0.0150` CRPS. The current bottleneck is
+  therefore representation/model structure for support-mixture scoring, not
+  merely metric scalarization or too few train labels.
 
 ### Fixed-Start Conditionality
 
