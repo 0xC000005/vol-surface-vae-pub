@@ -157,6 +157,7 @@ test/
 model/
 models/
 .vscode/
+.gradio/
 test_spx/
 models_1d_backfilling/
 
