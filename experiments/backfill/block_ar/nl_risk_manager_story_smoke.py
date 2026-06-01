@@ -625,7 +625,38 @@ def render_story_smoke_markdown(report: dict[str, Any]) -> str:
         )
         lines.append(f"- Finite rate: {_fmt_float(generation.get('finite_rate'))}")
         lines.append("")
-        lines.append("| Market | Mean Terminal Delta | P10 | P90 |")
+        path_rows = [
+            row
+            for row in _as_list(generation.get("path_quantiles"))
+            if isinstance(row, dict)
+            and str(row.get("analogue_key", "ALL")) == "ALL"
+            and str(row.get("value_kind", "")).lower() == "raw_level"
+        ]
+        if path_rows:
+            def _last_value(values: Any) -> Any:
+                series = _as_list(values)
+                return series[-1] if series else None
+
+            lines.append(
+                "| Market | Start Level | Mean Terminal Level | P10 Level | P90 Level |"
+            )
+            lines.append("| --- | ---: | ---: | ---: | ---: |")
+            for row in path_rows:
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            str(row.get("market", "")),
+                            _fmt_float(row.get("start_level")),
+                            _fmt_float(_last_value(row.get("mean"))),
+                            _fmt_float(_last_value(row.get("p10"))),
+                            _fmt_float(_last_value(row.get("p90"))),
+                        ]
+                    )
+                    + " |"
+                )
+            return "\n".join(lines)
+        lines.append("| Market | Mean Terminal Change | P10 Change | P90 Change |")
         lines.append("| --- | ---: | ---: | ---: |")
         for row in _as_list(generation.get("terminal_delta_summary")):
             if not isinstance(row, dict):
@@ -778,7 +809,7 @@ def path_quantiles_for_generated_states(
     future_states: np.ndarray | None = None,
     max_paths: int = 6,
 ) -> list[dict[str, Any]]:
-    """Build path-level quantiles for the demo fan chart."""
+    """Build raw-level path quantiles for the demo fan chart."""
 
     states = np.asarray(generated_states, dtype=np.float32)
     current = np.asarray(current_states, dtype=np.float32)
@@ -786,31 +817,43 @@ def path_quantiles_for_generated_states(
         raise ValueError("generated_states must have shape [K,S,T,C]")
     if current.shape != (states.shape[0], states.shape[-1]):
         raise ValueError("current_states must have shape [K,C]")
-    delta = states - current[:, None, None, :]
-    future_delta: np.ndarray | None = None
+    future_level: np.ndarray | None = None
     if future_states is not None:
         future = np.asarray(future_states, dtype=np.float32)
         expected_future_shape = (states.shape[0], states.shape[2], states.shape[-1])
         if future.shape != expected_future_shape:
             raise ValueError("future_states must have shape [K,T,C]")
-        future_delta = future - current[:, None, :]
+        future_level = future
     index = {name: idx for idx, name in enumerate(spec_names)}
     days = list(range(1, int(states.shape[2]) + 1))
 
-    def _market_series(scope_delta: np.ndarray) -> dict[str, np.ndarray]:
+    def _market_series(scope_level: np.ndarray) -> dict[str, np.ndarray]:
         series_by_market: dict[str, np.ndarray] = {
-            "IV_SURFACE": np.nanmean(scope_delta[..., :25], axis=-1),
+            "IV_SURFACE": np.nanmean(scope_level[..., :25], axis=-1),
         }
         if states.shape[-1] >= 25:
             for cell in SELECTED_IV_CELLS:
                 row = int(cell["row"])
                 col = int(cell["col"])
                 flat_index = row * 5 + col
-                series_by_market[str(cell["market"])] = scope_delta[..., flat_index]
+                series_by_market[str(cell["market"])] = scope_level[..., flat_index]
         for market, spec_name in KEY_FACTOR_NAMES.items():
             if spec_name in index:
-                series_by_market[market] = scope_delta[..., index[spec_name]]
+                series_by_market[market] = scope_level[..., index[spec_name]]
         return series_by_market
+
+    def _market_start_values(scope_current: np.ndarray, market: str) -> np.ndarray:
+        if market == "IV_SURFACE":
+            return np.nanmean(scope_current[..., :25], axis=-1)
+        for cell in SELECTED_IV_CELLS:
+            if str(cell["market"]) != market:
+                continue
+            flat_index = int(cell["row"]) * 5 + int(cell["col"])
+            return scope_current[..., flat_index]
+        spec_name = KEY_FACTOR_NAMES.get(market)
+        if spec_name in index:
+            return scope_current[..., index[spec_name]]
+        return np.asarray([], dtype=np.float32)
 
     def _representative_paths(flat: np.ndarray) -> list[dict[str, Any]]:
         path_count = min(int(max_paths), int(flat.shape[0]))
@@ -852,24 +895,47 @@ def path_quantiles_for_generated_states(
         return {"display_name": market}
 
     def _rows_for_scope(
-        scope_delta: np.ndarray,
+        scope_level: np.ndarray,
         *,
+        scope_current: np.ndarray,
         analogue_key: str,
         analogue_label: str,
         window_id: str | None = None,
-        scope_future_delta: np.ndarray | None = None,
+        scope_future_level: np.ndarray | None = None,
     ) -> list[dict[str, Any]]:
         rows_for_scope = []
         future_by_market = (
-            _market_series(scope_future_delta) if scope_future_delta is not None else {}
+            _market_series(scope_future_level) if scope_future_level is not None else {}
         )
-        for market, series in _market_series(scope_delta).items():
+        for market, series in _market_series(scope_level).items():
             flat = np.asarray(series, dtype=np.float32).reshape(-1, states.shape[2])
+            start_values = np.asarray(
+                _market_start_values(scope_current, market), dtype=np.float32
+            ).reshape(-1)
             row = {
                 "market": market,
                 "analogue_key": analogue_key,
                 "analogue_label": analogue_label,
                 "window_id": window_id,
+                "value_kind": "raw_level",
+                "start_level": (
+                    float(np.nanmean(start_values)) if start_values.size else None
+                ),
+                "start_level_p10": (
+                    float(np.nanquantile(start_values, 0.10))
+                    if start_values.size
+                    else None
+                ),
+                "start_level_p50": (
+                    float(np.nanquantile(start_values, 0.50))
+                    if start_values.size
+                    else None
+                ),
+                "start_level_p90": (
+                    float(np.nanquantile(start_values, 0.90))
+                    if start_values.size
+                    else None
+                ),
                 "days": days,
                 "p10": np.nanquantile(flat, 0.10, axis=0).astype(float).tolist(),
                 "p50": np.nanquantile(flat, 0.50, axis=0).astype(float).tolist(),
@@ -890,7 +956,8 @@ def path_quantiles_for_generated_states(
         return rows_for_scope
 
     rows: list[dict[str, Any]] = _rows_for_scope(
-        delta,
+        states,
+        scope_current=current,
         analogue_key="ALL",
         analogue_label="All retrieved analogues",
     )
@@ -903,13 +970,14 @@ def path_quantiles_for_generated_states(
             )
             rows.extend(
                 _rows_for_scope(
-                    delta[rank - 1 : rank],
+                    states[rank - 1 : rank],
+                    scope_current=current[rank - 1 : rank],
                     analogue_key=analogue_key,
                     analogue_label=analogue_label,
                     window_id=window_id,
-                    scope_future_delta=(
-                        future_delta[rank - 1 : rank]
-                        if future_delta is not None
+                    scope_future_level=(
+                        future_level[rank - 1 : rank]
+                        if future_level is not None
                         else None
                     ),
                 )

@@ -75,6 +75,83 @@ ITEM_FEATURE_NAMES = [
     "support_query_delta_distance",
 ]
 
+PORTFOLIO_SIGNAL_BOOKS = [
+    (
+        "equity_beta_carry",
+        {
+            "SPX": 1.00,
+            "VIX": -0.55,
+            "BBB_OAS": -0.50,
+            "IV_ATM_1Y": -0.25,
+        },
+    ),
+    (
+        "dollar_liquidity",
+        {
+            "DXY": -0.80,
+            "SPX": 0.55,
+            "BBB_OAS": -0.35,
+            "VIX": -0.35,
+        },
+    ),
+    (
+        "short_volatility",
+        {
+            "VIX": -0.75,
+            "IV_ATM_1Y": -0.65,
+            "SPX": 0.35,
+            "BBB_OAS": -0.25,
+        },
+    ),
+]
+
+PORTFOLIO_MARKET_INDEX = {
+    "SPX": 25,
+    "DXY": 28,
+    "BBB_OAS": 35,
+    "VIX": 38,
+    "IV_ATM_1Y": 17,
+}
+
+PORTFOLIO_MIXTURE_FEATURE_NAMES = [
+    name
+    for book_name, _ in PORTFOLIO_SIGNAL_BOOKS
+    for name in [
+        f"{book_name}_query_recent_move",
+        f"{book_name}_support_recent_move_mean",
+        f"{book_name}_support_recent_move_std",
+        f"{book_name}_support_query_recent_move_abs_gap",
+    ]
+]
+
+PORTFOLIO_ITEM_FEATURE_NAMES = [
+    name
+    for book_name, _ in PORTFOLIO_SIGNAL_BOOKS
+    for name in [
+        f"{book_name}_support_recent_move",
+        f"{book_name}_support_query_recent_move_abs_gap",
+    ]
+]
+
+DEFAULT_MIXTURE_FEATURE_NAMES = [*FEATURE_NAMES, *PORTFOLIO_MIXTURE_FEATURE_NAMES]
+DEFAULT_ITEM_FEATURE_NAMES = [*ITEM_FEATURE_NAMES, *PORTFOLIO_ITEM_FEATURE_NAMES]
+
+
+def _default_mixture_feature_names(width: int) -> list[str]:
+    if int(width) == len(DEFAULT_MIXTURE_FEATURE_NAMES):
+        return list(DEFAULT_MIXTURE_FEATURE_NAMES)
+    if int(width) == len(FEATURE_NAMES):
+        return list(FEATURE_NAMES)
+    return [f"feature_{idx}" for idx in range(int(width))]
+
+
+def _default_item_feature_names(width: int) -> list[str]:
+    if int(width) == len(DEFAULT_ITEM_FEATURE_NAMES):
+        return list(DEFAULT_ITEM_FEATURE_NAMES)
+    if int(width) == len(ITEM_FEATURE_NAMES):
+        return list(ITEM_FEATURE_NAMES)
+    return [f"item_feature_{idx}" for idx in range(int(width))]
+
 
 @dataclass(frozen=True)
 class MixturePolicyTrainingTable:
@@ -151,6 +228,43 @@ class ListwiseMixturePolicy:
             x = x.reshape(1, -1)
         z = (x - self.feature_mean[None, :]) / self.feature_std[None, :]
         return (z @ self.coefficients + float(self.intercept)).astype(np.float64)
+
+
+@dataclass(frozen=True)
+class KernelListwiseMixturePolicy:
+    train_features: np.ndarray
+    train_labels: np.ndarray
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
+    feature_names: list[str]
+    k_neighbors: int
+    bandwidth: float
+    probability_temperature: float
+    policy_kind: str = "kernel_listwise_mixture_policy"
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        x = np.asarray(features, dtype=np.float64)
+        if x.ndim == 1:
+            x = x.reshape(1, -1)
+        augmented = _query_relative_feature_matrix(x)
+        z = (augmented - self.feature_mean[None, :]) / self.feature_std[None, :]
+        train = np.asarray(self.train_features, dtype=np.float64)
+        labels = np.asarray(self.train_labels, dtype=np.float64).reshape(-1)
+        distances = np.sum((z[:, None, :] - train[None, :, :]) ** 2, axis=2)
+        k = max(1, min(int(self.k_neighbors), int(train.shape[0])))
+        nearest = np.argpartition(distances, kth=k - 1, axis=1)[:, :k]
+        scores: list[float] = []
+        scale = max(float(self.bandwidth), 1e-8)
+        for row_no in range(z.shape[0]):
+            idx = nearest[row_no]
+            local_dist = distances[row_no, idx]
+            weights = np.exp(-0.5 * local_dist / (scale * scale))
+            denom = float(np.sum(weights))
+            if denom <= 0.0 or not np.isfinite(denom):
+                weights = np.ones_like(weights, dtype=np.float64)
+                denom = float(np.sum(weights))
+            scores.append(float(np.sum(weights * labels[idx]) / denom))
+        return np.asarray(scores, dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -261,6 +375,60 @@ def _support_cosines(row: dict[str, Any]) -> np.ndarray:
     return np.asarray(values, dtype=np.float32)
 
 
+def _portfolio_recent_move(history_rows: np.ndarray, book: dict[str, float]) -> np.ndarray:
+    """Return signed recent-prefix portfolio moves using only history levels."""
+
+    history = np.asarray(history_rows, dtype=np.float32)
+    if history.ndim == 2:
+        history = history[None, :, :]
+    if history.ndim != 3:
+        raise ValueError("history_rows must have shape [N,T,C] or [T,C]")
+    values = np.zeros(history.shape[0], dtype=np.float32)
+    width = int(history.shape[-1])
+    for market, exposure in book.items():
+        idx = int(PORTFOLIO_MARKET_INDEX[market])
+        if idx >= width:
+            return np.zeros(history.shape[0], dtype=np.float32)
+        base = history[:, 0, idx]
+        scale = np.maximum(np.abs(base), 1.0)
+        values += float(exposure) * ((history[:, -1, idx] - base) / scale)
+    return (100.0 * values).astype(np.float32)
+
+
+def _portfolio_mixture_features(
+    *,
+    query_history: np.ndarray,
+    support_history: np.ndarray,
+) -> np.ndarray:
+    features: list[float] = []
+    for _, book in PORTFOLIO_SIGNAL_BOOKS:
+        query_value = float(_portfolio_recent_move(query_history, book)[0])
+        support_values = _portfolio_recent_move(support_history, book)
+        features.extend(
+            [
+                query_value,
+                float(np.mean(support_values)),
+                float(np.std(support_values)),
+                float(abs(np.mean(support_values) - query_value)),
+            ]
+        )
+    return np.asarray(features, dtype=np.float32)
+
+
+def _portfolio_item_features(
+    *,
+    query_history: np.ndarray,
+    support_history: np.ndarray,
+) -> np.ndarray:
+    rows: list[np.ndarray] = []
+    for _, book in PORTFOLIO_SIGNAL_BOOKS:
+        query_value = float(_portfolio_recent_move(query_history, book)[0])
+        support_values = _portfolio_recent_move(support_history, book)
+        rows.append(support_values.astype(np.float32))
+        rows.append(np.abs(support_values - query_value).astype(np.float32))
+    return np.stack(rows, axis=1).astype(np.float32)
+
+
 def mixture_feature_vector(
     row: dict[str, Any],
     *,
@@ -281,7 +449,8 @@ def mixture_feature_vector(
     history = np.asarray(history_level, dtype=np.float32)
     support_memory = memory[support]
     support_starts = history[support, -1, :]
-    query_start = history[int(row["window_index"]), -1, :]
+    query_history = history[int(row["window_index"])]
+    query_start = query_history[-1, :]
     start_distances = np.linalg.norm(support_starts - query_start[None, :], axis=1)
     recent_delta = history[support, -1, :] - history[support, 0, :]
     recent_norm = np.linalg.norm(recent_delta, axis=1)
@@ -303,7 +472,14 @@ def mixture_feature_vector(
         float(np.mean(recent_norm)),
         float(np.std(recent_norm)),
     ]
-    return np.asarray(values, dtype=np.float32)
+    portfolio_features = _portfolio_mixture_features(
+        query_history=query_history,
+        support_history=history[support],
+    )
+    return np.concatenate(
+        [np.asarray(values, dtype=np.float32), portfolio_features],
+        axis=0,
+    ).astype(np.float32)
 
 
 def support_item_feature_matrix(
@@ -353,7 +529,7 @@ def support_item_feature_matrix(
         support_recent_delta - query_recent_delta[None, :],
         axis=1,
     ).astype(np.float32)
-    return np.stack(
+    base_features = np.stack(
         [
             cosines,
             positions,
@@ -365,6 +541,13 @@ def support_item_feature_matrix(
         ],
         axis=1,
     ).astype(np.float32)
+    portfolio_features = _portfolio_item_features(
+        query_history=query_history,
+        support_history=history[support],
+    )
+    return np.concatenate([base_features, portfolio_features], axis=1).astype(
+        np.float32
+    )
 
 
 def _score_lookup(scenario_report: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -430,7 +613,7 @@ def build_mixture_policy_training_table(
         features=np.stack(features).astype(np.float32),
         labels=np.asarray(labels, dtype=np.float32),
         rows=rows,
-        feature_names=list(FEATURE_NAMES),
+        feature_names=[*FEATURE_NAMES, *PORTFOLIO_MIXTURE_FEATURE_NAMES],
     )
 
 
@@ -486,7 +669,7 @@ def build_support_set_training_table(
         item_features=np.stack(item_features).astype(np.float32),
         labels=np.asarray(labels, dtype=np.float32),
         rows=rows,
-        item_feature_names=list(ITEM_FEATURE_NAMES),
+        item_feature_names=[*ITEM_FEATURE_NAMES, *PORTFOLIO_ITEM_FEATURE_NAMES],
     )
 
 
@@ -512,7 +695,7 @@ def fit_linear_mixture_policy(
         intercept=float(coef[0]),
         feature_mean=mean.astype(np.float64),
         feature_std=std.astype(np.float64),
-        feature_names=list(FEATURE_NAMES),
+        feature_names=_default_mixture_feature_names(x.shape[1]),
         ridge_alpha=float(ridge_alpha),
     )
 
@@ -586,7 +769,11 @@ def fit_pairwise_mixture_ranker(
         grad = -(preference_error[:, None] * diffs).mean(axis=0)
         grad += float(l2) * weights
         weights -= lr * grad
-    names = list(feature_names) if feature_names is not None else list(FEATURE_NAMES)
+    names = (
+        list(feature_names)
+        if feature_names is not None
+        else _default_mixture_feature_names(x.shape[1])
+    )
     return PairwiseMixtureRanker(
         coefficients=weights.astype(np.float64),
         intercept=0.0,
@@ -605,6 +792,61 @@ def _query_groups(query_ids: list[Any]) -> dict[str, list[int]]:
     for idx, query_id in enumerate(query_ids):
         groups.setdefault(str(query_id), []).append(idx)
     return groups
+
+
+def _query_relative_feature_matrix(
+    features: np.ndarray,
+    query_ids: list[Any] | None = None,
+) -> np.ndarray:
+    """Append within-query standardized features to the raw feature matrix."""
+
+    x = np.asarray(features, dtype=np.float64)
+    if x.ndim != 2:
+        raise ValueError("features must have shape [rows, features]")
+    if query_ids is None:
+        groups = {"__single_query__": list(range(x.shape[0]))}
+    else:
+        if len(query_ids) != x.shape[0]:
+            raise ValueError("query_ids length must match feature rows")
+        groups = _query_groups(query_ids)
+    relative = np.zeros_like(x, dtype=np.float64)
+    for indices in groups.values():
+        idx = np.asarray(indices, dtype=np.int64)
+        group = x[idx]
+        mean = group.mean(axis=0, keepdims=True)
+        std = np.maximum(group.std(axis=0, keepdims=True), 1e-8)
+        relative[idx] = (group - mean) / std
+    return np.concatenate([x, relative], axis=1).astype(np.float64)
+
+
+def _query_standardized_labels(
+    labels: np.ndarray,
+    query_ids: list[Any],
+) -> np.ndarray:
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if y.shape[0] != len(query_ids):
+        raise ValueError("query_ids length must match labels")
+    standardized = np.zeros_like(y, dtype=np.float64)
+    for indices in _query_groups(query_ids).values():
+        idx = np.asarray(indices, dtype=np.int64)
+        group = y[idx]
+        scale = max(float(np.std(group)), 1e-8)
+        standardized[idx] = (group - float(np.mean(group))) / scale
+    return standardized.astype(np.float64)
+
+
+def _median_neighbor_bandwidth(features: np.ndarray, *, k_neighbors: int) -> float:
+    x = np.asarray(features, dtype=np.float64)
+    if x.ndim != 2 or x.shape[0] <= 1:
+        return 1.0
+    distances = np.sum((x[:, None, :] - x[None, :, :]) ** 2, axis=2)
+    np.fill_diagonal(distances, np.inf)
+    k = max(1, min(int(k_neighbors), int(x.shape[0] - 1)))
+    kth = np.partition(distances, kth=k - 1, axis=1)[:, k - 1]
+    finite = np.sqrt(kth[np.isfinite(kth)])
+    if finite.size == 0:
+        return 1.0
+    return max(float(np.median(finite)), 1e-3)
 
 
 def fit_listwise_mixture_policy(
@@ -664,7 +906,11 @@ def fit_listwise_mixture_policy(
         loss = loss + float(l2) * penalty
         loss.backward()
         optimizer.step()
-    names = list(feature_names) if feature_names is not None else list(FEATURE_NAMES)
+    names = (
+        list(feature_names)
+        if feature_names is not None
+        else _default_mixture_feature_names(x.shape[1])
+    )
     return ListwiseMixturePolicy(
         coefficients=layer.weight.detach().cpu().numpy().reshape(-1).astype(np.float64),
         intercept=float(layer.bias.detach().cpu().numpy().reshape(-1)[0]),
@@ -675,6 +921,53 @@ def fit_listwise_mixture_policy(
         epochs=int(epochs),
         l2=float(l2),
         query_count=int(len(groups)),
+        probability_temperature=float(probability_temperature),
+    )
+
+
+def fit_kernel_listwise_mixture_policy(
+    features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    query_ids: list[Any],
+    feature_names: list[str] | None = None,
+    k_neighbors: int = 32,
+    bandwidth: float = 0.0,
+    probability_temperature: float = 1.0,
+) -> KernelListwiseMixturePolicy:
+    """Fit a query-relative kernel policy for soft support-mixture scoring."""
+
+    x = np.asarray(features, dtype=np.float64)
+    y = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if x.ndim != 2 or x.shape[0] != y.shape[0]:
+        raise ValueError("features and labels must have compatible shapes")
+    if x.shape[0] != len(query_ids):
+        raise ValueError("query_ids length must match feature rows")
+    if int(k_neighbors) <= 0:
+        raise ValueError("k_neighbors must be positive")
+    augmented = _query_relative_feature_matrix(x, query_ids=query_ids)
+    mean = augmented.mean(axis=0)
+    std = np.maximum(augmented.std(axis=0), 1e-8)
+    z = (augmented - mean[None, :]) / std[None, :]
+    standardized_labels = _query_standardized_labels(y, query_ids)
+    effective_bandwidth = (
+        float(bandwidth)
+        if float(bandwidth) > 0.0
+        else _median_neighbor_bandwidth(z, k_neighbors=int(k_neighbors))
+    )
+    names = (
+        list(feature_names)
+        if feature_names is not None
+        else _default_mixture_feature_names(x.shape[1])
+    )
+    return KernelListwiseMixturePolicy(
+        train_features=z.astype(np.float64),
+        train_labels=standardized_labels.astype(np.float64),
+        feature_mean=mean.astype(np.float64),
+        feature_std=std.astype(np.float64),
+        feature_names=[*names, *[f"{name}_within_query_z" for name in names]],
+        k_neighbors=int(k_neighbors),
+        bandwidth=float(effective_bandwidth),
         probability_temperature=float(probability_temperature),
     )
 
@@ -769,7 +1062,7 @@ def fit_support_set_item_ranker(
     names = (
         list(item_feature_names)
         if item_feature_names is not None
-        else list(ITEM_FEATURE_NAMES)
+        else _default_item_feature_names(x.shape[-1])
     )
     return SupportSetItemRanker(
         item_w1=item_layer.weight.detach().cpu().numpy().T.astype(np.float64),
@@ -868,6 +1161,7 @@ def rerank_bridge_report_with_mixture_policy(
         LinearMixturePolicy
         | PairwiseMixtureRanker
         | ListwiseMixturePolicy
+        | KernelListwiseMixturePolicy
         | SupportSetItemRanker
     ),
 ) -> dict[str, Any]:
@@ -881,7 +1175,10 @@ def rerank_bridge_report_with_mixture_policy(
         if not isinstance(row, dict) or int(row.get("window_index", -1)) not in groups:
             continue
         candidates = groups[int(row["window_index"])]
-        if getattr(model, "policy_kind", "") == "listwise_mixture_policy":
+        if getattr(model, "policy_kind", "") in {
+            "listwise_mixture_policy",
+            "kernel_listwise_mixture_policy",
+        }:
             features = np.stack(
                 [
                     mixture_feature_vector(
@@ -981,6 +1278,7 @@ def _model_payload(
         LinearMixturePolicy
         | PairwiseMixtureRanker
         | ListwiseMixturePolicy
+        | KernelListwiseMixturePolicy
         | SupportSetItemRanker
     ),
 ) -> dict[str, Any]:
@@ -1002,6 +1300,18 @@ def _model_payload(
             "pair_count": int(model.pair_count),
         }
         return payload
+    if isinstance(model, KernelListwiseMixturePolicy):
+        return {
+            "policy_kind": model.policy_kind,
+            "feature_names": model.feature_names,
+            "train_features": model.train_features.astype(float).tolist(),
+            "train_labels": [float(value) for value in model.train_labels],
+            "feature_mean": [float(value) for value in model.feature_mean],
+            "feature_std": [float(value) for value in model.feature_std],
+            "k_neighbors": int(model.k_neighbors),
+            "bandwidth": float(model.bandwidth),
+            "probability_temperature": float(model.probability_temperature),
+        }
     payload = {
         "policy_kind": str(getattr(model, "policy_kind", "unknown")),
         "feature_names": model.feature_names,
@@ -1055,11 +1365,34 @@ def run_testflight(args: argparse.Namespace) -> dict[str, Any]:
             LinearMixturePolicy
             | PairwiseMixtureRanker
             | ListwiseMixturePolicy
+            | KernelListwiseMixturePolicy
             | SupportSetItemRanker
         ) = fit_linear_mixture_policy(
             table.features,
             table.labels,
             ridge_alpha=float(args.ridge_alpha),
+        )
+        training_row_count = int(table.features.shape[0])
+        training_rows = table.rows
+        training_labels = table.labels
+    elif str(args.policy_kind) == "kernel_listwise":
+        table = build_mixture_policy_training_table(
+            candidate_bridge=train_candidate_bridge,
+            scenario_report=scenario_report,
+            condition_vectors=condition_vectors,
+            memory_targets=memory_targets,
+            history_level=history_level,
+            method=str(args.method),
+            metric=str(args.metric),
+        )
+        model = fit_kernel_listwise_mixture_policy(
+            table.features,
+            table.labels,
+            query_ids=[row["window_index"] for row in table.rows],
+            feature_names=table.feature_names,
+            k_neighbors=int(args.kernel_k_neighbors),
+            bandwidth=float(args.kernel_bandwidth),
+            probability_temperature=float(args.kernel_probability_temperature),
         )
         training_row_count = int(table.features.shape[0])
         training_rows = table.rows
@@ -1210,7 +1543,7 @@ def main() -> None:
     parser.add_argument("--metric", default="energy_score_z")
     parser.add_argument(
         "--policy-kind",
-        choices=["linear", "pairwise", "listwise", "support_set"],
+        choices=["linear", "pairwise", "listwise", "kernel_listwise", "support_set"],
         default="linear",
     )
     parser.add_argument("--ridge-alpha", type=float, default=1.0)
@@ -1223,6 +1556,9 @@ def main() -> None:
     parser.add_argument("--listwise-l2", type=float, default=1e-4)
     parser.add_argument("--listwise-probability-temperature", type=float, default=1.0)
     parser.add_argument("--listwise-seed", type=int, default=0)
+    parser.add_argument("--kernel-k-neighbors", type=int, default=32)
+    parser.add_argument("--kernel-bandwidth", type=float, default=0.0)
+    parser.add_argument("--kernel-probability-temperature", type=float, default=1.0)
     parser.add_argument("--set-hidden-dim", type=int, default=8)
     parser.add_argument("--set-learning-rate", type=float, default=0.01)
     parser.add_argument("--set-epochs", type=int, default=500)

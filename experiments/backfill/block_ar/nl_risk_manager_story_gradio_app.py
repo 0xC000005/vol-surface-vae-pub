@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import sys
@@ -29,6 +30,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (  # noqa:
     DEFAULT_PIPELINE_NPZ,
     DEFAULT_PIPELINE_REPORT,
     DEFAULT_STORY,
+    path_quantiles_for_generated_states,
     render_story_smoke_markdown,
     run_story_smoke,
 )
@@ -46,6 +48,7 @@ from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovati
     build_val_block,
 )
 from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline import (  # noqa: E402
+    summarize_retrieval_generated_states,
     _spec_names,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_oracle_autoencoder import (  # noqa: E402
@@ -71,6 +74,17 @@ from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testfligh
 from experiments.backfill.block_ar.nl_prefix_latent_run_record import (  # noqa: E402
     write_prefix_run_record,
 )
+from experiments.backfill.block_ar.nl_narrative_ensemble_calibration import (  # noqa: E402
+    apply_directional_delta_calibration,
+    direction_vector_from_grounding,
+    _support_evidence_gate_from_report,
+)
+from experiments.backfill.block_ar.nl_component_pooling_diagnostic import (  # noqa: E402
+    component_slices_for_variant,
+)
+from experiments.backfill.block_ar.nl_sparse_component_family_view import (  # noqa: E402
+    select_sparse_components,
+)
 
 
 DEFAULT_APP_OUTPUT_DIR = (
@@ -86,7 +100,64 @@ DEFAULT_PREFIX_APP_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke"
 )
+DEFAULT_PREFIX_SUPPORT_BANK_REPORT = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_support_bank_train_all_939a/support_bank_report.json"
+)
+DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_support_bank_train_all_939a/support_bank_arrays.npz"
+)
 DEFAULT_PREFIX_ROLLOUT_TEMPERATURE = 0.5
+DEFAULT_PREFIX_ROLLOUT_FAN_SCALE = 3.5
+DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA = 0.25
+DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_ALPHA = 1.0
+DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA_BOUND = 0.25
+TOP3_90_ANALOGUE_KEY = "TOP3_90"
+TOP3_90_ENSEMBLE_LABEL = "Nearest similar regimes: top3/90 ensemble"
+TOP3_90_MAX_COMPONENTS = 3
+TOP3_90_MIN_WEIGHT_MASS = 0.90
+JOINT39_SPEC_NAMES = [
+    "iv:00",
+    "iv:01",
+    "iv:02",
+    "iv:03",
+    "iv:04",
+    "iv:05",
+    "iv:06",
+    "iv:07",
+    "iv:08",
+    "iv:09",
+    "iv:10",
+    "iv:11",
+    "iv:12",
+    "iv:13",
+    "iv:14",
+    "iv:15",
+    "iv:16",
+    "iv:17",
+    "iv:18",
+    "iv:19",
+    "iv:20",
+    "iv:21",
+    "iv:22",
+    "iv:23",
+    "iv:24",
+    "factor:spx",
+    "factor:usdcad",
+    "factor:usdjpy",
+    "factor:dxy",
+    "factor:copper",
+    "factor:wheat",
+    "factor:crude_oil",
+    "factor:us2y",
+    "factor:us10y",
+    "factor:aaa_oas",
+    "factor:bbb_oas",
+    "factor:nikkei",
+    "factor:gold",
+    "factor:vix",
+]
 DEFAULT_USER_START_STATE_JSON = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "risk_manager_story_gradio_demo/prefix_latent_live_smoke/"
@@ -102,6 +173,25 @@ DEFAULT_BOSS_DEMO_PACK_JSON = (
     "prefix_latent_boss_demo_pack_829a_live_casebook/"
     "boss_demo_pack.json"
 )
+CASEBOOK_LABELS = {
+    "fragile_risk_on_rebound": "Fragile risk-on rebound",
+    "defensive_risk_off_shock": "Defensive risk-off shock",
+    "rates_selloff_tightening_fear": "Rates-led tightening fear",
+    "commodity_inflation_pressure": "Commodity inflation pressure",
+    "dollar_liquidity_squeeze": "Dollar liquidity squeeze",
+    "safe_haven_gold_bid": "Safe-haven gold bid",
+}
+RECOMMENDED_NARRATIVE_EXAMPLES = [
+    (
+        str(item["name"]),
+        CASEBOOK_LABELS.get(
+            str(item["name"]), str(item["name"]).replace("_", " ").title()
+        ),
+        str(item["story"]),
+    )
+    for item in default_casebook_stories()
+]
+APP_DEFAULT_STORY = RECOMMENDED_NARRATIVE_EXAMPLES[0][2]
 DEFAULT_AUTH_USER_ENV = "NARRATIVE_DEMO_AUTH_USER"
 DEFAULT_AUTH_PASSWORD_ENV = "NARRATIVE_DEMO_AUTH_PASSWORD"
 DEMO_TABLE_CLASS = "demo-scroll-table"
@@ -169,6 +259,50 @@ APP_CSS = """
 }
 .demo-status-strip p {
   margin: 0;
+}
+.scenario-summary-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.scenario-summary-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.scenario-summary-table th,
+.scenario-summary-table td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: middle;
+}
+.scenario-summary-table th {
+  color: #374151;
+  background: #f9fafb;
+  font-weight: 650;
+}
+.demo-dir {
+  font-weight: 650;
+  white-space: nowrap;
+}
+.demo-dir-arrow {
+  display: inline-block;
+  min-width: 0.9em;
+  font-weight: 850;
+}
+.demo-dir-up .demo-dir-arrow {
+  color: #16a34a;
+}
+.demo-dir-down .demo-dir-arrow {
+  color: #dc2626;
+}
+.demo-dir-flat .demo-dir-arrow {
+  color: #6b7280;
+}
+.demo-dir-moderate .demo-dir-arrow {
+  color: #f59e0b;
 }
 .demo-responsive-row {
   gap: 0.75rem;
@@ -331,7 +465,7 @@ PREFIX_CONDITION_COLUMNS = [
     "Horizon",
     "Evidence",
 ]
-PREFIX_WARNING_COMPONENT_COLUMNS = ["Component", "Status", "Metric", "Value"]
+PREFIX_WARNING_COMPONENT_COLUMNS = ["Check", "Status", "Metric", "Value"]
 PREFIX_SHIFT_FACTOR_COLUMNS = [
     "Start Mode",
     "Factor",
@@ -352,12 +486,14 @@ ANALOGUE_COLUMNS = [
     "Narrative",
 ]
 SCENARIO_COLUMNS = [
-    "Starting Level",
-    "Start Value",
     "Market",
-    "Mean Terminal Delta",
-    "P10",
-    "P90",
+    "Baseline View",
+    "Baseline Path Count",
+    "Baseline Mean Move",
+    "Narrative View",
+    "Narrative Path Count",
+    "Narrative Mean Move",
+    "30d Change vs Baseline",
 ]
 VALIDATION_GATE_COLUMNS = [
     "Variant",
@@ -383,23 +519,19 @@ PREFIX_VARIANT_COLUMNS = [
 PREFIX_SELECTED_START_COLUMNS = [
     "Starting Level",
     "Index",
-    "Reliability",
-    "Compatibility",
-    "Distance",
-    "Source Split",
+    "Support Match",
+    "Start Distance",
+    "Source",
 ]
 PREFIX_START_CANDIDATE_COLUMNS = [
+    "Used For",
     "Rank",
-    "Window",
-    "Bridge Index",
-    "Source",
+    "Regime",
     "History End",
-    "Split",
     "Weight",
-    "Memory Support",
-    "Start Distance",
-    "Alignment",
-    "Score",
+    "Story Match",
+    "Start Gap",
+    "Required Claims",
 ]
 PREFIX_USER_START_COLUMNS = [
     "Label",
@@ -484,6 +616,13 @@ def _fmt_float(value: Any, digits: int = 3) -> str:
         return "n/a"
 
 
+def _is_finite(value: Any) -> bool:
+    try:
+        return bool(np.isfinite(float(value)))
+    except (TypeError, ValueError):
+        return False
+
+
 def _fmt_pct(value: Any, digits: int = 1) -> str:
     if value is None:
         return "n/a"
@@ -544,6 +683,22 @@ def cached_prefix_casebook_choices() -> list[tuple[str, str]]:
     return [("Typed story / current controls", "")] + [
         (str(row["label"]), str(row["value"])) for row in cached_prefix_casebook_rows()
     ]
+
+
+def recommended_narrative_choices() -> list[tuple[str, str]]:
+    return [("Type my own narrative", "")] + [
+        (label, key) for key, label, _story in RECOMMENDED_NARRATIVE_EXAMPLES
+    ]
+
+
+def recommended_narrative_text(choice: str | None, current_story: str) -> str:
+    key = str(choice or "")
+    if not key:
+        return str(current_story or APP_DEFAULT_STORY)
+    for example_key, _label, narrative in RECOMMENDED_NARRATIVE_EXAMPLES:
+        if str(example_key) == key:
+            return str(narrative)
+    return str(current_story or APP_DEFAULT_STORY)
 
 
 def cached_prefix_casebook_update(choice: str | None) -> tuple[
@@ -648,7 +803,7 @@ def prefix_trust_interpretation(report: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         crps_value = None
     if status == "pass":
-        return "supported calibrated scenario"
+        return "supported narrative scenario"
     if status == "warning" and crps_value is not None and crps_value > 0.0:
         return (
             "usable with support/shift caveats; scenario CRPS improved vs persistence"
@@ -763,6 +918,42 @@ def prefix_condition_warnings_table(report: dict[str, Any]) -> pd.DataFrame:
     )
 
 
+def prefix_visible_warning_lines(report: dict[str, Any]) -> list[str]:
+    """Return product-facing warning lines that should not be hidden in audit details."""
+
+    grounding = _prefix_grounding(report)
+    lines: list[str] = []
+    for item in _as_list(grounding.get("non_conditioning_forward_language")):
+        if not isinstance(item, dict):
+            continue
+        phrase = _short(item.get("phrase", ""), limit=150)
+        reason = _short(
+            item.get(
+                "reason",
+                "future-looking language is warning-only, not a conditioning fact",
+            ),
+            limit=150,
+        )
+        if phrase:
+            lines.append(
+                "Forward-looking language excluded from conditioning: "
+                f'"{phrase}" ({reason}).'
+            )
+    for item in _as_list(grounding.get("grounding_warnings")):
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code", "grounding_warning"))
+        message = _short(item.get("message", ""), limit=170)
+        if not message:
+            continue
+        if code == "FORWARD_LOOKING_EXCLUDED" and any(
+            "Forward-looking language excluded" in line for line in lines
+        ):
+            continue
+        lines.append(f"{code}: {message}")
+    return lines
+
+
 def analogues_table(report: dict[str, Any]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for rank, item in enumerate(_as_list(report.get("historical_analogues")), start=1):
@@ -797,28 +988,299 @@ def _selected_start_values_by_spec(report: dict[str, Any]) -> dict[str, Any]:
     return _as_dict(report.get("selected_start_values_by_name"))
 
 
+def _market_start_level(report: dict[str, Any], market: str) -> float | None:
+    start_values = _selected_start_values_by_spec(report)
+    market_key = str(market).upper()
+    if market_key == "IV_SURFACE":
+        iv_values = [
+            float(value)
+            for key, value in start_values.items()
+            if str(key).startswith("iv:") and _is_finite(value)
+        ]
+        return float(np.nanmean(iv_values)) if iv_values else None
+    start_spec = SCENARIO_MARKET_TO_START_SPEC.get(market_key, "")
+    if start_spec and _is_finite(start_values.get(start_spec)):
+        return float(start_values[start_spec])
+    return None
+
+
+def _add_start_level(value: Any, start_level: float | None) -> float | None:
+    if not (_is_finite(value) and _is_finite(start_level)):
+        return None
+    return float(value) + float(start_level)
+
+
+def _terminal_mean_delta(row: dict[str, Any]) -> float | None:
+    value = row.get("mean_terminal_delta")
+    return float(value) if _is_finite(value) else None
+
+
+def _terminal_band_width(row: dict[str, Any]) -> float | None:
+    p10 = row.get("p10")
+    p90 = row.get("p90")
+    if not (_is_finite(p10) and _is_finite(p90)):
+        return None
+    return abs(float(p90) - float(p10))
+
+
+def _terminal_direction_view(row: dict[str, Any]) -> str:
+    mean = _terminal_mean_delta(row)
+    if mean is None:
+        return "n/a"
+    width = _terminal_band_width(row)
+    threshold = max(0.05 * float(width or abs(mean) or 1.0), 1.0e-8)
+    if abs(float(mean)) <= threshold:
+        return "Flat/mixed"
+    return "Up" if float(mean) > 0.0 else "Down"
+
+
+def _direction_display_label(value: str) -> str:
+    text = str(value or "").strip()
+    if text == "Flat/mixed":
+        return "-"
+    return text or "n/a"
+
+
+def _baseline_change_display_label(value: str) -> str:
+    return str(value or "").strip() or "n/a"
+
+
+def _direction_html(value: str) -> str:
+    text = str(value or "").strip()
+    if text == "Up":
+        return (
+            '<span class="demo-dir demo-dir-up">'
+            '<span class="demo-dir-arrow">↑</span> Up</span>'
+        )
+    if text == "Down":
+        return (
+            '<span class="demo-dir demo-dir-down">'
+            '<span class="demo-dir-arrow">↓</span> Down</span>'
+        )
+    if text in {"Flat/mixed", "-"}:
+        return (
+            '<span class="demo-dir demo-dir-flat">'
+            '<span class="demo-dir-arrow">-</span></span>'
+        )
+    return html.escape(text or "n/a")
+
+
+def _baseline_change_html(value: str) -> str:
+    text = str(value or "").strip()
+    if text in {"Higher than baseline", "More up than baseline"}:
+        return (
+            '<span class="demo-dir demo-dir-up">'
+            f'<span class="demo-dir-arrow">↑</span> {html.escape(text)}</span>'
+        )
+    if text in {"Lower than baseline", "More down than baseline"}:
+        return (
+            '<span class="demo-dir demo-dir-down">'
+            f'<span class="demo-dir-arrow">↓</span> {html.escape(text)}</span>'
+        )
+    if text == "Less down than baseline":
+        return (
+            '<span class="demo-dir demo-dir-moderate">'
+            f'<span class="demo-dir-arrow">↓</span> {html.escape(text)}</span>'
+        )
+    if text == "Less up than baseline":
+        return (
+            '<span class="demo-dir demo-dir-moderate">'
+            f'<span class="demo-dir-arrow">↑</span> {html.escape(text)}</span>'
+        )
+    if text == "Similar to baseline":
+        return (
+            '<span class="demo-dir demo-dir-flat">'
+            '<span class="demo-dir-arrow">-</span> Similar to baseline</span>'
+        )
+    return html.escape(text or "n/a")
+
+
+def _terminal_probability_pair(row: dict[str, Any]) -> tuple[float, float] | None:
+    up = row.get("terminal_probability_up")
+    down = row.get("terminal_probability_down")
+    if not (_is_finite(up) and _is_finite(down)):
+        return None
+    up_f = max(0.0, min(1.0, float(up)))
+    down_f = max(0.0, min(1.0, float(down)))
+    return up_f, down_f
+
+
+def _typical_direction_view(row: dict[str, Any]) -> str:
+    probabilities = _terminal_probability_pair(row)
+    if probabilities is None:
+        return _terminal_direction_view(row)
+    up, down = probabilities
+    threshold = 0.60
+    if up >= threshold and up > down:
+        return "Up"
+    if down >= threshold and down > up:
+        return "Down"
+    return "Flat/mixed"
+
+
+def _path_share_label(row: dict[str, Any]) -> str:
+    probabilities = _terminal_probability_pair(row)
+    if probabilities is None:
+        return "n/a"
+    up, down = probabilities
+    if abs(up - down) <= 0.005:
+        return f"{max(up, down):.0%} split"
+    if up >= down:
+        return f"{up:.0%} up"
+    return f"{down:.0%} down"
+
+
+def _terminal_sigma_score(row: dict[str, Any]) -> float | None:
+    mean = _terminal_mean_delta(row)
+    if mean is None:
+        return None
+    explicit = row.get("terminal_mean_sigma")
+    if _is_finite(explicit):
+        return float(explicit)
+    width = _terminal_band_width(row)
+    if width is None or float(width) <= 1.0e-12:
+        return None
+    # For older reports, estimate one standard deviation from the 10%-90% band
+    # under a normal approximation: q90 - q10 ~= 2 * 1.28155 * sigma.
+    sigma = float(width) / 2.5631031310892007
+    if sigma <= 1.0e-12:
+        return None
+    return float(mean) / sigma
+
+
+def _signed_number(value: float, digits: int) -> str:
+    rounded = round(float(value), int(digits))
+    if rounded == 0:
+        rounded = 0.0
+    return f"{rounded:+.{int(digits)}f}"
+
+
+def _mean_move_raw_part(market: str, mean: float) -> str:
+    market_key = str(market or "").upper()
+    if market_key == "IV_SURFACE" or market_key.startswith("IV_"):
+        return f"{_signed_number(float(mean) * 100.0, 1)} vol pts"
+    if market_key in {"US2Y", "US10Y", "BBB_OAS", "AAA_OAS"}:
+        return f"{_signed_number(float(mean) * 100.0, 1)} bp"
+    if market_key in {"SPX", "GOLD"}:
+        return f"{_signed_number(float(mean), 0)} pts"
+    return f"{_signed_number(float(mean), 1)} pts"
+
+
+def _mean_move_label(row: dict[str, Any], *, market: str) -> str:
+    mean = _terminal_mean_delta(row)
+    if mean is None:
+        return "n/a"
+    raw = _mean_move_raw_part(market, float(mean))
+    sigma = _terminal_sigma_score(row)
+    if sigma is None:
+        return raw
+    return f"{raw} / {_signed_number(float(sigma), 1)}σ"
+
+
+def _terminal_change_vs_baseline(
+    narrative_row: dict[str, Any],
+    baseline_row: dict[str, Any] | None,
+) -> str:
+    narrative_mean = _terminal_mean_delta(narrative_row)
+    baseline_mean = _terminal_mean_delta(baseline_row or {})
+    if narrative_mean is None or baseline_mean is None:
+        return "Baseline unavailable"
+    narrative_width = _terminal_band_width(narrative_row) or 0.0
+    baseline_width = _terminal_band_width(baseline_row or {}) or 0.0
+    threshold = max(0.10 * max(float(narrative_width), float(baseline_width)), 1.0e-8)
+    delta = float(narrative_mean) - float(baseline_mean)
+    if abs(delta) <= threshold:
+        return "Similar to baseline"
+    narrative_view = _terminal_direction_view(narrative_row)
+    if delta > 0.0:
+        if narrative_view == "Down":
+            return "Less down than baseline"
+        if narrative_view == "Up":
+            return "More up than baseline"
+        return "Higher than baseline"
+    if narrative_view == "Down":
+        return "More down than baseline"
+    if narrative_view == "Up":
+        return "Less up than baseline"
+    return "Lower than baseline"
+
+
+def _terminal_rows_by_market(rows: Any) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for row in _as_list(rows):
+        if not isinstance(row, dict):
+            continue
+        market = str(row.get("market", "")).strip()
+        if market:
+            result[market] = row
+    return result
+
+
 def scenario_table(report: dict[str, Any]) -> pd.DataFrame:
     generation = _as_dict(report.get("generation"))
-    selected_start = _operational_variant_row(report)
-    start_label = str(selected_start.get("start_window_id") or "n/a")
-    start_values = _selected_start_values_by_spec(report)
+    baseline = _as_dict(generation.get("start_only_baseline"))
+    baseline_by_market = _terminal_rows_by_market(
+        baseline.get("terminal_delta_summary")
+    )
     rows: list[dict[str, Any]] = []
     for item in _as_list(generation.get("terminal_delta_summary")):
         if not isinstance(item, dict):
             continue
         market = str(item.get("market", ""))
-        start_spec = SCENARIO_MARKET_TO_START_SPEC.get(market.upper(), "")
+        baseline_row = baseline_by_market.get(market)
         rows.append(
             {
-                "Starting Level": start_label,
-                "Start Value": _fmt_float(start_values.get(start_spec)),
                 "Market": market,
-                "Mean Terminal Delta": _fmt_float(item.get("mean_terminal_delta")),
-                "P10": _fmt_float(item.get("p10")),
-                "P90": _fmt_float(item.get("p90")),
+                "Baseline View": _direction_display_label(
+                    _typical_direction_view(baseline_row or {})
+                ),
+                "Baseline Path Count": _path_share_label(baseline_row or {}),
+                "Baseline Mean Move": _mean_move_label(
+                    baseline_row or {}, market=market
+                ),
+                "Narrative View": _direction_display_label(
+                    _typical_direction_view(item)
+                ),
+                "Narrative Path Count": _path_share_label(item),
+                "Narrative Mean Move": _mean_move_label(item, market=market),
+                "30d Change vs Baseline": _baseline_change_display_label(
+                    _terminal_change_vs_baseline(item, baseline_row)
+                ),
             }
         )
     return _frame(rows, SCENARIO_COLUMNS)
+
+
+def scenario_summary_html(report: dict[str, Any]) -> str:
+    df = scenario_table(report)
+    headers = "".join(f"<th>{html.escape(column)}</th>" for column in SCENARIO_COLUMNS)
+    if df.empty:
+        cells = "".join(
+            "<td>&nbsp;</td>" if column != "Market" else "<td>No scenario yet</td>"
+            for column in SCENARIO_COLUMNS
+        )
+        body = f"<tr>{cells}</tr>"
+    else:
+        row_html: list[str] = []
+        for _, row in df.iterrows():
+            cells = []
+            for column in SCENARIO_COLUMNS:
+                value = str(row.get(column, ""))
+                if column in {"Baseline View", "Narrative View"}:
+                    cells.append(f"<td>{_direction_html(value)}</td>")
+                elif column == "30d Change vs Baseline":
+                    cells.append(f"<td>{_baseline_change_html(value)}</td>")
+                else:
+                    cells.append(f"<td>{html.escape(value)}</td>")
+            row_html.append(f"<tr>{''.join(cells)}</tr>")
+        body = "".join(row_html)
+    return (
+        '<div class="scenario-summary-wrap">'
+        '<table class="scenario-summary-table">'
+        f"<thead><tr>{headers}</tr></thead>"
+        f"<tbody>{body}</tbody>"
+        "</table></div>"
+    )
 
 
 def load_validation_gate_report(
@@ -847,13 +1309,16 @@ def boss_demo_status_strip(report: dict[str, Any]) -> str:
         )
     snapshot = _as_dict(report.get("validation_snapshot"))
     live_snapshot = _as_dict(report.get("live_casebook_snapshot"))
+    caption_audit = _as_dict(report.get("fixed_start_caption_audit_snapshot"))
     run_count = snapshot.get("run_count", 0)
     case_count = live_snapshot.get("case_count", 0)
+    audit_status = str(caption_audit.get("status", "") or "n/a")
     return (
         "**Validation evidence:** "
         f"offline CRPS `{snapshot.get('improved_crps_rows', 0)}/{run_count}`, "
         f"energy `{snapshot.get('improved_energy_rows', 0)}/{run_count}`, "
-        f"live API casebook `{live_snapshot.get('pass_count', 0)}/{case_count}` pass. "
+        f"live API casebook `{live_snapshot.get('pass_count', 0)}/{case_count}` pass, "
+        f"fixed-start caption audit `{audit_status}`. "
         "These are demo-readiness checks; full details below are optional."
     )
 
@@ -870,6 +1335,7 @@ def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
         )
     snapshot = _as_dict(report.get("validation_snapshot"))
     live_snapshot = _as_dict(report.get("live_casebook_snapshot"))
+    caption_audit = _as_dict(report.get("fixed_start_caption_audit_snapshot"))
     artifact_paths = _as_dict(report.get("artifact_paths"))
     live_models = ", ".join(_as_list(live_snapshot.get("grounding_models"))) or "n/a"
     embedding_models = (
@@ -877,8 +1343,7 @@ def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
     )
     evidence_path = str(artifact_paths.get("summary_markdown", ""))
     evidence_label = Path(evidence_path).name if evidence_path else "n/a"
-    return "\n".join(
-        [
+    lines = [
             "## Demo readiness evidence",
             "",
             f"- Evidence pack: `{evidence_label}`",
@@ -887,6 +1352,7 @@ def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
             f"- Energy improved `{snapshot.get('improved_energy_rows', 0)}/{snapshot.get('run_count', 0)}`.",
             f"- Offline mean CRPS improvement: `{_fmt_pct(snapshot.get('mean_crps_improvement_vs_persistence'))}`.",
             f"- Live API casebook: `{live_snapshot.get('pass_count', 0)}/{live_snapshot.get('case_count', 0)}` pass.",
+            f"- Fixed-start caption audit: `{caption_audit.get('status', 'n/a')}`.",
             f"- OpenAI tokens `{live_snapshot.get('total_openai_tokens', 0)}`.",
             f"- Min support candidates `{live_snapshot.get('min_support_candidate_count', 0)}`.",
             f"- Grounding model: `{live_models}`.",
@@ -895,7 +1361,18 @@ def boss_demo_pack_markdown(report: dict[str, Any]) -> str:
             "- Current/recent implications are conditioning inputs.",
             "- Forward-risk language is warning-only.",
         ]
-    )
+    if caption_audit:
+        prof_vs_null = _as_dict(caption_audit.get("professional_minus_start_only"))
+        prof_vs_simple = _as_dict(caption_audit.get("professional_minus_simple"))
+        lines.extend(
+            [
+                "- Fixed-start evidence:",
+                f"- Professional vs start-only factor KS delta `{_fmt_float(prof_vs_null.get('factor_terminal_ks'))}`.",
+                f"- Professional vs start-only portfolio KS delta `{_fmt_float(prof_vs_null.get('portfolio_terminal_ks'))}`.",
+                f"- Professional vs simple path-energy delta `{_fmt_float(prof_vs_simple.get('path_energy'))}`.",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def boss_demo_live_casebook_table(report: dict[str, Any]) -> pd.DataFrame:
@@ -979,17 +1456,15 @@ def prefix_variant_table(report: dict[str, Any]) -> pd.DataFrame:
 
 def prefix_selected_start_table(report: dict[str, Any]) -> pd.DataFrame:
     row = _operational_variant_row(report)
-    reliability = _as_dict(report.get("start_reliability_gate"))
     rows: list[dict[str, Any]] = []
     if row:
         rows.append(
             {
                 "Starting Level": str(row.get("start_window_id", "")),
                 "Index": str(row.get("start_window_index", "")),
-                "Reliability": str(reliability.get("product_status", "not checked")),
-                "Compatibility": _fmt_float(row.get("memory_support_cosine")),
-                "Distance": _fmt_float(row.get("start_distance_z")),
-                "Source Split": str(row.get("start_manifest_split", "")),
+                "Support Match": _fmt_float(row.get("memory_support_cosine")),
+                "Start Distance": _fmt_float(row.get("start_distance_z")),
+                "Source": str(row.get("start_manifest_split", "")),
             }
         )
     return _frame(rows, PREFIX_SELECTED_START_COLUMNS)
@@ -1058,37 +1533,52 @@ def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
 def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
     query = _as_dict(report.get("cached_query"))
     memory_prior = _as_dict(query.get("memory_prior"))
+    generation = _as_dict(report.get("generation"))
+    posterior = _as_dict(generation.get("posterior_ensemble"))
+    candidate_rows = _as_list(posterior.get("selected_support")) or _as_list(
+        memory_prior.get("candidate_details")
+    )
     rows: list[dict[str, Any]] = []
-    for rank, item in enumerate(
-        _as_list(memory_prior.get("candidate_details")), start=1
-    ):
-        if not isinstance(item, dict):
-            continue
-        checked = item.get("recent_prefix_checked")
-        mismatches = item.get("recent_prefix_mismatches")
-        alignment_score = _fmt_float(item.get("recent_prefix_alignment_score"))
-        alignment = (
-            alignment_score
-            if checked is None
-            else f"{alignment_score} ({mismatches}/{checked} mismatches)"
-        )
-        rows.append(
-            {
-                "Rank": int(item.get("rank", rank)),
-                "Window": str(item.get("window_id") or item.get("window_index", "")),
-                "Bridge Index": str(
-                    item.get("bridge_local_index", item.get("window_index", ""))
-                ),
-                "Source": str(item.get("source_index", "")),
-                "History End": str(item.get("history_end_date", "")),
-                "Split": str(item.get("manifest_split", "")),
-                "Weight": _fmt_float(item.get("weight")),
-                "Memory Support": _fmt_float(item.get("memory_support_cosine")),
-                "Start Distance": _fmt_float(item.get("start_distance_z")),
-                "Alignment": alignment,
-                "Score": _fmt_float(item.get("combined_score")),
-            }
-        )
+    def append_rows(items: list[Any], *, used_for: str) -> None:
+        for rank, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                continue
+            checked = item.get("recent_prefix_checked")
+            mismatches = item.get("recent_prefix_mismatches")
+            if checked is None:
+                direction_check = _fmt_float(item.get("recent_prefix_alignment_score"))
+            else:
+                try:
+                    mismatch_count = int(mismatches or 0)
+                    checked_count = int(checked)
+                except (TypeError, ValueError):
+                    mismatch_count = 0
+                    checked_count = 0
+                direction_status = "pass" if mismatch_count == 0 else "warning"
+                direction_check = (
+                    f"{direction_status}: {mismatch_count}/{checked_count} mismatches"
+                )
+            rows.append(
+                {
+                    "Used For": used_for,
+                    "Rank": int(item.get("rank", rank)),
+                    "Regime": str(
+                        item.get("window_id") or item.get("window_index", "")
+                    ),
+                    "History End": str(item.get("history_end_date", "")),
+                    "Weight": _fmt_float(item.get("weight")),
+                    "Story Match": _fmt_float(item.get("memory_support_cosine")),
+                    "Start Gap": _fmt_float(item.get("start_distance_z")),
+                    "Required Claims": direction_check,
+                }
+            )
+
+    append_rows(candidate_rows, used_for="Narrative scenario")
+    baseline = _as_dict(generation.get("start_only_baseline"))
+    baseline_support = _as_list(
+        _as_dict(baseline.get("posterior_ensemble")).get("selected_support")
+    ) or _as_list(baseline.get("support_candidates"))
+    append_rows(baseline_support, used_for="Start-only baseline")
     return _frame(rows, PREFIX_START_CANDIDATE_COLUMNS)
 
 
@@ -1372,7 +1862,7 @@ def prefix_warning_component_table(report: dict[str, Any]) -> pd.DataFrame:
                 break
         rows.append(
             {
-                "Component": str(name),
+                "Check": str(name),
                 "Status": str(item.get("status", "")),
                 "Metric": metric,
                 "Value": _fmt_float(
@@ -1407,8 +1897,78 @@ def prefix_shift_factor_table(report: dict[str, Any]) -> pd.DataFrame:
     return _frame(rows, PREFIX_SHIFT_FACTOR_COLUMNS)
 
 
+def _default_analogue_scope(report: dict[str, Any]) -> str:
+    posterior = _as_dict(_as_dict(report.get("generation")).get("posterior_ensemble"))
+    default_key = str(posterior.get("default_analogue_key") or "").strip()
+    if default_key:
+        return default_key
+    generation = _as_dict(report.get("generation"))
+    path_rows = _as_list(generation.get("path_quantiles"))
+    for row in path_rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("analogue_label") or "")
+        key = str(row.get("analogue_key") or "")
+        if key and label.startswith("Selected start:"):
+            return key
+    variant_rows = _as_list(report.get("variant_rows"))
+    for rank, item in enumerate(variant_rows, start=1):
+        if not isinstance(item, dict) or not bool(item.get("is_operational")):
+            continue
+        key = f"RANK_{rank}"
+        if any(
+            isinstance(row, dict) and str(row.get("analogue_key")) == key
+            for row in path_rows
+        ):
+            return key
+    return "ALL"
+
+
+def _all_scope_is_mixed_start_diagnostic(report: dict[str, Any]) -> bool:
+    generation = _as_dict(report.get("generation"))
+    for row in _as_list(generation.get("path_quantiles")):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("analogue_key", "ALL")) != "ALL":
+            continue
+        label = str(row.get("analogue_label") or "").lower()
+        if "start variants" in label:
+            return True
+    return False
+
+
+def _resolve_analogue_scope(report: dict[str, Any], analogue_scope: str) -> str:
+    requested = str(analogue_scope or "ALL")
+    default_scope = _default_analogue_scope(report)
+    if (
+        requested == "ALL"
+        and default_scope != "ALL"
+        and _all_scope_is_mixed_start_diagnostic(report)
+    ):
+        return default_scope
+    return requested
+
+
 def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
-    choices = [("All retrieved analogues", "ALL")]
+    choices: list[tuple[str, str]] = []
+    posterior = _as_dict(_as_dict(report.get("generation")).get("posterior_ensemble"))
+    default_key = str(posterior.get("default_analogue_key") or "").strip()
+    if default_key:
+        choices.append(
+            (
+                str(posterior.get("label") or TOP3_90_ENSEMBLE_LABEL),
+                default_key,
+            )
+        )
+    default_scope = _default_analogue_scope(report)
+    if default_key:
+        pass
+    elif not _all_scope_is_mixed_start_diagnostic(report) or default_scope == "ALL":
+        if not any(value == "ALL" for _, value in choices):
+            choices.append(("All retrieved analogues", "ALL"))
+    else:
+        if not any(value == default_scope for _, value in choices):
+            choices.append(("Operational selected start", default_scope))
     added = False
     for rank, item in enumerate(_as_list(report.get("historical_analogues")), start=1):
         if not isinstance(item, dict):
@@ -1418,7 +1978,7 @@ def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
         added = True
     if added:
         return choices
-    seen: set[str] = {"ALL"}
+    seen: set[str] = {value for _, value in choices}
     for row in _as_list(_as_dict(report.get("generation")).get("path_quantiles")):
         if not isinstance(row, dict):
             continue
@@ -1426,6 +1986,8 @@ def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
         if key in seen or key == "ALL":
             continue
         label = str(row.get("analogue_label") or key)
+        if label.startswith("Diagnostic baseline:"):
+            continue
         choices.append((label, key))
         seen.add(key)
     return choices
@@ -1434,7 +1996,10 @@ def analogue_scope_choices(report: dict[str, Any]) -> list[tuple[str, str]]:
 def analogue_scope_update(report: dict[str, Any]) -> Any:
     import gradio as gr
 
-    return gr.update(choices=analogue_scope_choices(report), value="ALL")
+    return gr.update(
+        choices=analogue_scope_choices(report),
+        value=_default_analogue_scope(report),
+    )
 
 
 def _path_quantile_row(
@@ -1477,28 +2042,90 @@ def _path_quantile_row(
     return {}
 
 
+def _series_plus_start(values: Any, start_level: float | None) -> list[float]:
+    series = _float_series(values)
+    if not _is_finite(start_level):
+        return series
+    return [float(start_level) + float(value) for value in series]
+
+
+def _path_quantile_row_as_raw_level(
+    report: dict[str, Any],
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a raw-level fan-chart row, converting legacy delta rows if needed."""
+
+    if not row:
+        return {}
+    converted = dict(row)
+    market = str(converted.get("market", ""))
+    start_level = converted.get("start_level")
+    if not _is_finite(start_level):
+        start_level = _market_start_level(report, market)
+    if _is_finite(start_level):
+        converted["start_level"] = float(start_level)
+    if str(converted.get("value_kind", "")).lower() == "raw_level":
+        converted["value_kind"] = "raw_level"
+        return converted
+    for key in ("p10", "p50", "p90", "mean", "realized_path"):
+        converted[key] = _series_plus_start(converted.get(key), start_level)
+    sample_paths: list[dict[str, Any]] = []
+    for path in _as_list(converted.get("sample_paths")):
+        if not isinstance(path, dict):
+            continue
+        updated_path = dict(path)
+        updated_path["values"] = _series_plus_start(path.get("values"), start_level)
+        sample_paths.append(updated_path)
+    converted["sample_paths"] = sample_paths
+    converted["value_kind"] = "raw_level"
+    converted["converted_from"] = str(row.get("value_kind") or "legacy_delta")
+    return converted
+
+
+def _prepend_start_to_series(
+    days: list[float],
+    values: list[float],
+    start_level: float | None,
+) -> tuple[list[float], list[float]]:
+    if not (_is_finite(start_level) and values):
+        return days, values
+    if days and abs(float(days[0])) < 1e-9:
+        return days, values
+    return [0.0] + list(days), [float(start_level)] + list(values)
+
+
 def fan_chart_figure(
     report: dict[str, Any],
     market: str,
     analogue_scope: str = "ALL",
 ) -> go.Figure:
-    row = _path_quantile_row(report, market, analogue_scope)
+    row = _path_quantile_row_as_raw_level(
+        report,
+        _path_quantile_row(report, market, analogue_scope),
+    )
     if not row:
         fig = go.Figure()
         fig.update_layout(
             title="No scenario fan data",
             xaxis_title="Forward day",
-            yaxis_title="Delta from current state",
+            yaxis_title="Raw market level",
             template="plotly_white",
         )
         return fig
 
     display_name = str(row.get("display_name") or row.get("market") or market)
     days = _float_series(row.get("days"))
+    start_level = row.get("start_level")
     p10 = _float_series(row.get("p10"))
     p50 = _float_series(row.get("p50"))
     p90 = _float_series(row.get("p90"))
     mean = _float_series(row.get("mean"))
+    days, p10 = _prepend_start_to_series(days, p10, start_level)
+    _, p50 = _prepend_start_to_series(_float_series(row.get("days")), p50, start_level)
+    _, p90 = _prepend_start_to_series(_float_series(row.get("days")), p90, start_level)
+    _, mean = _prepend_start_to_series(
+        _float_series(row.get("days")), mean, start_level
+    )
     band_x = days + list(reversed(days))
     band_y = p90 + list(reversed(p10))
     fig = go.Figure()
@@ -1553,6 +2180,11 @@ def fan_chart_figure(
         if not isinstance(path, dict):
             continue
         values = _float_series(path.get("values"))
+        _, values = _prepend_start_to_series(
+            _float_series(row.get("days")),
+            values,
+            start_level,
+        )
         if len(values) != len(days):
             continue
         fig.add_trace(
@@ -1569,6 +2201,11 @@ def fan_chart_figure(
             )
         )
     realized = _float_series(row.get("realized_path"))
+    _, realized = _prepend_start_to_series(
+        _float_series(row.get("days")),
+        realized,
+        start_level,
+    )
     if len(realized) == len(days):
         fig.add_trace(
             go.Scatter(
@@ -1580,9 +2217,9 @@ def fan_chart_figure(
             )
         )
     fig.update_layout(
-        title=f"{display_name} 30-day scenario fan",
+        title=f"{display_name} 30-day scenario fan (raw level)",
         xaxis_title="Forward day",
-        yaxis_title="Delta from current state",
+        yaxis_title="Raw market level",
         template="plotly_white",
         margin={"l": 55, "r": 25, "t": 60, "b": 50},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
@@ -1619,7 +2256,12 @@ def refresh_fan_chart(
     fan_market: str,
     analogue_scope: str,
 ) -> go.Figure:
-    return fan_chart_figure(_as_dict(report), fan_market, analogue_scope)
+    report_dict = _as_dict(report)
+    return fan_chart_figure(
+        report_dict,
+        fan_market,
+        _resolve_analogue_scope(report_dict, analogue_scope),
+    )
 
 
 def status_markdown(report: dict[str, Any]) -> str:
@@ -1664,18 +2306,12 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
         f"- Stress: `{gate.get('stress_status', 'n/a')}`",
         f"- Endpoint max error: `{_fmt_float(gate.get('endpoint_max_abs_error'), 6)}`",
         f"- Rollout temperature: `{_fmt_float(generation.get('rollout_temperature'))}`",
+        f"- Rollout fan scale: `{_fmt_float(generation.get('rollout_fan_scale'))}`",
         f"- Scenario CRPS vs persistence: `{_fmt_pct(metrics.get('ensemble_crps_z_improvement_vs_persistence'))}`",
         f"- Scenario energy vs persistence: `{_fmt_pct(metrics.get('energy_score_z_improvement_vs_persistence'))}`",
         f"- Operational interpretation: `{prefix_trust_interpretation(report)}`",
         f"- Generated shape: `{generation.get('generated_state_shape', 'not run')}`",
     ]
-    start_reliability = _as_dict(report.get("start_reliability_gate"))
-    if start_reliability:
-        lines.append(
-            "- Start reliability: "
-            f"`{start_reliability.get('product_status', 'n/a')}` - "
-            f"{start_reliability.get('decision', '')}"
-        )
     product_gate = _as_dict(report.get("condition_only_product_gate"))
     decision = _as_dict(product_gate.get("production_decision"))
     if decision:
@@ -1709,40 +2345,14 @@ def prefix_latent_status_markdown(report: dict[str, Any]) -> str:
 
 def prefix_latent_product_status_markdown(report: dict[str, Any]) -> str:
     generation = _as_dict(report.get("generation"))
-    product_gate = _as_dict(report.get("condition_only_product_gate"))
-    decision = _as_dict(product_gate.get("production_decision"))
     generated_shape = generation.get("generated_state_shape")
     if generated_shape:
-        status = "Scenario generation complete."
-        next_step = "Review the fan chart and scenario summary."
+        heading = "Scenario ready"
+        next_step = "Review the fan chart and baseline-vs-narrative summary below."
     else:
-        status = "Scenario preparation complete."
-        next_step = "Generate 30-day scenarios from the selected historical start."
-    result_note = (
-        decision.get("ui_guidance")
-        or decision.get("reason")
-        or "No blocking issue was found for this narrative and selected start."
-    )
-    start_reliability = _as_dict(report.get("start_reliability_gate"))
-    reliability_note = ""
-    if start_reliability:
-        reliability_note = (
-            f"- Start reliability: `{start_reliability.get('product_status', 'n/a')}` - "
-            f"{start_reliability.get('decision', '')}"
-        )
-    lines = [
-        "## Scenario Workflow Status",
-        "",
-        f"- Status: {status}",
-        f"- Story support: `{prefix_trust_interpretation(report)}`",
-        f"- Result note: {result_note}",
-    ]
-    if reliability_note:
-        lines.append(reliability_note)
-    lines.append(f"- Next step: {next_step}")
-    return "\n".join(
-        lines
-    )
+        heading = "Scenario inputs ready"
+        next_step = "Generate scenarios after choosing the starting market state."
+    return "\n".join(["## " + heading, "", next_step])
 
 
 def report_json_text(report: dict[str, Any]) -> str:
@@ -1784,6 +2394,7 @@ def _prefix_progress_status_markdown(
     start_mode: str,
     samples: int,
     temperature: float = DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
+    fan_scale: float = DEFAULT_PREFIX_ROLLOUT_FAN_SCALE,
     live_story: bool = False,
     condition_only_story: bool = False,
     cached_condition_report: bool = False,
@@ -1792,33 +2403,38 @@ def _prefix_progress_status_markdown(
     start_label = (
         "user-selected historical start"
         if str(start_mode) == "explicit_start_window"
-        else "user-supplied start state"
-        if str(start_mode) == "user_start_state"
-        else "start selection"
+        else (
+            "user-supplied start state"
+            if str(start_mode) == "user_start_state"
+            else "start selection"
+        )
     )
     if bool(cached_condition_report):
         condition_step = (
-            f"cached grounding-sidecar report, {start_label}, support mixture, "
-            "prefix preparation"
+            f"cached story report, {start_label}, selected support regimes, "
+            "top3/90 ensemble setup"
         )
     elif bool(condition_only_story):
         condition_step = (
-            "OpenAI grounding sidecar, text embedding, "
-            f"{start_label}, support mixture, prefix preparation, warning check"
+            "OpenAI story check, text embedding, "
+            f"{start_label}, selected support regimes, top3/90 ensemble setup"
         )
     elif bool(live_story):
         condition_step = (
-            f"OpenAI grounding and embedding, {start_label}, support mixture, "
-            "prefix preparation"
+            f"OpenAI story check and embedding, {start_label}, selected support "
+            "regimes, top3/90 ensemble setup"
         )
     else:
-        condition_step = f"cached text memory, {start_label}, support mixture, prefix preparation"
+        condition_step = (
+            f"cached text memory, {start_label}, selected support regimes, "
+            "top3/90 ensemble setup"
+        )
     if bool(skip_rollout):
         condition_step = f"{condition_step}; scenario rollout skipped"
         generator_note = "not run during validation"
     else:
         condition_step = f"{condition_step}, 30-day scenario generation"
-        generator_note = f"{int(samples)}"
+        generator_note = f"{int(samples)} scenario paths per support regime"
     return "\n".join(
         [
             "## Scenario Workflow Status",
@@ -1836,10 +2452,7 @@ def _completed_status_markdown(report: dict[str, Any], start_time: float) -> str
 
 
 def _completed_prefix_status_markdown(report: dict[str, Any], start_time: float) -> str:
-    return (
-        prefix_latent_product_status_markdown(report)
-        + f"\n- Completed in: `{_elapsed_text(start_time)}`"
-    )
+    return prefix_latent_product_status_markdown(report)
 
 
 def _error_status_markdown(error: BaseException, start_time: float) -> str:
@@ -1895,7 +2508,7 @@ def _blank_prefix_outputs(
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
-    pd.DataFrame,
+    str,
     go.Figure,
     str,
     dict[str, Any],
@@ -1914,7 +2527,7 @@ def _blank_prefix_outputs(
         _frame([], PREFIX_SELECTED_START_COLUMNS),
         _frame([], PREFIX_VARIANT_COLUMNS),
         _frame([], VALIDATION_GATE_COLUMNS),
-        _frame([], SCENARIO_COLUMNS),
+        scenario_summary_html({}),
         fan_chart_figure({}, fan_market, "ALL"),
         "{}",
         {},
@@ -2030,6 +2643,602 @@ def enrich_prefix_report_with_product_gate(report: dict[str, Any]) -> dict[str, 
     return enriched
 
 
+def _joint39_spec_names(channel_count: int) -> list[str]:
+    if int(channel_count) == len(JOINT39_SPEC_NAMES):
+        return list(JOINT39_SPEC_NAMES)
+    return [f"channel:{idx:02d}" for idx in range(int(channel_count))]
+
+
+def _terminal_delta_values_for_market(
+    *,
+    terminal_delta: np.ndarray,
+    market: str,
+    spec_names: list[str],
+) -> np.ndarray | None:
+    market_key = str(market or "").upper()
+    if market_key == "IV_SURFACE":
+        if terminal_delta.shape[-1] < 25:
+            return None
+        return np.nanmean(terminal_delta[:, :25], axis=1)
+    spec_name = SCENARIO_MARKET_TO_START_SPEC.get(market_key)
+    if not spec_name:
+        return None
+    index = {name: idx for idx, name in enumerate(spec_names)}
+    if spec_name not in index:
+        return None
+    return terminal_delta[:, index[spec_name]]
+
+
+def _terminal_summary_with_sign_metrics(
+    rows: Any,
+    *,
+    generated_states: np.ndarray,
+    start_raw: np.ndarray,
+    spec_names: list[str],
+) -> list[dict[str, Any]]:
+    """Attach empirical terminal sign shares to terminal summary rows."""
+
+    states = np.asarray(generated_states, dtype=np.float32)
+    start = np.asarray(start_raw, dtype=np.float32)
+    if states.ndim != 3 or start.ndim != 1 or states.shape[-1] != start.shape[0]:
+        return [dict(row) for row in _as_list(rows) if isinstance(row, dict)]
+
+    terminal_delta = states[:, -1, :] - start[None, :]
+    enriched: list[dict[str, Any]] = []
+    for row in _as_list(rows):
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        values = _terminal_delta_values_for_market(
+            terminal_delta=terminal_delta,
+            market=str(item.get("market", "")),
+            spec_names=spec_names,
+        )
+        if values is not None:
+            valid = np.asarray(values, dtype=np.float64)
+            valid = valid[np.isfinite(valid)]
+            if valid.size:
+                item.update(
+                    {
+                        "terminal_sample_count": int(valid.size),
+                        "terminal_probability_up": float(np.mean(valid > 0.0)),
+                        "terminal_probability_down": float(np.mean(valid < 0.0)),
+                        "terminal_probability_flat": float(np.mean(valid == 0.0)),
+                    }
+                )
+        enriched.append(item)
+    return enriched
+
+
+def _operational_variant_index_for_live_calibration(
+    report: dict[str, Any],
+    *,
+    variant_count: int,
+) -> int:
+    cached = _as_dict(report.get("cached_query"))
+    for raw in (
+        cached.get("operational_memory_prior_variant_index"),
+        _as_dict(report.get("selected_start_state")).get("variant_index"),
+    ):
+        if raw is None:
+            continue
+        try:
+            idx = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < int(variant_count):
+            return idx
+    for idx, row in enumerate(_as_list(report.get("variant_rows"))):
+        if isinstance(row, dict) and bool(row.get("is_operational")):
+            if idx < int(variant_count):
+                return int(idx)
+    return 0
+
+
+def _operational_path_label(report: dict[str, Any], op_idx: int) -> dict[str, str]:
+    target_key = f"RANK_{int(op_idx) + 1}"
+    variant_rows = _as_list(report.get("variant_rows"))
+    start_id = ""
+    if int(op_idx) < len(variant_rows) and isinstance(variant_rows[int(op_idx)], dict):
+        start_id = str(variant_rows[int(op_idx)].get("start_window_id", ""))
+    label = (
+        f"Selected start: {start_id}" if start_id else f"Selected start {op_idx + 1}"
+    )
+    for row in _as_list(_as_dict(report.get("generation")).get("path_quantiles")):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("analogue_key")) == target_key:
+            return {
+                "analogue_key": target_key,
+                "analogue_label": str(row.get("analogue_label") or label),
+                "window_id": str(row.get("window_id") or start_id),
+            }
+    return {"analogue_key": target_key, "analogue_label": label, "window_id": start_id}
+
+
+def _replace_operational_path_quantiles(
+    report: dict[str, Any],
+    *,
+    op_idx: int,
+    calibrated_states: np.ndarray,
+    start_raw: np.ndarray,
+    spec_names: list[str],
+) -> list[dict[str, Any]]:
+    generation = _as_dict(report.get("generation"))
+    existing_rows = _as_list(generation.get("path_quantiles"))
+    label = _operational_path_label(report, op_idx)
+    replacement_rows = path_quantiles_for_generated_states(
+        calibrated_states[None, :, :, :],
+        start_raw[None, :],
+        spec_names,
+        analogues=[label],
+        future_states=None,
+        max_paths=6,
+    )
+    replacement_by_market = {
+        str(row.get("market")): row
+        for row in replacement_rows
+        if isinstance(row, dict)
+        and str(row.get("analogue_key")) == label["analogue_key"]
+    }
+    replaced = False
+    updated_rows: list[dict[str, Any]] = []
+    for row in existing_rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("analogue_key")) != label["analogue_key"]:
+            updated_rows.append(row)
+            continue
+        replacement = replacement_by_market.get(str(row.get("market")))
+        if replacement is None:
+            updated_rows.append(row)
+            continue
+        merged = dict(row)
+        for key in (
+            "start_level",
+            "start_level_p10",
+            "start_level_p50",
+            "start_level_p90",
+            "days",
+            "p10",
+            "p50",
+            "p90",
+            "mean",
+            "sample_paths",
+            "value_kind",
+            "display_name",
+            "cell",
+        ):
+            if key in replacement:
+                merged[key] = replacement[key]
+        updated_rows.append(merged)
+        replaced = True
+    if not replaced:
+        updated_rows.extend(replacement_by_market.values())
+    return updated_rows
+
+
+def _write_live_calibration_markdown(
+    report: dict[str, Any],
+    metadata: dict[str, Any],
+) -> None:
+    markdown_text = str(
+        _as_dict(report.get("artifact_paths")).get("markdown", "")
+    ).strip()
+    if not markdown_text:
+        return
+    markdown_path = Path(markdown_text)
+    if not markdown_path.exists() or not markdown_path.is_file():
+        return
+    text = markdown_path.read_text(encoding="utf-8")
+    marker = "## Live Demo Narrative Calibration"
+    if marker in text:
+        text = text.split(marker, 1)[0].rstrip()
+    if bool(metadata.get("applied")):
+        body = (
+            f"{marker}\n\n"
+            "Diagnostic note: this older support-gated directional delta "
+            "calibration was applied after the support-grounded SNI rollout. It "
+            "is retained for audit/replay only; the current product-facing "
+            "demo view is the nearest-similar top3/90 posterior ensemble.\n\n"
+            f"- Mode: `{metadata.get('mode', '')}`\n"
+            f"- Effective beta: `{_fmt_float(metadata.get('effective_beta'))}`\n"
+            f"- Support gate: `{_fmt_float(metadata.get('support_gate'))}`\n"
+            f"- Active directional claims: `{int(metadata.get('active_direction_count', 0) or 0)}`\n"
+        )
+    else:
+        body = (
+            f"{marker}\n\n"
+            "The live demo did not apply narrative ensemble calibration for this "
+            "run.\n\n"
+            f"- Reason: `{metadata.get('skip_reason', 'not_applied')}`\n"
+            f"- Support gate: `{_fmt_float(metadata.get('support_gate'))}`\n"
+        )
+    markdown_path.write_text(
+        text.rstrip() + "\n\n" + body.rstrip() + "\n", encoding="utf-8"
+    )
+
+
+def _write_live_top3_90_markdown(
+    report: dict[str, Any],
+    metadata: dict[str, Any],
+) -> None:
+    markdown_text = str(
+        _as_dict(report.get("artifact_paths")).get("markdown", "")
+    ).strip()
+    if not markdown_text:
+        return
+    markdown_path = Path(markdown_text)
+    if not markdown_path.exists() or not markdown_path.is_file():
+        return
+    text = markdown_path.read_text(encoding="utf-8")
+    marker = "## Live Demo Top3/90 Ensemble"
+    if marker in text:
+        text = text.split(marker, 1)[0].rstrip()
+    if bool(metadata.get("applied")):
+        rows = [
+            f"- Ensemble: `{metadata.get('label', TOP3_90_ENSEMBLE_LABEL)}`",
+            f"- Selected support regimes: `{metadata.get('selected_component_count', 0)}`",
+            f"- Displayed scenario paths: `{metadata.get('posterior_sample_count', 0)}`",
+            f"- Support weight mass before renormalization: `{_fmt_float(metadata.get('base_weight_mass'))}`",
+        ]
+        body = (
+            f"{marker}\n\n"
+            "The live demo displays the current paper candidate: nearest-similar "
+            "support regimes with a main-regime top3/90 posterior. The full "
+            "support set remains available in the JSON as audit evidence, but the "
+            "fan chart and terminal summary use the selected main-regime ensemble.\n\n"
+            + "\n".join(rows)
+        )
+    else:
+        body = (
+            f"{marker}\n\n"
+            "The live demo could not build the top3/90 posterior view for this "
+            "run, so the original generated report was left unchanged.\n\n"
+            f"- Reason: `{metadata.get('skip_reason', 'not_applied')}`\n"
+        )
+    markdown_path.write_text(
+        text.rstrip() + "\n\n" + body.rstrip() + "\n", encoding="utf-8"
+    )
+
+
+def attach_start_only_baseline_report(
+    report: dict[str, Any],
+    baseline_report: dict[str, Any],
+    *,
+    memory_prior_mode: str = "soft_topk_start_only",
+) -> dict[str, Any]:
+    """Attach a same-start, no-narrative baseline used for directional summaries."""
+
+    generation = _as_dict(report.setdefault("generation", {}))
+    baseline_generation = _as_dict(baseline_report.get("generation"))
+    baseline_query = _as_dict(baseline_report.get("cached_query"))
+    baseline_prior = _as_dict(baseline_query.get("memory_prior"))
+    generation["start_only_baseline"] = {
+        "memory_prior_mode": str(baseline_prior.get("mode") or memory_prior_mode),
+        "terminal_delta_summary": _as_list(
+            baseline_generation.get("terminal_delta_summary")
+        ),
+        "path_quantiles": _as_list(baseline_generation.get("path_quantiles")),
+        "posterior_ensemble": _as_dict(
+            baseline_generation.get("posterior_ensemble")
+        ),
+        "support_candidates": _as_list(baseline_prior.get("candidate_details"))[:3],
+    }
+    return report
+
+
+def apply_live_top3_90_posterior_ensemble(report: dict[str, Any]) -> dict[str, Any]:
+    """Make the live demo display the verified nearest-similar top3/90 candidate."""
+
+    generation = dict(_as_dict(report.get("generation")))
+    metadata: dict[str, Any] = {
+        "mode": "nearest_similar_main_regime_top3_90",
+        "label": TOP3_90_ENSEMBLE_LABEL,
+        "max_components": int(TOP3_90_MAX_COMPONENTS),
+        "min_cumulative_weight": float(TOP3_90_MIN_WEIGHT_MASS),
+        "default_analogue_key": TOP3_90_ANALOGUE_KEY,
+        "applied": False,
+    }
+    artifact_paths = _as_dict(report.get("artifact_paths"))
+    arrays_path = Path(str(artifact_paths.get("arrays", "")))
+    if not arrays_path.exists():
+        metadata["skip_reason"] = "arrays_missing"
+        generation["posterior_ensemble"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_top3_90_markdown(updated, metadata)
+        return updated
+
+    required = {
+        "generated_states",
+        "requested_raw",
+        "rollout_component_variant_index",
+        "rollout_component_window_index",
+        "rollout_component_weight",
+        "rollout_component_sample_count",
+    }
+    with np.load(str(arrays_path), allow_pickle=True) as arrays:
+        missing = sorted(required.difference(arrays.files))
+        if missing:
+            metadata["skip_reason"] = "arrays_missing_keys"
+            metadata["missing_keys"] = missing
+            generation["posterior_ensemble"] = metadata
+            updated = {**report, "generation": generation}
+            _write_live_top3_90_markdown(updated, metadata)
+            return updated
+        states = np.asarray(arrays["generated_states"], dtype=np.float32)
+        requested_raw = np.asarray(arrays["requested_raw"], dtype=np.float32)
+        component_variant_index = np.asarray(
+            arrays["rollout_component_variant_index"], dtype=np.int64
+        )
+        component_window_index = np.asarray(
+            arrays["rollout_component_window_index"], dtype=np.int64
+        )
+        component_weight = np.asarray(
+            arrays["rollout_component_weight"], dtype=np.float64
+        )
+        component_sample_count = np.asarray(
+            arrays["rollout_component_sample_count"], dtype=np.int64
+        )
+    if states.ndim != 4 or requested_raw.ndim != 2:
+        metadata["skip_reason"] = "unexpected_array_shape"
+        generation["posterior_ensemble"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_top3_90_markdown(updated, metadata)
+        return updated
+
+    op_idx = _operational_variant_index_for_live_calibration(
+        report,
+        variant_count=states.shape[0],
+    )
+    components = component_slices_for_variant(
+        variant_index=int(op_idx),
+        component_variant_index=component_variant_index,
+        component_window_index=component_window_index,
+        component_weight=component_weight,
+        component_sample_count=component_sample_count,
+        sample_count=int(states.shape[1]),
+    )
+    component_rows = [
+        {**component, "component_no": int(pos)}
+        for pos, component in enumerate(components)
+    ]
+    selected = select_sparse_components(
+        component_rows,
+        max_components=TOP3_90_MAX_COMPONENTS,
+        min_cumulative_weight=TOP3_90_MIN_WEIGHT_MASS,
+    )
+    sample_indices: list[int] = []
+    support_rows: list[dict[str, Any]] = []
+    candidate_by_window = {
+        int(item.get("window_index", item.get("bridge_local_index"))): item
+        for item in _as_list(
+            _as_dict(_as_dict(report.get("cached_query")).get("memory_prior")).get(
+                "candidate_details"
+            )
+        )
+        if isinstance(item, dict)
+        and item.get("window_index", item.get("bridge_local_index")) is not None
+    }
+    for display_rank, component in enumerate(
+        sorted(selected, key=lambda item: float(item.get("sparse_weight", 0.0)), reverse=True),
+        start=1,
+    ):
+        start_slice, stop_slice = component["sample_slice"]
+        sample_indices.extend(range(int(start_slice), int(stop_slice)))
+        window_index = int(component["window_index"])
+        candidate = dict(candidate_by_window.get(window_index, {}))
+        base_weight = float(component.get("weight", 0.0))
+        posterior_weight = float(component.get("sparse_weight", 0.0))
+        candidate.update(
+            {
+                "rank": int(display_rank),
+                "window_index": int(window_index),
+                "bridge_local_index": int(
+                    candidate.get("bridge_local_index", window_index)
+                ),
+                "window_id": str(
+                    candidate.get("window_id") or f"joint39_train_{window_index:04d}"
+                ),
+                "base_support_weight": float(base_weight),
+                "weight": float(posterior_weight),
+                "posterior_weight": float(posterior_weight),
+                "posterior_role": "top3_90_selected",
+                "component_sample_count": int(component.get("sample_count", 0)),
+            }
+        )
+        support_rows.append(candidate)
+    if not sample_indices:
+        metadata["skip_reason"] = "no_selected_component_samples"
+        generation["posterior_ensemble"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_top3_90_markdown(updated, metadata)
+        return updated
+
+    selected_states = states[int(op_idx), np.asarray(sample_indices, dtype=np.int64)]
+    start_raw = requested_raw[int(op_idx)]
+    spec_names = _joint39_spec_names(states.shape[-1])
+    selected_summary = summarize_retrieval_generated_states(
+        selected_states[None, :, :, :],
+        start_raw[None, :],
+        spec_names,
+    )
+    path_rows = path_quantiles_for_generated_states(
+        selected_states[None, :, :, :],
+        start_raw[None, :],
+        spec_names,
+        analogues=None,
+        future_states=None,
+        max_paths=6,
+    )
+    for row in path_rows:
+        if not isinstance(row, dict):
+            continue
+        row["analogue_key"] = TOP3_90_ANALOGUE_KEY
+        row["analogue_label"] = TOP3_90_ENSEMBLE_LABEL
+        row["posterior_mode"] = "top3_90"
+        row["value_kind"] = "raw_level"
+    base_weight_mass = sum(float(item.get("base_support_weight", 0.0)) for item in support_rows)
+    metadata.update(
+        {
+            "applied": True,
+            "operational_variant_index": int(op_idx),
+            "selected_component_count": int(len(support_rows)),
+            "posterior_sample_count": int(selected_states.shape[0]),
+            "base_weight_mass": float(base_weight_mass),
+            "selected_support": support_rows,
+        }
+    )
+    generation["terminal_delta_summary"] = _terminal_summary_with_sign_metrics(
+        selected_summary.get("terminal_delta_summary", []),
+        generated_states=selected_states,
+        start_raw=start_raw,
+        spec_names=spec_names,
+    )
+    generation["path_quantiles"] = path_rows
+    generation["posterior_sample_count"] = int(selected_states.shape[0])
+    generation["posterior_ensemble"] = metadata
+    updated = {**report, "generation": generation}
+    _write_live_top3_90_markdown(updated, metadata)
+    return updated
+
+
+def apply_live_support_gated_ensemble_calibration(
+    report: dict[str, Any],
+    *,
+    beta: float = DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA,
+    alpha: float = DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_ALPHA,
+    beta_bound: float = DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA_BOUND,
+    support_gate_mode: str = "direction_status",
+) -> dict[str, Any]:
+    """Apply the current support-gated narrative calibration to a live app report.
+
+    The calibration is intentionally bounded and support-gated. If the support
+    prior is start-only or rejected by the direction check, the report is marked
+    as skipped and the generated scenario distribution is left unchanged.
+    """
+
+    generation = dict(_as_dict(report.get("generation")))
+    metadata: dict[str, Any] = {
+        "mode": "support_gated_directional_delta_calibration",
+        "beta": float(beta),
+        "alpha": float(alpha),
+        "beta_bound": float(beta_bound),
+        "support_gate_mode": str(support_gate_mode),
+        "applied": False,
+    }
+    artifact_paths = _as_dict(report.get("artifact_paths"))
+    arrays_path = Path(str(artifact_paths.get("arrays", "")))
+    if not arrays_path.exists():
+        metadata["skip_reason"] = "arrays_missing"
+        generation["narrative_ensemble_calibration"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_calibration_markdown(updated, metadata)
+        return updated
+
+    arrays = np.load(str(arrays_path))
+    required = {"generated_states", "requested_raw", "delta_scale"}
+    missing = sorted(required.difference(arrays.files))
+    if missing:
+        metadata["skip_reason"] = "arrays_missing_keys"
+        metadata["missing_keys"] = missing
+        generation["narrative_ensemble_calibration"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_calibration_markdown(updated, metadata)
+        return updated
+
+    states = np.asarray(arrays["generated_states"], dtype=np.float32)
+    requested_raw = np.asarray(arrays["requested_raw"], dtype=np.float32)
+    delta_scale = np.asarray(arrays["delta_scale"], dtype=np.float32)
+    if states.ndim != 4 or requested_raw.ndim != 2:
+        metadata["skip_reason"] = "unexpected_array_shape"
+        generation["narrative_ensemble_calibration"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_calibration_markdown(updated, metadata)
+        return updated
+
+    op_idx = _operational_variant_index_for_live_calibration(
+        report,
+        variant_count=states.shape[0],
+    )
+    grounding = _as_dict(_as_dict(report.get("cached_query")).get("grounding"))
+    direction = direction_vector_from_grounding(
+        grounding,
+        factor_count=states.shape[-1],
+        fallback_text=str(
+            _as_dict(report.get("cached_query")).get("query_text")
+            or _as_dict(report.get("cached_query")).get("narrative_text")
+            or ""
+        ),
+    )
+    support_gate = float(
+        _support_evidence_gate_from_report(report, mode=str(support_gate_mode))
+    )
+    metadata.update(
+        {
+            "operational_variant_index": int(op_idx),
+            "support_gate": float(support_gate),
+            "active_direction_count": int(np.count_nonzero(direction)),
+            "effective_beta": float(beta) * float(support_gate),
+        }
+    )
+    if support_gate <= 0.0:
+        metadata["skip_reason"] = "support_gate_blocked"
+        generation["narrative_ensemble_calibration"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_calibration_markdown(updated, metadata)
+        return updated
+    if int(np.count_nonzero(direction)) == 0:
+        metadata["skip_reason"] = "no_directional_claims"
+        generation["narrative_ensemble_calibration"] = metadata
+        updated = {**report, "generation": generation}
+        _write_live_calibration_markdown(updated, metadata)
+        return updated
+
+    start_raw = requested_raw[int(op_idx)]
+    samples = states[int(op_idx)] - start_raw[None, None, :]
+    calibrated_delta = apply_directional_delta_calibration(
+        samples,
+        delta_scale=delta_scale,
+        direction_vector=direction,
+        beta=float(beta) * support_gate,
+        alpha=float(alpha),
+        beta_bound=float(beta_bound),
+    )
+    calibrated_states = (start_raw[None, None, :] + calibrated_delta).astype(np.float32)
+    spec_names = _joint39_spec_names(states.shape[-1])
+    selected_summary = summarize_retrieval_generated_states(
+        calibrated_states[None, :, :, :],
+        start_raw[None, :],
+        spec_names,
+    )
+    generation["terminal_delta_summary"] = _terminal_summary_with_sign_metrics(
+        selected_summary.get("terminal_delta_summary", []),
+        generated_states=calibrated_states,
+        start_raw=start_raw,
+        spec_names=spec_names,
+    )
+    if generation.get("path_quantiles"):
+        generation["path_quantiles"] = _replace_operational_path_quantiles(
+            report,
+            op_idx=int(op_idx),
+            calibrated_states=calibrated_states,
+            start_raw=start_raw,
+            spec_names=spec_names,
+        )
+    generation["narrative_ensemble_calibration"] = {
+        **metadata,
+        "applied": True,
+        "summary_scope": "operational_selected_start",
+    }
+    updated = {**report, "generation": generation}
+    _write_live_calibration_markdown(
+        updated,
+        _as_dict(generation.get("narrative_ensemble_calibration")),
+    )
+    return updated
+
+
 def mark_live_app_conditioning(
     report: dict[str, Any],
     condition_report_payload: dict[str, Any],
@@ -2049,7 +3258,9 @@ def mark_live_app_conditioning(
         "scope_note": live_note,
         "live_app_openai_conditioning": {
             "status": "fresh_condition_report",
-            "grounding_model": metadata.get("model", metadata.get("grounding_model", "")),
+            "grounding_model": metadata.get(
+                "model", metadata.get("grounding_model", "")
+            ),
             "response_id": metadata.get("response_id", ""),
             "usage": metadata.get("usage", {}),
         },
@@ -2107,6 +3318,7 @@ def build_prefix_latent_run_args(
     *,
     start_mode: str,
     samples: int,
+    memory_prior_mode: str = "cohesive_topk_narrative_start_checked",
     live_story: bool = False,
     story: str = DEFAULT_STORY,
     condition_report: str | None = None,
@@ -2118,6 +3330,16 @@ def build_prefix_latent_run_args(
     return SimpleNamespace(
         bridge_report=DEFAULT_PREFIX_BRIDGE_REPORT,
         bridge_arrays=DEFAULT_PREFIX_BRIDGE_ARRAYS,
+        support_bank_report=(
+            DEFAULT_PREFIX_SUPPORT_BANK_REPORT
+            if Path(DEFAULT_PREFIX_SUPPORT_BANK_REPORT).exists()
+            else None
+        ),
+        support_bank_arrays=(
+            DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS
+            if Path(DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS).exists()
+            else None
+        ),
         pipeline_report=DEFAULT_PIPELINE_REPORT,
         checkpoint=(
             "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/"
@@ -2148,11 +3370,17 @@ def build_prefix_latent_run_args(
         start_distance_threshold_z=15.0,
         start_distance_penalty=0.02,
         implication_alignment_weight=0.25,
-        memory_prior_mode="soft_topk_narrative_start_checked",
+        memory_prior_mode=str(memory_prior_mode),
         memory_prior_top_k=8,
         memory_prior_temperature=0.2,
-        memory_prior_diverse_max_pairwise_cosine=0.98,
+        memory_prior_diverse_max_pairwise_cosine=0.95,
+        memory_prior_diverse_min_index_gap=30,
+        memory_prior_quality_guard_candidate_pool_size=12,
+        memory_prior_quality_guard_mixture_size=3,
+        memory_prior_quality_guard_max_mixtures=64,
+        memory_prior_quality_guard_min_candidate_mixtures=4,
         prefix_prior_mode="decoder",
+        rollout_mixture_mode="component_prefix_mixture",
         include_original_baseline=True,
         hidden_dim=256,
         steps=1000,
@@ -2166,6 +3394,7 @@ def build_prefix_latent_run_args(
         n_steps=30,
         chunk_size=max(4, min(16, int(samples))),
         temperature=DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
+        rollout_fan_scale=DEFAULT_PREFIX_ROLLOUT_FAN_SCALE,
         score_scale_floor=1e-3,
         hard_case_count=8,
         max_paths=6,
@@ -2247,7 +3476,7 @@ def run_story_for_app(
         analogues_table(report),
         _completed_status_markdown(report, start_time),
         scenario_table(report),
-        fan_chart_figure(report, fan_market, "ALL"),
+        fan_chart_figure(report, fan_market, _default_analogue_scope(report)),
         report_json_text(report),
         report,
         analogue_scope_update(report),
@@ -2269,6 +3498,7 @@ def run_prefix_latent_for_app(
     start_state_json: str | None = DEFAULT_USER_START_STATE_JSON,
     approve_start: bool = True,
     skip_rollout: bool = False,
+    include_start_only_baseline: bool = False,
     *,
     runner: Callable[[SimpleNamespace], dict[str, Any]] = run_prefix_latent_story_smoke,
     condition_grounder: Callable[..., Any] = ground_condition_only_story_with_openai,
@@ -2297,6 +3527,7 @@ def run_prefix_latent_for_app(
         start_mode=effective_start_mode,
         samples=int(samples),
         temperature=DEFAULT_PREFIX_ROLLOUT_TEMPERATURE,
+        fan_scale=DEFAULT_PREFIX_ROLLOUT_FAN_SCALE,
         live_story=bool(live_story),
         condition_only_story=bool(condition_only_story),
         cached_condition_report=bool(cached_report_path),
@@ -2352,8 +3583,33 @@ def run_prefix_latent_for_app(
             )
             report = mark_live_app_conditioning(report, condition_report_payload)
         report = enrich_prefix_report_with_product_gate(report)
+        if not bool(skip_rollout):
+            report = apply_live_top3_90_posterior_ensemble(report)
+        if bool(include_start_only_baseline) and not bool(skip_rollout):
+            baseline_args = build_prefix_latent_run_args(
+                start_mode=effective_start_mode,
+                samples=int(samples),
+                memory_prior_mode="soft_topk_start_only",
+                live_story=False,
+                story=str(story or DEFAULT_STORY),
+                condition_report=condition_report_path,
+                explicit_start_window_index=explicit_start,
+                start_state_json=user_start_path if bool(use_user_start_state) else None,
+                skip_rollout=False,
+                output_dir=str(Path(output_dir) / "start_only_baseline"),
+            )
+            baseline_report = runner(baseline_args)
+            baseline_report = enrich_prefix_report_with_product_gate(baseline_report)
+            baseline_report = apply_live_top3_90_posterior_ensemble(baseline_report)
+            report = attach_start_only_baseline_report(
+                report,
+                baseline_report,
+                memory_prior_mode="soft_topk_start_only",
+            )
         if runner is run_prefix_latent_story_smoke:
-            run_record_path = Path(output_dir) / "run_record" / "prefix_latent_run_record.json"
+            run_record_path = (
+                Path(output_dir) / "run_record" / "prefix_latent_run_record.json"
+            )
             _as_dict(report.setdefault("artifact_paths", {}))["run_record"] = str(
                 run_record_path
             )
@@ -2383,7 +3639,7 @@ def run_prefix_latent_for_app(
             _frame([], PREFIX_SELECTED_START_COLUMNS),
             _frame([], PREFIX_VARIANT_COLUMNS),
             _frame([], VALIDATION_GATE_COLUMNS),
-            _frame([], SCENARIO_COLUMNS),
+            scenario_summary_html({}),
             fan_chart_figure({}, fan_market, "ALL"),
             report_json_text(error_report),
             error_report,
@@ -2410,8 +3666,8 @@ def run_prefix_latent_for_app(
         prefix_selected_start_table(report),
         prefix_diagnostic_start_table(report),
         prefix_validation_table(report),
-        scenario_table(report),
-        fan_chart_figure(report, fan_market, "ALL"),
+        scenario_summary_html(report),
+        fan_chart_figure(report, fan_market, _default_analogue_scope(report)),
         report_json_text(report),
         report,
         analogue_scope_update(report),
@@ -2468,15 +3724,13 @@ def _manual_start_index(value: float | int | None) -> int | None:
         return None
 
 
-def _manual_start_required_outputs(
-    *, fan_market: str
-) -> tuple[
+def _manual_start_required_outputs(*, fan_market: str) -> tuple[
     str,
     str,
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
-    pd.DataFrame,
+    str,
     go.Figure,
     str,
     dict[str, Any],
@@ -2582,6 +3836,7 @@ def run_live_openai_prefix_for_app(
         start_state_json=None,
         approve_start=True,
         skip_rollout=False,
+        include_start_only_baseline=True,
         runner=runner,
         condition_grounder=condition_grounder,
         condition_report_runner=condition_report_runner,
@@ -2607,35 +3862,48 @@ def build_demo() -> Any:
 
     with gr.Blocks(title="Narrative Conditioned Scenario Demo") as demo:
         prefix_report_state = gr.State({})
-        prefix_samples = gr.State(16)
+        prefix_samples = gr.State(48)
         gr.Markdown(
             "# Narrative-Conditioned Scenario Generator\n"
-            "Describe the current market story, select a historical starting level, "
-            "and generate a 30-day scenario distribution.",
+            "Describe the current market story, choose the day-0 market state, "
+            "and generate raw-level 30-day scenario fans from the nearest-similar "
+            "support ensemble.",
             elem_classes=["demo-hero", "demo-shell"],
         )
         story = gr.Textbox(
             label="Risk-manager narrative",
-            value=DEFAULT_STORY,
+            value=APP_DEFAULT_STORY,
             lines=6,
             max_lines=10,
             placeholder="Describe the current/recent market state in risk-manager language.",
             elem_classes=["demo-shell"],
         )
+        recommended_narrative = gr.Dropdown(
+            choices=recommended_narrative_choices(),
+            value="",
+            label="Recommended narrative examples",
+            info=(
+                "Examples describe current/recent market conditions. "
+                "Future-risk phrases are allowed, but are shown as warnings and "
+                "excluded from conditioning."
+            ),
+            elem_classes=["demo-shell"],
+        )
         gr.Markdown("## Main Workflow")
         gr.Markdown(
-            "Enter the historical starting level selected by the risk manager, then generate scenarios."
+            "Pick a professional narrative, set the starting market state, and run the scenario deck."
         )
         with gr.Accordion("How to read this screen", open=False):
             gr.Markdown(
                 "- A historical start is the day-0 market level. In production, "
                 "the risk manager supplies this level from today's market or a "
                 "chosen historical window.\n"
-                "- The narrative drives the support mixture and decoded prefix. "
-                "Grounding is used as an audit check so future-looking claims are "
-                "not treated as guaranteed outcomes.\n"
-                "- Story support means the selected support set is compatible with "
-                "the narrative and the chosen starting level.\n"
+                "- The narrative selects historical support regimes with similar "
+                "current/recent market behavior. Future-looking language is shown "
+                "as a warning, not treated as an input target.\n"
+                "- The top3/90 support ensemble keeps the strongest one to three regimes "
+                "covering about 90% of the selected support mass, then renormalizes "
+                "their weights for the scenario fan.\n"
                 "- Result notes are product guidance, not forecasts. The fan chart "
                 "is the model's 30-day conditional distribution from the selected start."
             )
@@ -2644,16 +3912,12 @@ def build_demo() -> Any:
                 prefix_explicit_start_index = gr.Number(
                     value=22,
                     precision=0,
-                    label="Historical start window index",
+                    label="Starting market state",
                     info=(
-                        "Bridge-local window index for the starting market level. "
-                        "In production this is supplied by the risk manager."
+                        "Demo uses a historical window index as the day-0 market "
+                        "state. In production this would be today's market state "
+                        "or a risk-manager-selected state."
                     ),
-                )
-                gr.Markdown(
-                    "Reliability-checked demo starts: `0`, `18`, `22`, `40`, "
-                    "`77` pass. `178` is kept as a high-instability hard case.",
-                    elem_classes=["demo-hint"],
                 )
             with gr.Column(scale=1, min_width=280):
                 prefix_fan_market = gr.Dropdown(
@@ -2667,7 +3931,7 @@ def build_demo() -> Any:
                     variant="primary",
                 )
         prefix_status = gr.Markdown(
-            "## Scenario Workflow Status\n\n- Waiting. Enter a narrative and historical start window, then generate scenarios.",
+            "## Scenario Workflow Status\n\n- Waiting. Enter a narrative and starting market state, then generate scenarios.",
             label="Prefix-latent status",
         )
         prefix_analogue_scope = gr.Dropdown(
@@ -2682,10 +3946,44 @@ def build_demo() -> Any:
             visible=False,
             show_label=False,
         )
+        gr.Markdown("## Story Grounding")
+        gr.Markdown(
+            "The model first extracts current/recent market claims from the story. "
+            "Forward-looking phrases are shown as warnings and excluded from conditioning."
+        )
+        with gr.Row(equal_height=False, elem_classes=["demo-responsive-row"]):
+            with gr.Column(scale=2, min_width=320):
+                prefix_condition_implications = gr.Dataframe(
+                    headers=PREFIX_CONDITION_COLUMNS,
+                    label="Grounded current/recent market claims",
+                    interactive=False,
+                    elem_classes=[DEMO_TABLE_CLASS],
+                )
+            with gr.Column(scale=1, min_width=280):
+                prefix_condition_warnings = gr.Dataframe(
+                    headers=WARNING_COLUMNS,
+                    label="Warnings",
+                    interactive=False,
+                    elem_classes=[DEMO_TABLE_CLASS],
+                )
+        gr.Markdown("## Historical Support")
+        gr.Markdown(
+            "This table shows both support sets: the narrative-conditioned "
+            "regimes used for the displayed scenario fan, and the start-only "
+            "baseline regimes chosen from the same starting market level "
+            "without the narrative."
+        )
+        prefix_start_candidates = gr.Dataframe(
+            headers=PREFIX_START_CANDIDATE_COLUMNS,
+            label="Selected support regimes",
+            interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
+        )
+        gr.Markdown("## Scenario Distribution")
         prefix_fan_plot = gr.Plot(label="30-day scenario fan chart")
         gr.Markdown(
             "The selected starting level is the day-0 market state used before the "
-            "narrative-conditioned support mixture and rollout are built."
+            "support ensemble and rollout are built."
         )
         prefix_selected_start = gr.Dataframe(
             headers=PREFIX_SELECTED_START_COLUMNS,
@@ -2694,69 +3992,55 @@ def build_demo() -> Any:
             elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown(
-            "Terminal deltas are changes from the selected starting level. The "
-            "Starting Level column shows the historical reference used as day 0."
+            "This table compares the start-only baseline with the "
+            "narrative-conditioned scenario. Views are the headline direction "
+            "versus the starting level; path counts show how many terminal "
+            "paths point that way; mean moves show the average terminal change "
+            "in market units and standardized size."
         )
-        prefix_scenario = gr.Dataframe(
-            headers=SCENARIO_COLUMNS,
-            label="30-day terminal delta summary",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
+        prefix_scenario = gr.HTML(
+            value=scenario_summary_html({}),
+            elem_classes=["demo-scenario-summary"],
         )
         with gr.Accordion("Audit details", open=False):
             gr.Markdown(
-                "Audit details explain why the run was accepted or flagged. "
-                "Grounded implications are current/recent market claims extracted "
-                "from the story; forward-looking language is kept as a warning-only "
-                "sidecar; support candidates show the historical evidence pool used "
-                "to construct the latent prefix."
-            )
-            prefix_condition_warnings = gr.Dataframe(
-                headers=WARNING_COLUMNS,
-                label="Warnings",
-                interactive=False,
-                elem_classes=[DEMO_TABLE_CLASS],
+                "Technical run details are kept here for traceability. The main "
+                "demo should be read from the story claims, warnings, selected "
+                "support regimes, fan chart, and terminal level summary above."
             )
             prefix_validation = gr.Dataframe(
                 headers=VALIDATION_GATE_COLUMNS,
-                label="Validation",
+                label="Technical gate data",
                 interactive=False,
-                elem_classes=[DEMO_TABLE_CLASS],
-            )
-            prefix_condition_implications = gr.Dataframe(
-                headers=PREFIX_CONDITION_COLUMNS,
-                label="Grounded implications",
-                interactive=False,
+                visible=False,
                 elem_classes=[DEMO_TABLE_CLASS],
             )
             prefix_diagnostic_start = gr.Dataframe(
                 headers=PREFIX_VARIANT_COLUMNS,
-                label="Original-start comparison",
+                label="Baseline comparison",
                 interactive=False,
-                elem_classes=[DEMO_TABLE_CLASS],
-            )
-            prefix_start_candidates = gr.Dataframe(
-                headers=PREFIX_START_CANDIDATE_COLUMNS,
-                label="Support candidates",
-                interactive=False,
+                visible=False,
                 elem_classes=[DEMO_TABLE_CLASS],
             )
             prefix_user_start = gr.Dataframe(
                 headers=PREFIX_USER_START_COLUMNS,
-                label="User start diagnostics",
+                label="Start-state metadata",
                 interactive=False,
+                visible=False,
                 elem_classes=[DEMO_TABLE_CLASS],
             )
             prefix_warning_components = gr.Dataframe(
                 headers=PREFIX_WARNING_COMPONENT_COLUMNS,
-                label="Warning decomposition",
+                label="Narrative check metadata",
                 interactive=False,
+                visible=False,
                 elem_classes=[DEMO_TABLE_CLASS],
             )
             prefix_shift_factors = gr.Dataframe(
                 headers=PREFIX_SHIFT_FACTOR_COLUMNS,
-                label="Rollout sensitivity",
+                label="Sensitivity metadata",
                 interactive=False,
+                visible=False,
                 elem_classes=[DEMO_TABLE_CLASS],
             )
             with gr.Accordion("Markdown report", open=False):
@@ -2794,6 +4078,13 @@ def build_demo() -> Any:
             show_progress="full",
             show_progress_on=prefix_status,
             api_name="run_live_openai_prefix_for_app",
+        )
+        recommended_narrative.change(
+            fn=recommended_narrative_text,
+            inputs=[recommended_narrative, story],
+            outputs=story,
+            show_progress="hidden",
+            api_name="recommended_narrative_text",
         )
         prefix_fan_market.change(
             fn=refresh_fan_chart,

@@ -24,6 +24,11 @@ DEFAULT_OUTPUT_DIR = (
     "prefix_latent_boss_demo_pack_821a"
 )
 DEFAULT_LIVE_CASEBOOK_REPORT = ""
+DEFAULT_FIXED_START_CAPTION_AUDIT_REPORT = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "full_corpus_fixed_start_conditionality_audit_957c_start22_s8_shared_startonly/"
+    "full_corpus_fixed_start_conditionality_audit.json"
+)
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
@@ -176,20 +181,61 @@ def live_casebook_snapshot(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def fixed_start_caption_audit_snapshot(report: dict[str, Any]) -> dict[str, Any]:
+    groups = report.get("group_summaries", {})
+    if not isinstance(groups, dict):
+        groups = {}
+    decision = report.get("decision", {})
+    if not isinstance(decision, dict):
+        decision = {}
+    rows: list[dict[str, Any]] = []
+    for name in ("professional", "simple", "start_only"):
+        group = groups.get(name, {})
+        if not isinstance(group, dict):
+            group = {}
+        ranges = group.get("terminal_mean_level_ranges", {})
+        if not isinstance(ranges, dict):
+            ranges = {}
+        rows.append(
+            {
+                "condition": name,
+                "mean_support_jaccard": group.get("mean_support_jaccard"),
+                "mean_factor_terminal_ks": group.get("mean_factor_terminal_ks"),
+                "mean_portfolio_terminal_ks": group.get("mean_portfolio_terminal_ks"),
+                "mean_path_energy": group.get("mean_path_energy"),
+                "spx_terminal_mean_range": ranges.get("SPX"),
+                "vix_terminal_mean_range": ranges.get("VIX"),
+            }
+        )
+    return {
+        "status": str(decision.get("status", "")),
+        "start_index": report.get("start_index"),
+        "case_count": int(report.get("case_count", 0) or 0),
+        "samples": int(report.get("samples", 0) or 0),
+        "professional_minus_start_only": decision.get(
+            "professional_minus_start_only", {}
+        ),
+        "professional_minus_simple": decision.get("professional_minus_simple", {}),
+        "rows": rows,
+        "artifact_paths": report.get("artifact_paths", {}),
+    }
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
     snapshot = summary["validation_snapshot"]
     live_snapshot = summary.get("live_casebook_snapshot")
+    caption_audit = summary.get("fixed_start_caption_audit_snapshot")
     lines = [
         "# Narrative-Conditioned Scenario Generator Evidence Pack",
         "",
         "## Product Claim",
         "",
         (
-            "A risk manager can enter a market narrative and either accept a "
-            "recommended starting level or provide a joint39 starting level. "
+            "A risk manager can enter a market narrative and provide a joint39 "
+            "starting level. "
             "The system converts the narrative into grounded current/recent "
-            "market implications, forms a narrative-and-start-compatible "
-            "analogue-mixture prefix, and rolls the frozen joint39 generator "
+            "market implications, forms a narrative-compatible historical "
+            "support mixture under that fixed start, and rolls the frozen joint39 generator "
             "forward with calibrated sampling."
         ),
         "",
@@ -197,7 +243,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "1. Parse the narrative into conditioning implications and non-conditioning forward-risk warnings.",
         "2. Fix the initial joint39 level before building the 30-day prefix mixture.",
-        "3. Build a soft top-k analogue mixture conditioned on both narrative memory and fixed start.",
+        "3. Build a direction-checked support mixture conditioned on the professional narrative memory and fixed start.",
         "4. Decode the recent-prefix object and run the frozen SNI generator autoregressively.",
         "5. Show scenario fans, analogue support, IV-cell views, pass/warning/fail gates, and distributional metrics.",
         "",
@@ -250,6 +296,40 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"`{row['summary_path']}` |"
             )
         lines.append("")
+    if isinstance(caption_audit, dict):
+        prof_vs_null = caption_audit.get("professional_minus_start_only", {})
+        prof_vs_simple = caption_audit.get("professional_minus_simple", {})
+        lines.extend(
+            [
+                "## Full-Corpus Fixed-Start Conditionality Audit",
+                "",
+                f"- Audit report: `{summary.get('fixed_start_caption_audit_report', '')}`",
+                f"- Status: `{caption_audit.get('status', '')}`",
+                f"- Shared start index: `{caption_audit.get('start_index', '')}`",
+                f"- Cases: `{caption_audit.get('case_count', 0)}`",
+                f"- Samples per condition: `{caption_audit.get('samples', 0)}`",
+                f"- Professional vs start-only factor KS delta: `{_fmt_float(prof_vs_null.get('factor_terminal_ks'))}`",
+                f"- Professional vs start-only portfolio KS delta: `{_fmt_float(prof_vs_null.get('portfolio_terminal_ks'))}`",
+                f"- Professional vs simple fact-token path-energy delta: `{_fmt_float(prof_vs_simple.get('path_energy'))}`",
+                "",
+                "| Condition | Support Jaccard | Factor KS | Portfolio KS | Path energy | SPX range | VIX range |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for row in caption_audit.get("rows", []):
+            if not isinstance(row, dict):
+                continue
+            lines.append(
+                "| "
+                f"{row.get('condition', '')} | "
+                f"{_fmt_float(row.get('mean_support_jaccard'))} | "
+                f"{_fmt_float(row.get('mean_factor_terminal_ks'))} | "
+                f"{_fmt_float(row.get('mean_portfolio_terminal_ks'))} | "
+                f"{_fmt_float(row.get('mean_path_energy'))} | "
+                f"{_fmt_float(row.get('spx_terminal_mean_range'))} | "
+                f"{_fmt_float(row.get('vix_terminal_mean_range'))} |"
+            )
+        lines.append("")
     lines.extend(
         [
             "## Warning Semantics",
@@ -268,7 +348,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "- This is not an LLM inventing future paths; the LLM only grounds the narrative into conditioning language.",
             "- The numerical scenario paths come from the frozen joint39 generator and calibrated rollout.",
             "- Historical analogues are support/provenance for the recent prefix, not a single nearest-neighbor replay.",
-            "- The risk manager can override the starting level; the prefix mixture is rebuilt after the start is fixed.",
+            "- The risk manager provides the starting level; the support mixture is rebuilt after that start is fixed.",
             "- The demo should show the narrative, extracted implications, warnings, analogue weights, fan charts, selected IV cells, and JSON report.",
             "",
             "## Next Validation Step",
@@ -305,6 +385,15 @@ def build_demo_pack(args: argparse.Namespace) -> dict[str, Any]:
         live_casebook = _load_json(live_casebook_report)
         summary["live_casebook_report"] = live_casebook_report
         summary["live_casebook_snapshot"] = live_casebook_snapshot(live_casebook)
+    fixed_start_caption_audit_report = str(
+        getattr(args, "fixed_start_caption_audit_report", "") or ""
+    ).strip()
+    if fixed_start_caption_audit_report and Path(fixed_start_caption_audit_report).exists():
+        caption_audit = _load_json(fixed_start_caption_audit_report)
+        summary["fixed_start_caption_audit_report"] = fixed_start_caption_audit_report
+        summary["fixed_start_caption_audit_snapshot"] = (
+            fixed_start_caption_audit_snapshot(caption_audit)
+        )
     _write_json(summary["artifact_paths"]["summary_json"], summary)
     Path(summary["artifact_paths"]["summary_markdown"]).write_text(
         render_markdown(summary).rstrip() + "\n",
@@ -317,6 +406,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--validation-report", default=DEFAULT_VALIDATION_REPORT)
     parser.add_argument("--live-casebook-report", default=DEFAULT_LIVE_CASEBOOK_REPORT)
+    parser.add_argument(
+        "--fixed-start-caption-audit-report",
+        default=DEFAULT_FIXED_START_CAPTION_AUDIT_REPORT,
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     summary = build_demo_pack(args)

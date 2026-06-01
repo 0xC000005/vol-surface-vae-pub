@@ -35,6 +35,7 @@ from experiments.backfill.block_ar.nl_narrative_grounded_scenario_pipeline impor
     KEY_FACTOR_NAMES,
     _reconstruct_states,
     _spec_names,
+    build_window_metadata,
     compute_memory_targets,
     summarize_retrieval_generated_states,
 )
@@ -111,15 +112,71 @@ MemoryPriorMode = Literal[
     "soft_topk_memory",
     "soft_topk_narrative_start",
     "soft_topk_narrative_start_checked",
+    "diverse_topk_narrative_start_checked",
+    "cohesive_topk_narrative_start_checked",
+    "cluster_family_narrative_start_checked",
+    "kernel_topk_narrative_start_checked",
+    "portfolio_quality_guard_924e",
+    "portfolio_direction_first_quality_guard_938a",
+    "broad_replay_response_guard_940a",
+    "narrative_book_quality_guard_926b",
+    "narrative_book_direction_first_quality_guard_938c",
     "soft_topk_start_only",
     "soft_topk_combined",
     "diverse_topk_narrative_start",
     "diverse_topk_combined",
 ]
+
+RESPONSE_DIRECTION_SIGN = {
+    "up": 1.0,
+    "higher": 1.0,
+    "wider": 1.0,
+    "steeper": 1.0,
+    "down": -1.0,
+    "lower": -1.0,
+    "tighter": -1.0,
+    "narrower": -1.0,
+    "flatter": -1.0,
+    "flat": 0.0,
+    "mixed": 0.0,
+    "unchanged": 0.0,
+}
+RESPONSE_CONFIDENCE_WEIGHT = {"high": 1.0, "medium": 0.7, "low": 0.4}
+RESPONSE_MAGNITUDE_WEIGHT = {"large": 1.2, "medium": 1.0, "small": 0.75}
+RESPONSE_MARKET_ALIASES = {
+    "CRUDE": "CRUDE_OIL",
+    "CRUDE OIL": "CRUDE_OIL",
+    "OIL": "CRUDE_OIL",
+    "RATES": "US10Y",
+    "TREASURY_10Y": "US10Y",
+    "UST10Y": "US10Y",
+    "CREDIT_SPREADS": "BBB_OAS",
+    "SPREADS": "BBB_OAS",
+}
 PrefixPriorMode = Literal[
     "decoder",
     "feature_mixture",
 ]
+RolloutMixtureMode = Literal[
+    "averaged_prefix",
+    "component_prefix_mixture",
+    "response_preview_component_mixture",
+]
+ResponsePreviewObjective = Literal[
+    "narrative_channels",
+    "factor_portfolio",
+    "channel_portfolio",
+]
+
+RESPONSE_PORTFOLIO_EXPOSURES = (
+    {"market": "SPX", "sensitivity": 1.00},
+    {"market": "VIX", "sensitivity": -0.55},
+    {"market": "BBB_OAS", "sensitivity": -0.45},
+    {"market": "US10Y", "sensitivity": -0.35},
+    {"market": "DXY", "sensitivity": -0.25},
+    {"market": "CRUDE_OIL", "sensitivity": 0.20},
+    {"market": "GOLD", "sensitivity": 0.15},
+)
 
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
@@ -351,6 +408,89 @@ def window_metadata_by_bridge_local_index(
             "selection_reasons": row.get("selection_reasons", []),
         }
     return rows
+
+
+def window_metadata_by_local_index(
+    metadata: list[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    """Return metadata keyed by local row index for a support/start bank."""
+
+    rows: dict[int, dict[str, Any]] = {}
+    for local_idx, row in enumerate(metadata):
+        if not isinstance(row, dict):
+            continue
+        rows[int(local_idx)] = {
+            "window_id": str(row.get("window_id", f"window_{local_idx}")),
+            "window_index": row.get("window_index", local_idx),
+            "source_index": row.get("source_index"),
+            "manifest_split": row.get("manifest_split"),
+            "calendar": {
+                "calendar_start_date": row.get("calendar_start_date"),
+                "calendar_end_date": row.get("calendar_end_date"),
+                "forecast_start_date": row.get("forecast_start_date"),
+                "forecast_end_date": row.get("forecast_end_date"),
+            },
+            "selection_reasons": row.get("selection_reasons", []),
+        }
+    return rows
+
+
+def _load_support_bank(
+    *,
+    report_path: str | Path,
+    arrays_path: str | Path,
+) -> dict[str, Any]:
+    """Load a broad support bank built by nl_prefix_latent_support_bank.py."""
+
+    report = _load_json(report_path)
+    arrays = np.load(arrays_path)
+    required = {
+        "memory_targets",
+        "history_level",
+        "history_norm",
+        "center",
+        "scale",
+        "drift_feature",
+        "history_raw",
+        "future_raw",
+        "future_delta",
+        "train_indices",
+        "test_indices",
+    }
+    missing = sorted(required.difference(arrays.files))
+    if missing:
+        raise ValueError(f"{arrays_path}: missing support-bank arrays {missing}")
+    metadata = report.get("window_metadata", [])
+    if not isinstance(metadata, list):
+        raise ValueError(f"{report_path}: window_metadata must be a list")
+    n = int(np.asarray(arrays["memory_targets"]).shape[0])
+    if len(metadata) != n:
+        raise ValueError(
+            f"{report_path}: metadata rows {len(metadata)} != support rows {n}"
+        )
+    return {
+        "report": report,
+        "memory_targets": np.asarray(arrays["memory_targets"], dtype=np.float32),
+        "history_level": np.asarray(arrays["history_level"], dtype=np.float32),
+        "history_norm": np.asarray(arrays["history_norm"], dtype=np.float32),
+        "center": np.asarray(arrays["center"], dtype=np.float32),
+        "scale": np.asarray(arrays["scale"], dtype=np.float32),
+        "drift_feature": np.asarray(arrays["drift_feature"], dtype=np.float32),
+        "history_raw": np.asarray(arrays["history_raw"], dtype=np.float32),
+        "future_raw": np.asarray(arrays["future_raw"], dtype=np.float32),
+        "future_delta": np.asarray(arrays["future_delta"], dtype=np.float32),
+        "train_indices": np.asarray(arrays["train_indices"], dtype=np.int64),
+        "test_indices": np.asarray(arrays["test_indices"], dtype=np.int64),
+        "support_indices": np.asarray(
+            (
+                arrays["support_indices"]
+                if "support_indices" in arrays.files
+                else arrays["train_indices"]
+            ),
+            dtype=np.int64,
+        ),
+        "metadata": metadata,
+    }
 
 
 def _safe_start_z(start_state: np.ndarray, fit_indices: np.ndarray) -> np.ndarray:
@@ -990,12 +1130,8 @@ def annotate_variant_with_memory_prior(
     if isinstance(direction_check, dict):
         annotated.update(
             {
-                "memory_prior_direction_status": str(
-                    direction_check.get("status", "")
-                ),
-                "memory_prior_direction_reason": str(
-                    direction_check.get("reason", "")
-                ),
+                "memory_prior_direction_status": str(direction_check.get("status", "")),
+                "memory_prior_direction_reason": str(direction_check.get("reason", "")),
                 "memory_prior_support_weighted_match_rate": (
                     None
                     if direction_check.get("support_weighted_match_rate") is None
@@ -1006,6 +1142,12 @@ def annotate_variant_with_memory_prior(
                 ),
             }
         )
+    support_policy = memory_prior.get("support_diversity_policy", {})
+    if isinstance(support_policy, dict):
+        annotated["memory_prior_support_diversity_policy"] = dict(support_policy)
+    quality_guard_policy = memory_prior.get("portfolio_quality_guard_policy", {})
+    if isinstance(quality_guard_policy, dict):
+        annotated["portfolio_quality_guard_policy"] = dict(quality_guard_policy)
     return annotated
 
 
@@ -1022,6 +1164,16 @@ def generated_delta_samples_to_states(
     if current.shape != (delta.shape[0], delta.shape[-1]):
         raise ValueError("current_states must have shape [K,C]")
     return (current[:, None, None, :] + delta).astype(np.float32)
+
+
+def scale_delta_samples_around_mean(samples: np.ndarray, alpha: float) -> np.ndarray:
+    """Scale generated delta-path samples around each variant ensemble mean."""
+
+    arr = np.asarray(samples, dtype=np.float32)
+    if arr.ndim != 4:
+        raise ValueError("samples must have shape [K,S,T,C]")
+    mean = np.nanmean(arr, axis=1, keepdims=True)
+    return (mean + float(alpha) * (arr - mean)).astype(np.float32)
 
 
 def sample_prefix_generator_deltas_from_start_raw(
@@ -1062,6 +1214,607 @@ def sample_prefix_generator_deltas_from_start_raw(
         specs,
     )
     return (generated_states - current[:, None, None, :]).astype(np.float32)
+
+
+def _allocate_weighted_sample_counts(
+    weights: np.ndarray,
+    total_samples: int,
+) -> np.ndarray:
+    """Deterministically allocate total samples across weighted components."""
+
+    total = int(total_samples)
+    if total < 1:
+        raise ValueError("total_samples must be positive")
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if w.size == 0:
+        raise ValueError("weights must be non-empty")
+    if not np.all(np.isfinite(w)) or float(np.sum(w)) <= 0.0:
+        w = np.ones_like(w, dtype=np.float64)
+    w = np.maximum(w, 0.0)
+    w = w / max(float(np.sum(w)), 1e-12)
+    expected = w * float(total)
+    counts = np.floor(expected).astype(np.int64)
+    remainder = total - int(np.sum(counts))
+    if remainder > 0:
+        order = np.argsort(-(expected - counts))
+        for pos in order[:remainder]:
+            counts[int(pos)] += 1
+    return counts
+
+
+def _softmax(values: np.ndarray, *, temperature: float) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    if arr.size == 0:
+        raise ValueError("values must be non-empty")
+    temp = max(float(temperature), 1.0e-6)
+    scaled = arr / temp
+    scaled = scaled - float(np.max(scaled))
+    exp = np.exp(scaled)
+    total = float(np.sum(exp))
+    if total <= 0.0 or not np.isfinite(total):
+        return np.ones(arr.size, dtype=np.float64) / float(arr.size)
+    return exp / total
+
+
+def _response_implication_rows(grounding: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return current/recent market implications across live/cached schemas."""
+
+    payload = grounding if isinstance(grounding, dict) else {}
+    nested = payload.get("condition_only_grounding")
+    if isinstance(nested, dict):
+        payload = nested
+    rows: list[dict[str, Any]] = []
+    for key in ("current_market_state_implications", "market_implications"):
+        raw = payload.get(key, [])
+        if isinstance(raw, list):
+            rows.extend(row for row in raw if isinstance(row, dict))
+    return rows
+
+
+def _normal_response_market(value: Any) -> str:
+    text = str(value or "").strip().upper().replace("_", " ")
+    return RESPONSE_MARKET_ALIASES.get(text, text.replace(" ", "_"))
+
+
+def response_channels_from_grounding(
+    *,
+    grounding: dict[str, Any],
+    spec_names: list[str],
+) -> list[dict[str, Any]]:
+    """Map grounded current/recent claims to raw-state response channels."""
+
+    spec_index = {str(name): idx for idx, name in enumerate(spec_names)}
+    channels: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in _response_implication_rows(grounding):
+        market = _normal_response_market(row.get("market"))
+        spec_name = KEY_FACTOR_NAMES.get(market)
+        if spec_name is None or spec_name not in spec_index:
+            continue
+        direction = str(row.get("direction", "")).strip().lower()
+        confidence = str(row.get("confidence", "medium")).strip().lower()
+        magnitude = str(row.get("magnitude", "medium")).strip().lower()
+        channels.append(
+            {
+                "market": market,
+                "factor": spec_name,
+                "index": int(spec_index[spec_name]),
+                "sign": float(RESPONSE_DIRECTION_SIGN.get(direction, 0.0)),
+                "direction": direction,
+                "weight": float(
+                    RESPONSE_CONFIDENCE_WEIGHT.get(confidence, 0.6)
+                    * RESPONSE_MAGNITUDE_WEIGHT.get(magnitude, 1.0)
+                ),
+                "confidence": confidence,
+                "magnitude": magnitude,
+                "evidence": row.get("evidence"),
+            }
+        )
+        seen.add(spec_name)
+    for market in ("SPX", "VIX", "BBB_OAS", "US10Y", "DXY", "CRUDE_OIL", "GOLD"):
+        spec_name = KEY_FACTOR_NAMES.get(market)
+        if spec_name and spec_name in spec_index and spec_name not in seen:
+            channels.append(
+                {
+                    "market": market,
+                    "factor": spec_name,
+                    "index": int(spec_index[spec_name]),
+                    "sign": 0.0,
+                    "direction": "activation",
+                    "weight": 0.25,
+                    "confidence": "fallback",
+                    "magnitude": "fallback",
+                    "evidence": "fallback narrative-relevant risk channel",
+                }
+            )
+    return channels
+
+
+def _component_response_score(
+    *,
+    component_states: np.ndarray,
+    start_raw: np.ndarray,
+    channels: list[dict[str, Any]],
+    objective: ResponsePreviewObjective = "narrative_channels",
+    spec_names: list[str] | None = None,
+) -> float:
+    """Score preview paths in the channels implied by the narrative."""
+
+    states = np.asarray(component_states, dtype=np.float64)
+    start = np.asarray(start_raw, dtype=np.float64).reshape(-1)
+    if states.ndim != 3:
+        raise ValueError("component_states must have shape [S,T,C]")
+    pieces: list[float] = []
+    weights: list[float] = []
+    for channel in channels:
+        idx = int(channel["index"])
+        scale = max(abs(float(start[idx])), 1.0)
+        terminal = (states[:, -1, idx] - float(start[idx])) / scale
+        path = (states[:, :, idx] - float(start[idx])) / scale
+        sign = float(channel.get("sign", 0.0))
+        signed = sign * float(np.median(terminal)) if sign != 0.0 else 0.0
+        activation = abs(float(np.median(terminal)))
+        width = float(np.percentile(path, 90) - np.percentile(path, 10))
+        pieces.append(0.55 * signed + 0.25 * activation + 0.20 * width)
+        weights.append(float(channel.get("weight", 1.0)))
+    if not pieces:
+        return 0.0
+    w = np.asarray(weights, dtype=np.float64)
+    v = np.asarray(pieces, dtype=np.float64)
+    if float(w.sum()) <= 0.0:
+        channel_score = float(np.mean(v))
+    else:
+        channel_score = float(np.sum(v * w) / np.sum(w))
+    if objective == "narrative_channels":
+        return channel_score
+    if objective == "channel_portfolio":
+        channel_portfolio_score = _component_channel_portfolio_response_score(
+            component_states=states,
+            start_raw=start,
+            channels=channels,
+        )
+        return float(0.55 * channel_score + 0.45 * channel_portfolio_score)
+    if objective != "factor_portfolio":
+        raise ValueError(f"unknown response preview objective: {objective}")
+    portfolio_score = _component_portfolio_response_score(
+        component_states=states,
+        start_raw=start,
+        spec_names=spec_names or [],
+    )
+    return float(0.65 * channel_score + 0.35 * portfolio_score)
+
+
+def _component_channel_portfolio_response_score(
+    *,
+    component_states: np.ndarray,
+    start_raw: np.ndarray,
+    channels: list[dict[str, Any]],
+) -> float:
+    """Score joint movement in the signed factors named by the narrative."""
+
+    states = np.asarray(component_states, dtype=np.float64)
+    start = np.asarray(start_raw, dtype=np.float64).reshape(-1)
+    terms: list[np.ndarray] = []
+    for channel in channels:
+        sign = float(channel.get("sign", 0.0))
+        if sign == 0.0:
+            continue
+        idx = int(channel["index"])
+        scale = max(abs(float(start[idx])), 1.0)
+        weight = float(channel.get("weight", 1.0))
+        terms.append(sign * weight * (states[:, :, idx] - float(start[idx])) / scale)
+    if not terms:
+        return 0.0
+    channel_pnl = np.sum(np.stack(terms, axis=-1), axis=-1)
+    terminal = channel_pnl[:, -1]
+    signed = float(np.median(terminal))
+    activation = abs(signed)
+    width = float(np.percentile(channel_pnl, 90) - np.percentile(channel_pnl, 10))
+    loss_tail = max(0.0, -float(np.percentile(terminal, 5)))
+    return float(0.45 * signed + 0.20 * activation + 0.25 * width - 0.10 * loss_tail)
+
+
+def _component_portfolio_response_score(
+    *,
+    component_states: np.ndarray,
+    start_raw: np.ndarray,
+    spec_names: list[str],
+) -> float:
+    """Direction-agnostic portfolio-tail response score for preview rollouts."""
+
+    states = np.asarray(component_states, dtype=np.float64)
+    start = np.asarray(start_raw, dtype=np.float64).reshape(-1)
+    spec_index = {str(name): int(pos) for pos, name in enumerate(spec_names)}
+    terms: list[np.ndarray] = []
+    for exposure in RESPONSE_PORTFOLIO_EXPOSURES:
+        spec_name = KEY_FACTOR_NAMES.get(str(exposure["market"]))
+        if spec_name not in spec_index:
+            continue
+        idx = int(spec_index[spec_name])
+        scale = max(abs(float(start[idx])), 1.0)
+        terms.append(
+            (states[:, :, idx] - float(start[idx]))
+            / scale
+            * float(exposure["sensitivity"])
+        )
+    if not terms:
+        return 0.0
+    pnl = np.sum(np.stack(terms, axis=-1), axis=-1)
+    terminal = pnl[:, -1]
+    activation = abs(float(np.median(terminal)))
+    width = float(np.percentile(pnl, 90) - np.percentile(pnl, 10))
+    loss_tail = max(0.0, -float(np.percentile(terminal, 5)))
+    return float(0.25 * activation + 0.45 * width + 0.30 * loss_tail)
+
+
+def _response_preview_weights(
+    *,
+    base_weights: np.ndarray,
+    response_scores: np.ndarray,
+    alpha: float,
+    temperature: float,
+    blend: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    base = np.maximum(np.asarray(base_weights, dtype=np.float64).reshape(-1), 1.0e-8)
+    base = base / max(float(base.sum()), 1.0e-8)
+    scores = np.asarray(response_scores, dtype=np.float64).reshape(-1)
+    if base.size != scores.size:
+        raise ValueError("base_weights and response_scores must have the same size")
+    if scores.size > 1 and float(np.std(scores)) > 1.0e-9:
+        scaled_scores = (scores - float(np.mean(scores))) / float(np.std(scores))
+    else:
+        scaled_scores = np.zeros_like(scores)
+    logits = np.log(base) + float(alpha) * scaled_scores
+    response = _softmax(logits, temperature=float(temperature))
+    mix = min(max(float(blend), 0.0), 1.0)
+    bounded = (1.0 - mix) * base + mix * response
+    bounded = bounded / max(float(bounded.sum()), 1.0e-8)
+    return bounded, scaled_scores
+
+
+def _component_memory_rows_for_prior(
+    *,
+    prior: dict[str, Any],
+    fallback_memory: np.ndarray,
+    memory_targets: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return component memories, support indices, and mixture weights."""
+
+    indices = np.asarray(prior.get("window_indices", []), dtype=np.int64)
+    weights = np.asarray(prior.get("weights", []), dtype=np.float32)
+    targets = np.asarray(memory_targets, dtype=np.float32)
+    if indices.size == 0 or weights.size != indices.size:
+        return (
+            np.asarray(fallback_memory, dtype=np.float32).reshape(1, -1),
+            np.asarray([-1], dtype=np.int64),
+            np.asarray([1.0], dtype=np.float32),
+        )
+    if np.any(indices < 0) or np.any(indices >= targets.shape[0]):
+        raise IndexError("memory-prior window_indices outside memory_targets")
+    weights = np.maximum(weights.astype(np.float32), 0.0)
+    weights = weights / max(float(np.sum(weights)), 1e-8)
+    return targets[indices].astype(np.float32), indices, weights.astype(np.float32)
+
+
+def _decode_prefix_for_component_memory(
+    *,
+    prefix_prior_mode: str,
+    component_memory: np.ndarray,
+    component_index: int,
+    requested_start: np.ndarray,
+    decoder_result: dict[str, Any],
+    input_stats: dict[str, np.ndarray],
+    features: np.ndarray,
+    layout: dict[str, Any],
+    device: torch.device,
+) -> dict[str, np.ndarray]:
+    """Decode one support component into a start-pinned recent-prefix object."""
+
+    start = np.asarray(requested_start, dtype=np.float32).reshape(1, -1)
+    if prefix_prior_mode == "feature_mixture" and int(component_index) >= 0:
+        component_features = np.asarray(
+            features[int(component_index)], dtype=np.float32
+        )[None, :]
+        return reconstruct_prefix_from_features(
+            component_features,
+            start_state=start,
+            layout=layout,
+        )
+    inputs = apply_memory_start_stats(
+        np.asarray(component_memory, dtype=np.float32).reshape(1, -1),
+        start,
+        input_stats,
+    )
+    return _decode_features(
+        decoder_result["model"],
+        decoder_result["target_mean"],
+        decoder_result["target_std"],
+        inputs,
+        start_state=start,
+        layout=layout,
+        device=device,
+    )
+
+
+def response_preview_reweight_memory_priors(
+    model: Any,
+    *,
+    memory_priors: list[dict[str, Any]],
+    fallback_memories: np.ndarray,
+    memory_targets: np.ndarray,
+    prefix_prior_mode: str,
+    decoder_result: dict[str, Any],
+    input_stats: dict[str, np.ndarray],
+    features: np.ndarray,
+    layout: dict[str, Any],
+    requested_start: np.ndarray,
+    requested_raw: np.ndarray,
+    specs: list[Any],
+    grounding: dict[str, Any],
+    spec_names: list[str],
+    preview_samples_per_component: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    response_alpha: float,
+    response_temperature: float,
+    response_blend: float,
+    response_objective: ResponsePreviewObjective,
+    device: torch.device,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run small per-component previews and update support weights."""
+
+    preview_count = max(int(preview_samples_per_component), 1)
+    channels = response_channels_from_grounding(
+        grounding=grounding if isinstance(grounding, dict) else {},
+        spec_names=spec_names,
+    )
+    updated_priors: list[dict[str, Any]] = []
+    preview_rows: list[dict[str, Any]] = []
+    for variant_idx, prior in enumerate(memory_priors):
+        component_memories, component_indices, component_weights = (
+            _component_memory_rows_for_prior(
+                prior=prior,
+                fallback_memory=np.asarray(fallback_memories[variant_idx]),
+                memory_targets=memory_targets,
+            )
+        )
+        scores: list[float] = []
+        component_details: list[dict[str, Any]] = []
+        for component_pos, component_memory in enumerate(component_memories):
+            decoded = _decode_prefix_for_component_memory(
+                prefix_prior_mode=str(prefix_prior_mode),
+                component_memory=component_memory,
+                component_index=int(component_indices[component_pos]),
+                requested_start=np.asarray(requested_start[variant_idx]),
+                decoder_result=decoder_result,
+                input_stats=input_stats,
+                features=features,
+                layout=layout,
+                device=device,
+            )
+            preview_delta = sample_prefix_generator_deltas_from_start_raw(
+                model,
+                history_level=decoded["history_level"],
+                history_norm=decoded["history_norm"],
+                center=decoded["center"],
+                scale=decoded["scale"],
+                drift_feature=decoded["drift_feature"],
+                start_raw=np.asarray(requested_raw[variant_idx], dtype=np.float32)[
+                    None, :
+                ],
+                specs=specs,
+                samples=preview_count,
+                n_steps=int(n_steps),
+                chunk_size=min(int(chunk_size), preview_count),
+                temperature=float(temperature),
+                device=device,
+            )[0]
+            preview_states = (
+                np.asarray(requested_raw[variant_idx], dtype=np.float32)[None, None, :]
+                + preview_delta
+            ).astype(np.float32)
+            score = _component_response_score(
+                component_states=preview_states,
+                start_raw=np.asarray(requested_raw[variant_idx], dtype=np.float32),
+                channels=channels,
+                objective=response_objective,
+                spec_names=spec_names,
+            )
+            scores.append(float(score))
+            component_details.append(
+                {
+                    "variant_index": int(variant_idx),
+                    "component_index": int(component_pos),
+                    "support_window_index": int(component_indices[component_pos]),
+                    "base_weight": float(component_weights[component_pos]),
+                    "response_score": float(score),
+                    "preview_sample_count": int(preview_count),
+                }
+            )
+        response_weights, scaled_scores = _response_preview_weights(
+            base_weights=component_weights,
+            response_scores=np.asarray(scores, dtype=np.float64),
+            alpha=float(response_alpha),
+            temperature=float(response_temperature),
+            blend=float(response_blend),
+        )
+        updated = dict(prior)
+        updated["weights"] = [float(value) for value in response_weights]
+        updated["memory"] = (
+            np.sum(component_memories * response_weights[:, None], axis=0)
+            .astype(np.float32)
+            .tolist()
+        )
+        updated_policy = dict(updated.get("response_preview_support_weighting", {}))
+        updated_policy.update(
+            {
+                "policy": "response_preview_component_mixture",
+                "preview_samples_per_component": int(preview_count),
+                "response_alpha": float(response_alpha),
+                "response_temperature": float(response_temperature),
+                "response_blend": float(response_blend),
+                "response_objective": str(response_objective),
+                "channel_count": int(len(channels)),
+            }
+        )
+        updated["response_preview_support_weighting"] = updated_policy
+        old_details = [
+            dict(row)
+            for row in updated.get("candidate_details", [])
+            if isinstance(row, dict)
+        ]
+        by_index = {int(row.get("window_index", -1)): row for row in old_details}
+        new_details: list[dict[str, Any]] = []
+        for detail, weight, scaled in zip(
+            component_details,
+            response_weights,
+            scaled_scores,
+            strict=True,
+        ):
+            row = by_index.get(int(detail["support_window_index"]), {})
+            row.update(
+                {
+                    **detail,
+                    "window_index": int(detail["support_window_index"]),
+                    "base_weight": float(detail["base_weight"]),
+                    "weight": float(weight),
+                    "response_weight": float(weight),
+                    "response_score_z": float(scaled),
+                }
+            )
+            new_details.append(row)
+        updated["candidate_details"] = new_details
+        updated_priors.append(updated)
+        preview_rows.append(
+            {
+                "variant_index": int(variant_idx),
+                "support_count": int(len(new_details)),
+                "channels": channels,
+                "components": new_details,
+                "base_weights": [float(value) for value in component_weights],
+                "response_weights": [float(value) for value in response_weights],
+                "weight_l1_delta": float(
+                    np.sum(np.abs(response_weights - component_weights))
+                ),
+                "effective_support_count": float(
+                    1.0 / max(float(np.sum(response_weights**2)), 1.0e-12)
+                ),
+                "response_objective": str(response_objective),
+            }
+        )
+    return updated_priors, preview_rows
+
+
+def sample_component_prefix_mixture_from_start_raw(
+    model: Any,
+    *,
+    memory_priors: list[dict[str, Any]],
+    fallback_memories: np.ndarray,
+    memory_targets: np.ndarray,
+    prefix_prior_mode: str,
+    decoder_result: dict[str, Any],
+    input_stats: dict[str, np.ndarray],
+    features: np.ndarray,
+    layout: dict[str, Any],
+    requested_start: np.ndarray,
+    requested_raw: np.ndarray,
+    specs: list[Any],
+    samples: int,
+    n_steps: int,
+    chunk_size: int,
+    temperature: float,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]]]:
+    """Roll out each support component separately and pool weighted samples.
+
+    The previous default averaged support memories before decoding one prefix.
+    That is useful as a smooth baseline, but it can erase regime-mixture shape.
+    This path preserves the support mixture through the frozen rollout.
+    """
+
+    variant_samples: list[np.ndarray] = []
+    variant_states: list[np.ndarray] = []
+    component_rows: list[dict[str, Any]] = []
+    for variant_idx, prior in enumerate(memory_priors):
+        component_memories, component_indices, component_weights = (
+            _component_memory_rows_for_prior(
+                prior=prior,
+                fallback_memory=np.asarray(fallback_memories[variant_idx]),
+                memory_targets=memory_targets,
+            )
+        )
+        counts = _allocate_weighted_sample_counts(component_weights, int(samples))
+        pieces: list[np.ndarray] = []
+        for component_pos, sample_count in enumerate(counts):
+            if int(sample_count) <= 0:
+                component_rows.append(
+                    {
+                        "variant_index": int(variant_idx),
+                        "component_index": int(component_pos),
+                        "support_window_index": int(component_indices[component_pos]),
+                        "weight": float(component_weights[component_pos]),
+                        "sample_count": 0,
+                        "skipped": True,
+                    }
+                )
+                continue
+            decoded = _decode_prefix_for_component_memory(
+                prefix_prior_mode=str(prefix_prior_mode),
+                component_memory=component_memories[component_pos],
+                component_index=int(component_indices[component_pos]),
+                requested_start=np.asarray(requested_start[variant_idx]),
+                decoder_result=decoder_result,
+                input_stats=input_stats,
+                features=features,
+                layout=layout,
+                device=device,
+            )
+            component_delta = sample_prefix_generator_deltas_from_start_raw(
+                model,
+                history_level=decoded["history_level"],
+                history_norm=decoded["history_norm"],
+                center=decoded["center"],
+                scale=decoded["scale"],
+                drift_feature=decoded["drift_feature"],
+                start_raw=np.asarray(requested_raw[variant_idx], dtype=np.float32)[
+                    None, :
+                ],
+                specs=specs,
+                samples=int(sample_count),
+                n_steps=int(n_steps),
+                chunk_size=min(int(chunk_size), int(sample_count)),
+                temperature=float(temperature),
+                device=device,
+            )[0]
+            pieces.append(component_delta.astype(np.float32))
+            component_rows.append(
+                {
+                    "variant_index": int(variant_idx),
+                    "component_index": int(component_pos),
+                    "support_window_index": int(component_indices[component_pos]),
+                    "weight": float(component_weights[component_pos]),
+                    "sample_count": int(sample_count),
+                    "skipped": False,
+                }
+            )
+        if not pieces:
+            raise RuntimeError("component mixture produced no rollout samples")
+        pooled_delta = np.concatenate(pieces, axis=0).astype(np.float32)
+        if pooled_delta.shape[0] != int(samples):
+            raise RuntimeError(
+                f"expected {samples} pooled samples, got {pooled_delta.shape[0]}"
+            )
+        variant_samples.append(pooled_delta)
+        current = np.asarray(requested_raw[variant_idx], dtype=np.float32)
+        variant_states.append(
+            (current[None, None, :] + pooled_delta).astype(np.float32)
+        )
+    return (
+        np.stack(variant_samples, axis=0).astype(np.float32),
+        np.stack(variant_states, axis=0).astype(np.float32),
+        component_rows,
+    )
 
 
 def build_live_story_condition_memory(
@@ -1283,6 +2036,18 @@ def _render_markdown(report: dict[str, Any]) -> str:
     gate = report.get("validation_gate", {})
     generation = report.get("generation", {})
     decoder = report.get("decoder", {})
+    memory_prior = query.get("memory_prior", {})
+    if not isinstance(memory_prior, dict):
+        memory_prior = {}
+    support_policy = memory_prior.get("support_diversity_policy", {})
+    if not isinstance(support_policy, dict):
+        support_policy = {}
+    quality_guard_policy = memory_prior.get("portfolio_quality_guard_policy", {})
+    if not isinstance(quality_guard_policy, dict):
+        quality_guard_policy = {}
+    response_preview_policy = query.get("response_preview_support_weighting", {})
+    if not isinstance(response_preview_policy, dict):
+        response_preview_policy = {}
     live_story = str(query.get("condition_source", "")) == "live_openai_story"
     narrative_heading = "Live Narrative" if live_story else "Cached Narrative"
     condition_line = (
@@ -1301,14 +2066,65 @@ def _render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- {condition_line}",
         "- The requested start state is pinned as the final prefix level.",
+        "- Historical support is selected after the start is fixed; support "
+        "selection is part of conditioning, not a display-only explanation.",
         "- A learned memory+start decoder reconstructs a recent prefix object.",
         "- The frozen joint39 SNI generator performs the 30-day rollout.",
-        "",
-        "## Start Selection",
-        "",
-        "| Variant | Query Window | Start Window | Start Distance z | Memory Support Cosine |",
-        "| --- | --- | --- | ---: | ---: |",
     ]
+    if support_policy:
+        lines.extend(
+            [
+                "- Support policy: " f"`{support_policy.get('policy', 'unknown')}`.",
+                "- Support count: "
+                f"`{support_policy.get('selected_count')}/"
+                f"{support_policy.get('requested_top_k')}` selected; "
+                f"direction gate `{support_policy.get('direction_gate')}`, "
+                "temporal non-overlap "
+                f"`{support_policy.get('temporal_non_overlap_enforced')}` "
+                f"with minimum index gap "
+                f"`{support_policy.get('temporal_min_index_gap')}`.",
+                "- Overlap padding: "
+                f"`{support_policy.get('padding_with_temporal_overlaps')}`.",
+            ]
+        )
+    if quality_guard_policy:
+        lines.extend(
+            [
+                "- Portfolio quality guard: "
+                f"`{quality_guard_policy.get('policy_kind', 'unknown')}`; "
+                "fallback "
+                f"`{quality_guard_policy.get('fallback_to_equal_support')}`; "
+                "reason "
+                f"`{quality_guard_policy.get('fallback_reason', 'n/a')}`; "
+                "candidates "
+                f"`{quality_guard_policy.get('candidate_count', 'n/a')}`; "
+                "minimum candidates "
+                f"`{quality_guard_policy.get('min_candidate_mixtures', 'n/a')}`; "
+                "support max "
+                f"`{quality_guard_policy.get('support_weight_max', 'n/a')}`.",
+            ]
+        )
+    if bool(response_preview_policy.get("applied")):
+        lines.extend(
+            [
+                "- Response preview weighting: applied with "
+                f"`{response_preview_policy.get('preview_samples_per_component')}` "
+                "preview samples/component; alpha "
+                f"`{response_preview_policy.get('response_alpha')}`; temperature "
+                f"`{response_preview_policy.get('response_temperature')}`; blend "
+                f"`{response_preview_policy.get('response_blend')}`; objective "
+                f"`{response_preview_policy.get('response_objective', 'narrative_channels')}`.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Start Selection",
+            "",
+            "| Variant | Query Window | Start Window | Start Distance z | Memory Support Cosine |",
+            "| --- | --- | --- | ---: | ---: |",
+        ]
+    )
     for row in report.get("variant_rows", []):
         lines.append(
             "| "
@@ -1367,6 +2183,7 @@ def _render_markdown(report: dict[str, Any]) -> str:
             "## Scenario",
             "",
             f"- Rollout temperature: {generation.get('rollout_temperature')}",
+            f"- Rollout fan scale: {generation.get('rollout_fan_scale')}",
             f"- Sample count: {generation.get('sample_count')}",
             f"- Generated shape: {generation.get('generated_state_shape')}",
             f"- Finite rate: {generation.get('finite_rate')}",
@@ -1377,14 +2194,23 @@ def _render_markdown(report: dict[str, Any]) -> str:
 
 
 def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
-    np.random.seed(int(args.seed))
-    torch.manual_seed(int(args.seed))
+    base_seed = int(args.seed)
+    raw_decoder_seed = getattr(args, "decoder_seed", None)
+    raw_rollout_seed = getattr(args, "rollout_seed", None)
+    decoder_seed = base_seed if raw_decoder_seed is None else int(raw_decoder_seed)
+    rollout_seed = base_seed if raw_rollout_seed is None else int(raw_rollout_seed)
+    np.random.seed(base_seed)
+    torch.manual_seed(base_seed)
     bridge_report = _load_json(args.bridge_report)
     pipeline_report = _load_json(args.pipeline_report)
     selected_windows = selected_bridge_window_indices(bridge_report)
-    train_indices, test_indices = split_indices_from_bridge_report(bridge_report)
+    bridge_train_indices, bridge_test_indices = split_indices_from_bridge_report(
+        bridge_report
+    )
     bridge_arrays = load_bridge_arrays(args.bridge_arrays)
-    true_memory_targets = np.asarray(bridge_arrays["memory_targets"], dtype=np.float32)
+    bridge_memory_targets = np.asarray(
+        bridge_arrays["memory_targets"], dtype=np.float32
+    )
     device = torch.device(
         args.device if torch.cuda.is_available() or str(args.device) == "cpu" else "cpu"
     )
@@ -1399,44 +2225,108 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         specs,
         block,
     ) = build_val_block(args, payload)
-    history_level = all_history_level[selected_windows]
-    history_norm = all_history_norm[selected_windows]
-    center = all_center[selected_windows]
-    scale = all_scale[selected_windows]
-    drift_feature = all_drift_feature[selected_windows]
-    history_raw = all_history_raw[selected_windows]
+    start_history_level = all_history_level[selected_windows]
+    start_history_norm = all_history_norm[selected_windows]
+    start_center = all_center[selected_windows]
+    start_scale = all_scale[selected_windows]
+    start_drift_feature = all_drift_feature[selected_windows]
+    start_history_raw = all_history_raw[selected_windows]
     future_raw_all = _future_raw_from_block(
         block,
         int(all_history_raw.shape[0]),
         int(all_history_raw.shape[-1]),
     )
-    future_raw = future_raw_all[selected_windows]
-    future_delta = future_delta_paths(all_history_raw, future_raw_all)[selected_windows]
+    start_future_raw = future_raw_all[selected_windows]
+    start_future_delta = future_delta_paths(all_history_raw, future_raw_all)[
+        selected_windows
+    ]
+    start_window_metadata = window_metadata_by_bridge_local_index(bridge_report)
+    if bool(getattr(args, "support_bank_report", None)) or bool(
+        getattr(args, "support_bank_arrays", None)
+    ):
+        if not args.support_bank_report or not args.support_bank_arrays:
+            raise ValueError(
+                "--support-bank-report and --support-bank-arrays must be provided "
+                "together"
+            )
+        support_bank = _load_support_bank(
+            report_path=args.support_bank_report,
+            arrays_path=args.support_bank_arrays,
+        )
+        support_memory_targets = support_bank["memory_targets"]
+        support_history_level = support_bank["history_level"]
+        support_history_norm = support_bank["history_norm"]
+        support_center = support_bank["center"]
+        support_scale = support_bank["scale"]
+        support_drift_feature = support_bank["drift_feature"]
+        support_history_raw = support_bank["history_raw"]
+        support_future_delta = support_bank["future_delta"]
+        support_train_indices = support_bank["train_indices"]
+        support_test_indices = support_bank["test_indices"]
+        support_candidate_indices = support_bank["support_indices"]
+        support_window_metadata = window_metadata_by_local_index(
+            support_bank["metadata"]
+        )
+        support_bank_summary = {
+            "source": "external_support_bank",
+            "report": str(args.support_bank_report),
+            "arrays": str(args.support_bank_arrays),
+            "support_window_count": int(support_memory_targets.shape[0]),
+            "support_candidate_count": int(support_candidate_indices.size),
+            "train_window_count": int(support_train_indices.size),
+            "test_window_count": int(support_test_indices.size),
+            "calendar_end_date_range": support_bank["report"].get(
+                "calendar_end_date_range", {}
+            ),
+            "train_calendar_end_date_range": support_bank["report"].get(
+                "train_calendar_end_date_range", {}
+            ),
+        }
+    else:
+        support_memory_targets = bridge_memory_targets
+        support_history_level = start_history_level
+        support_history_norm = start_history_norm
+        support_center = start_center
+        support_scale = start_scale
+        support_drift_feature = start_drift_feature
+        support_history_raw = start_history_raw
+        support_future_delta = start_future_delta
+        support_train_indices = bridge_train_indices
+        support_test_indices = bridge_test_indices
+        support_candidate_indices = bridge_train_indices
+        support_window_metadata = start_window_metadata
+        support_bank_summary = {
+            "source": "bridge_labeled_windows",
+            "support_window_count": int(support_memory_targets.shape[0]),
+            "support_candidate_count": int(support_candidate_indices.size),
+            "train_window_count": int(support_train_indices.size),
+            "test_window_count": int(support_test_indices.size),
+        }
     features, layout = build_prefix_feature_matrix(
-        history_level,
-        history_norm,
-        center,
-        scale,
-        drift_feature,
+        support_history_level,
+        support_history_norm,
+        support_center,
+        support_scale,
+        support_drift_feature,
     )
     user_start: dict[str, Any] | None = None
     if getattr(args, "start_state_json", None):
         user_start = load_user_start_state(args.start_state_json, specs)
     inputs, input_stats = build_memory_start_input_matrix(
-        true_memory_targets,
-        history_level[:, -1, :],
-        fit_indices=train_indices,
+        support_memory_targets,
+        support_history_level[:, -1, :],
+        fit_indices=support_train_indices,
     )
     decoder_result = train_memory_start_prefix_decoder(
         inputs,
         features,
-        train_indices=train_indices,
-        test_indices=test_indices,
+        train_indices=support_train_indices,
+        test_indices=support_test_indices,
         hidden_dim=int(args.hidden_dim),
         steps=int(args.steps),
         batch_size=int(args.batch_size),
         lr=float(args.lr),
-        seed=int(args.seed),
+        seed=decoder_seed,
         device=device,
     )
     query_row = select_cached_story_query(
@@ -1498,7 +2388,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             grounding=grounding,
             embedding_model=str(args.embedding_model),
             bridge_adapter=args.bridge_adapter,
-            condition_dim=int(true_memory_targets.shape[1]),
+            condition_dim=int(support_memory_targets.shape[1]),
             dotenv_path=args.dotenv,
         )
         query_memory = np.asarray(live_condition["query_condition"], dtype=np.float32)
@@ -1531,11 +2421,11 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         if bool(args.include_original_baseline):
             original = resolve_start_window_index(
                 query_window_index=int(query_row["window_index"]),
-                start_state=history_level[:, -1, :],
-                train_indices=train_indices,
+                start_state=start_history_level[:, -1, :],
+                train_indices=bridge_train_indices,
                 start_mode="original",
                 query_memory=query_memory,
-                memory_targets=true_memory_targets,
+                memory_targets=bridge_memory_targets,
             )
             original["case_role"] = "diagnostic_original_start"
             original["is_operational"] = False
@@ -1544,22 +2434,22 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             build_user_start_variant_row(
                 query_row=query_row,
                 user_start=user_start,
-                history_level=history_level,
-                train_indices=train_indices,
+                history_level=support_history_level,
+                train_indices=support_train_indices,
             )
         )
     else:
         variant_rows = build_live_story_variant_rows(
             query_row=query_row,
-            start_state=history_level[:, -1, :],
-            train_indices=train_indices,
+            start_state=start_history_level[:, -1, :],
+            train_indices=bridge_train_indices,
             start_mode=str(args.start_mode),
             explicit_start_window_index=args.explicit_start_window_index,
             include_original_baseline=bool(args.include_original_baseline),
             query_memory=query_memory,
-            memory_targets=true_memory_targets,
+            memory_targets=bridge_memory_targets,
             grounding=grounding_payload,
-            history_raw=history_raw,
+            history_raw=start_history_raw,
             spec_names=spec_names,
             start_distance_threshold_z=float(args.start_distance_threshold_z),
             start_distance_penalty=float(args.start_distance_penalty),
@@ -1570,14 +2460,14 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     for row in variant_rows:
         query_start_state = query_start_state_for_variant(
             row=row,
-            history_level=history_level,
+            history_level=start_history_level,
             user_start=user_start,
         )
         prior = build_mixture_memory_prior(
             query_memory=query_memory,
-            memory_targets=true_memory_targets,
-            history_level=history_level,
-            train_indices=train_indices,
+            memory_targets=support_memory_targets,
+            history_level=support_history_level,
+            train_indices=support_candidate_indices,
             query_window_index=int(query_row["window_index"]),
             query_start_state=query_start_state,
             grounding=grounding_payload if isinstance(grounding_payload, dict) else {},
@@ -1590,6 +2480,75 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             implication_alignment_weight=float(args.implication_alignment_weight),
             diverse_max_pairwise_cosine=float(
                 getattr(args, "memory_prior_diverse_max_pairwise_cosine", 0.98)
+            ),
+            diverse_min_index_gap=int(
+                getattr(args, "memory_prior_diverse_min_index_gap", 0)
+            ),
+            quality_guard_candidate_pool_size=int(
+                getattr(args, "memory_prior_quality_guard_candidate_pool_size", 5)
+            ),
+            quality_guard_mixture_size=int(
+                getattr(args, "memory_prior_quality_guard_mixture_size", 3)
+            ),
+            quality_guard_max_mixtures=int(
+                getattr(args, "memory_prior_quality_guard_max_mixtures", 0)
+            ),
+            quality_guard_min_candidate_mixtures=int(
+                getattr(args, "memory_prior_quality_guard_min_candidate_mixtures", 1)
+            ),
+            quality_guard_max_candidate_entropy_quantile=(
+                None
+                if float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_max_candidate_entropy_quantile",
+                        -1.0,
+                    )
+                )
+                < 0.0
+                else float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_max_candidate_entropy_quantile",
+                        -1.0,
+                    )
+                )
+            ),
+            quality_guard_min_support_weight_max_quantile=(
+                None
+                if float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_min_support_weight_max_quantile",
+                        0.25,
+                    )
+                )
+                < 0.0
+                else float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_min_support_weight_max_quantile",
+                        0.25,
+                    )
+                )
+            ),
+            quality_guard_probability_temperature=(
+                None
+                if float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_probability_temperature",
+                        -1.0,
+                    )
+                )
+                < 0.0
+                else float(
+                    getattr(
+                        args,
+                        "memory_prior_quality_guard_probability_temperature",
+                        -1.0,
+                    )
+                )
             ),
         )
         memory_priors.append(prior)
@@ -1606,16 +2565,15 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         conditioning_rows[operational_prior_pos],
         dtype=np.float32,
     )
-    window_metadata = window_metadata_by_bridge_local_index(bridge_report)
     memory_prior = enrich_memory_prior_candidate_metadata(
         memory_priors[operational_prior_pos],
-        window_metadata,
+        support_window_metadata,
     )
     variant_rows = [
         annotate_variant_with_memory_prior(row, prior)
         for row, prior in zip(variant_rows, memory_priors, strict=True)
     ]
-    variant_rows = _enrich_variant_rows(variant_rows, window_metadata)
+    variant_rows = _enrich_variant_rows(variant_rows, start_window_metadata)
     text_memory = np.stack(conditioning_rows, axis=0).astype(np.float32)
     start_indices = np.asarray(
         [int(row["start_window_index"]) for row in variant_rows],
@@ -1628,9 +2586,9 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     for row in variant_rows:
         start_idx = int(row["start_window_index"])
         if start_idx >= 0:
-            requested_start_rows.append(history_level[start_idx, -1, :])
-            requested_raw_rows.append(history_raw[start_idx, -1, :])
-            future_state_rows.append(future_raw[start_idx])
+            requested_start_rows.append(start_history_level[start_idx, -1, :])
+            requested_raw_rows.append(start_history_raw[start_idx, -1, :])
+            future_state_rows.append(start_future_raw[start_idx])
         else:
             if user_start is None:
                 raise ValueError("user start row requires loaded user_start")
@@ -1648,8 +2606,66 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         if all_future_targets_available
         else None
     )
-    variant_inputs = apply_memory_start_stats(text_memory, requested_start, input_stats)
     prefix_prior_mode = str(getattr(args, "prefix_prior_mode", "decoder"))
+    rollout_mixture_mode = str(
+        getattr(args, "rollout_mixture_mode", "component_prefix_mixture")
+    )
+    response_preview_rows: list[dict[str, Any]] = []
+    if (
+        not bool(args.skip_rollout)
+        and rollout_mixture_mode == "response_preview_component_mixture"
+    ):
+        np.random.seed(rollout_seed + 10007)
+        torch.manual_seed(rollout_seed + 10007)
+        memory_priors, response_preview_rows = response_preview_reweight_memory_priors(
+            model,
+            memory_priors=memory_priors,
+            fallback_memories=text_memory,
+            memory_targets=support_memory_targets,
+            prefix_prior_mode=prefix_prior_mode,
+            decoder_result=decoder_result,
+            input_stats=input_stats,
+            features=features,
+            layout=layout,
+            requested_start=requested_start,
+            requested_raw=requested_raw,
+            specs=specs,
+            grounding=grounding_payload if isinstance(grounding_payload, dict) else {},
+            spec_names=spec_names,
+            preview_samples_per_component=int(
+                getattr(args, "response_preview_samples_per_component", 8)
+            ),
+            n_steps=int(args.n_steps),
+            chunk_size=int(args.chunk_size),
+            temperature=float(args.temperature),
+            response_alpha=float(getattr(args, "response_preview_alpha", 0.75)),
+            response_temperature=float(
+                getattr(args, "response_preview_temperature", 1.0)
+            ),
+            response_blend=float(getattr(args, "response_preview_blend", 1.0)),
+            response_objective=str(
+                getattr(args, "response_preview_objective", "narrative_channels")
+            ),
+            device=device,
+        )
+        conditioning_rows = [
+            np.asarray(prior["memory"], dtype=np.float32) for prior in memory_priors
+        ]
+        conditioning_memory = np.asarray(
+            conditioning_rows[operational_prior_pos],
+            dtype=np.float32,
+        )
+        memory_prior = enrich_memory_prior_candidate_metadata(
+            memory_priors[operational_prior_pos],
+            support_window_metadata,
+        )
+        variant_rows = [
+            annotate_variant_with_memory_prior(row, prior)
+            for row, prior in zip(variant_rows, memory_priors, strict=True)
+        ]
+        variant_rows = _enrich_variant_rows(variant_rows, start_window_metadata)
+        text_memory = np.stack(conditioning_rows, axis=0).astype(np.float32)
+    variant_inputs = apply_memory_start_stats(text_memory, requested_start, input_stats)
     if prefix_prior_mode == "feature_mixture":
         mixed_feature_rows = []
         for prior in memory_priors:
@@ -1696,34 +2712,71 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         device=device,
         batch_size=int(args.eval_batch_size),
     )
-    train_delta = future_delta[train_indices]
+    train_delta = support_future_delta[support_train_indices]
     delta_scale = build_delta_scale(train_delta, floor=float(args.score_scale_floor))
     samples = np.empty((0,), dtype=np.float32)
+    uncalibrated_samples = np.empty((0,), dtype=np.float32)
     generated_states = np.empty((0,), dtype=np.float32)
     window_scores: list[dict[str, Any]] = []
     rollout_summary: dict[str, Any] = {}
     generation: dict[str, Any] = {}
+    rollout_component_rows: list[dict[str, Any]] = []
     if not bool(args.skip_rollout):
-        samples = sample_prefix_generator_deltas_from_start_raw(
-            model,
-            history_level=decoded_prefix["history_level"],
-            history_norm=decoded_prefix["history_norm"],
-            center=decoded_prefix["center"],
-            scale=decoded_prefix["scale"],
-            drift_feature=decoded_prefix["drift_feature"],
-            start_raw=requested_raw,
-            specs=specs,
-            samples=int(args.samples),
-            n_steps=int(args.n_steps),
-            chunk_size=int(args.chunk_size),
-            temperature=float(args.temperature),
-            device=device,
-        )
+        np.random.seed(rollout_seed)
+        torch.manual_seed(rollout_seed)
+        if rollout_mixture_mode in {
+            "component_prefix_mixture",
+            "response_preview_component_mixture",
+        }:
+            samples, generated_states, rollout_component_rows = (
+                sample_component_prefix_mixture_from_start_raw(
+                    model,
+                    memory_priors=memory_priors,
+                    fallback_memories=text_memory,
+                    memory_targets=support_memory_targets,
+                    prefix_prior_mode=prefix_prior_mode,
+                    decoder_result=decoder_result,
+                    input_stats=input_stats,
+                    features=features,
+                    layout=layout,
+                    requested_start=requested_start,
+                    requested_raw=requested_raw,
+                    specs=specs,
+                    samples=int(args.samples),
+                    n_steps=int(args.n_steps),
+                    chunk_size=int(args.chunk_size),
+                    temperature=float(args.temperature),
+                    device=device,
+                )
+            )
+        elif rollout_mixture_mode == "averaged_prefix":
+            samples = sample_prefix_generator_deltas_from_start_raw(
+                model,
+                history_level=decoded_prefix["history_level"],
+                history_norm=decoded_prefix["history_norm"],
+                center=decoded_prefix["center"],
+                scale=decoded_prefix["scale"],
+                drift_feature=decoded_prefix["drift_feature"],
+                start_raw=requested_raw,
+                specs=specs,
+                samples=int(args.samples),
+                n_steps=int(args.n_steps),
+                chunk_size=int(args.chunk_size),
+                temperature=float(args.temperature),
+                device=device,
+            )
+            generated_states = generated_delta_samples_to_states(samples, requested_raw)
+        else:
+            raise ValueError(f"unknown rollout_mixture_mode: {rollout_mixture_mode!r}")
         current_raw = requested_raw
-        generated_states = generated_delta_samples_to_states(samples, current_raw)
+        rollout_fan_scale = float(getattr(args, "rollout_fan_scale", 1.0))
+        uncalibrated_samples = samples.astype(np.float32, copy=True)
+        if abs(rollout_fan_scale - 1.0) > 1e-8:
+            samples = scale_delta_samples_around_mean(samples, rollout_fan_scale)
+            generated_states = generated_delta_samples_to_states(samples, requested_raw)
         window_scores, rollout_summary = _score_live_rollouts(
             samples=samples,
-            future_delta=future_delta,
+            future_delta=start_future_delta,
             delta_scale=delta_scale,
             variant_rows=variant_rows,
         )
@@ -1736,7 +2789,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             generated_states,
             current_raw,
             _spec_names(specs),
-            analogues=_variant_path_labels(variant_rows, window_metadata),
+            analogues=_variant_path_labels(variant_rows, start_window_metadata),
             future_states=future_states_for_paths,
             max_paths=int(args.max_paths),
         )
@@ -1748,6 +2801,46 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         generation["forecast_steps"] = int(args.n_steps)
         generation["solver_steps"] = int(args.steps)
         generation["chunk_size"] = int(args.chunk_size)
+        generation["rollout_mixture_mode"] = rollout_mixture_mode
+        generation["rollout_fan_scale"] = float(rollout_fan_scale)
+        generation["rollout_fan_calibration"] = {
+            "mode": "global_delta_scale_around_mean",
+            "alpha": float(rollout_fan_scale),
+            "mean_path_preserved": True,
+            "applied": bool(abs(rollout_fan_scale - 1.0) > 1e-8),
+        }
+        generation["sample_delta_shape"] = [int(dim) for dim in samples.shape]
+        generation["generated_state_shape"] = [
+            int(dim) for dim in generated_states.shape
+        ]
+        generation["rollout_component_count"] = int(
+            sum(1 for row in rollout_component_rows if not bool(row.get("skipped")))
+        )
+        generation["rollout_component_count_operational"] = int(
+            sum(
+                1
+                for row in rollout_component_rows
+                if int(row.get("variant_index", -1)) == int(operational_prior_pos)
+                and not bool(row.get("skipped"))
+            )
+        )
+        generation["rollout_component_sample_count_operational"] = int(
+            sum(
+                int(row.get("sample_count", 0))
+                for row in rollout_component_rows
+                if int(row.get("variant_index", -1)) == int(operational_prior_pos)
+            )
+        )
+        generation["response_preview_support_weighting"] = {
+            "applied": bool(
+                rollout_mixture_mode == "response_preview_component_mixture"
+            ),
+            "rows": response_preview_rows,
+            "response_objective": str(
+                getattr(args, "response_preview_objective", "narrative_channels")
+            ),
+        }
+        generation["rollout_component_rows"] = rollout_component_rows
         generation["path_quantiles"] = path_quantiles
         generation["window_scores"] = window_scores
         generation["rollout_summary"] = rollout_summary
@@ -1813,7 +2906,22 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "conditioning_memory_norm": float(np.linalg.norm(conditioning_memory)),
             "memory_prior_mode": memory_prior_mode,
             "memory_prior_contract": "per_variant_narrative_and_fixed_start",
+            "rollout_mixture_mode": rollout_mixture_mode,
             "operational_memory_prior_variant_index": int(operational_prior_pos),
+            "response_preview_support_weighting": {
+                "applied": bool(
+                    rollout_mixture_mode == "response_preview_component_mixture"
+                    and len(response_preview_rows) > 0
+                ),
+                "preview_samples_per_component": int(
+                    getattr(args, "response_preview_samples_per_component", 8)
+                ),
+                "response_alpha": float(getattr(args, "response_preview_alpha", 0.75)),
+                "response_temperature": float(
+                    getattr(args, "response_preview_temperature", 1.0)
+                ),
+                "response_blend": float(getattr(args, "response_preview_blend", 1.0)),
+            },
             "memory_prior": {
                 key: value for key, value in memory_prior.items() if key != "memory"
             },
@@ -1854,11 +2962,21 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
         "selected_window_count": int(selected_windows.size),
-        "train_window_count": int(train_indices.size),
-        "test_window_count": int(test_indices.size),
+        "train_window_count": int(support_train_indices.size),
+        "test_window_count": int(support_test_indices.size),
+        "bridge_labeled_window_count": int(selected_windows.size),
+        "bridge_train_window_count": int(bridge_train_indices.size),
+        "bridge_test_window_count": int(bridge_test_indices.size),
+        "support_bank": support_bank_summary,
         "device": str(device),
+        "seeds": {
+            "base_seed": int(base_seed),
+            "decoder_seed": int(decoder_seed),
+            "rollout_seed": int(rollout_seed),
+        },
         "decoder": {
             "prefix_prior_mode": prefix_prior_mode,
+            "rollout_mixture_mode": rollout_mixture_mode,
             "loss_first": float(decoder_result["loss_first"]),
             "loss_last": float(decoder_result["loss_last"]),
             "train_mse": float(decoder_result["train_mse"]),
@@ -1887,8 +3005,11 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
     np.savez_compressed(
         output_dir / "prefix_latent_story_smoke_arrays.npz",
         selected_window_indices=selected_windows.astype(np.int64),
-        train_indices=train_indices.astype(np.int64),
-        test_indices=test_indices.astype(np.int64),
+        train_indices=support_train_indices.astype(np.int64),
+        test_indices=support_test_indices.astype(np.int64),
+        support_candidate_indices=support_candidate_indices.astype(np.int64),
+        bridge_train_indices=bridge_train_indices.astype(np.int64),
+        bridge_test_indices=bridge_test_indices.astype(np.int64),
         start_indices=start_indices.astype(np.int64),
         requested_start=requested_start.astype(np.float32),
         requested_raw=requested_raw.astype(np.float32),
@@ -1899,6 +3020,23 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         decoded_center=decoded_prefix["center"].astype(np.float32),
         decoded_scale=decoded_prefix["scale"].astype(np.float32),
         decoded_drift_feature=decoded_prefix["drift_feature"].astype(np.float32),
+        uncalibrated_samples=uncalibrated_samples.astype(np.float32),
+        rollout_component_variant_index=np.asarray(
+            [int(row["variant_index"]) for row in rollout_component_rows],
+            dtype=np.int64,
+        ),
+        rollout_component_window_index=np.asarray(
+            [int(row["support_window_index"]) for row in rollout_component_rows],
+            dtype=np.int64,
+        ),
+        rollout_component_weight=np.asarray(
+            [float(row["weight"]) for row in rollout_component_rows],
+            dtype=np.float32,
+        ),
+        rollout_component_sample_count=np.asarray(
+            [int(row["sample_count"]) for row in rollout_component_rows],
+            dtype=np.int64,
+        ),
         delta_scale=delta_scale.astype(np.float32),
         samples=samples.astype(np.float32),
         generated_states=generated_states.astype(np.float32),
@@ -1915,6 +3053,18 @@ def main() -> None:
     parser.add_argument("--bridge-report", default=DEFAULT_BRIDGE_REPORT)
     parser.add_argument("--bridge-arrays", default=DEFAULT_BRIDGE_ARRAYS)
     parser.add_argument("--pipeline-report", default=DEFAULT_PIPELINE_REPORT)
+    parser.add_argument(
+        "--support-bank-report",
+        help=(
+            "Optional broad SNI support-bank report. When provided with "
+            "--support-bank-arrays, historical support search and prefix-decoder "
+            "training use this bank instead of the labeled bridge-window slice."
+        ),
+    )
+    parser.add_argument(
+        "--support-bank-arrays",
+        help="NPZ arrays path paired with --support-bank-report.",
+    )
     parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--query-role", default="anchor")
@@ -1981,6 +3131,16 @@ def main() -> None:
             "soft_topk_memory",
             "soft_topk_narrative_start",
             "soft_topk_narrative_start_checked",
+            "diverse_topk_narrative_start_checked",
+            "cohesive_topk_narrative_start_checked",
+            "cluster_family_narrative_start_checked",
+            "kernel_topk_narrative_start_checked",
+            "portfolio_quality_guard_924e",
+            "portfolio_direction_first_quality_guard_938a",
+            "broad_replay_response_guard_940a",
+            "narrative_book_quality_guard_926b",
+            "narrative_book_direction_first_quality_guard_938c",
+            "soft_topk_start_only",
             "soft_topk_combined",
             "diverse_topk_narrative_start",
             "diverse_topk_combined",
@@ -1995,6 +3155,83 @@ def main() -> None:
         default=0.98,
     )
     parser.add_argument(
+        "--memory-prior-diverse-min-index-gap",
+        type=int,
+        default=0,
+        help=(
+            "Minimum bridge-local window-index separation between diverse "
+            "support components. Use a positive value to avoid overlapping "
+            "historical prefixes in demo/product support tables."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-candidate-pool-size",
+        type=int,
+        default=5,
+        help=(
+            "For portfolio_quality_guard_924e and "
+            "narrative_book_quality_guard_926b, number of diverse support "
+            "components to consider before forming candidate mixtures."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-mixture-size",
+        type=int,
+        default=3,
+        help=(
+            "For portfolio_quality_guard_924e and "
+            "narrative_book_quality_guard_926b, number of support components "
+            "inside each live candidate mixture."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-max-mixtures",
+        type=int,
+        default=0,
+        help=(
+            "For portfolio_quality_guard_924e and "
+            "narrative_book_quality_guard_926b, cap candidate mixtures. "
+            "Use 0 to evaluate all combinations from the candidate pool."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-min-candidate-mixtures",
+        type=int,
+        default=1,
+        help=(
+            "For portfolio_quality_guard_924e and "
+            "narrative_book_quality_guard_926b, fall back to the base support "
+            "prior unless at least this many live candidate mixtures exist."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-max-candidate-entropy-quantile",
+        type=float,
+        default=-1.0,
+        help=(
+            "Optional train-set candidate-entropy quantile gate. Negative "
+            "disables the entropy gate."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-min-support-weight-max-quantile",
+        type=float,
+        default=0.25,
+        help=(
+            "Train-set support-concentration quantile gate. Use a negative "
+            "value to disable the support-max fallback for research probes."
+        ),
+    )
+    parser.add_argument(
+        "--memory-prior-quality-guard-probability-temperature",
+        type=float,
+        default=-1.0,
+        help=(
+            "Optional support-policy probability temperature override. "
+            "Negative uses the policy context default."
+        ),
+    )
+    parser.add_argument(
         "--prefix-prior-mode",
         choices=["decoder", "feature_mixture"],
         default="decoder",
@@ -2002,6 +3239,58 @@ def main() -> None:
             "decoder uses the learned memory+start prefix decoder. "
             "feature_mixture bypasses that decoder and reconstructs a "
             "start-pinned prefix directly from weighted analogue prefix features."
+        ),
+    )
+    parser.add_argument(
+        "--rollout-mixture-mode",
+        choices=[
+            "averaged_prefix",
+            "component_prefix_mixture",
+            "response_preview_component_mixture",
+        ],
+        default="component_prefix_mixture",
+        help=(
+            "averaged_prefix decodes one weighted-average support memory. "
+            "component_prefix_mixture decodes and rolls out each support component "
+            "separately, then pools weighted samples so regime-mixture shape is "
+            "not averaged away before generation. response_preview_component_mixture "
+            "first runs small per-component preview rollouts to reweight support "
+            "in narrative-relevant risk channels before final pooling."
+        ),
+    )
+    parser.add_argument(
+        "--response-preview-samples-per-component",
+        type=int,
+        default=8,
+        help=(
+            "For response_preview_component_mixture, number of small preview "
+            "rollout samples used to score each support component before final "
+            "component-preserving generation."
+        ),
+    )
+    parser.add_argument("--response-preview-alpha", type=float, default=0.75)
+    parser.add_argument("--response-preview-temperature", type=float, default=1.0)
+    parser.add_argument(
+        "--response-preview-blend",
+        type=float,
+        default=1.0,
+        help=(
+            "Convex blend between original support weights and response-preview "
+            "weights. 1.0 fully applies preview weights; smaller values bound "
+            "the response update around the historical support prior."
+        ),
+    )
+    parser.add_argument(
+        "--response-preview-objective",
+        choices=["narrative_channels", "factor_portfolio", "channel_portfolio"],
+        default="narrative_channels",
+        help=(
+            "Preview scoring objective. narrative_channels uses only the "
+            "grounded narrative risk channels. factor_portfolio keeps that "
+            "score and adds a fixed portfolio-tail response term so support "
+            "weights target the same product gate used in stress tests. "
+            "channel_portfolio scores the joint signed risk-channel movement "
+            "implied by the narrative."
         ),
     )
     parser.add_argument(
@@ -2013,12 +3302,40 @@ def main() -> None:
     parser.add_argument("--eval-batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=791)
+    parser.add_argument(
+        "--decoder-seed",
+        type=int,
+        default=None,
+        help=(
+            "Optional seed for the memory+start prefix decoder. If omitted, "
+            "--seed is used for backward-compatible behavior."
+        ),
+    )
+    parser.add_argument(
+        "--rollout-seed",
+        type=int,
+        default=None,
+        help=(
+            "Optional seed reset immediately before frozen-generator rollout. "
+            "If omitted, --seed is used for backward-compatible behavior."
+        ),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--skip-rollout", action="store_true")
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--n-steps", type=int, default=30)
     parser.add_argument("--chunk-size", type=int, default=4)
     parser.add_argument("--temperature", type=float, default=0.5)
+    parser.add_argument(
+        "--rollout-fan-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Post-hoc fan calibration alpha. Values other than 1.0 scale "
+            "generated delta samples around each ensemble mean, preserving the "
+            "mean path while changing fan width."
+        ),
+    )
     parser.add_argument("--score-scale-floor", type=float, default=1e-3)
     parser.add_argument("--hard-case-count", type=int, default=8)
     parser.add_argument("--max-paths", type=int, default=6)

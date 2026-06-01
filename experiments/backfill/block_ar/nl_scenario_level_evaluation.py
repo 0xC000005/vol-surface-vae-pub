@@ -245,6 +245,33 @@ def memory_residual_method_name(prefix: str, alpha: float) -> str:
     return f"{prefix}_a{int(round(float(alpha) * 100)):03d}"
 
 
+def common_random_seed_for_query(
+    query_row: dict[str, Any],
+    *,
+    base_seed: int,
+) -> int:
+    """Return a deterministic seed shared by duplicate candidates of one query."""
+
+    window_index = int(query_row.get("window_index", 0))
+    return int((int(base_seed) * 1_000_003 + window_index * 9_176 + 97) % (2**31 - 1))
+
+
+def set_common_random_seed_for_query(
+    query_row: dict[str, Any],
+    *,
+    base_seed: int,
+    device: torch.device,
+) -> int:
+    """Reset RNGs so same-query candidate labels use common random numbers."""
+
+    seed = common_random_seed_for_query(query_row, base_seed=int(base_seed))
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(seed)
+    return seed
+
+
 def select_heldout_query_rows(
     bridge_report: dict[str, Any],
     *,
@@ -658,6 +685,13 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
     generated_chunks: dict[str, np.ndarray] = {}
     for row_no, query in enumerate(query_rows):
         window_index = int(query["window_index"])
+        common_random_seed: int | None = None
+        if bool(args.common_random_numbers_by_query):
+            common_random_seed = set_common_random_seed_for_query(
+                query,
+                base_seed=int(args.common_random_base_seed),
+                device=device,
+            )
         array_suffix = _array_key_suffix(
             row_no,
             query,
@@ -928,6 +962,7 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
                     "weights": support_sampling["weights"],
                     "samples_per_row": support_sampling["samples_per_row"],
                 },
+                "common_random_seed": common_random_seed,
                 "methods": methods,
             }
         )
@@ -954,6 +989,16 @@ def run_scenario_level_evaluation(args: argparse.Namespace) -> dict[str, Any]:
         "support_weight_temperature": float(args.support_weight_temperature),
         "n_steps": int(args.n_steps),
         "seed": int(args.seed),
+        "common_random_numbers": {
+            "enabled": bool(args.common_random_numbers_by_query),
+            "base_seed": int(args.common_random_base_seed),
+            "method": (
+                "When enabled, duplicate candidate rows with the same query "
+                "window receive the same deterministic RNG seed before "
+                "generator rollout. This makes within-query candidate labels "
+                "closer to common-random-number comparisons."
+            ),
+        },
         "direct_memory": {
             "enabled": bool(args.include_direct_memory_generator),
             "bridge_arrays": bridge_arrays_source,
@@ -1032,6 +1077,15 @@ def main() -> None:
     parser.add_argument("--include-oracle-generator", action="store_true")
     parser.add_argument("--score-scale-floor", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=776)
+    parser.add_argument(
+        "--common-random-numbers-by-query",
+        action="store_true",
+        help=(
+            "Reset RNGs by query window before rollout so duplicate candidate "
+            "rows use common random numbers for within-query comparison."
+        ),
+    )
+    parser.add_argument("--common-random-base-seed", type=int, default=8128)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
     parser.add_argument(

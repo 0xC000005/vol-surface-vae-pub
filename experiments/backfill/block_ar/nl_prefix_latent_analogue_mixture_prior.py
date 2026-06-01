@@ -10,6 +10,7 @@ grounded story implications than top-1 analogue or generated-rollout baselines.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import sys
@@ -263,9 +264,9 @@ def candidate_support_table(
         narrative_start_score = (
             float(cosines[pos]) - start_distance_cost - excess_distance_cost
         )
-        combined_score = narrative_start_score + float(
-            implication_alignment_weight
-        ) * recent_score
+        combined_score = (
+            narrative_start_score + float(implication_alignment_weight) * recent_score
+        )
         rows.append(
             {
                 "window_index": int(window_idx),
@@ -277,9 +278,7 @@ def candidate_support_table(
                 "narrative_start_score": float(narrative_start_score),
                 "recent_prefix_alignment_score": float(recent_score),
                 "recent_prefix_checked": int(alignment.get("checked_count", 0) or 0),
-                "recent_prefix_match_count": int(
-                    alignment.get("match_count", 0) or 0
-                ),
+                "recent_prefix_match_count": int(alignment.get("match_count", 0) or 0),
                 "recent_prefix_mismatches": int(
                     alignment.get("mismatch_count", 0) or 0
                 ),
@@ -345,6 +344,129 @@ def direction_passing_top_indices(
     )
 
 
+def _direction_checked_source(
+    rows: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    ordered = sorted(
+        rows,
+        key=lambda row: float(row.get(key, -1e9)),
+        reverse=True,
+    )
+    passing = [
+        row
+        for row in ordered
+        if int(row.get("recent_prefix_checked", 0) or 0) > 0
+        and int(row.get("recent_prefix_mismatches", 0) or 0) == 0
+    ]
+    return passing if passing else ordered
+
+
+def cohesive_top_indices(
+    rows: list[dict[str, Any]],
+    *,
+    memory_targets: np.ndarray,
+    key: str,
+    k: int,
+    min_index_gap: int = 0,
+) -> np.ndarray:
+    """Select the top narrative hit plus its closest latent family members."""
+
+    source = _direction_checked_source(rows, key=key)
+    if not source:
+        return np.asarray([], dtype=np.int64)
+    memory = _as_float_array(memory_targets, name="memory_targets", ndim=2)
+    anchor_idx = int(source[0]["window_index"])
+    selected = [anchor_idx]
+    remaining = [row for row in source[1:] if int(row["window_index"]) != anchor_idx]
+    if remaining:
+        remaining_indices = np.asarray(
+            [int(row["window_index"]) for row in remaining],
+            dtype=np.int64,
+        )
+        anchor_cosine = _cosine_to_query(memory[anchor_idx], memory[remaining_indices])
+        scored_remaining = sorted(
+            zip(remaining, anchor_cosine, strict=True),
+            key=lambda item: (
+                float(item[1]),
+                float(item[0].get(key, -1e9)),
+            ),
+            reverse=True,
+        )
+        for row, _cosine in scored_remaining:
+            idx = int(row["window_index"])
+            if any(
+                abs(idx - selected_idx) < int(min_index_gap)
+                for selected_idx in selected
+            ):
+                continue
+            selected.append(idx)
+            if len(selected) >= int(k):
+                break
+    return np.asarray(selected[: max(int(k), 1)], dtype=np.int64)
+
+
+def latent_family_top_indices(
+    rows: list[dict[str, Any]],
+    *,
+    memory_targets: np.ndarray,
+    key: str,
+    k: int,
+    min_family_cosine: float,
+    min_index_gap: int = 0,
+) -> np.ndarray:
+    """Select the highest scoring coherent latent family, not isolated hits."""
+
+    source = _direction_checked_source(rows, key=key)
+    if not source:
+        return np.asarray([], dtype=np.int64)
+    memory = _as_float_array(memory_targets, name="memory_targets", ndim=2)
+    threshold = float(np.clip(min_family_cosine, -1.0, 1.0))
+    best_family: list[dict[str, Any]] = []
+    best_key: tuple[float, int, float] | None = None
+    for anchor in source:
+        anchor_idx = int(anchor["window_index"])
+        source_indices = np.asarray(
+            [int(row["window_index"]) for row in source],
+            dtype=np.int64,
+        )
+        cosines = _cosine_to_query(memory[anchor_idx], memory[source_indices])
+        family_candidates = [
+            row
+            for row, cosine in zip(source, cosines, strict=True)
+            if float(cosine) >= threshold
+        ]
+        family_ranked = sorted(
+            family_candidates,
+            key=lambda row: float(row.get(key, -1e9)),
+            reverse=True,
+        )
+        family: list[dict[str, Any]] = []
+        for row in family_ranked:
+            idx = int(row["window_index"])
+            if any(
+                abs(idx - int(selected["window_index"])) < int(min_index_gap)
+                for selected in family
+            ):
+                continue
+            family.append(row)
+            if len(family) >= int(k):
+                break
+        if not family:
+            continue
+        score_sum = float(sum(float(row.get(key, -1e9)) for row in family))
+        top_score = float(family[0].get(key, -1e9))
+        family_key = (score_sum, len(family), top_score)
+        if best_key is None or family_key > best_key:
+            best_key = family_key
+            best_family = family
+    return np.asarray(
+        [int(row["window_index"]) for row in best_family[: max(int(k), 1)]],
+        dtype=np.int64,
+    )
+
+
 def diverse_top_indices(
     rows: list[dict[str, Any]],
     *,
@@ -352,6 +474,7 @@ def diverse_top_indices(
     key: str,
     k: int,
     max_pairwise_cosine: float,
+    min_index_gap: int = 0,
 ) -> np.ndarray:
     ordered = sorted(
         rows,
@@ -362,6 +485,10 @@ def diverse_top_indices(
     selected: list[int] = []
     for row in ordered:
         idx = int(row["window_index"])
+        if any(
+            abs(idx - selected_idx) < int(min_index_gap) for selected_idx in selected
+        ):
+            continue
         if not selected:
             selected.append(idx)
         else:
@@ -374,11 +501,47 @@ def diverse_top_indices(
     if len(selected) < int(k):
         for row in ordered:
             idx = int(row["window_index"])
-            if idx not in selected:
+            if idx not in selected and not any(
+                abs(idx - selected_idx) < int(min_index_gap)
+                for selected_idx in selected
+            ):
                 selected.append(idx)
             if len(selected) >= int(k):
                 break
     return np.asarray(selected[: max(int(k), 1)], dtype=np.int64)
+
+
+def direction_passing_diverse_top_indices(
+    rows: list[dict[str, Any]],
+    *,
+    memory_targets: np.ndarray,
+    key: str,
+    k: int,
+    max_pairwise_cosine: float,
+    min_index_gap: int = 0,
+) -> np.ndarray:
+    """Select diverse support after first applying the grounding direction gate."""
+
+    ordered = sorted(
+        rows,
+        key=lambda row: float(row.get(key, -1e9)),
+        reverse=True,
+    )
+    passing = [
+        row
+        for row in ordered
+        if int(row.get("recent_prefix_checked", 0) or 0) > 0
+        and int(row.get("recent_prefix_mismatches", 0) or 0) == 0
+    ]
+    source = passing if passing else ordered
+    return diverse_top_indices(
+        source,
+        memory_targets=memory_targets,
+        key=key,
+        k=k,
+        max_pairwise_cosine=max_pairwise_cosine,
+        min_index_gap=int(min_index_gap),
+    )
 
 
 def evaluate_mixture_variant(
@@ -472,9 +635,7 @@ def direction_check_for_mixture(
         )
     if support_checked_weight > 0.0:
         weighted_match_rate = float(weighted_match_rate / support_checked_weight)
-        weighted_mismatch_rate = float(
-            weighted_mismatch_rate / support_checked_weight
-        )
+        weighted_mismatch_rate = float(weighted_mismatch_rate / support_checked_weight)
     else:
         weighted_match_rate = None
         weighted_mismatch_rate = None
@@ -506,6 +667,241 @@ def direction_check_for_mixture(
     }
 
 
+def _support_item_from_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "window_index": int(row["window_index"]),
+        "window_id": str(
+            row.get("window_id", f"joint39_val_{int(row['window_index']):04d}")
+        ),
+        "cosine": float(row.get("memory_support_cosine", 0.0)),
+        "score": float(row.get("narrative_start_score", 0.0)),
+        "start_distance_z": float(row.get("start_distance_z", 0.0)),
+        "recent_prefix_alignment_status": str(
+            row.get("recent_prefix_alignment_status", "")
+        ),
+    }
+
+
+def _portfolio_quality_guard_candidate_mixtures(
+    *,
+    candidates: list[dict[str, Any]],
+    memory_targets: np.ndarray,
+    top_k: int,
+    candidate_pool_size: int,
+    mixture_size: int,
+    max_mixtures: int,
+    diverse_max_pairwise_cosine: float,
+    diverse_min_index_gap: int,
+) -> list[dict[str, Any]]:
+    """Build live candidate-mixture rows from the same support table."""
+
+    pool_indices = direction_passing_diverse_top_indices(
+        candidates,
+        memory_targets=memory_targets,
+        key="narrative_start_score",
+        k=max(int(candidate_pool_size), int(top_k), int(mixture_size)),
+        max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+        min_index_gap=int(diverse_min_index_gap),
+    )
+    by_idx = {int(row["window_index"]): row for row in candidates}
+    pool_rows = [by_idx[int(idx)] for idx in pool_indices if int(idx) in by_idx]
+    if len(pool_rows) < int(mixture_size):
+        pool_rows = sorted(
+            candidates,
+            key=lambda row: float(row.get("narrative_start_score", -1e9)),
+            reverse=True,
+        )[: max(int(candidate_pool_size), int(mixture_size))]
+    pool_rows = pool_rows[: max(int(candidate_pool_size), int(mixture_size))]
+    mixture_size = min(int(mixture_size), len(pool_rows))
+    if mixture_size <= 0:
+        raise ValueError("portfolio quality guard candidate pool is empty")
+    combos = list(itertools.combinations(range(len(pool_rows)), mixture_size))
+    if int(max_mixtures) > 0:
+        combos = combos[: int(max_mixtures)]
+    rows: list[dict[str, Any]] = []
+    for rank, combo in enumerate(combos, start=1):
+        support_rows = [pool_rows[pos] for pos in combo]
+        support_items = [_support_item_from_candidate(row) for row in support_rows]
+        rows.append(
+            {
+                "query_id": (
+                    "live_portfolio_quality_guard__mixture_"
+                    f"{rank:03d}__"
+                    + "-".join(str(item["window_index"]) for item in support_items)
+                ),
+                "candidate_mixture_rank": int(rank),
+                "candidate_mixture_positions": [int(pos + 1) for pos in combo],
+                "candidate_support_window_indices": [
+                    int(item["window_index"]) for item in support_items
+                ],
+                "candidate_support_window_ids": [
+                    str(item["window_id"]) for item in support_items
+                ],
+                "top_train_pool": support_items,
+            }
+        )
+    return rows
+
+
+def _candidate_mixture_selection_order(
+    candidate_mixtures: list[dict[str, Any]],
+    support_policy: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return candidate mixtures in response-score order when available."""
+
+    by_id = {str(row.get("query_id", "")): row for row in candidate_mixtures}
+    probabilities = support_policy.get("candidate_probabilities", [])
+    if isinstance(probabilities, list) and probabilities:
+        ranked = sorted(
+            [row for row in probabilities if isinstance(row, dict)],
+            key=lambda row: float(row.get("score", row.get("probability", 0.0)) or 0.0),
+            reverse=True,
+        )
+        ordered = [
+            by_id[str(row.get("query_id", ""))]
+            for row in ranked
+            if str(row.get("query_id", "")) in by_id
+        ]
+        if ordered:
+            return ordered
+    return list(candidate_mixtures)
+
+
+def _candidate_mixture_to_prior_components(
+    *,
+    candidate: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    memory_targets: np.ndarray,
+    history_level: np.ndarray,
+    grounding: dict[str, Any],
+    spec_names: list[str],
+) -> dict[str, Any] | None:
+    """Build prior components for a single candidate mixture if direction-safe."""
+
+    support_items = [
+        item
+        for item in candidate.get("top_train_pool", [])
+        if isinstance(item, dict) and item.get("window_index") is not None
+    ]
+    if not support_items:
+        return None
+    indices = np.asarray(
+        [int(item["window_index"]) for item in support_items],
+        dtype=np.int64,
+    )
+    raw_weights = np.asarray(
+        [float(item.get("weight", 1.0) or 0.0) for item in support_items],
+        dtype=np.float32,
+    )
+    if raw_weights.shape[0] != indices.shape[0] or float(np.sum(raw_weights)) <= 0.0:
+        weights = np.full(
+            indices.shape[0],
+            1.0 / float(indices.shape[0]),
+            dtype=np.float32,
+        )
+    else:
+        weights = (raw_weights / float(np.sum(raw_weights))).astype(np.float32)
+    terminal_rows = weighted_prefix_terminal_rows(
+        history_level=history_level,
+        window_indices=indices,
+        weights=weights,
+        spec_names=spec_names,
+    )
+    support_alignment = market_implication_alignment(
+        grounding=grounding,
+        scenario_rows=terminal_rows,
+    )
+    by_idx = {int(row["window_index"]): row for row in candidates}
+    candidate_details = [by_idx[int(idx)] for idx in indices if int(idx) in by_idx]
+    direction_check = direction_check_for_mixture(
+        candidate_details=candidate_details,
+        weights=weights,
+        final_mixture_alignment=support_alignment,
+    )
+    if str(direction_check.get("status", "")) == "reject":
+        return None
+    mixture_memory = np.sum(
+        memory_targets[indices] * weights[:, None],
+        axis=0,
+    ).astype(np.float32)
+    return {
+        "memory": mixture_memory,
+        "indices": indices,
+        "weights": weights,
+        "support_alignment": support_alignment,
+        "direction_check": direction_check,
+        "terminal_rows": terminal_rows,
+        "candidate_details": candidate_details,
+        "selected_candidate_query_id": str(candidate.get("query_id", "")),
+        "selected_candidate_rank": int(candidate.get("candidate_mixture_rank", 0) or 0),
+    }
+
+
+def _prior_from_candidate_components(
+    *,
+    prior_mode: str,
+    components: dict[str, Any],
+    top_k: int,
+    diverse_max_pairwise_cosine: float,
+    diverse_min_index_gap: int,
+    candidate_mixture_count: int,
+    min_candidate_mixtures: int,
+    support_policy: dict[str, Any],
+    query_start_state: np.ndarray | None,
+    support_policy_name: str = "portfolio_response_quality_guard_924e",
+    policy_output_key: str = "portfolio_quality_guard_policy",
+    extra_support_diversity: dict[str, Any] | None = None,
+    extra_policy_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a memory prior from a pre-vetted candidate-mixture component set."""
+
+    indices = np.asarray(components["indices"], dtype=np.int64)
+    weights = np.asarray(components["weights"], dtype=np.float32)
+    support_diversity = {
+        "policy": str(support_policy_name),
+        "requested_top_k": int(top_k),
+        "selected_count": int(indices.size),
+        "direction_gate": True,
+        "latent_max_pairwise_cosine": float(diverse_max_pairwise_cosine),
+        "temporal_min_index_gap": int(diverse_min_index_gap),
+        "temporal_non_overlap_enforced": bool(int(diverse_min_index_gap) > 0),
+        "padding_with_temporal_overlaps": False,
+        "portfolio_quality_guard_active": True,
+        "portfolio_quality_guard_fallback": False,
+        "quality_guard_candidate_count": int(candidate_mixture_count),
+        "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+    }
+    if extra_support_diversity:
+        support_diversity.update(extra_support_diversity)
+    policy = {
+        **support_policy,
+        "fallback_to_equal_support": False,
+        "selected_candidate_query_id": components["selected_candidate_query_id"],
+        "selected_candidate_rank": components["selected_candidate_rank"],
+    }
+    if extra_policy_fields:
+        policy.update(extra_policy_fields)
+    result = {
+        "mode": str(prior_mode),
+        "memory": components["memory"],
+        "analogue_count": int(indices.size),
+        "window_indices": [int(idx) for idx in indices.tolist()],
+        "weights": [float(weight) for weight in weights.tolist()],
+        "support_alignment": components["support_alignment"],
+        "direction_check": components["direction_check"],
+        "support_diversity_policy": support_diversity,
+        "terminal_rows": components["terminal_rows"],
+        "candidate_details": components["candidate_details"],
+        "query_start_source": (
+            "provided_start_state"
+            if query_start_state is not None
+            else "query_window_index"
+        ),
+    }
+    result[str(policy_output_key)] = policy
+    return result
+
+
 def build_mixture_memory_prior(
     *,
     query_memory: np.ndarray,
@@ -523,6 +919,15 @@ def build_mixture_memory_prior(
     start_distance_penalty: float,
     implication_alignment_weight: float,
     diverse_max_pairwise_cosine: float,
+    diverse_min_index_gap: int = 0,
+    quality_guard_context: dict[str, Any] | None = None,
+    quality_guard_candidate_pool_size: int = 5,
+    quality_guard_mixture_size: int = 3,
+    quality_guard_max_mixtures: int = 0,
+    quality_guard_min_candidate_mixtures: int = 1,
+    quality_guard_max_candidate_entropy_quantile: float | None = None,
+    quality_guard_min_support_weight_max_quantile: float | None = 0.25,
+    quality_guard_probability_temperature: float | None = None,
 ) -> dict[str, Any]:
     """Build a query memory or analogue-mixture memory prior."""
 
@@ -557,6 +962,877 @@ def build_mixture_memory_prior(
         start_distance_penalty=float(start_distance_penalty),
         implication_alignment_weight=float(implication_alignment_weight),
     )
+    if prior_mode in {
+        "portfolio_quality_guard_924e",
+        "portfolio_direction_first_quality_guard_938a",
+        "broad_replay_response_guard_940a",
+    }:
+        from experiments.backfill.block_ar.nl_portfolio_response_quality_guard_policy import (
+            build_quality_guard_policy_context,
+            select_quality_guard_support,
+        )
+
+        if prior_mode == "broad_replay_response_guard_940a":
+            from experiments.backfill.block_ar.nl_broad_support_response_utility import (
+                load_broad_response_utility_context,
+                select_feature_quality_guard_support,
+            )
+
+            direction_first_selection = True
+            support_policy_name = "broad_replay_response_guard_940a"
+            support_policy_kind = "broad_replay_response_quality_guard_direction_first"
+        else:
+            direction_first_selection = (
+                prior_mode == "portfolio_direction_first_quality_guard_938a"
+            )
+            support_policy_name = "portfolio_direction_first_quality_guard_938a"
+            support_policy_kind = (
+                "train_only_portfolio_plus_quality_guard_direction_first"
+            )
+        base_prior = build_mixture_memory_prior(
+            query_memory=query,
+            memory_targets=memory,
+            history_level=history_level,
+            train_indices=train_indices,
+            query_window_index=int(query_window_index),
+            query_start_state=query_start_state,
+            grounding=grounding,
+            spec_names=spec_names,
+            mode="diverse_topk_narrative_start_checked",
+            top_k=int(top_k),
+            temperature=float(temperature),
+            start_distance_threshold_z=float(start_distance_threshold_z),
+            start_distance_penalty=float(start_distance_penalty),
+            implication_alignment_weight=float(implication_alignment_weight),
+            diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            diverse_min_index_gap=int(diverse_min_index_gap),
+            quality_guard_context=quality_guard_context,
+            quality_guard_candidate_pool_size=int(quality_guard_candidate_pool_size),
+            quality_guard_mixture_size=int(quality_guard_mixture_size),
+            quality_guard_max_mixtures=int(quality_guard_max_mixtures),
+            quality_guard_min_candidate_mixtures=int(
+                quality_guard_min_candidate_mixtures
+            ),
+        )
+        context = (
+            quality_guard_context
+            if quality_guard_context is not None
+            else (
+                load_broad_response_utility_context()
+                if prior_mode == "broad_replay_response_guard_940a"
+                else build_quality_guard_policy_context(
+                    max_candidate_entropy_quantile=(
+                        quality_guard_max_candidate_entropy_quantile
+                    ),
+                    min_support_weight_max_quantile=(
+                        quality_guard_min_support_weight_max_quantile
+                    ),
+                )
+            )
+        )
+        if quality_guard_probability_temperature is not None:
+            context = dict(context)
+            context["probability_temperature"] = float(
+                quality_guard_probability_temperature
+            )
+        candidate_mixtures = _portfolio_quality_guard_candidate_mixtures(
+            candidates=candidates,
+            memory_targets=memory,
+            top_k=int(top_k),
+            candidate_pool_size=int(quality_guard_candidate_pool_size),
+            mixture_size=int(quality_guard_mixture_size),
+            max_mixtures=int(quality_guard_max_mixtures),
+            diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            diverse_min_index_gap=int(diverse_min_index_gap),
+        )
+        min_candidate_mixtures = max(1, int(quality_guard_min_candidate_mixtures))
+        if len(candidate_mixtures) < min_candidate_mixtures:
+            base_prior["mode"] = prior_mode
+            base_prior["portfolio_quality_guard_policy"] = {
+                "name": "portfolio_response_quality_guard_prior",
+                "policy_kind": "train_only_portfolio_plus_quality_guard",
+                "fallback_to_equal_support": True,
+                "fallback_reason": "insufficient_live_candidate_mixtures",
+                "candidate_count": int(len(candidate_mixtures)),
+                "min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "portfolio_quality_guard_active": False,
+                "portfolio_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        if direction_first_selection:
+            direction_safe_components: dict[str, dict[str, Any]] = {}
+            direction_rejected = 0
+            for candidate in candidate_mixtures:
+                components = _candidate_mixture_to_prior_components(
+                    candidate=candidate,
+                    candidates=candidates,
+                    memory_targets=memory,
+                    history_level=history_level,
+                    grounding=grounding,
+                    spec_names=spec_names,
+                )
+                if components is None:
+                    direction_rejected += 1
+                    continue
+                direction_safe_components[str(candidate.get("query_id", ""))] = (
+                    components
+                )
+            direction_safe_mixtures = [
+                candidate
+                for candidate in candidate_mixtures
+                if str(candidate.get("query_id", "")) in direction_safe_components
+            ]
+            if len(direction_safe_mixtures) < min_candidate_mixtures:
+                base_prior["mode"] = prior_mode
+                base_prior["portfolio_quality_guard_policy"] = {
+                    "name": "portfolio_response_quality_guard_prior",
+                    "policy_kind": support_policy_kind,
+                    "fallback_to_equal_support": True,
+                    "fallback_reason": "insufficient_direction_safe_candidate_mixtures",
+                    "candidate_count": int(len(candidate_mixtures)),
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                    "min_candidate_mixtures": int(min_candidate_mixtures),
+                }
+                base_prior["support_diversity_policy"] = {
+                    **base_prior.get("support_diversity_policy", {}),
+                    "portfolio_quality_guard_active": False,
+                    "portfolio_quality_guard_fallback": True,
+                    "portfolio_quality_guard_direction_first": True,
+                    "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                    "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+                }
+                return base_prior
+            use_feature_selector = (
+                prior_mode == "broad_replay_response_guard_940a"
+                and str(context.get("preferred_selector", "support_prior"))
+                == "feature_model"
+            )
+            if use_feature_selector:
+                selection = select_feature_quality_guard_support(
+                    direction_safe_mixtures,
+                    context=context,
+                    history_level=history_level,
+                    query_start_state=query_start_state,
+                    grounding=grounding,
+                )
+            else:
+                selection = select_quality_guard_support(
+                    direction_safe_mixtures,
+                    portfolio_prior=context["portfolio_prior"],
+                    crps_prior=context["crps_prior"],
+                    energy_prior=context["energy_prior"],
+                    probability_temperature=float(
+                        context.get("probability_temperature", 0.25)
+                    ),
+                    max_candidate_entropy_threshold=context.get(
+                        "max_candidate_entropy_threshold"
+                    ),
+                    max_candidate_entropy_quantile=context.get(
+                        "max_candidate_entropy_quantile"
+                    ),
+                    min_support_weight_max_threshold=None,
+                    min_support_weight_max_quantile=None,
+                )
+            if bool(selection["fallback"]):
+                base_prior["mode"] = prior_mode
+                base_prior["portfolio_quality_guard_policy"] = {
+                    **selection["support_policy"],
+                    "fallback_to_equal_support": True,
+                    "fallback_reason": "direction_first_quality_guard_fallback",
+                    "policy_kind": support_policy_kind,
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                }
+                base_prior["support_diversity_policy"] = {
+                    **base_prior.get("support_diversity_policy", {}),
+                    "portfolio_quality_guard_active": False,
+                    "portfolio_quality_guard_fallback": True,
+                    "portfolio_quality_guard_direction_first": True,
+                    "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                    "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+                }
+                return base_prior
+            if prior_mode == "broad_replay_response_guard_940a":
+                selected = [
+                    item
+                    for item in selection.get("selected", [])
+                    if isinstance(item, dict)
+                ]
+                aggregate_candidate = {
+                    "query_id": "broad_replay_response_guard__weighted_selection",
+                    "candidate_mixture_rank": 0,
+                    "top_train_pool": selected,
+                }
+                components = _candidate_mixture_to_prior_components(
+                    candidate=aggregate_candidate,
+                    candidates=candidates,
+                    memory_targets=memory,
+                    history_level=history_level,
+                    grounding=grounding,
+                    spec_names=spec_names,
+                )
+                if components is None:
+                    base_prior["mode"] = prior_mode
+                    base_prior["portfolio_quality_guard_policy"] = {
+                        **selection["support_policy"],
+                        "fallback_to_equal_support": True,
+                        "fallback_reason": "weighted_direction_safe_aggregate_rejected",
+                        "policy_kind": support_policy_kind,
+                        "direction_safe_candidate_count": int(
+                            len(direction_safe_mixtures)
+                        ),
+                        "direction_rejected_candidate_count": int(direction_rejected),
+                    }
+                    base_prior["support_diversity_policy"] = {
+                        **base_prior.get("support_diversity_policy", {}),
+                        "portfolio_quality_guard_active": False,
+                        "portfolio_quality_guard_fallback": True,
+                        "portfolio_quality_guard_direction_first": True,
+                        "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                        "quality_guard_direction_safe_candidate_count": int(
+                            len(direction_safe_mixtures)
+                        ),
+                        "quality_guard_min_candidate_mixtures": int(
+                            min_candidate_mixtures
+                        ),
+                    }
+                    return base_prior
+                return _prior_from_candidate_components(
+                    prior_mode=prior_mode,
+                    components=components,
+                    top_k=int(top_k),
+                    diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+                    diverse_min_index_gap=int(diverse_min_index_gap),
+                    candidate_mixture_count=int(len(candidate_mixtures)),
+                    min_candidate_mixtures=int(min_candidate_mixtures),
+                    support_policy={
+                        **selection["support_policy"],
+                        "policy_kind": support_policy_kind,
+                        "direction_first_candidate_selection": True,
+                        "weighted_candidate_aggregation": True,
+                        "direction_safe_candidate_count": int(
+                            len(direction_safe_mixtures)
+                        ),
+                        "direction_rejected_candidate_count": int(direction_rejected),
+                    },
+                    query_start_state=query_start_state,
+                    support_policy_name=support_policy_name,
+                    extra_support_diversity={
+                        "policy": support_policy_name,
+                        "portfolio_quality_guard_direction_first": True,
+                        "weighted_candidate_aggregation": True,
+                        "quality_guard_direction_safe_candidate_count": int(
+                            len(direction_safe_mixtures)
+                        ),
+                    },
+                )
+            candidate_order = _candidate_mixture_selection_order(
+                direction_safe_mixtures,
+                selection["support_policy"],
+            )
+            selected_candidate = candidate_order[0]
+            selected_query_id = str(selected_candidate.get("query_id", ""))
+            return _prior_from_candidate_components(
+                prior_mode=prior_mode,
+                components=direction_safe_components[selected_query_id],
+                top_k=int(top_k),
+                diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+                diverse_min_index_gap=int(diverse_min_index_gap),
+                candidate_mixture_count=int(len(candidate_mixtures)),
+                min_candidate_mixtures=int(min_candidate_mixtures),
+                support_policy={
+                    **selection["support_policy"],
+                    "policy_kind": support_policy_kind,
+                    "direction_first_candidate_selection": True,
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                },
+                query_start_state=query_start_state,
+                support_policy_name=support_policy_name,
+                extra_support_diversity={
+                    "policy": support_policy_name,
+                    "portfolio_quality_guard_direction_first": True,
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                },
+            )
+        selection = select_quality_guard_support(
+            candidate_mixtures,
+            portfolio_prior=context["portfolio_prior"],
+            crps_prior=context["crps_prior"],
+            energy_prior=context["energy_prior"],
+            probability_temperature=float(context.get("probability_temperature", 0.25)),
+            max_candidate_entropy_threshold=context.get(
+                "max_candidate_entropy_threshold"
+            ),
+            max_candidate_entropy_quantile=context.get(
+                "max_candidate_entropy_quantile"
+            ),
+            min_support_weight_max_threshold=context.get(
+                "min_support_weight_max_threshold"
+            ),
+            min_support_weight_max_quantile=context.get(
+                "min_support_weight_max_quantile"
+            ),
+        )
+        if bool(selection["fallback"]):
+            base_prior["mode"] = prior_mode
+            base_prior["portfolio_quality_guard_policy"] = selection["support_policy"]
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "portfolio_quality_guard_active": False,
+                "portfolio_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+
+        selected = [
+            item for item in selection.get("selected", []) if isinstance(item, dict)
+        ]
+        indices = np.asarray(
+            [int(item["window_index"]) for item in selected],
+            dtype=np.int64,
+        )
+        weights = np.asarray(
+            [float(item.get("weight", 0.0) or 0.0) for item in selected],
+            dtype=np.float32,
+        )
+        if indices.size == 0:
+            base_prior["mode"] = prior_mode
+            base_prior["portfolio_quality_guard_policy"] = {
+                **selection["support_policy"],
+                "fallback_to_equal_support": True,
+                "fallback_reason": "empty_selected_support",
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "portfolio_quality_guard_active": False,
+                "portfolio_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        weights = np.maximum(weights, 0.0)
+        if float(weights.sum()) <= 0.0:
+            weights = np.ones(indices.shape[0], dtype=np.float32)
+        weights = (weights / float(weights.sum())).astype(np.float32)
+        mixture_memory = np.sum(memory[indices] * weights[:, None], axis=0).astype(
+            np.float32
+        )
+        terminal_rows = weighted_prefix_terminal_rows(
+            history_level=history_level,
+            window_indices=indices,
+            weights=weights,
+            spec_names=spec_names,
+        )
+        support_alignment = market_implication_alignment(
+            grounding=grounding,
+            scenario_rows=terminal_rows,
+        )
+        by_idx = {int(row["window_index"]): row for row in candidates}
+        candidate_details = [by_idx[int(idx)] for idx in indices if int(idx) in by_idx]
+        direction_check = direction_check_for_mixture(
+            candidate_details=candidate_details,
+            weights=weights,
+            final_mixture_alignment=support_alignment,
+        )
+        if str(direction_check.get("status", "")) == "reject":
+            replacement = None
+            for candidate in _candidate_mixture_selection_order(
+                candidate_mixtures,
+                selection["support_policy"],
+            ):
+                replacement = _candidate_mixture_to_prior_components(
+                    candidate=candidate,
+                    candidates=candidates,
+                    memory_targets=memory,
+                    history_level=history_level,
+                    grounding=grounding,
+                    spec_names=spec_names,
+                )
+                if replacement is not None:
+                    break
+            if replacement is not None:
+                return {
+                    "mode": prior_mode,
+                    "memory": replacement["memory"],
+                    "analogue_count": int(replacement["indices"].size),
+                    "window_indices": [
+                        int(idx) for idx in replacement["indices"].tolist()
+                    ],
+                    "weights": [
+                        float(weight) for weight in replacement["weights"].tolist()
+                    ],
+                    "support_alignment": replacement["support_alignment"],
+                    "direction_check": replacement["direction_check"],
+                    "support_diversity_policy": {
+                        "policy": "portfolio_response_quality_guard_924e",
+                        "requested_top_k": int(top_k),
+                        "selected_count": int(replacement["indices"].size),
+                        "direction_gate": True,
+                        "latent_max_pairwise_cosine": float(
+                            diverse_max_pairwise_cosine
+                        ),
+                        "temporal_min_index_gap": int(diverse_min_index_gap),
+                        "temporal_non_overlap_enforced": bool(
+                            int(diverse_min_index_gap) > 0
+                        ),
+                        "padding_with_temporal_overlaps": False,
+                        "portfolio_quality_guard_active": True,
+                        "portfolio_quality_guard_fallback": False,
+                        "portfolio_quality_guard_direction_safe_candidate_fallback": True,
+                        "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                        "quality_guard_min_candidate_mixtures": int(
+                            min_candidate_mixtures
+                        ),
+                    },
+                    "portfolio_quality_guard_policy": {
+                        **selection["support_policy"],
+                        "fallback_to_equal_support": False,
+                        "direction_safe_candidate_fallback": True,
+                        "initial_marginal_direction_check": direction_check,
+                        "selected_candidate_query_id": replacement[
+                            "selected_candidate_query_id"
+                        ],
+                        "selected_candidate_rank": replacement[
+                            "selected_candidate_rank"
+                        ],
+                    },
+                    "terminal_rows": replacement["terminal_rows"],
+                    "candidate_details": replacement["candidate_details"],
+                    "query_start_source": (
+                        "provided_start_state"
+                        if query_start_state is not None
+                        else "query_window_index"
+                    ),
+                }
+            base_prior["mode"] = prior_mode
+            base_prior["portfolio_quality_guard_policy"] = {
+                **selection["support_policy"],
+                "fallback_to_equal_support": True,
+                "fallback_reason": str(
+                    direction_check.get(
+                        "reason", "quality_guard_direction_check_reject"
+                    )
+                ),
+                "direction_check": direction_check,
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "portfolio_quality_guard_active": False,
+                "portfolio_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        return {
+            "mode": prior_mode,
+            "memory": mixture_memory,
+            "analogue_count": int(indices.size),
+            "window_indices": [int(idx) for idx in indices],
+            "weights": [float(weight) for weight in weights],
+            "support_alignment": support_alignment,
+            "direction_check": direction_check,
+            "support_diversity_policy": {
+                "policy": "portfolio_response_quality_guard_924e",
+                "requested_top_k": int(top_k),
+                "selected_count": int(indices.size),
+                "direction_gate": True,
+                "latent_max_pairwise_cosine": float(diverse_max_pairwise_cosine),
+                "temporal_min_index_gap": int(diverse_min_index_gap),
+                "temporal_non_overlap_enforced": bool(int(diverse_min_index_gap) > 0),
+                "padding_with_temporal_overlaps": False,
+                "portfolio_quality_guard_active": True,
+                "portfolio_quality_guard_fallback": False,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            },
+            "portfolio_quality_guard_policy": selection["support_policy"],
+            "terminal_rows": terminal_rows,
+            "candidate_details": candidate_details,
+            "query_start_source": (
+                "provided_start_state"
+                if query_start_state is not None
+                else "query_window_index"
+            ),
+        }
+    if prior_mode in {
+        "narrative_book_quality_guard_926b",
+        "narrative_book_direction_first_quality_guard_938c",
+    }:
+        from experiments.backfill.block_ar.nl_narrative_book_conditioned_quality_guard import (
+            blend_book_priors,
+            build_narrative_book_guard_policy_context,
+            narrative_book_relevance_weights,
+        )
+        from experiments.backfill.block_ar.nl_portfolio_response_quality_guard_policy import (
+            select_quality_guard_support,
+        )
+
+        narrative_book_direction_first = (
+            prior_mode == "narrative_book_direction_first_quality_guard_938c"
+        )
+        base_prior = build_mixture_memory_prior(
+            query_memory=query,
+            memory_targets=memory,
+            history_level=history_level,
+            train_indices=train_indices,
+            query_window_index=int(query_window_index),
+            query_start_state=query_start_state,
+            grounding=grounding,
+            spec_names=spec_names,
+            mode="diverse_topk_narrative_start_checked",
+            top_k=int(top_k),
+            temperature=float(temperature),
+            start_distance_threshold_z=float(start_distance_threshold_z),
+            start_distance_penalty=float(start_distance_penalty),
+            implication_alignment_weight=float(implication_alignment_weight),
+            diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            diverse_min_index_gap=int(diverse_min_index_gap),
+            quality_guard_context=quality_guard_context,
+            quality_guard_candidate_pool_size=int(quality_guard_candidate_pool_size),
+            quality_guard_mixture_size=int(quality_guard_mixture_size),
+            quality_guard_max_mixtures=int(quality_guard_max_mixtures),
+            quality_guard_min_candidate_mixtures=int(
+                quality_guard_min_candidate_mixtures
+            ),
+        )
+        context = (
+            quality_guard_context
+            if quality_guard_context is not None
+            and "priors_by_book" in quality_guard_context
+            else build_narrative_book_guard_policy_context(
+                min_support_weight_max_quantile=(
+                    quality_guard_min_support_weight_max_quantile
+                )
+            )
+        )
+        book_weights = narrative_book_relevance_weights(grounding)
+        portfolio_prior = blend_book_priors(context["priors_by_book"], book_weights)
+        candidate_mixtures = _portfolio_quality_guard_candidate_mixtures(
+            candidates=candidates,
+            memory_targets=memory,
+            top_k=int(top_k),
+            candidate_pool_size=int(quality_guard_candidate_pool_size),
+            mixture_size=int(quality_guard_mixture_size),
+            max_mixtures=int(quality_guard_max_mixtures),
+            diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            diverse_min_index_gap=int(diverse_min_index_gap),
+        )
+        min_candidate_mixtures = max(1, int(quality_guard_min_candidate_mixtures))
+        if len(candidate_mixtures) < min_candidate_mixtures:
+            base_prior["mode"] = prior_mode
+            base_prior["narrative_book_response_policy"] = {
+                "name": "narrative_book_response_quality_guard_prior",
+                "policy_kind": "train_only_narrative_book_portfolio_plus_quality_guard",
+                "fallback_to_equal_support": True,
+                "fallback_reason": "insufficient_live_candidate_mixtures",
+                "candidate_count": int(len(candidate_mixtures)),
+                "min_candidate_mixtures": int(min_candidate_mixtures),
+                "book_weights": book_weights,
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "narrative_book_quality_guard_active": False,
+                "narrative_book_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        if narrative_book_direction_first:
+            direction_safe_components: dict[str, dict[str, Any]] = {}
+            direction_rejected = 0
+            for candidate in candidate_mixtures:
+                components = _candidate_mixture_to_prior_components(
+                    candidate=candidate,
+                    candidates=candidates,
+                    memory_targets=memory,
+                    history_level=history_level,
+                    grounding=grounding,
+                    spec_names=spec_names,
+                )
+                if components is None:
+                    direction_rejected += 1
+                    continue
+                direction_safe_components[str(candidate.get("query_id", ""))] = (
+                    components
+                )
+            direction_safe_mixtures = [
+                candidate
+                for candidate in candidate_mixtures
+                if str(candidate.get("query_id", "")) in direction_safe_components
+            ]
+            if len(direction_safe_mixtures) < min_candidate_mixtures:
+                base_prior["mode"] = prior_mode
+                base_prior["narrative_book_response_policy"] = {
+                    "name": "narrative_book_response_quality_guard_prior",
+                    "policy_kind": (
+                        "train_only_narrative_book_direction_first_quality_guard"
+                    ),
+                    "fallback_to_equal_support": True,
+                    "fallback_reason": "insufficient_direction_safe_candidate_mixtures",
+                    "candidate_count": int(len(candidate_mixtures)),
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                    "min_candidate_mixtures": int(min_candidate_mixtures),
+                    "book_weights": book_weights,
+                }
+                base_prior["support_diversity_policy"] = {
+                    **base_prior.get("support_diversity_policy", {}),
+                    "narrative_book_quality_guard_active": False,
+                    "narrative_book_quality_guard_fallback": True,
+                    "narrative_book_quality_guard_direction_first": True,
+                    "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                    "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+                }
+                return base_prior
+            selection = select_quality_guard_support(
+                direction_safe_mixtures,
+                portfolio_prior=portfolio_prior,
+                crps_prior=context["crps_prior"],
+                energy_prior=context["energy_prior"],
+                probability_temperature=float(
+                    context.get("probability_temperature", 0.25)
+                ),
+                max_candidate_entropy_threshold=context.get(
+                    "max_candidate_entropy_threshold"
+                ),
+                max_candidate_entropy_quantile=context.get(
+                    "max_candidate_entropy_quantile"
+                ),
+                min_support_weight_max_threshold=None,
+                min_support_weight_max_quantile=None,
+            )
+            if bool(selection["fallback"]):
+                base_prior["mode"] = prior_mode
+                base_prior["narrative_book_response_policy"] = {
+                    **selection["support_policy"],
+                    "name": "narrative_book_response_quality_guard_prior",
+                    "fallback_to_equal_support": True,
+                    "fallback_reason": "narrative_book_direction_first_fallback",
+                    "book_weights": book_weights,
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                    "source_artifacts": context.get("source_artifacts", {}),
+                }
+                base_prior["support_diversity_policy"] = {
+                    **base_prior.get("support_diversity_policy", {}),
+                    "narrative_book_quality_guard_active": False,
+                    "narrative_book_quality_guard_fallback": True,
+                    "narrative_book_quality_guard_direction_first": True,
+                    "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                    "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+                }
+                return base_prior
+            candidate_order = _candidate_mixture_selection_order(
+                direction_safe_mixtures,
+                selection["support_policy"],
+            )
+            selected_candidate = candidate_order[0]
+            selected_query_id = str(selected_candidate.get("query_id", ""))
+            return _prior_from_candidate_components(
+                prior_mode=prior_mode,
+                components=direction_safe_components[selected_query_id],
+                top_k=int(top_k),
+                diverse_max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+                diverse_min_index_gap=int(diverse_min_index_gap),
+                candidate_mixture_count=int(len(candidate_mixtures)),
+                min_candidate_mixtures=int(min_candidate_mixtures),
+                support_policy={
+                    **selection["support_policy"],
+                    "name": "narrative_book_response_quality_guard_prior",
+                    "policy_kind": (
+                        "train_only_narrative_book_direction_first_quality_guard"
+                    ),
+                    "direction_first_candidate_selection": True,
+                    "book_weights": book_weights,
+                    "direction_safe_candidate_count": int(len(direction_safe_mixtures)),
+                    "direction_rejected_candidate_count": int(direction_rejected),
+                    "source_artifacts": context.get("source_artifacts", {}),
+                },
+                query_start_state=query_start_state,
+                support_policy_name="narrative_book_direction_first_quality_guard_938c",
+                policy_output_key="narrative_book_response_policy",
+                extra_support_diversity={
+                    "policy": "narrative_book_direction_first_quality_guard_938c",
+                    "portfolio_quality_guard_active": False,
+                    "portfolio_quality_guard_fallback": False,
+                    "narrative_book_quality_guard_active": True,
+                    "narrative_book_quality_guard_fallback": False,
+                    "narrative_book_quality_guard_direction_first": True,
+                    "quality_guard_direction_safe_candidate_count": int(
+                        len(direction_safe_mixtures)
+                    ),
+                },
+            )
+        selection = select_quality_guard_support(
+            candidate_mixtures,
+            portfolio_prior=portfolio_prior,
+            crps_prior=context["crps_prior"],
+            energy_prior=context["energy_prior"],
+            probability_temperature=float(context.get("probability_temperature", 0.25)),
+            max_candidate_entropy_threshold=context.get(
+                "max_candidate_entropy_threshold"
+            ),
+            max_candidate_entropy_quantile=context.get(
+                "max_candidate_entropy_quantile"
+            ),
+            min_support_weight_max_threshold=context.get(
+                "min_support_weight_max_threshold"
+            ),
+            min_support_weight_max_quantile=context.get(
+                "min_support_weight_max_quantile"
+            ),
+        )
+        if bool(selection["fallback"]):
+            base_prior["mode"] = prior_mode
+            base_prior["narrative_book_response_policy"] = {
+                **selection["support_policy"],
+                "name": "narrative_book_response_quality_guard_prior",
+                "book_weights": book_weights,
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "narrative_book_quality_guard_active": False,
+                "narrative_book_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+
+        selected = [
+            item for item in selection.get("selected", []) if isinstance(item, dict)
+        ]
+        indices = np.asarray(
+            [int(item["window_index"]) for item in selected],
+            dtype=np.int64,
+        )
+        weights = np.asarray(
+            [float(item.get("weight", 0.0) or 0.0) for item in selected],
+            dtype=np.float32,
+        )
+        if indices.size == 0:
+            base_prior["mode"] = prior_mode
+            base_prior["narrative_book_response_policy"] = {
+                **selection["support_policy"],
+                "name": "narrative_book_response_quality_guard_prior",
+                "fallback_to_equal_support": True,
+                "fallback_reason": "empty_selected_support",
+                "book_weights": book_weights,
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "narrative_book_quality_guard_active": False,
+                "narrative_book_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        weights = np.maximum(weights, 0.0)
+        if float(weights.sum()) <= 0.0:
+            weights = np.ones(indices.shape[0], dtype=np.float32)
+        weights = (weights / float(weights.sum())).astype(np.float32)
+        mixture_memory = np.sum(memory[indices] * weights[:, None], axis=0).astype(
+            np.float32
+        )
+        terminal_rows = weighted_prefix_terminal_rows(
+            history_level=history_level,
+            window_indices=indices,
+            weights=weights,
+            spec_names=spec_names,
+        )
+        support_alignment = market_implication_alignment(
+            grounding=grounding,
+            scenario_rows=terminal_rows,
+        )
+        by_idx = {int(row["window_index"]): row for row in candidates}
+        candidate_details = [by_idx[int(idx)] for idx in indices if int(idx) in by_idx]
+        direction_check = direction_check_for_mixture(
+            candidate_details=candidate_details,
+            weights=weights,
+            final_mixture_alignment=support_alignment,
+        )
+        if str(direction_check.get("status", "")) == "reject":
+            base_prior["mode"] = prior_mode
+            base_prior["narrative_book_response_policy"] = {
+                **selection["support_policy"],
+                "name": "narrative_book_response_quality_guard_prior",
+                "policy_kind": "train_only_narrative_book_portfolio_plus_quality_guard",
+                "book_weights": book_weights,
+                "fallback_to_equal_support": True,
+                "fallback_reason": str(
+                    direction_check.get(
+                        "reason", "narrative_book_direction_check_reject"
+                    )
+                ),
+                "direction_check": direction_check,
+                "source_artifacts": context.get("source_artifacts", {}),
+            }
+            base_prior["support_diversity_policy"] = {
+                **base_prior.get("support_diversity_policy", {}),
+                "narrative_book_quality_guard_active": False,
+                "narrative_book_quality_guard_fallback": True,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            }
+            return base_prior
+        return {
+            "mode": prior_mode,
+            "memory": mixture_memory,
+            "analogue_count": int(indices.size),
+            "window_indices": [int(idx) for idx in indices],
+            "weights": [float(weight) for weight in weights],
+            "support_alignment": support_alignment,
+            "direction_check": direction_check,
+            "support_diversity_policy": {
+                "policy": "narrative_book_response_quality_guard",
+                "requested_top_k": int(top_k),
+                "selected_count": int(indices.size),
+                "direction_gate": True,
+                "latent_max_pairwise_cosine": float(diverse_max_pairwise_cosine),
+                "temporal_min_index_gap": int(diverse_min_index_gap),
+                "temporal_non_overlap_enforced": bool(int(diverse_min_index_gap) > 0),
+                "padding_with_temporal_overlaps": False,
+                "narrative_book_quality_guard_active": True,
+                "narrative_book_quality_guard_fallback": False,
+                "quality_guard_candidate_count": int(len(candidate_mixtures)),
+                "quality_guard_min_candidate_mixtures": int(min_candidate_mixtures),
+            },
+            "narrative_book_response_policy": {
+                **selection["support_policy"],
+                "name": "narrative_book_response_quality_guard_prior",
+                "policy_kind": "train_only_narrative_book_portfolio_plus_quality_guard",
+                "book_weights": book_weights,
+                "source_artifacts": context.get("source_artifacts", {}),
+            },
+            "terminal_rows": terminal_rows,
+            "candidate_details": candidate_details,
+            "query_start_source": (
+                "provided_start_state"
+                if query_start_state is not None
+                else "query_window_index"
+            ),
+        }
     if prior_mode == "soft_topk_memory":
         indices = _top_indices(candidates, "memory_support_cosine", top_k)
         scores = _scores_for_indices(candidates, indices, "memory_support_cosine")
@@ -570,6 +1846,42 @@ def build_mixture_memory_prior(
             k=top_k,
         )
         scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "diverse_topk_narrative_start_checked":
+        indices = direction_passing_diverse_top_indices(
+            candidates,
+            memory_targets=memory,
+            key="narrative_start_score",
+            k=top_k,
+            max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            min_index_gap=int(diverse_min_index_gap),
+        )
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "cohesive_topk_narrative_start_checked":
+        indices = cohesive_top_indices(
+            candidates,
+            memory_targets=memory,
+            key="narrative_start_score",
+            k=top_k,
+            min_index_gap=int(diverse_min_index_gap),
+        )
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "cluster_family_narrative_start_checked":
+        indices = latent_family_top_indices(
+            candidates,
+            memory_targets=memory,
+            key="narrative_start_score",
+            k=top_k,
+            min_family_cosine=float(diverse_max_pairwise_cosine),
+            min_index_gap=int(diverse_min_index_gap),
+        )
+        scores = _scores_for_indices(candidates, indices, "narrative_start_score")
+    elif prior_mode == "kernel_topk_narrative_start_checked":
+        indices = direction_passing_top_indices(
+            candidates,
+            key="narrative_start_score",
+            k=top_k,
+        )
+        scores = _scores_for_indices(candidates, indices, "memory_support_cosine")
     elif prior_mode == "soft_topk_start_only":
         indices = _top_indices(candidates, "start_only_score", top_k)
         scores = _scores_for_indices(candidates, indices, "start_only_score")
@@ -583,6 +1895,7 @@ def build_mixture_memory_prior(
             key="narrative_start_score",
             k=top_k,
             max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            min_index_gap=int(diverse_min_index_gap),
         )
         scores = _scores_for_indices(candidates, indices, "narrative_start_score")
     elif prior_mode == "diverse_topk_combined":
@@ -592,6 +1905,7 @@ def build_mixture_memory_prior(
             key="combined_score",
             k=top_k,
             max_pairwise_cosine=float(diverse_max_pairwise_cosine),
+            min_index_gap=int(diverse_min_index_gap),
         )
         scores = _scores_for_indices(candidates, indices, "combined_score")
     else:
@@ -617,6 +1931,64 @@ def build_mixture_memory_prior(
         weights=weights,
         final_mixture_alignment=support_alignment,
     )
+    support_policy_name = (
+        "direction_checked_anchor_cohesive_support"
+        if prior_mode == "cohesive_topk_narrative_start_checked"
+        else (
+            "direction_checked_latent_family_support"
+            if prior_mode == "cluster_family_narrative_start_checked"
+            else (
+                "direction_checked_low_temperature_similarity_kernel_support"
+                if prior_mode == "kernel_topk_narrative_start_checked"
+                else (
+                    "direction_checked_latent_temporal_diverse_support"
+                    if "diverse" in prior_mode
+                    else "score_ranked_support"
+                )
+            )
+        )
+    )
+    support_diversity_policy = {
+        "policy": support_policy_name,
+        "requested_top_k": int(top_k),
+        "selected_count": int(indices.size),
+        "direction_gate": prior_mode
+        in {
+            "soft_topk_narrative_start_checked",
+            "diverse_topk_narrative_start_checked",
+            "cohesive_topk_narrative_start_checked",
+            "cluster_family_narrative_start_checked",
+            "kernel_topk_narrative_start_checked",
+        },
+        "latent_max_pairwise_cosine": (
+            float(diverse_max_pairwise_cosine) if "diverse" in prior_mode else None
+        ),
+        "temporal_min_index_gap": (
+            int(diverse_min_index_gap) if "diverse" in prior_mode else 0
+        ),
+        "temporal_non_overlap_enforced": bool(
+            "diverse" in prior_mode and int(diverse_min_index_gap) > 0
+        ),
+        "padding_with_temporal_overlaps": False,
+    }
+    if prior_mode == "cohesive_topk_narrative_start_checked" and indices.size:
+        support_diversity_policy["anchor_window_index"] = int(indices[0])
+        support_diversity_policy["temporal_min_index_gap"] = int(diverse_min_index_gap)
+        support_diversity_policy["temporal_non_overlap_enforced"] = bool(
+            int(diverse_min_index_gap) > 0
+        )
+    if prior_mode == "cluster_family_narrative_start_checked":
+        support_diversity_policy["family_size"] = int(indices.size)
+        support_diversity_policy["family_min_pairwise_cosine"] = float(
+            diverse_max_pairwise_cosine
+        )
+        support_diversity_policy["temporal_min_index_gap"] = int(diverse_min_index_gap)
+        support_diversity_policy["temporal_non_overlap_enforced"] = bool(
+            int(diverse_min_index_gap) > 0
+        )
+    if prior_mode == "kernel_topk_narrative_start_checked":
+        support_diversity_policy["kernel_score"] = "memory_support_cosine"
+        support_diversity_policy["kernel_temperature"] = float(temperature)
     return {
         "mode": prior_mode,
         "memory": mixture_memory,
@@ -625,6 +1997,7 @@ def build_mixture_memory_prior(
         "weights": [float(weight) for weight in weights],
         "support_alignment": support_alignment,
         "direction_check": direction_check,
+        "support_diversity_policy": support_diversity_policy,
         "terminal_rows": terminal_rows,
         "candidate_details": candidate_details,
         "query_start_source": (

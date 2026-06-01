@@ -96,6 +96,7 @@ DEFAULT_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.0,
@@ -104,6 +105,7 @@ DEFAULT_VARIANTS = [
         "variant_name": "decoder_soft_topk_memory",
         "memory_prior_mode": "soft_topk_memory",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.0,
@@ -112,6 +114,7 @@ DEFAULT_VARIANTS = [
         "variant_name": "decoder_diverse_topk_combined",
         "memory_prior_mode": "diverse_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.0,
@@ -120,6 +123,7 @@ DEFAULT_VARIANTS = [
         "variant_name": "feature_soft_topk_combined",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "feature_mixture",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.0,
@@ -131,6 +135,7 @@ TEMPERATURE_CALIBRATION_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
@@ -139,6 +144,7 @@ TEMPERATURE_CALIBRATION_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined_gen_temp_0p75",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.75,
@@ -147,6 +153,7 @@ TEMPERATURE_CALIBRATION_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined_gen_temp_1p00",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.0,
@@ -155,6 +162,7 @@ TEMPERATURE_CALIBRATION_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined_gen_temp_1p25",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 1.25,
@@ -166,6 +174,7 @@ DIRECTION_CHECK_VARIANTS = [
         "variant_name": "decoder_soft_topk_narrative_start_checked_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_narrative_start_checked",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
@@ -174,6 +183,7 @@ DIRECTION_CHECK_VARIANTS = [
         "variant_name": "decoder_soft_topk_narrative_start_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_narrative_start",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
@@ -182,6 +192,7 @@ DIRECTION_CHECK_VARIANTS = [
         "variant_name": "decoder_soft_topk_combined_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_combined",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
@@ -190,6 +201,7 @@ DIRECTION_CHECK_VARIANTS = [
         "variant_name": "decoder_soft_topk_memory_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_memory",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
@@ -201,9 +213,90 @@ START_ONLY_CONTROL_VARIANTS = [
         "variant_name": "decoder_soft_topk_start_only_gen_temp_0p50",
         "memory_prior_mode": "soft_topk_start_only",
         "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "averaged_prefix",
         "top_k": 8,
         "temperature": 0.2,
         "generator_temperature": 0.5,
+    },
+]
+
+COMPONENT_DIRECTION_VARIANTS = [
+    {
+        "variant_name": "decoder_component_topk_narrative_start_checked_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+]
+
+COMPONENT_SUPPORT_TEMPERATURE_VARIANTS = [
+    COMPONENT_DIRECTION_VARIANTS[0],
+    {
+        "variant_name": "decoder_component_topk_narrative_start_checked_temp0p10_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.1,
+        "generator_temperature": 0.5,
+    },
+    {
+        "variant_name": "decoder_component_topk_narrative_start_checked_temp0p05_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.05,
+        "generator_temperature": 0.5,
+    },
+]
+
+COMPONENT_GENERATOR_TEMPERATURE_VARIANTS = [
+    {
+        "variant_name": "decoder_component_topk_narrative_start_checked_gen_temp_0p25",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.25,
+    },
+    COMPONENT_DIRECTION_VARIANTS[0],
+    {
+        "variant_name": "decoder_component_topk_narrative_start_checked_gen_temp_0p75",
+        "memory_prior_mode": "soft_topk_narrative_start_checked",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.75,
+    },
+]
+
+COMPONENT_START_ONLY_VARIANTS = [
+    {
+        "variant_name": "decoder_component_topk_start_only_gen_temp_0p50",
+        "memory_prior_mode": "soft_topk_start_only",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.5,
+    },
+]
+
+COMPONENT_START_ONLY_GENERATOR_TEMPERATURE_VARIANTS = [
+    {
+        "variant_name": "decoder_component_topk_start_only_gen_temp_0p25",
+        "memory_prior_mode": "soft_topk_start_only",
+        "prefix_prior_mode": "decoder",
+        "rollout_mixture_mode": "component_prefix_mixture",
+        "top_k": 8,
+        "temperature": 0.2,
+        "generator_temperature": 0.25,
     },
 ]
 
@@ -227,6 +320,11 @@ VARIANT_SETS = {
     "direction_check": DIRECTION_CHECK_VARIANTS,
     "start_only_control": START_ONLY_CONTROL_VARIANTS,
     "controls": CONTROL_VARIANTS,
+    "component_direction_check": COMPONENT_DIRECTION_VARIANTS,
+    "component_support_temperature": COMPONENT_SUPPORT_TEMPERATURE_VARIANTS,
+    "component_generator_temperature": COMPONENT_GENERATOR_TEMPERATURE_VARIANTS,
+    "component_start_only_control": COMPONENT_START_ONLY_VARIANTS,
+    "component_start_only_generator_temperature": COMPONENT_START_ONLY_GENERATOR_TEMPERATURE_VARIANTS,
 }
 
 
@@ -319,6 +417,9 @@ def row_from_report(
         "variant_name": str(variant["variant_name"]),
         "memory_prior_mode": str(variant["memory_prior_mode"]),
         "prefix_prior_mode": str(variant["prefix_prior_mode"]),
+        "rollout_mixture_mode": str(
+            variant.get("rollout_mixture_mode", "averaged_prefix")
+        ),
         "top_k": int(variant["top_k"]),
         "temperature": float(variant["temperature"]),
         "generator_temperature": float(variant.get("generator_temperature", 1.0)),
@@ -684,7 +785,11 @@ def run_bakeoff(args: argparse.Namespace) -> dict[str, Any]:
             run_args.memory_prior_top_k = int(variant["top_k"])
             run_args.memory_prior_temperature = float(variant["temperature"])
             run_args.prefix_prior_mode = str(variant["prefix_prior_mode"])
+            run_args.rollout_mixture_mode = str(
+                variant.get("rollout_mixture_mode", "averaged_prefix")
+            )
             run_args.temperature = float(variant.get("generator_temperature", 1.0))
+            run_args.seed = int(getattr(args, "seed", 791))
             report = run_prefix_latent_story_smoke(run_args)
             rows.append(row_from_report(case=case, variant=variant, report=report))
     variant_summary = summarize_by_variant(rows)
@@ -742,6 +847,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--chunk-size", type=int, default=2)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--seed", type=int, default=791)
     args = parser.parse_args()
     summary = run_bakeoff(args)
     print(

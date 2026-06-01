@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,27 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _copy_if_exists(source: str | Path, destination: str | Path) -> str:
+    src = Path(str(source))
+    dst = Path(str(destination))
+    if not src.exists() or not src.is_file():
+        return ""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+    return str(dst)
+
+
+def _update_value(value: Any, default: str) -> str:
+    if isinstance(value, dict):
+        raw = value.get("value")
+        if raw is not None:
+            return str(raw)
+    raw = getattr(value, "value", None)
+    if raw is not None:
+        return str(raw)
+    return str(default)
 
 
 def _client_class() -> Any:
@@ -238,16 +260,26 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
     report = json.loads(str(report_json))
     if report_state is None:
         report_state = report
+    redraw_scope = _update_value(analogue_scope_update, default="ALL")
     redraw_plot = client.predict(
         str(args.redraw_market),
-        "ALL",
+        redraw_scope,
         api_name="/refresh_fan_chart",
     )
 
     query = report.get("cached_query", {}) if isinstance(report, dict) else {}
     gate = report.get("validation_gate", {}) if isinstance(report, dict) else {}
     generation = _as_dict(report.get("generation"))
+    calibration = _as_dict(generation.get("narrative_ensemble_calibration"))
     artifact_paths = _as_dict(report.get("artifact_paths"))
+    report_snapshot_path = output_dir / "prefix_report_snapshot.json"
+    markdown_snapshot_path = output_dir / "prefix_report_snapshot.md"
+    _write_json(report_snapshot_path, report)
+    markdown_snapshot_path.write_text(str(report_markdown), encoding="utf-8")
+    arrays_snapshot_path = _copy_if_exists(
+        str(artifact_paths.get("arrays", "")),
+        output_dir / "prefix_arrays_snapshot.npz",
+    )
     embedding_metadata = _as_dict(_as_dict(query).get("embedding_metadata"))
     memory_prior = _as_dict(_as_dict(query).get("memory_prior"))
     support_candidates = _support_candidate_summary(report)
@@ -276,10 +308,22 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("start_index_mismatch")
     if str(query.get("condition_source", "")) != "external_condition_report":
         errors.append("condition_source_mismatch")
+    allow_condition_warning = bool(getattr(args, "allow_condition_warning", False))
     if not isinstance(condition_only_validation, dict):
         errors.append("condition_only_validation_missing")
-    elif str(condition_only_validation.get("status", "")) != "pass":
-        errors.append("condition_only_validation_not_pass")
+    else:
+        condition_status = str(condition_only_validation.get("status", ""))
+        non_leaking_condition_warning = (
+            allow_condition_warning
+            and condition_status == "warning"
+            and int(condition_only_validation.get("future_target_count", 0) or 0) == 0
+            and int(
+                condition_only_validation.get("forward_warning_leakage_count", 0) or 0
+            )
+            == 0
+        )
+        if condition_status != "pass" and not non_leaking_condition_warning:
+            errors.append("condition_only_validation_not_pass")
     forward_warning_count = condition_only_validation.get(
         "forward_warning_count",
         0,
@@ -288,7 +332,11 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("forward_warning_count_missing")
     if report.get("status") != "ok":
         errors.append("report_not_ok")
-    if str(gate.get("selected_start_status", "")) != "pass":
+    selected_start_status = str(gate.get("selected_start_status", ""))
+    allow_start_warning = bool(getattr(args, "allow_start_warning", False))
+    if selected_start_status != "pass" and not (
+        allow_start_warning and selected_start_status == "warning"
+    ):
         errors.append("selected_start_not_pass")
     if _table_rows(selected_table) < 1:
         errors.append("selected_table_empty")
@@ -310,6 +358,25 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("redraw_plot_empty")
     if "Story support:" not in str(status_markdown):
         errors.append("status_story_support_missing")
+    if not calibration:
+        errors.append("calibration_metadata_missing")
+    else:
+        if not bool(calibration.get("applied")):
+            errors.append("calibration_not_applied")
+        try:
+            support_gate = float(calibration.get("support_gate", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            support_gate = 0.0
+        if support_gate <= 0.0:
+            errors.append("calibration_support_gate_not_positive")
+        try:
+            active_direction_count = int(
+                calibration.get("active_direction_count", 0) or 0
+            )
+        except (TypeError, ValueError):
+            active_direction_count = 0
+        if active_direction_count < 1:
+            errors.append("calibration_active_direction_missing")
 
     summary = {
         "status": "ok" if not errors else "fail",
@@ -325,6 +392,9 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "prefix_report_path": str(artifact_paths.get("report", "")),
         "prefix_markdown_path": str(artifact_paths.get("markdown", "")),
         "prefix_arrays_path": str(artifact_paths.get("arrays", "")),
+        "prefix_report_snapshot_path": str(report_snapshot_path),
+        "prefix_markdown_snapshot_path": str(markdown_snapshot_path),
+        "prefix_arrays_snapshot_path": arrays_snapshot_path,
         "prefix_run_record_path": str(artifact_paths.get("run_record", "")),
         "condition_report_path": str(embedding_metadata.get("condition_report", "")),
         "condition_arrays_path": str(embedding_metadata.get("condition_arrays", "")),
@@ -334,17 +404,31 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "condition_dim": int(embedding_metadata.get("condition_dim", 0) or 0),
         "openai_response_id": str(condition_only_metadata.get("response_id", "")),
         "openai_usage": condition_only_metadata.get("usage", {}),
+        "narrative_calibration_applied": bool(calibration.get("applied")),
+        "narrative_calibration_mode": str(calibration.get("mode", "")),
+        "narrative_calibration_effective_beta": float(
+            calibration.get("effective_beta", 0.0) or 0.0
+        ),
+        "narrative_calibration_support_gate": float(
+            calibration.get("support_gate", 0.0) or 0.0
+        ),
+        "narrative_calibration_active_direction_count": int(
+            calibration.get("active_direction_count", 0) or 0
+        ),
+        "narrative_calibration_skip_reason": str(calibration.get("skip_reason", "")),
         "condition_only_validation_status": str(
             condition_only_validation.get("status", "")
             if isinstance(condition_only_validation, dict)
             else ""
         ),
+        "allow_condition_warning": allow_condition_warning,
         "condition_only_forward_warning_count": int(
             condition_only_validation.get("forward_warning_count", 0)
             if isinstance(condition_only_validation, dict)
             else 0
         ),
-        "selected_start_status": str(gate.get("selected_start_status", "")),
+        "selected_start_status": selected_start_status,
+        "allow_start_warning": allow_start_warning,
         "diagnostic_baseline_status": str(gate.get("diagnostic_baseline_status", "")),
         "overall_status": str(gate.get("overall_status", "")),
         "selected_table_rows": _table_rows(selected_table),
@@ -369,6 +453,7 @@ def run_gradio_api_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "fan_market": str(args.fan_market),
         "fan_trace_count": _plot_trace_count(fan_plot),
         "redraw_market": str(args.redraw_market),
+        "redraw_scope": redraw_scope,
         "redraw_trace_count": _plot_trace_count(redraw_plot),
         "report_markdown_length": len(str(report_markdown)),
         "status_markdown_length": len(str(status_markdown)),

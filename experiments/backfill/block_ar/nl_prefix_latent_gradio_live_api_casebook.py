@@ -19,6 +19,12 @@ from experiments.backfill.block_ar.nl_prefix_latent_gradio_api_smoke import (  #
     DEFAULT_URL,
     run_gradio_api_smoke,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (  # noqa: E402
+    UnqualifiedNarrativeError,
+    assert_professional_story,
+    default_casebook_stories,
+    select_casebook_stories,
+)
 from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (  # noqa: E402
     cached_prefix_casebook_update,
 )
@@ -48,6 +54,14 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _load_json_if_exists(path: str | Path) -> dict[str, Any] | None:
+    input_path = Path(path)
+    if not input_path.exists():
+        return None
+    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
 def _write_markdown(path: str | Path, summary: dict[str, Any]) -> None:
     lines = [
         "# Live Gradio API Casebook Summary",
@@ -57,6 +71,9 @@ def _write_markdown(path: str | Path, summary: dict[str, Any]) -> None:
         f"- Pass count: `{summary['pass_count']}`",
         f"- Total OpenAI tokens: `{summary['total_openai_tokens']}`",
         f"- Min support candidates: `{summary['min_support_candidate_count']}`",
+        f"- Calibration applied: `{summary['calibration_applied_count']}/{summary['case_count']}`",
+        f"- Min calibration support gate: `{summary['min_calibration_support_gate']}`",
+        f"- Allow unqualified narratives: `{summary['allow_unqualified_narratives']}`",
         "",
         "## Cases",
         "",
@@ -64,24 +81,36 @@ def _write_markdown(path: str | Path, summary: dict[str, Any]) -> None:
     for case in summary["cases"]:
         lines.extend(
             [
-                f"### {case['case_name']}",
+                f"### {case.get('case_name', '')}",
                 "",
-                f"- Status: `{case['status']}`",
-                f"- Start index: `{case['expected_start_index']}`",
-                f"- Condition validation: `{case['condition_only_validation_status']}`",
-                f"- Selected start: `{case['selected_start_status']}`",
-                f"- Overall: `{case['overall_status']}`",
-                f"- Forward warnings: `{case['condition_only_forward_warning_count']}`",
-                f"- Support candidates: `{case['support_candidate_count']}`",
-                f"- Support mode: `{case['support_prior_mode']}`",
-                f"- Summary: `{case['summary_path']}`",
+                f"- Status: `{case.get('status', '')}`",
+                f"- Start index: `{case.get('expected_start_index', '')}`",
+                f"- Condition validation: `{case.get('condition_only_validation_status', '')}`",
+                f"- Selected start: `{case.get('selected_start_status', '')}`",
+                f"- Overall: `{case.get('overall_status', '')}`",
+                f"- Forward warnings: `{case.get('condition_only_forward_warning_count', '')}`",
+                f"- Support candidates: `{case.get('support_candidate_count', '')}`",
+                f"- Support mode: `{case.get('support_prior_mode', '')}`",
+                f"- Calibration applied: `{case.get('narrative_calibration_applied', '')}`",
+                f"- Calibration beta: `{case.get('narrative_calibration_effective_beta', '')}`",
+                f"- Calibration support gate: `{case.get('narrative_calibration_support_gate', '')}`",
+                f"- Summary: `{case.get('summary_path', '')}`",
                 "",
             ]
         )
+        if case.get("errors"):
+            lines.extend(["Errors:", ""])
+            for error in case.get("errors", []):
+                lines.append(f"- `{error}`")
+            lines.append("")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _case_from_choice(choice: str) -> dict[str, Any]:
+def _case_from_choice(
+    choice: str,
+    *,
+    allow_unqualified_narratives: bool = False,
+) -> dict[str, Any]:
     (
         story,
         use_explicit_start,
@@ -93,6 +122,11 @@ def _case_from_choice(choice: str) -> dict[str, Any]:
     ) = cached_prefix_casebook_update(choice)
     if not use_explicit_start:
         raise ValueError(f"casebook choice does not specify a start: {choice}")
+    assert_professional_story(
+        story,
+        context=f"casebook_choice:{choice}",
+        allow_unqualified=allow_unqualified_narratives,
+    )
     return {
         "choice": choice,
         "case_name": _slug(choice),
@@ -101,10 +135,53 @@ def _case_from_choice(choice: str) -> dict[str, Any]:
     }
 
 
+def _case_from_default_story(
+    story_case: dict[str, str],
+    start_index: int,
+    *,
+    allow_unqualified_narratives: bool = False,
+) -> dict[str, Any]:
+    name = str(story_case["name"])
+    story = str(story_case["story"])
+    assert_professional_story(
+        story,
+        context=f"default_story_case:{name}",
+        allow_unqualified=allow_unqualified_narratives,
+    )
+    return {
+        "choice": f"{name}:{int(start_index)}",
+        "case_name": f"{_slug(name)}_{int(start_index)}",
+        "story": story,
+        "expected_start_index": int(start_index),
+    }
+
+
+def _selected_cases(args: argparse.Namespace) -> list[dict[str, Any]]:
+    allow_unqualified = bool(getattr(args, "allow_unqualified_narratives", False))
+    if bool(getattr(args, "use_default_story_deck", False)):
+        story_names = getattr(args, "default_story_cases", None)
+        fixed_start = int(getattr(args, "fixed_start_index"))
+        return [
+            _case_from_default_story(
+                story_case,
+                fixed_start,
+                allow_unqualified_narratives=allow_unqualified,
+            )
+            for story_case in select_casebook_stories(case_names=story_names)
+        ]
+    return [
+        _case_from_choice(
+            choice,
+            allow_unqualified_narratives=allow_unqualified,
+        )
+        for choice in args.casebook_choices
+    ]
+
+
 def run_live_api_casebook(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    cases = [_case_from_choice(choice) for choice in args.casebook_choices]
+    cases = _selected_cases(args)
     case_summaries: list[dict[str, Any]] = []
     errors: list[str] = []
 
@@ -122,19 +199,28 @@ def run_live_api_casebook(args: argparse.Namespace) -> dict[str, Any]:
                     samples=int(args.samples),
                     fan_market=str(args.fan_market),
                     redraw_market=str(args.redraw_market),
+                    allow_start_warning=bool(
+                        getattr(args, "allow_start_warning", False)
+                    ),
+                    allow_condition_warning=bool(
+                        getattr(args, "allow_condition_warning", False)
+                    ),
                 )
             )
         except Exception as error:
             errors.append(f"{case['case_name']}: {type(error).__name__}: {error}")
             if not bool(args.continue_on_error):
                 break
-            result = {
-                "status": "fail",
-                "errors": [str(error)],
-                "artifact_paths": {
-                    "summary": str(case_output_dir / "gradio_api_smoke_summary.json")
-                },
+            summary_path = case_output_dir / "gradio_api_smoke_summary.json"
+            result = _load_json_if_exists(summary_path) or {
+                "artifact_paths": {"summary": str(summary_path)},
             }
+            result["status"] = "fail"
+            result.setdefault("errors", [str(error)])
+            result.setdefault(
+                "artifact_paths",
+                {"summary": str(summary_path)},
+            )
         result["case_name"] = case["case_name"]
         result["casebook_choice"] = case["choice"]
         result["expected_start_index"] = int(case["expected_start_index"])
@@ -152,18 +238,41 @@ def run_live_api_casebook(args: argparse.Namespace) -> dict[str, Any]:
     support_counts = [
         int(case.get("support_candidate_count", 0) or 0) for case in case_summaries
     ]
+    calibration_gates = [
+        float(case.get("narrative_calibration_support_gate", 0.0) or 0.0)
+        for case in case_summaries
+    ]
+    calibration_applied_count = sum(
+        1 for case in case_summaries if bool(case.get("narrative_calibration_applied"))
+    )
     pass_count = status_counts.get("ok", 0)
     if pass_count != len(cases):
         errors.append("not_all_cases_passed")
     for case in case_summaries:
-        if str(case.get("condition_only_validation_status", "")) != "pass":
+        condition_status = str(case.get("condition_only_validation_status", ""))
+        if condition_status != "pass" and not (
+            bool(getattr(args, "allow_condition_warning", False))
+            and condition_status == "warning"
+        ):
             errors.append(f"{case['case_name']}: condition validation not pass")
+        selected_status = str(case.get("selected_start_status", ""))
+        if selected_status != "pass" and not (
+            bool(getattr(args, "allow_start_warning", False))
+            and selected_status == "warning"
+        ):
+            errors.append(f"{case['case_name']}: selected start not pass")
         if int(case.get("condition_only_forward_warning_count", 0) or 0) < 1:
             errors.append(f"{case['case_name']}: forward warning missing")
         if int(case.get("support_candidate_count", 0) or 0) < 1:
             errors.append(f"{case['case_name']}: support candidates missing")
         if int(case.get("redraw_trace_count", 0) or 0) < 1:
             errors.append(f"{case['case_name']}: redraw traces missing")
+        if not bool(case.get("narrative_calibration_applied")):
+            errors.append(f"{case['case_name']}: narrative calibration not applied")
+        if float(case.get("narrative_calibration_support_gate", 0.0) or 0.0) <= 0.0:
+            errors.append(f"{case['case_name']}: calibration support gate not positive")
+        if int(case.get("narrative_calibration_active_direction_count", 0) or 0) < 1:
+            errors.append(f"{case['case_name']}: calibration active direction missing")
 
     summary = {
         "status": "ok" if not errors else "fail",
@@ -174,7 +283,34 @@ def run_live_api_casebook(args: argparse.Namespace) -> dict[str, Any]:
         "status_counts": dict(status_counts),
         "total_openai_tokens": total_openai_tokens,
         "min_support_candidate_count": min(support_counts) if support_counts else 0,
+        "calibration_applied_count": calibration_applied_count,
+        "min_calibration_support_gate": (
+            min(calibration_gates) if calibration_gates else 0.0
+        ),
+        "allow_start_warning": bool(getattr(args, "allow_start_warning", False)),
+        "allow_condition_warning": bool(
+            getattr(args, "allow_condition_warning", False)
+        ),
+        "selected_start_warning_count": sum(
+            1
+            for case in case_summaries
+            if str(case.get("selected_start_status", "")) == "warning"
+        ),
+        "condition_validation_warning_count": sum(
+            1
+            for case in case_summaries
+            if str(case.get("condition_only_validation_status", "")) == "warning"
+        ),
         "casebook_choices": [case["choice"] for case in cases],
+        "use_default_story_deck": bool(getattr(args, "use_default_story_deck", False)),
+        "allow_unqualified_narratives": bool(
+            getattr(args, "allow_unqualified_narratives", False)
+        ),
+        "fixed_start_index": (
+            int(args.fixed_start_index)
+            if bool(getattr(args, "use_default_story_deck", False))
+            else None
+        ),
         "samples": int(args.samples),
         "fan_market": str(args.fan_market),
         "redraw_market": str(args.redraw_market),
@@ -205,9 +341,37 @@ def main() -> None:
         default=None,
         help="Casebook choice to replay as a live condition-only story.",
     )
+    parser.add_argument(
+        "--use-default-story-deck",
+        action="store_true",
+        help=(
+            "Replay the default professional narrative deck with one fixed "
+            "historical start instead of cached casebook choices."
+        ),
+    )
+    parser.add_argument(
+        "--default-story-case",
+        dest="default_story_cases",
+        action="append",
+        default=None,
+        choices=[item["name"] for item in default_casebook_stories()],
+        help="Default story-deck case name to include; repeat to select a subset.",
+    )
+    parser.add_argument("--fixed-start-index", type=int, default=22)
+    parser.add_argument("--allow-start-warning", action="store_true")
+    parser.add_argument("--allow-condition-warning", action="store_true")
+    parser.add_argument(
+        "--allow-unqualified-narratives",
+        action="store_true",
+        help=(
+            "Explicit opt-out for legacy/smoke/ablation runs. By default, "
+            "casebook narratives must satisfy the two specialist-doc "
+            "risk-manager narrative standard."
+        ),
+    )
     parser.add_argument("--continue-on-error", action="store_true")
     args = parser.parse_args()
-    if args.casebook_choices is None:
+    if args.casebook_choices is None and not bool(args.use_default_story_deck):
         args.casebook_choices = list(DEFAULT_CASES)
     summary = run_live_api_casebook(args)
     print(

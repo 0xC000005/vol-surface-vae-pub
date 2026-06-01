@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (  # noqa: E402
+    PROFESSIONAL_STORY_SECTIONS,
     select_casebook_stories,
 )
 from experiments.backfill.block_ar.nl_scenario_descriptions import (  # noqa: E402
@@ -56,14 +57,10 @@ FORWARD_LANGUAGE_MARKERS = {
     "forward",
     "future",
     "going to",
-    "may",
-    "might",
     "next",
     "outlook",
     "projection",
     "risk is",
-    "scenario",
-    "should",
     "will",
     "would",
 }
@@ -86,6 +83,47 @@ LEAKAGE_STOPWORDS = {
     "this",
     "toward",
     "with",
+}
+LEAKAGE_SHARED_MARKET_CONTEXT_TOKENS = {
+    "asset",
+    "assets",
+    "commodity",
+    "commodities",
+    "credit",
+    "dollar",
+    "duration",
+    "equities",
+    "equity",
+    "conditions",
+    "concern",
+    "demand",
+    "gold",
+    "financial",
+    "inflation",
+    "market",
+    "markets",
+    "rates",
+    "rebound",
+    "risk-off",
+    "risk-on",
+    "safe-haven",
+    "spreads",
+    "volatility",
+}
+CONDITIONING_STORY_SECTIONS = {
+    "Mechanical summary:",
+    "Dominant mechanism:",
+    "Trigger and transmission:",
+    "Cross-asset reaction:",
+    "Evidence and ambiguity:",
+}
+AUDIT_ONLY_STORY_SECTIONS = {
+    "Scenario title:",
+    "Portfolio/risk implication:",
+    "No-forecast caveat:",
+}
+WARNING_ONLY_STORY_SECTIONS = {
+    "Warning-only forward risk:",
 }
 
 
@@ -190,8 +228,55 @@ def _has_forward_language(text: str) -> bool:
     return any(marker in lowered for marker in FORWARD_LANGUAGE_MARKERS)
 
 
+def _professional_story_sections(story: str) -> list[tuple[str, str]]:
+    """Return recognized professional story sections with their text blocks."""
+
+    canonical = {
+        section.lower(): section for section in PROFESSIONAL_STORY_SECTIONS
+    }
+    pattern = re.compile(
+        "|".join(re.escape(section) for section in PROFESSIONAL_STORY_SECTIONS),
+        flags=re.IGNORECASE,
+    )
+    matches = list(pattern.finditer(str(story)))
+    if len(matches) < 2:
+        return []
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(story)
+        label = canonical[match.group(0).lower()]
+        section_text = str(story)[match.start() : end].strip()
+        if section_text:
+            sections.append((label, section_text))
+    return sections
+
+
 def split_story_for_conditioning(story: str) -> dict[str, Any]:
     """Split a story into conditioning and warning-only sentence candidates."""
+
+    structured_sections = _professional_story_sections(story)
+    if structured_sections:
+        conditioning_sections: list[str] = []
+        non_conditioning_sections: list[str] = []
+        audit_only_sections: list[str] = []
+        for label, section_text in structured_sections:
+            if label in WARNING_ONLY_STORY_SECTIONS:
+                non_conditioning_sections.append(section_text)
+            elif label in AUDIT_ONLY_STORY_SECTIONS:
+                audit_only_sections.append(section_text)
+            elif label in CONDITIONING_STORY_SECTIONS:
+                conditioning_sections.append(section_text)
+            elif _has_forward_language(section_text):
+                non_conditioning_sections.append(section_text)
+            else:
+                conditioning_sections.append(section_text)
+        return {
+            "conditioning_sentences": conditioning_sections,
+            "non_conditioning_forward_sentences": non_conditioning_sections,
+            "audit_only_sentences": audit_only_sections,
+            "sentence_count": len(structured_sections),
+            "structured_section_count": len(structured_sections),
+        }
 
     raw_sentences = [
         item.strip()
@@ -214,7 +299,9 @@ def split_story_for_conditioning(story: str) -> dict[str, Any]:
     return {
         "conditioning_sentences": conditioning,
         "non_conditioning_forward_sentences": non_conditioning,
+        "audit_only_sentences": [],
         "sentence_count": len(raw_sentences),
+        "structured_section_count": 0,
     }
 
 
@@ -251,6 +338,11 @@ def build_condition_only_grounding_messages(story: str) -> list[dict[str, str]]:
     )
     if not non_conditioning_text:
         non_conditioning_text = "- none"
+    audit_only_text = "\n".join(
+        f"- {sentence}" for sentence in split.get("audit_only_sentences", [])
+    )
+    if not audit_only_text:
+        audit_only_text = "- none"
     system = (
         "You convert risk-manager narratives into auditable conditioning facts "
         "for a financial scenario generator. The narrative is not a requested "
@@ -272,8 +364,10 @@ def build_condition_only_grounding_messages(story: str) -> list[dict[str, str]]:
         "3. Do not create forward_scenario_implications. That field does not "
         "exist. The generator, not the user narrative, determines possible "
         "future realizations.\n"
-        "4. Phrases like 'the risk is', 'could', 'may', 'will', 'next month', "
+        "4. Phrases like 'the risk is', 'could', 'will', 'next month', "
         "'forward risk', or desired future outcomes are not conditioning facts. "
+        "Modal language such as 'may' or 'can' is not automatically a future "
+        "target when it expresses current uncertainty or cross-asset ambiguity. "
         "Put them in non_conditioning_forward_language and, if needed, "
         "grounding_warnings.\n"
         "5. Do not reuse forward-looking phrase content in "
@@ -294,9 +388,18 @@ def build_condition_only_grounding_messages(story: str) -> list[dict[str, str]]:
         "implication.\n"
         "8. Keep broad terms such as carry, liquidity, risk appetite, safe haven, "
         "or funding stress as frame language unless a named market implication "
-        "is stated or strongly implied by current/recent language.\n\n"
+        "is stated or strongly implied by current/recent language.\n"
+        "9. Audit-only professional sections such as scenario titles, portfolio "
+        "risk implications, and no-forecast caveats are not conditioning facts "
+        "and are not forward-risk phrases. Do not report them in "
+        "non_conditioning_forward_language unless they also contain a separate "
+        "future-looking risk statement.\n\n"
         "Conditioning candidate sentences. Extract implications only from this "
         f"section:\n{conditioning_text}\n\n"
+        "Audit-only professional sections. These explain the narrative format "
+        "or portfolio relevance, but should not be used as conditioning facts "
+        "or reported as forward warnings:\n"
+        f"{audit_only_text}\n\n"
         "Warning-only forward or forecast sentences. Report these in "
         "non_conditioning_forward_language, but do not use their content in "
         "conditioning summaries or implications:\n"
@@ -374,13 +477,19 @@ def _forward_phrase_leakage_errors(
         for field_name, field_text in conditioning_fields.items():
             field_tokens = _content_tokens(field_text)
             overlap = sorted(phrase_tokens & field_tokens)
+            material_overlap = [
+                token
+                for token in overlap
+                if token not in LEAKAGE_SHARED_MARKET_CONTEXT_TOKENS
+            ]
             threshold = 2
-            if len(overlap) >= threshold:
+            if len(overlap) >= threshold and len(material_overlap) >= threshold:
                 errors.append(
                     {
                         "warning_index": warning_index,
                         "field": field_name,
                         "overlap_tokens": overlap,
+                        "material_overlap_tokens": material_overlap,
                         "phrase": warning.phrase,
                         "expected": (
                             "warning-only forward phrase should not re-enter "
