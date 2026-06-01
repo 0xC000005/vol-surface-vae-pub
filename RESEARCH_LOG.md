@@ -124468,3 +124468,7171 @@ Future sophistication should improve support weights, regime prototypes, calibra
 The next principled branch should be compact and support-grounded: a learned text/start-conditioned support-weight or prototype prior that is benchmarked against `soft_topk_narrative_start_checked` on held-out distributional backtests, null/repeat controls, fixed-start conditionality, and support audits. Do not launch broad sweeps or generic embedding upgrades without a method-intake story and kill condition.
 
 ---
+## 2026-05-12: Narrative conditionality failure and component mixture rollout
+
+### Context
+The fixed-start narrative casebook exposed a product-level failure mode: several narratives selected different support pools, but the generated fan charts looked like the same distribution shape shifted or stretched. This undermines the risk-manager-facing claim that the narrative materially conditions the scenario distribution.
+
+### Investigation
+- Raw-level plotting was not the root cause. The SPX path-quantile reconstruction check is exact for the new raw-level reports.
+- The support prior was not identical across narratives: the fixed-start narratives often had zero support overlap versus the fragile-risk-on baseline.
+- The old rollout path collapsed the support pool into one weighted-average memory vector before decoding and rollout. A six-narrative diagnostic on the averaged-prefix path showed median standardized terminal sample correlation `0.9965` and median normalized quantile-shape distance `0.0334`, meaning the narratives mostly produced shared-shape fans with mean/width changes.
+
+### Fix TestFlight
+Implemented and tested a component-preserving rollout candidate:
+
+`support mixture -> decode one prefix per support component using the same selected start -> frozen SNI rollout per component -> pool samples by support weight`
+
+On the same six fixed-start narratives with cached condition reports, start `18`, `96` samples, and no OpenAI calls:
+
+- output root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_900a_s96`
+- generated shapes: `[2, 96, 30, 39]` for all six narratives
+- validation: five pass, one warning (`defensive_risk_off_start18`)
+- median standardized terminal sample correlation dropped from `0.9965` to `0.0445`
+- median normalized quantile-shape distance increased from `0.0334` to `0.0978`
+
+This indicates the old conditionality failure was mainly caused by averaging the support mixture before generation, not by the support selection itself.
+
+### Workflow Change
+The narrative prefix-latent workflow now treats `averaged_prefix` as a diagnostic baseline and `component_prefix_mixture` as the candidate product path. Future production or paper-facing claims must include a conditionality usefulness gate: fixed-start equality, support-overlap, standardized sample correlation, normalized quantile-shape distance, terminal KS, width ratios, start-only/null controls, and same-narrative repeat controls.
+
+### Decision
+Do not claim production readiness from CRPS/energy or support tables alone. The next principled step is a held-out scenario-level backtest comparing the old averaged-prefix path against the component-preserving rollout path under the same narratives, starts, and seeds.
+
+---
+## 2026-05-12: Component-preserving narrative rollout held-out backtest
+
+### Context
+
+The prior fixed-start casebook revealed a serious narrative-conditionality failure:
+averaging the selected support memories before rollout made different narratives look
+like nearly the same scenario distribution with small mean/scale changes. This
+entry records the candidate fix and held-out backtest.
+
+### Change
+
+Added a component-preserving rollout mode for the prefix-latent workflow:
+
+`support pool -> decode each support component under the fixed start -> frozen SNI rollout per component -> pool samples by support weight`
+
+The previous `averaged_prefix` path remains as a diagnostic baseline:
+
+`support pool -> weighted-average memory -> one decoded prefix -> one rollout distribution`
+
+### Fixed-Start Conditionality Evidence
+
+Artifacts:
+
+- component run root:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_900a_s96`
+- raw-level multi-factor conditionality figure:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_900a_s96/factor_conditionality_raw_level_component.png`
+- raw-level SPX conditionality figure:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_900a_s96/spx_conditionality_raw_level_component.png`
+
+Shape diagnostic across six fixed-start narratives and six raw market factors:
+
+- median standardized terminal sample correlation: `0.0445`
+- median normalized quantile-shape L2 distance: `0.0978`
+- median terminal KS: `0.1823`
+
+Interpretation: different narratives under the same accepted start are no longer
+sample-index clones. The selected support sets often have zero overlap and the
+pooled component rollout changes the stochastic family. This fixes the earlier
+visual failure where the scenario fans looked like one distribution shifted or
+stretched.
+
+### Held-Out Backtest
+
+Command:
+
+```bash
+python experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py \
+  --max-windows 29 \
+  --samples 32 \
+  --decoder-steps 250 \
+  --chunk-size 16 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_heldout_29w_s32 \
+  --device cuda \
+  --keep-going
+```
+
+Report:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_heldout_29w_s32/component_backtest_report.json`
+
+Held-out windows scored: `29`.
+
+Results versus persistence:
+
+- averaged-prefix CRPS improvement: `+12.56%`
+- averaged-prefix energy improvement: `+15.32%`
+- component-prefix-mixture CRPS improvement: `+12.64%`
+- component-prefix-mixture energy improvement: `+15.34%`
+- component minus averaged mean CRPS: `-0.000616`
+- component minus averaged mean energy: `-0.000208`
+- component 80% coverage: `0.2841`
+- averaged 80% coverage: `0.2768`
+
+### Decision
+
+This is a mechanism-positive candidate result. The component-preserving mixture
+fixes the product-facing conditionality failure without giving up held-out
+distributional quality in this 29-window backtest. It should replace
+`averaged_prefix` as the candidate production path for narrative-visible
+conditionality, while `averaged_prefix` remains a diagnostic baseline.
+
+Do not yet call this promoted. Promotion still requires an independent verifier
+report, refreshed current-truth entry, and a paper-facing casebook/backtest
+section that clearly distinguishes distributional quality from point forecasting.
+
+---
+## 2026-05-12: Independent verifier audit for component-preserving rollout
+
+### Context
+
+After the component-preserving rollout held-out backtest, ran an independent
+verifier-style audit before treating the result as a promotion candidate.
+
+Verifier report:
+
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-12_component_preserving_rollout_backtest.md`
+
+### Verification Result
+
+Verdict: `PARTIAL`.
+
+Confirmed:
+
+- component rollout decodes and rolls out separate support components rather
+  than averaging one memory before generation;
+- the held-out summary recomputes exactly from saved `window_scores`;
+- the held-out run scored `29` windows with zero failures;
+- component and averaged runs use matching sample shapes;
+- component sample allocation sums to the requested `32` samples for all held-out
+  windows;
+- fixed-start casebook uses the same raw SPX start across six narratives;
+- fixed-start shape metrics support the conditionality claim.
+
+Warnings:
+
+- this remains a cached held-out narrative evaluation, not a live OpenAI
+  production evaluation;
+- `32` samples and `250` decoder steps are candidate-gate settings, not final
+  paper confidence settings;
+- 80% coverage remains low (`0.2841` component, `0.2768` averaged);
+- point-path metrics remain weaker than persistence, so claims must stay
+  distributional;
+- fixed-start visual evidence is one-start/six-narrative evidence and should be
+  paired with broader null/repeat controls before final promotion.
+
+### Follow-Up Fix
+
+Added clearer report metadata to the story-smoke generation report:
+
+- `sample_delta_shape`;
+- `generated_state_shape`;
+- operational-only component count and sample count.
+
+### Decision
+
+Keep `component_prefix_mixture` as the candidate production path for
+narrative-visible conditionality. Do not call it fully promoted yet. The next
+principled autoresearch step is candidate hardening: rerun at a larger sample
+budget, add calibration/coverage diagnostics, and retain `averaged_prefix` as a
+diagnostic baseline.
+
+---
+## 2026-05-12: Larger-sample held-out hardening for component narrative rollout
+
+### Context
+
+Followed the verifier recommendation to harden the component-preserving rollout
+candidate with a larger held-out sample budget.
+
+### Command
+
+```bash
+python experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py \
+  --max-windows 29 \
+  --samples 96 \
+  --decoder-steps 250 \
+  --chunk-size 16 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_heldout_29w_s96 \
+  --device cuda \
+  --keep-going
+```
+
+### Results
+
+Report:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_heldout_29w_s96/component_backtest_report.json`
+
+Held-out windows scored: `29`; failures: `0`.
+
+Results versus persistence:
+
+- averaged-prefix CRPS improvement: `+12.83%`
+- component-prefix-mixture CRPS improvement: `+13.15%`
+- averaged-prefix energy improvement: `+15.60%`
+- component-prefix-mixture energy improvement: `+15.80%`
+- component minus averaged mean CRPS: `-0.00248`
+- component minus averaged mean energy: `-0.00242`
+- component 80% coverage: `0.2957`
+- averaged 80% coverage: `0.2896`
+
+All component runs allocated exactly `96` rollout samples across support
+components.
+
+### Interpretation
+
+The larger sample run strengthens the candidate claim. The component-preserving
+mixture remains visibly more narrative-conditional and is now also slightly
+better than averaged-prefix on held-out CRPS and energy at a larger sample
+budget. The warning remains that point-path metrics are worse than persistence,
+so the method should be framed as distributional scenario generation, not point
+forecasting.
+
+### Decision
+
+Use the `29w_s96` report as the current candidate artifact for
+component-preserving narrative rollout. Keep the verifier verdict as `PARTIAL`
+until calibration/coverage diagnostics and broader fixed-start null/repeat
+controls are attached.
+
+---
+## 2026-05-12: Calibration and fixed-start controls for component rollout
+
+### Context
+
+Completed the next promotion-gate step for the component-preserving narrative
+rollout: raw-level held-out calibration diagnostics plus fixed-start null/repeat
+controls.
+
+### Calibration Diagnostic
+
+Command:
+
+```bash
+python experiments/backfill/block_ar/nl_prefix_latent_backtest_calibration.py \
+  --backtest-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_heldout_29w_s96/component_backtest_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_calibration_29w_s96 \
+  --device cpu
+```
+
+Report:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_calibration_29w_s96/component_backtest_calibration_report.json`
+
+Findings:
+
+- component overall raw-level 80% coverage: `0.2957`;
+- averaged overall raw-level 80% coverage: `0.2896`;
+- component terminal raw-level 80% coverage: `0.2485`;
+- averaged terminal raw-level 80% coverage: `0.2502`;
+- component minus averaged overall coverage: `+0.0061`;
+- component minus averaged PIT uniform-error: `-0.0014`;
+- worst component channels include `factor:spx`, `iv:07`, `iv:20`,
+  `iv:19`, `iv:21`, and `factor:bbb_oas`.
+
+Interpretation: component mixture is slightly better calibrated than averaged
+prefix overall, but absolute coverage is still poor. The fan chart remains too
+narrow or miscentered for realized historical paths.
+
+### Fixed-Start Null/Repeat Controls
+
+Command:
+
+```bash
+python experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start_controls_901a_s96 \
+  --samples 96 \
+  --steps 250 \
+  --run-start-only \
+  --run-repeat \
+  --repeat-case-count 3 \
+  --repeat-seeds 941,942 \
+  --device cuda
+```
+
+Report:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start_controls_901a_s96/component_fixed_start_controls.json`
+
+Findings:
+
+- status: `pass`;
+- observed narrative median gap: `1.3540`;
+- within-run bootstrap median gap: `0.7346`, ratio to observed `0.543`;
+- same-narrative repeat median gap: `0.3512`, ratio to observed `0.259`;
+- start-only null median gap: `0.0000`, ratio to observed `0.000`;
+- warnings: none;
+- failures: none.
+
+Interpretation: the observed fixed-start narrative gap is not explained by start
+geometry, within-run sampling noise, or same-narrative repeat noise. This
+substantially strengthens the conditionality claim for the component-preserving
+mixture.
+
+### Decision
+
+The component-preserving mixture now passes the immediate conditionality control
+gate. The remaining blocker is calibration/coverage, especially SPX and selected
+IV channels. The next principled step is not another narrative-ranker tweak; it
+is a calibration mechanism for the generated fan, likely a simple global or
+factor-family temperature/scale calibration validated on held-out historical
+backtests.
+
+---
+## 2026-05-12: Global fan-width calibration for component rollout
+
+### Context
+
+The component-preserving support-mixture rollout fixed the visible
+narrative-conditionality failure, but the 29-window held-out backtest still had
+weak raw-level 80% coverage (`0.2957`). I tested whether this was primarily a
+fan-width calibration problem rather than a wrong-support-selection problem.
+
+### Method
+
+Added
+`experiments/backfill/block_ar/nl_prefix_latent_component_global_calibration.py`.
+The script fits one global `alpha` on a calibration split and evaluates on the
+remaining held-out rows. It scales generated delta samples around each
+ensemble mean:
+
+`calibrated = mean + alpha * (samples - mean)`
+
+This preserves the mean path and only changes fan width. The alpha grid was
+`1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0`.
+
+### Evidence
+
+Reports:
+
+- chronological:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_global_calibration_902a_29w_s96/component_global_calibration_report.json`
+- reverse:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_global_calibration_902b_reverse_29w_s96/component_global_calibration_report.json`
+- even/odd:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_global_calibration_902c_evenodd_29w_s96/component_global_calibration_report.json`
+
+All three splits selected `alpha=3.5`.
+
+Evaluation-row improvements versus the uncalibrated component mixture:
+
+- chronological: coverage `+0.4771`, CRPS `-0.0750`, energy `-0.1910`;
+- reverse: coverage `+0.4915`, CRPS `-0.0789`, energy `-0.1058`;
+- even/odd: coverage `+0.4936`, CRPS `-0.0787`, energy `-0.1471`.
+
+Full 29-window summary at `alpha=3.5`:
+
+- calibrated coverage: `0.7802` versus uncalibrated component `0.2957`;
+- calibrated CRPS improvement versus persistence: `+23.06%` versus
+  uncalibrated component `+13.15%`;
+- calibrated energy improvement versus persistence: `+28.25%` versus
+  uncalibrated component `+15.80%`;
+- mean path and terminal MAE are unchanged up to floating-point noise.
+
+Tests:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_component_global_calibration.py test_code/test_901a_nl_prefix_latent_component_gates.py`
+- `pytest test_code/test_901a_nl_prefix_latent_component_gates.py -q`
+
+### Interpretation
+
+The main calibration blocker now looks like under-dispersion, not wrong
+narrative support selection. A single global fan-width scale materially improves
+coverage, CRPS, and energy across multiple split choices while preserving the
+conditional mean path. This should be treated as a candidate post-hoc
+calibration layer, not as a new narrative-conditioning mechanism. The next
+promotion step is to wire the calibrated fan option into the story-smoke/demo
+path and re-run independent verification before calling it the default.
+
+---
+## 2026-05-12: Wire calibrated fan width into narrative demo path
+
+### Context
+
+After the global fan-width calibration diagnostic selected `alpha=3.5` across
+chronological, reverse, and even/odd splits, I wired the calibrated fan layer
+into the narrative prefix-latent story-smoke path and the Gradio demo path.
+
+### Implementation
+
+- Added `scale_delta_samples_around_mean` to
+  `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`.
+- Added a story-smoke CLI argument `--rollout-fan-scale`.
+- When `rollout_fan_scale != 1.0`, generated delta samples are scaled around
+  each variant ensemble mean and raw generated states are recomputed.
+- The runner records `generation.rollout_fan_scale` and
+  `generation.rollout_fan_calibration`.
+- The arrays artifact now saves `uncalibrated_samples` for audit.
+- The Gradio app now passes `rollout_fan_scale=3.5` through the main live
+  prefix-latent path without exposing another user-facing knob.
+
+### Verification
+
+Verifier report:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-12_global_fan_calibration_wiring.md`
+
+Cached smoke:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_calibrated_app_smoke_902d_s4/prefix_latent_story_smoke_report.json`
+
+Smoke result:
+
+- `rollout_fan_scale`: `3.5`;
+- `rollout_fan_calibration.applied`: `true`;
+- generated shape: `[2, 4, 30, 39]`;
+- calibrated and uncalibrated ensemble means match to max difference
+  `1.9073486328125e-06`.
+
+Commands:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_component_global_calibration.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+- `pytest test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_784a_nl_risk_manager_story_smoke.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q`
+
+Test result: `55 passed`.
+
+### Decision
+
+The calibrated fan layer is acceptable as a demo-candidate because it directly
+addresses the observed under-dispersion while preserving the narrative-driven
+ensemble mean. It is not a new text-to-latent mechanism and should not be
+claimed as full production calibration until checked on a larger/newer manifest
+or by factor family.
+
+---
+## 2026-05-12: Fixed-start narrative shape conditionality audit
+
+### Context
+
+The user clarified that, with a supplied fixed starting level, the real
+conditionality question is whether different narratives change the **shape** of
+the next-30-day conditional distribution, not merely the mean or fan width.
+
+### Method
+
+Added
+`experiments/backfill/block_ar/nl_prefix_latent_fixed_start_shape_audit.py`.
+The audit holds start `18` fixed across the existing six component-mixture
+narratives and compares generated terminal distributions across selected market
+factors. It reports:
+
+- mean gap in pooled-standard-deviation units;
+- width log-ratio;
+- raw terminal KS;
+- raw Wasserstein scaled by pooled standard deviation;
+- standardized KS after removing each narrative's own terminal location/scale;
+- quantile-shape L2 after removing each narrative's own terminal location/scale;
+- tail/down-probability gaps.
+
+Controls:
+
+- start-only null;
+- same-narrative repeat seeds;
+- within-run bootstrap splits.
+
+The audit used the current calibrated demo fan scale `alpha=3.5` so it matches
+the live demo path.
+
+### Result
+
+Report:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_shape_audit_903a_s96_calibrated/fixed_start_shape_audit.json`
+
+Plots:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_shape_audit_903a_s96_calibrated/fixed_start_narrative_shape_raw_fans.png`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_shape_audit_903a_s96_calibrated/fixed_start_narrative_shape_metric_summary.png`
+
+Key metrics:
+
+- status: `fail`;
+- fixed-start max absolute difference: `0.0`;
+- observed narrative median standardized shape KS: `0.0885`;
+- same-narrative repeat median standardized shape KS: `0.0990`;
+- within-run bootstrap median standardized shape KS: `0.1250`;
+- start-only median standardized shape KS: `0.0`;
+- observed narrative median quantile-shape L2: `0.1260`;
+- same-narrative repeat median quantile-shape L2: `0.1844`;
+- within-run bootstrap median quantile-shape L2: `0.2215`;
+- start-only median quantile-shape L2: `0.0`.
+
+Tests:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_shape_audit.py test_code/test_901a_nl_prefix_latent_component_gates.py`
+- `pytest test_code/test_901a_nl_prefix_latent_component_gates.py -q`
+
+### Interpretation
+
+This is a useful negative result. The start is exactly fixed and the start-only
+null is zero, so the narrative is not being erased completely. However, after
+removing each distribution's own location and scale, the observed narrative
+shape gaps are not larger than repeat/bootstrap sampling noise at the current
+96-sample budget. The current system can claim support-grounded distributional
+response, calibrated fan width, and some mean/width sensitivity, but it should
+not yet claim robust shape-only conditionality.
+
+### Decision
+
+Do not call the conditionality problem fully solved. The next principled branch
+should either harden this audit with a larger sample budget or develop a method
+that more directly changes support-component mixture shape, then re-run this
+fixed-start shape audit as a promotion gate.
+
+---
+## 2026-05-12: HEAD nl-prefix 154 fixed-start full path-distribution audit
+
+### Context
+The user clarified that the production concern is not "shape-only"
+conditionality at the terminal date. With a fixed user-supplied or historical
+starting level, different current/recent market narratives should change the
+whole 30-day sampled path distribution: means, widths, path risk, drawdowns,
+rallies, and realized sample paths. A terminal shape-only metric that subtracts
+each distribution's own location and scale is a useful diagnostic, but it is
+too narrow to be the product gate.
+
+### Hypothesis
+If the component-preserving support mixture is genuinely narrative-conditioned,
+then under the same fixed start, observed narrative contrasts should create
+larger full-path distribution gaps than same-narrative repeat controls and
+start-only null controls. The falsifier is that full-path energy, horizon-wise
+variance/Wasserstein, or path event gaps collapse to the same values as repeat
+or start-only controls.
+
+### Research Lane
+`promotion` gate hardening for narrative conditionality. This is not a new
+architecture knob and used no OpenAI calls.
+
+### Execution
+- Added full-path metrics to
+  `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_shape_audit.py`:
+  horizon-wise path mean gaps, path variance/log-ratio, raw KS, Wasserstein-z,
+  drawdown/rally event gaps, terminal event gaps, drawdown/rally Wasserstein,
+  and multivariate path energy distance across selected factors and horizons.
+- Split product status from the older terminal shape-only diagnostic:
+  `path_distribution_status` is now the product gate; terminal shape-only is
+  reported separately.
+- Extended
+  `experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py`
+  so fixed-start controls can generate observed, same-narrative repeat, and
+  start-only null controls with an explicit `--rollout-fan-scale`.
+- Added regression coverage in
+  `test_code/test_901a_nl_prefix_latent_component_gates.py`.
+
+### Result
+The `192`-sample uncalibrated fixed-start control report passed:
+
+- control report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start_controls_904f_s192_uncalibrated/component_fixed_start_controls.json`;
+- status: `pass`;
+- repeat-to-observed median ratio: `0.423`;
+- bootstrap-to-observed median ratio: `0.619`;
+- start-only-to-observed median ratio: `0.0`.
+
+The `192`-sample uncalibrated full-path audit returned warning, with no
+failures:
+
+- audit report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904f_s192_uncalibrated/fixed_start_shape_audit.json`;
+- path-distribution status: `warning`;
+- terminal shape-only status: `fail`;
+- repeat-to-observed path energy ratio: `0.238`;
+- repeat-to-observed path variance ratio: `0.338`;
+- repeat-to-observed path Wasserstein ratio: `0.621`;
+- bootstrap-to-observed path energy ratio: `0.583`;
+- bootstrap-to-observed path variance ratio: `0.643`;
+- bootstrap-to-observed path Wasserstein ratio: `0.978`;
+- start-only path energy, variance, and Wasserstein ratios: `0.0`.
+
+The calibrated-from-uncalibrated audit also returned warning, with no failures:
+
+- audit report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904g_s192_calibrated_from_uncalibrated/fixed_start_shape_audit.json`;
+- repeat-to-observed path energy ratio: `0.405`;
+- repeat-to-observed path variance ratio: `0.338`;
+- repeat-to-observed path Wasserstein ratio: `0.600`;
+- bootstrap-to-observed path energy ratio: `2.856`;
+- bootstrap-to-observed path variance ratio: `0.643`;
+- bootstrap-to-observed path Wasserstein ratio: `1.331`;
+- start-only path energy, variance, and Wasserstein ratios: `0.0`.
+
+### Mechanism Read
+The earlier visual concern was real: terminal shape-only metrics are not strong
+enough to claim robust scale-free distribution-shape conditionality. But they
+were also too strict for the product question. The fixed-start full-path gate
+shows that narrative contrasts do change the path distribution beyond
+same-narrative repeat and start-only controls, especially in path energy,
+horizon-wise variance, path Wasserstein, and drawdown/rally event metrics.
+Bootstrap noise remains close enough to require a warning, so this is a
+candidate product gate rather than a fully promoted production claim.
+
+### Decision / Next Step
+Update the current-truth file to make the full 30-day path distribution the
+product-facing conditionality gate, with terminal shape-only kept as a negative
+diagnostic. The next principled step is independent verification or larger
+manifest hardening before calling this production-ready; do not add another
+text-to-latent architecture knob until this conditionality gate is stable.
+
+---
+## 2026-05-12: HEAD nl-prefix 155 fixed-start path-distribution verifier
+
+### Context
+After the full path-distribution audit, the workflow required an independent
+verification pass before treating the new metric as a promotion candidate. The
+claim under review was narrow: under an exactly fixed start, observed narrative
+contrasts should produce larger 30-day path-distribution differences than
+same-narrative repeat and start-only controls.
+
+### Research Lane
+`promotion` verification. No OpenAI calls and no new architecture knobs.
+
+### Verification
+Verifier artifact:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-12_fixed_start_full_path_distribution_audit.md`.
+
+The verifier checked the audit/control code, the saved `904f` and `904g`
+reports, path-metric plot existence, the current-truth update, and focused test
+commands.
+
+### Verdict
+`PARTIAL`.
+
+### Findings
+- Supported: the implementation really separates `path_distribution_status`
+  from terminal shape-only status.
+- Supported: the `192`-sample uncalibrated audit is warning with no
+  path-distribution failures, repeat-to-observed path energy `0.238`,
+  repeat-to-observed path variance `0.338`, repeat-to-observed path
+  Wasserstein `0.621`, and start-only full-path ratios `0.0`.
+- Supported: the calibrated audit is also warning with no path-distribution
+  failures, but bootstrap path energy and Wasserstein exceed the observed
+  ratios.
+- Limitation: the evidence is still a selected fixed-start audit, not a broad
+  manifest result.
+- Limitation: terminal shape-only conditionality remains failed and should stay
+  a diagnostic limitation.
+- Note: the global fan-width layer should be described as calibration, not as a
+  narrative-conditioning mechanism.
+
+### Decision / Next Step
+Keep the component-preserving support mixture as the candidate production path
+and keep full-path conditionality as the product-facing gate. Do not call the
+conditionality issue solved yet. The next principled step is larger-manifest or
+repeated-seed hardening of this fixed-start full-path gate before adding
+another text-to-latent architecture change.
+
+---
+## 2026-05-12: HEAD nl-prefix 156 broader repeat-control path hardening
+
+### Context
+The verifier found that the full-path conditionality gate was directionally
+positive but still selected-case and bootstrap-warning limited. The next
+bounded hardening step was to expand same-narrative repeat controls across all
+six fixed-start narrative cases with three repeat seeds, while keeping the
+starting level fixed and using cached condition reports.
+
+### Hypothesis
+If the narrative-conditioned component mixture is more than stochastic rollout
+noise, broader same-narrative repeat controls should stay below observed
+cross-narrative path differences. The falsifier is that repeat path energy,
+path variance, or path Wasserstein rises to observed-narrative scale.
+
+### Research Lane
+`promotion` hardening. No OpenAI calls and no new model/architecture knob.
+
+### Execution
+- Ran expanded controls:
+  `experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py`
+  with `--repeat-case-count 6`, repeat seeds `953,954,955`, `192` samples,
+  `250` steps, CUDA, and `--rollout-fan-scale 1.0`.
+- Reran the full-path audit uncalibrated and calibrated against the broader
+  repeat-control root.
+
+### Results
+Expanded control report:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start_controls_904i_s192_repeat6x3_uncalibrated/component_fixed_start_controls.json`.
+
+- status: `pass`;
+- repeat-to-observed median ratio: `0.219`;
+- repeat pair count: `18`;
+- bootstrap-to-observed median ratio: `0.619`;
+- start-only-to-observed median ratio: `0.0`.
+
+Uncalibrated full-path audit:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904i_s192_repeat6x3_uncalibrated/fixed_start_shape_audit.json`.
+
+- status: `warning`, no failures;
+- repeat-to-observed path energy ratio: `0.148`;
+- repeat-to-observed path variance ratio: `0.624`;
+- repeat-to-observed path Wasserstein ratio: `0.605`;
+- bootstrap-to-observed path energy ratio: `0.583`;
+- bootstrap-to-observed path variance ratio: `0.643`;
+- bootstrap-to-observed path Wasserstein ratio: `0.978`;
+- start-only full-path ratios: `0.0`.
+
+Calibrated full-path audit:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904j_s192_repeat6x3_calibrated/fixed_start_shape_audit.json`.
+
+- status: `warning`, no failures;
+- repeat-to-observed path energy ratio: `0.398`;
+- repeat-to-observed path variance ratio: `0.624`;
+- repeat-to-observed path Wasserstein ratio: `0.632`;
+- bootstrap-to-observed path energy ratio: `2.856`;
+- bootstrap-to-observed path variance ratio: `0.643`;
+- bootstrap-to-observed path Wasserstein ratio: `1.331`;
+- start-only full-path ratios: `0.0`.
+
+### Mechanism Read
+The broader repeat control reduces concern that the observed narrative effect is
+just same-narrative seed noise: repeat path energy is far below observed, and
+repeat path Wasserstein remains below the warning threshold. But path variance
+and Wasserstein are no longer as cleanly separated as in the thinner repeat
+control, and bootstrap remains the dominant warning. The conditionality issue
+is therefore improved but not solved.
+
+### Decision / Next Step
+Do not add a new text-to-latent method yet. The next principled step is to
+stabilize the bootstrap/readout side of the audit, either by using more samples
+per narrative, repeated observed seeds, or a broader fixed-start manifest. The
+paper/demo should phrase the current evidence as support-grounded full-path
+response with warning-level stochastic uncertainty, not as fully solved
+shape-conditional generation.
+
+---
+## 2026-05-12: HEAD nl-prefix 157 384-sample fixed-start path hardening
+
+### Context
+The broader repeat-control run showed that same-narrative repeat noise was not
+the main blocker, but bootstrap path noise still warned at `192` samples. The
+next bounded TestFlight increased the sample budget to `384` per narrative
+while keeping the same fixed-start six-narrative setup, cached condition
+reports, and component-preserving support mixture.
+
+### Hypothesis
+If the bootstrap warning is partly a finite-sample readout issue, increasing
+the sample budget should reduce bootstrap-to-observed full-path ratios without
+requiring a new text-to-latent method. The falsifier is that the full-path audit
+still warns or fails uncalibrated at `384` samples.
+
+### Research Lane
+`promotion` hardening. No OpenAI calls and no new architecture knob.
+
+### Execution
+- Ran `384`-sample controls with observed, start-only, and same-narrative
+  repeat cases:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start_controls_904k_s384_uncalibrated/component_fixed_start_controls.json`.
+- Reran uncalibrated path audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904k_s384_uncalibrated/fixed_start_shape_audit.json`.
+- Reran calibrated path audit with `--fan-scale 3.5`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904l_s384_calibrated/fixed_start_shape_audit.json`.
+
+### Results
+The terminal mean-gap control report was still warning:
+
+- status: `warning`;
+- bootstrap-to-observed median ratio: `0.751`;
+- repeat-to-observed median ratio: `0.419`;
+- start-only-to-observed median ratio: `0.0`.
+
+The uncalibrated full-path audit passed:
+
+- status: `pass`;
+- repeat-to-observed path energy ratio: `0.223`;
+- repeat-to-observed path variance ratio: `0.304`;
+- repeat-to-observed path Wasserstein ratio: `0.533`;
+- bootstrap-to-observed path energy ratio: `0.595`;
+- bootstrap-to-observed path variance ratio: `0.587`;
+- bootstrap-to-observed path Wasserstein ratio: `0.729`;
+- start-only full-path ratios: `0.0`.
+
+The calibrated full-path audit still warned:
+
+- status: `warning`, no failures;
+- repeat-to-observed path energy ratio: `0.251`;
+- repeat-to-observed path variance ratio: `0.304`;
+- repeat-to-observed path Wasserstein ratio: `0.536`;
+- bootstrap-to-observed path energy ratio: `2.241`;
+- bootstrap-to-observed path variance ratio: `0.587`;
+- bootstrap-to-observed path Wasserstein ratio: `1.181`;
+- start-only full-path ratios: `0.0`.
+
+### Mechanism Read
+The uncalibrated conditioning mechanism is now cleaner than the earlier
+`192`-sample evidence: under the same fixed start, narrative differences beat
+repeat, bootstrap, and start-only controls on the full-path gate. The remaining
+problem is not that the support mixture ignores the narrative; it is that the
+global fan-width calibration/readout can amplify bootstrap path energy and path
+Wasserstein enough to keep calibrated conditionality at warning level. Terminal
+shape-only remains a negative diagnostic and should not be overclaimed.
+
+### Decision / Next Step
+Keep the component-preserving support mixture as the candidate production path.
+For paper/demo language, distinguish three claims:
+
+1. uncalibrated fixed-start full-path conditionality: currently passes on the
+   six-narrative `384`-sample gate;
+2. calibrated scenario display: still warning because calibration-aware
+   bootstrap controls are not stable enough;
+3. terminal shape-only conditionality: still not supported.
+
+The next principled step is not another text-to-latent architecture change. It
+is either a calibration-aware conditionality diagnostic or a broader fixed-start
+manifest to see whether the `384`-sample pass holds outside the six handpicked
+narratives.
+
+---
+## 2026-05-12: HEAD nl-prefix 158 calibration-aware conditionality readout
+
+### Context
+The `384`-sample uncalibrated fixed-start full-path audit passed, but the
+calibrated audit still warned. This needed a calibration-aware readout before
+changing the model, because the global fan-width layer widens sample deviations
+around each ensemble mean and can mechanically reduce standardized
+signal-to-width metrics.
+
+### Hypothesis
+If the calibrated warning is primarily a display/readout calibration effect,
+then observed narrative signal retention should fall after calibration while
+bootstrap retention remains near one. The falsifier is that calibrated observed
+signal retention stays high and the warning cannot be explained by
+signal-to-width dilution.
+
+### Research Lane
+`post_experiment_analysis`. No OpenAI calls and no model/architecture change.
+
+### Execution
+Added:
+`experiments/backfill/block_ar/nl_prefix_latent_calibration_conditionality_analysis.py`.
+
+Test:
+`test_code/test_904m_nl_prefix_latent_calibration_conditionality.py`.
+
+Generated report:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_calibration_conditionality_904m_s384/calibration_conditionality_report.json`.
+
+Validation:
+`uv run pytest test_code/test_904m_nl_prefix_latent_calibration_conditionality.py -q`
+passed `2` tests.
+
+### Results
+The calibration-aware report returned:
+
+- status: `warning`;
+- decision: `base_conditioning_passes_calibrated_display_warns`;
+- base path-distribution status: `pass`;
+- calibrated path-distribution status: `warning`.
+
+Observed narrative signal retention after calibration:
+
+- path energy: `0.266`;
+- path Wasserstein: `0.617`;
+- path variance: `1.000`;
+- drawdown probability: `0.882`.
+
+Bootstrap signal retention after calibration:
+
+- path energy: `1.000`;
+- path Wasserstein: `1.000`;
+- path variance: `1.000`;
+- drawdown probability: `1.028`.
+
+### Mechanism Read
+The calibrated warning is consistent with signal-to-width dilution from global
+fan scaling. Calibration preserves each ensemble mean and expands deviations.
+That makes standardized observed narrative differences smaller relative to the
+calibrated fan width, while bootstrap differences are nearly invariant. This
+does not mean the narrative-conditioned support mixture ignores the story; the
+uncalibrated fixed-start full-path gate passed. It means the demo/paper should
+separate conditioning-mechanism evidence from calibrated display uncertainty.
+
+### Decision / Next Step
+Keep the component-preserving support mixture as the candidate mechanism. Treat
+calibration-aware conditionality as a product/display gate. The next principled
+step is either:
+
+1. a broader fixed-start manifest to test whether the uncalibrated pass holds
+   beyond six handpicked narratives; or
+2. a calibration method that preserves coverage without excessively diluting
+   standardized narrative separation.
+
+Do not add a new text-to-latent bridge knob until this readout/calibration
+question is settled.
+
+---
+## 2026-05-12: HEAD nl-prefix 159 calibration alpha trade-off
+
+### Context
+The calibration-aware report showed that global fan scaling dilutes
+standardized narrative separation. The next bounded diagnostic checked whether
+this was specific to `alpha=3.5` or a broader coverage-vs-conditionality
+trade-off.
+
+### Hypothesis
+If the warning is caused by excessive widening at `alpha=3.5`, then lower
+calibration alphas should improve calibrated conditionality and may pass the
+fixed-start full-path gate while retaining some coverage benefit. The
+falsifier is that lower useful coverage alphas still warn.
+
+### Research Lane
+`post_experiment_analysis`. This is a narrow one-axis diagnostic over an
+existing calibration layer, not a model or text-bridge sweep.
+
+### Execution
+Reran the `384`-sample fixed-start path audit at:
+
+- alpha `2.5`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904n_s384_alpha2p5/fixed_start_shape_audit.json`;
+- alpha `3.0`:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904o_s384_alpha3p0/fixed_start_shape_audit.json`.
+
+Generated calibration-aware reports:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_calibration_conditionality_904n_s384_alpha2p5/calibration_conditionality_report.json`;
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_calibration_conditionality_904o_s384_alpha3p0/calibration_conditionality_report.json`.
+
+### Results
+Fixed-start path-gate status and coverage from the saved global calibration
+report:
+
+- alpha `1.0`: path gate `pass`, coverage `0.286`;
+- alpha `2.5`: path gate `warning`, coverage `0.625`;
+- alpha `3.0`: path gate `warning`, coverage `0.709`;
+- alpha `3.5`: path gate `warning`, coverage `0.777`.
+
+Path-gate ratios:
+
+- alpha `1.0`: repeat path energy `0.223`, bootstrap path energy `0.595`,
+  repeat path Wasserstein `0.533`, bootstrap path Wasserstein `0.729`;
+- alpha `2.5`: repeat path energy `0.254`, bootstrap path energy `1.894`,
+  repeat path Wasserstein `0.545`, bootstrap path Wasserstein `1.113`;
+- alpha `3.0`: repeat path energy `0.262`, bootstrap path energy `2.180`,
+  repeat path Wasserstein `0.547`, bootstrap path Wasserstein `1.176`;
+- alpha `3.5`: repeat path energy `0.251`, bootstrap path energy `2.241`,
+  repeat path Wasserstein `0.536`, bootstrap path Wasserstein `1.181`.
+
+### Mechanism Read
+The issue is not only `alpha=3.5`. In this global mean-preserving fan scale,
+the alpha values that materially improve coverage also dilute standardized
+narrative separation enough for calibrated conditionality warnings. The base
+conditioning mechanism passes uncalibrated, but one global display scale cannot
+simultaneously solve undercoverage and preserve the same signal-to-width
+conditionality readout.
+
+### Decision / Next Step
+Do not tune alpha further as a research strategy. The next principled options
+are:
+
+1. a broader fixed-start manifest to prove the base uncalibrated conditionality
+   result generalizes; or
+2. a calibration method that is conditionality-aware or factor-family-aware,
+   with explicit coverage and conditionality gates.
+
+Until then, the demo/paper should state that global calibrated fans are for
+coverage and uncertainty display, while the cleanest current conditionality
+evidence is the uncalibrated fixed-start full-path gate.
+
+---
+## 2026-05-12: HEAD nl-prefix 160 broad fixed-start manifest conditionality audit
+
+### Context
+Continued the nl-prefix HEAD loop after the alpha calibration readout. The current bottleneck was whether the fixed-start narrative path-distribution signal generalizes beyond the narrow start-18 casebook, without adding another model knob or spending new OpenAI/API budget.
+
+### Hypothesis
+If component-preserving support-mixture rollout is genuinely narrative-conditioned, then in the cached 6 narrative x 6 fixed-start suite, cross-narrative path-distribution differences within each fixed start should be larger than same-narrative seed repeats and within-run bootstrap noise. This tests broad fixed-start conditionality using existing artifacts.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: mechanism_found
+- benchmark_floor_status: not_applicable
+- iteration_type: post_experiment_analysis
+
+### Execution
+Added a generalized manifest-level audit:
+
+- script: `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py`
+- tests: `test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+- report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_manifest_audit_904p_s192_uncalibrated/fixed_start_manifest_audit.json`
+
+The audit loads the existing cached broad suite:
+
+- observed root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865a_full_narrative_s192`
+- repeat root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865b_full_s192_repeat`
+
+It forms cross-narrative pairs only within the same fixed start, then compares against same-narrative repeat seeds and within-run bootstrap controls.
+
+### Result
+The broad manifest audit covers:
+
+- `36` observed cases: `6` narratives by `6` fixed starts;
+- `72` repeat cases;
+- `90` same-start cross-narrative pairs;
+- `36` same-narrative repeat pairs;
+- `36` within-run bootstrap pairs.
+
+Status is `warning`, with no failures. The only warning is `start_only_null_absent_in_cached_865_manifest`, because the older cached broad suite did not include no-narrative start-only null rollouts.
+
+Full-path ratios against observed cross-narrative differences:
+
+- repeat-to-observed path energy: `0.381`;
+- repeat-to-observed path variance: `0.533`;
+- repeat-to-observed path Wasserstein: `0.641`;
+- bootstrap-to-observed path energy: `0.294`;
+- bootstrap-to-observed path variance: `0.417`;
+- bootstrap-to-observed path Wasserstein: `0.671`.
+
+The maximum per-start absolute start difference is `0.0`, so the grouping really does hold the starting level fixed within each start bucket.
+
+Validation run:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+- `uv run pytest test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `2 passed`
+- `uv run pytest test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `13 passed`
+
+### Mechanism Read
+This strengthens the fixed-start conditionality story. The component-preserving support mixture is not merely producing one handpicked start-18 visual effect: across all six cached starts, same-start cross-narrative path differences are larger than repeat and bootstrap controls on path energy, horizon-wise variance, and path Wasserstein.
+
+The result does not yet promote broad production conditionality because the broad cached suite lacks start-only/no-narrative null controls. The earlier narrow start-18 gates had start-only controls; this broad manifest does not. Therefore the correct claim is diagnostic broadening, not final promotion.
+
+### Decision / Next Step
+Do not add a new text-to-latent architecture yet. The most principled next step is to generate or recover broad start-only/no-narrative null controls for the same 6 x 6 fixed-start manifest, rerun the manifest audit, and then trigger independent verification before promoting broad fixed-start conditionality.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 161 broad start-only null manifest audit
+
+### Context
+Continued the fixed-start conditionality HEAD cycle after the broad manifest audit found a missing no-narrative/start-only null. Before generating new runs, I searched existing artifacts and found the older cached broad start-only suite.
+
+### Hypothesis
+If the broad fixed-start narrative signal is not only a start-level artifact, then adding existing `soft_topk_start_only` runs for the same 6 x 6 manifest should keep start-only path differences well below observed same-start cross-narrative differences.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: mechanism_found
+- benchmark_floor_status: not_applicable
+- iteration_type: experiment
+
+### Execution
+Extended the generalized manifest audit to load optional start-only/null cases:
+
+- script: `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py`
+- tests: `test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+- report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_manifest_audit_904q_s192_with_start_only/fixed_start_manifest_audit.json`
+- verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-12_broad_fixed_start_manifest_audit.md`
+
+Source artifacts:
+
+- observed narrative root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865a_full_narrative_s192`
+- same-narrative repeat root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_865b_full_s192_repeat`
+- recovered start-only root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_control_suite_862d_full_start_only_s96`
+
+### Result
+The audit now covers:
+
+- `36` observed cases;
+- `72` repeat cases;
+- `36` start-only cases;
+- `90` same-start cross-narrative pairs;
+- `36` same-narrative repeat pairs;
+- `36` within-run bootstrap pairs;
+- `90` start-only pairs.
+
+Status is `pass`, with no warnings or failures.
+
+Full-path ratios against observed cross-narrative differences:
+
+- repeat-to-observed path energy: `0.381`;
+- repeat-to-observed path variance: `0.533`;
+- repeat-to-observed path Wasserstein: `0.641`;
+- bootstrap-to-observed path energy: `0.294`;
+- bootstrap-to-observed path variance: `0.417`;
+- bootstrap-to-observed path Wasserstein: `0.671`;
+- start-only-to-observed path energy: `0.0`;
+- start-only-to-observed path variance: `0.0`;
+- start-only-to-observed path Wasserstein: `0.0`.
+
+Validation run:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+- `uv run pytest test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `3 passed`
+- `uv run pytest test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `14 passed`
+
+### Independent Verifier
+Verifier verdict: `PARTIAL`.
+
+The verifier agreed that the cached broad soft-topk fixed-start suite shows path-distribution narrative sensitivity across six starts. It also flagged an important limitation: the observed broad suite uses `decoder_soft_topk_narrative_start_checked_gen_temp_0p50`, not the latest component-preserving rollout candidate. Therefore this is diagnostic broadening evidence, not a broad production promotion for the current component-preserving path.
+
+### Mechanism Read
+The recovered start-only null closes the immediate missing-control gap for the older cached broad manifest. Fixed-start narrative conditionality is not explained by the starting level alone, and not explained by seed/bootstrap noise in that suite. However, the evidence lives on the older soft-topk path; it should not be overclaimed as a component-preserving promotion.
+
+### Decision / Next Step
+Updated current truth to state the narrower supported claim. The next principled step is to run or assemble a matching broad manifest for the current component-preserving rollout path: observed, repeat, bootstrap, and start-only controls on the same starts and sample budget. Only then should broad fixed-start component-preserving conditionality be promoted.
+
+---
+## 2026-05-12: HEAD nl-prefix 162 component broad-manifest TestFlight
+
+### Context
+After the broad fixed-start manifest audit passed with recovered start-only nulls, independent verification flagged a scope issue: the broad manifest used the older soft-topk rollout path, not the current component-preserving support-mixture path.
+
+### Hypothesis
+Before scaling a broad component-preserving manifest, the bakeoff runner should make rollout semantics explicit and a small TestFlight should prove that both narrative and start-only component variants run successfully without OpenAI calls.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: mechanism_found
+- benchmark_floor_status: not_applicable
+- iteration_type: experiment
+
+### Execution
+Updated the fixed-start bakeoff runner so variants carry explicit rollout semantics:
+
+- legacy soft-topk variants: `rollout_mixture_mode=averaged_prefix`;
+- new component variants: `rollout_mixture_mode=component_prefix_mixture`.
+
+Changed files:
+
+- `experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py`
+- `test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`
+
+Added component variant sets:
+
+- `component_direction_check` -> `decoder_component_topk_narrative_start_checked_gen_temp_0p50`;
+- `component_start_only_control` -> `decoder_component_topk_start_only_gen_temp_0p50`.
+
+Ran two small CUDA TestFlights on the promoted fixed-start matrix case spec:
+
+- narrative component TestFlight: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_broad_manifest_testflight_904r_s8/start_conditioned_bakeoff.json`
+- start-only component TestFlight: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_broad_manifest_start_only_testflight_904r_s8/start_conditioned_bakeoff.json`
+
+### Result
+- CUDA was available: `NVIDIA GeForce RTX 3070 Ti`.
+- Component narrative TestFlight: `2/2` runs, status `pass`.
+- Component start-only TestFlight: `2/2` runs, status `pass`.
+- Both report rows carry `rollout_mixture_mode=component_prefix_mixture`.
+
+Validation run:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q` -> `12 passed`
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `26 passed`
+
+### Mechanism Read
+This closes a workflow ambiguity before scaling. The code now distinguishes the old averaged-prefix soft-topk path from the current component-preserving path in the variant contract itself, so future broad-manifest evidence will not silently mix rollout semantics.
+
+The TestFlight does not yet prove broad component-preserving conditionality. It only proves the generator path is wired and viable for scaling.
+
+### Decision / Next Step
+Next, run a larger component-preserving broad manifest on the same 6 x 6 fixed-start matrix with matching observed, repeat, bootstrap, and start-only controls. Use a bounded sample budget first, then decide whether to scale to the full promotion budget.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 163 component fixed-start-0 conditionality failure
+
+### Context
+Continued from the component broad-manifest TestFlight. The verifier had warned that broad soft-topk fixed-start evidence should not be treated as component-preserving production evidence. The next bounded step was to test one additional fixed start on the current component-preserving path before scaling the whole 6 x 6 grid.
+
+### Hypothesis
+If the current component-preserving path generalizes beyond the handpicked start-18 case, then a fixed-start-0 group with six narratives should show observed cross-narrative path differences larger than same-narrative repeat, bootstrap, and start-only controls. If a small sample budget fails, increasing the sample budget should reduce repeat/bootstrap noise enough to clarify whether the failure is just Monte Carlo noise.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: candidate_rejected_for_this_start
+- benchmark_floor_status: not_applicable
+- iteration_type: experiment
+
+### Execution
+Ran current component-preserving start-0 controls using the explicit rollout variant contract:
+
+- observed, `s16`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_observed_904s_s16/start_conditioned_bakeoff.json`
+- start-only, `s16`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_start_only_904s_s16/start_conditioned_bakeoff.json`
+- repeat seed 972, `s16`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_repeat_seed972_904s_s16/start_conditioned_bakeoff.json`
+- repeat seed 973, `s16`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_repeat_seed973_904s_s16/start_conditioned_bakeoff.json`
+- audit, `s16`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_manifest_audit_904s_s16/fixed_start_manifest_audit.json`
+
+Then reran the same start-0 gate at `64` samples:
+
+- observed, `s64`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_observed_904t_s64/start_conditioned_bakeoff.json`
+- start-only, `s64`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_start_only_904t_s64/start_conditioned_bakeoff.json`
+- repeat seed 975, `s64`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_repeat_seed975_904t_s64/start_conditioned_bakeoff.json`
+- repeat seed 976, `s64`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_repeat_seed976_904t_s64/start_conditioned_bakeoff.json`
+- audit, `s64`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_manifest_audit_904t_s64/fixed_start_manifest_audit.json`
+
+### Result
+Both audits failed.
+
+At `16` samples:
+
+- repeat-to-observed path energy: `1.181`;
+- repeat-to-observed path variance: `1.259`;
+- repeat-to-observed path Wasserstein: `1.196`;
+- bootstrap-to-observed path energy: `3.885`;
+- bootstrap-to-observed path variance: `1.231`;
+- bootstrap-to-observed path Wasserstein: `1.882`;
+- start-only-to-observed path energy, variance, and Wasserstein: `0.0`.
+
+At `64` samples:
+
+- repeat-to-observed path energy: `0.860`;
+- repeat-to-observed path variance: `0.755`;
+- repeat-to-observed path Wasserstein: `0.980`;
+- bootstrap-to-observed path energy: `3.726`;
+- bootstrap-to-observed path variance: `1.007`;
+- bootstrap-to-observed path Wasserstein: `1.748`;
+- start-only-to-observed path energy, variance, and Wasserstein: `0.0`.
+
+Validation run:
+
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `28 passed`
+
+### Mechanism Read
+This is a real caution against scaling blindly. The start-only null is clean, so the issue is not that the starting level itself creates spurious narrative differences. The problem is that for fixed start `0`, observed cross-narrative component path differences are too small relative to same-narrative repeat and bootstrap noise. Increasing from `16` to `64` samples improves repeat ratios but does not make the gate pass; bootstrap remains much larger than observed.
+
+This means the latest component-preserving path is not yet broadly production-ready under fixed-start conditionality. The previous start-18 success remains valid, and the older soft-topk broad manifest remains useful historical evidence, but current-path broad generalization has a start-specific failure.
+
+### Decision / Next Step
+Do not run the full component broad grid yet. The next principled step is post-experiment analysis: compare start `0` against the passing start `18` to identify whether the failure is due to weak support separation, high support overlap, low narrative implication contrast, start reliability, or a metric/sample-budget issue. Only after that should we choose between a per-start reliability policy, improved support weighting, or a revised conditionality gate.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 164 component start-0 failure attribution
+
+### Context
+Performed post-experiment analysis after the current component-preserving fixed-start-0 gate failed at both `16` and `64` samples.
+
+### Hypothesis
+The failure may not be a pure narrative-conditioning failure. It may be caused by fixed-start incompatibility: the selected start may be too far from the narrative query/support manifold, causing component rollouts to be unstable or too noisy for narrative separation to dominate repeat/bootstrap controls.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: mechanism_found
+- benchmark_floor_status: not_applicable
+- iteration_type: post_experiment_analysis
+
+### Execution
+Inspected current component-preserving observed reports for the failing start `0` and compared them with the passing start `18` component reports.
+
+Artifacts inspected:
+
+- failing start `0` observed root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_observed_904t_s64`
+- passing start `18` observed root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_904k_s384_uncalibrated`
+- failing start `0` audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_manifest_audit_904t_s64/fixed_start_manifest_audit.json`
+- passing start `18` audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_904k_s384_uncalibrated/fixed_start_shape_audit.json`
+
+### Result
+For start `0`:
+
+- all six component observed runs have operational validation status `warning`;
+- the common warning is `large_start_distance`;
+- validation `start_distance_z` is about `22.08`, above the warning threshold `15.0`;
+- direction status passes for all six runs;
+- support weighted match rate is `1.0` for all six runs;
+- support sets are not collapsed into one identical pool: median support Jaccard is `0.0`, with max `0.6`.
+
+For start `18`:
+
+- the six component observed runs have operational validation status `pass`;
+- direction status passes;
+- support sets are also distinct across narratives.
+
+### Mechanism Read
+The start-0 failure is probably a fixed-start compatibility failure, not simply a failure of the narrative channel or grounding direction checks. Direction checks pass and start-only nulls are zero, but the selected start is far from the query/support manifold for every narrative. In that regime, component rollout noise/repeat instability can swamp the narrative separation.
+
+This also explains why the old broad soft-topk manifest can pass while current component start-0 fails: component-preserving rollout exposes per-component instability instead of averaging it away. That is scientifically useful, but it means the product needs a clearer per-start reliability policy.
+
+### Decision / Next Step
+Do not scale the full broad component grid until the start-selection/start-compatibility contract is tightened. The next principled step is to define a component-path fixed-start reliability rule: starts with large validation start distance should be warning-only or excluded from promotion-level conditionality gates, unless we can show component rollouts remain stable under repeat/bootstrap controls.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 165 fixed-start reliability overlay
+
+### Context
+The fixed-start-0 failure analysis identified start compatibility as the likely failure layer. The audit needed a durable guardrail so future broad-grid runs do not promote a path-distribution result when the selected start is already operationally warning-level.
+
+### Hypothesis
+A fixed-start path audit should separate raw path-distribution status from promotion eligibility. Even if path metrics pass, a selected start with operational validation warnings should mark the run as promotion-warning unless repeat/bootstrap controls prove stability.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: mechanism_found
+- benchmark_floor_status: not_applicable
+- iteration_type: experiment
+
+### Execution
+Updated the manifest audit:
+
+- file: `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py`
+- tests: `test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+
+New behavior:
+
+- each loaded case records operational validation status, warnings, failures, and validation `start_distance_z`;
+- report includes `start_reliability` with status counts, warning counts, failure counts, and per-case rows;
+- report includes `promotion_status` separately from raw path `status`;
+- optional `--enforce-start-reliability` turns observed operational start warnings into promotion warnings and observed operational start failures into failures.
+
+Reran the start-0 `64`-sample component audit with the start-reliability overlay:
+
+- report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start0_manifest_audit_904u_s64_start_gate/fixed_start_manifest_audit.json`
+
+### Result
+The overlay report still has raw path `status=fail`, and `promotion_status=fail`. It additionally records promotion warning `observed_operational_start_warnings`, alongside the existing bootstrap warnings.
+
+Key ratios are unchanged from the `904t` audit:
+
+- repeat-to-observed path energy: `0.860`;
+- repeat-to-observed path variance: `0.755`;
+- repeat-to-observed path Wasserstein: `0.980`;
+- bootstrap-to-observed path energy: `3.726`;
+- bootstrap-to-observed path variance: `1.007`;
+- bootstrap-to-observed path Wasserstein: `1.748`;
+- start-only-to-observed path energy, variance, and Wasserstein: `0.0`.
+
+Validation run:
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`
+- `uv run pytest test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `5 passed`
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `29 passed`
+
+### Mechanism Read
+This is not a new model knob. It is a promotion guardrail that encodes the lesson from start `0`: narrative conditionality should not be promoted when the selected start is already far from the query/support manifold and repeat/bootstrap controls are unstable.
+
+The distinction matters for the risk-manager product. The app can still generate a scenario with visible warnings, but paper/demo claims should not call that start a clean fixed-start conditionality success.
+
+### Decision / Next Step
+The next principled step is to apply this reliability overlay to candidate broad component starts and only scale starts that are operationally pass-level or already known to pass repeat/bootstrap controls. A full grid should be stratified by start reliability rather than averaged across pass and warning starts.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 166 component fixed-start-22 gate
+
+### Context
+After adding the fixed-start reliability overlay, I tested whether a pass-level start would clear the current component-preserving path gate. Start `22` is operationally pass-level in the cached matrix, unlike start `0`.
+
+### Hypothesis
+If the start-0 failure is mostly a start-distance/reliability issue, then fixed start `22` should perform materially better under the component-preserving path at the same `64` sample budget.
+
+### Research Lane / Status
+- research_lane: candidate
+- result_status: candidate_rejected_at_current_sample_budget
+- benchmark_floor_status: not_applicable
+- iteration_type: experiment
+
+### Execution
+Built a six-narrative start-22 case spec from the promoted fixed-start matrix and ran current component-preserving controls at `64` samples:
+
+- observed: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_observed_904v_s64_full6/start_conditioned_bakeoff.json`
+- start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_start_only_904v_s64_full6/start_conditioned_bakeoff.json`
+- repeat seed 978: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_repeat_seed978_904v_s64_full6/start_conditioned_bakeoff.json`
+- repeat seed 979: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_repeat_seed979_904v_s64_full6/start_conditioned_bakeoff.json`
+- audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_manifest_audit_904v_s64_full6_start_gate/fixed_start_manifest_audit.json`
+
+### Result
+The start-22 audit fails at `64` samples even though operational start reliability is pass-level:
+
+- operational start status counts: `{'pass': 6}`;
+- median validation start distance z: `14.40`;
+- start-only-to-observed path energy, variance, and Wasserstein: `0.0`;
+- repeat-to-observed path energy: `0.772`;
+- repeat-to-observed path variance: `0.700`;
+- repeat-to-observed path Wasserstein: `0.899`;
+- bootstrap-to-observed path energy: `3.196`;
+- bootstrap-to-observed path variance: `0.965`;
+- bootstrap-to-observed path Wasserstein: `1.850`.
+
+Validation run:
+
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py test_code/test_901a_nl_prefix_latent_component_gates.py test_code/test_904m_nl_prefix_latent_calibration_conditionality.py test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `29 passed`
+
+### Mechanism Read
+Start compatibility is not the whole story. It explains why start `0` is a bad promotion candidate, but start `22` shows that the current component path can still fail the fixed-start path gate at modest sample budget even when start reliability passes. The likely possibilities are: `64` samples is too small for this component gate, start `22` has weaker narrative separation than start `18`, or the component-preserving path needs a per-start reliability/sample-budget policy.
+
+### Decision / Next Step
+Do not add a new language bridge or support-ranker knob. The next principled step is to run a sample-budget attribution, not a model change: compare start `18` and start `22` at a matching sample budget, or scale start `22` to the same budget used by the passing start-18 audit, then decide whether the gate is sample-budget limited or truly start-specific.
+
+Updated current truth:
+
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 167 component sample-budget attribution
+
+### Context
+
+Continued the current component-preserving fixed-start conditionality investigation.
+The previous start-0 and start-22 `64`-sample audits showed that the latest
+component path was not yet broadly promotion-ready. The open question was
+whether the failure was caused by a bad start, weak narrative separation, or
+insufficient rollout sample budget.
+
+### Hypothesis
+
+If the failure is mostly a sample-budget artifact, then a pass-level start should
+move from `fail` at `64` samples toward `warning` or `pass` at larger sample
+counts, with repeat and start-only controls improving faster than observed
+cross-narrative differences.
+
+### Runs
+
+- fixed-start `18`, `64` samples, observed/start-only/two-repeat manifest audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start18_manifest_audit_904w_s64_full6_start_gate/fixed_start_manifest_audit.json`;
+- fixed-start `22`, `192` samples, observed/start-only/two-repeat manifest audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_manifest_audit_904x_s192_full6_start_gate/fixed_start_manifest_audit.json`;
+- fixed-start `22`, `384` samples, observed/start-only/two-repeat manifest audit:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_manifest_audit_904y_s384_full6_start_gate/fixed_start_manifest_audit.json`.
+
+All runs used the explicit `component_direction_check` /
+`component_start_only_control` variants with `rollout_mixture_mode =
+component_prefix_mixture`, CUDA rollout, no OpenAI calls, and the
+start-reliability overlay enabled.
+
+### Findings
+
+- Start `18` at `64` samples fails despite pass-level start reliability
+  (`start_distance_z` about `13.88`):
+  - repeat-to-observed path energy `0.740`;
+  - repeat-to-observed path variance `0.825`;
+  - repeat-to-observed path Wasserstein `0.969`;
+  - bootstrap-to-observed path energy `3.057`;
+  - start-only ratios all `0.0`.
+- Start `22` at `64` samples also fails despite pass-level start reliability
+  (`start_distance_z` about `14.40`):
+  - repeat-to-observed path energy `0.772`;
+  - repeat-to-observed path variance `0.700`;
+  - repeat-to-observed path Wasserstein `0.899`;
+  - bootstrap-to-observed path energy `3.196`;
+  - start-only ratios all `0.0`.
+- Start `22` at `192` samples improves from `fail` to `warning`:
+  - repeat-to-observed path energy `0.355`;
+  - repeat-to-observed path variance `0.509`;
+  - repeat-to-observed path Wasserstein `0.615`;
+  - bootstrap-to-observed path energy `2.225`;
+  - start-only ratios all `0.0`.
+- Start `22` at `384` samples remains `warning`, but repeat controls improve
+  further:
+  - repeat-to-observed path energy `0.225`;
+  - repeat-to-observed path variance `0.400`;
+  - repeat-to-observed path Wasserstein `0.496`;
+  - bootstrap-to-observed path energy `1.521`;
+  - bootstrap-to-observed path Wasserstein `0.974`;
+  - start-only ratios all `0.0`.
+
+### Interpretation
+
+The `64`-sample component fixed-start gate is too underpowered for promotion:
+even start `18`, which has prior `384`-sample pass evidence, fails at this
+budget. Increasing start `22` to `192` and `384` samples removes the
+repeat-control failures and keeps the start-only null exactly zero, so the
+narrative channel is not dead and the response is not caused by the starting
+level alone. However, the within-run bootstrap gate remains warning-level for
+start `22`, so this is still not a clean broad-promotion case.
+
+### Decision
+
+Do not add a new LLM, embedding model, or support-ranker knob to explain this
+failure. The next principled step is a promotion-budget current-path manifest
+or a clearer bootstrap/readout audit that separates weak narrative separation
+from finite-sample resampling noise. For product language, the component path can
+claim fixed-start narrative response versus repeat and start-only controls for
+start `22`, but only with a bootstrap warning.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `candidate_rejected_for_promotion_warning`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- All underlying bakeoff runs completed with status `pass`.
+- Manifest audits completed successfully and wrote JSON reports at the paths
+  listed above.
+
+---
+## 2026-05-12: HEAD nl-prefix 168 sample-matched bootstrap readout
+
+### Context
+
+The component fixed-start sample-budget attribution showed that start `22`
+improves from `fail` at `64` samples to `warning` at `192` and `384` samples.
+The remaining warning was the within-run bootstrap path-energy/readout control.
+
+### Hypothesis
+
+The warning might be partly caused by comparing full-sample observed narrative
+pairs (`384` versus `384`) to within-run bootstrap half splits (`192` versus
+`192`). A sample-size-matched observed diagnostic should reveal whether this is
+just a conservative readout artifact or a real weak-separation warning.
+
+### Change
+
+Updated
+`experiments/backfill/block_ar/nl_prefix_latent_fixed_start_manifest_audit.py`
+to add `observed_narrative_sample_matched` diagnostics. For every same-start
+cross-narrative pair, the audit now splits both runs into halves and compares
+all four half-pair combinations. These diagnostics are recorded in the report
+and ratios, but they do not change promotion status yet.
+
+Added test coverage in
+`test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py`.
+
+### Evidence
+
+Reran the start-22 `384`-sample component audit with the new readout diagnostic:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_manifest_audit_904z_s384_full6_readout/fixed_start_manifest_audit.json`
+
+Key ratios:
+
+- bootstrap-to-observed path energy: `1.521`;
+- bootstrap-to-observed path variance: `0.518`;
+- bootstrap-to-observed path Wasserstein: `0.974`;
+- bootstrap-to-sample-matched-observed path energy: `0.980`;
+- bootstrap-to-sample-matched-observed path variance: `0.439`;
+- bootstrap-to-sample-matched-observed path Wasserstein: `0.813`;
+- repeat-to-observed path energy: `0.225`;
+- start-only-to-observed ratios: all `0.0`.
+
+### Interpretation
+
+The sample-size-matched diagnostic reduces the apparent bootstrap problem, so
+part of the warning was readout/sample-size related. But it does not eliminate
+the warning: path energy remains very close to observed and path Wasserstein is
+still above the default `0.75` bootstrap ratio threshold. Therefore start `22`
+has real narrative response versus repeat and start-only controls, but it is a
+weaker fixed-start conditionality case than start `18` and should remain a
+warning case.
+
+### Decision
+
+Keep the component path as the candidate mechanism, but do not promote broad
+fixed-start component conditionality from this start-22 case. The next
+principled step is a production-budget broad component manifest with
+pass/warning stratification across starts, not another language model or
+support-ranker knob.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_904p_nl_prefix_latent_fixed_start_manifest_audit.py -q` -> `5 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 169 component start-40 broadening pilot
+
+### Context
+
+After the sample-budget/readout attribution, the next step was to broaden the
+latest component-preserving path beyond starts `18` and `22` without immediately
+scaling the full six-start grid. I selected fixed start `40` from the promoted
+36-case matrix as a bounded pilot.
+
+### Hypothesis
+
+If component-path warnings are start-specific rather than universal, another
+pass-level start may show cleaner 192-sample behavior. If it also warns, broad
+promotion needs pass/warning stratification and probably production-budget
+controls.
+
+### Runs
+
+- case spec: `/tmp/nl_prefix_start40_cases.json`, derived from
+  `docs/research_protocols/nl_prefix_latent_promoted_specs/fixed_start_narrative_matrix_858b_cases.json`;
+- observed: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_observed_905a_s192_full6/start_conditioned_bakeoff.json`;
+- start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_start_only_905a_s192_full6/start_conditioned_bakeoff.json`;
+- repeat seed 990: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_repeat_seed990_905a_s192_full6/start_conditioned_bakeoff.json`;
+- repeat seed 991: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_repeat_seed991_905a_s192_full6/start_conditioned_bakeoff.json`;
+- audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_manifest_audit_905a_s192_full6_readout/fixed_start_manifest_audit.json`.
+
+### Findings
+
+The start-40 audit status is `warning`, no failures:
+
+- repeat-to-observed path energy `0.398`;
+- repeat-to-observed path variance `0.603`;
+- repeat-to-observed path Wasserstein `0.729`;
+- start-only-to-observed path energy/variance/Wasserstein all `0.0`;
+- bootstrap-to-observed path energy `2.137`;
+- bootstrap-to-observed path variance `0.973`;
+- bootstrap-to-observed path Wasserstein `1.366`;
+- bootstrap-to-sample-matched-observed path energy `1.209`;
+- bootstrap-to-sample-matched-observed path variance `0.828`;
+- bootstrap-to-sample-matched-observed path Wasserstein `1.008`.
+
+### Interpretation
+
+Start `40` is not a dead narrative-conditioning case: repeat controls and
+start-only controls are acceptable. But the bootstrap/readout ratios are still
+too high, including after sample-size matching. This makes start `40` similar
+to start `22` at promotion level: there is narrative response, but not a clean
+pass under the current path-distribution bootstrap gate.
+
+### Decision
+
+Do not claim broad component-path promotion yet. The next production-facing
+artifact should be a broad current-path manifest with pass/warning
+stratification across starts, or a focused start-selection policy that explains
+which fixed starts are suitable for narrative-conditioned component rollout.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- All four start-40 bakeoff runs completed with status `pass`.
+- The manifest audit completed and wrote the JSON report above.
+
+---
+## 2026-05-12: HEAD nl-prefix 170 component start-77 broadening pilot
+
+### Context
+
+After fixed start `40` landed at warning, I ran the same bounded 192-sample
+component-path pilot for fixed start `77` before deciding whether broad
+promotion should be attempted.
+
+### Runs
+
+- case spec: `/tmp/nl_prefix_start77_cases.json`, derived from
+  `docs/research_protocols/nl_prefix_latent_promoted_specs/fixed_start_narrative_matrix_858b_cases.json`;
+- observed: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_observed_905b_s192_full6/start_conditioned_bakeoff.json`;
+- start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_start_only_905b_s192_full6/start_conditioned_bakeoff.json`;
+- repeat seed 993: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_repeat_seed993_905b_s192_full6/start_conditioned_bakeoff.json`;
+- repeat seed 994: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_repeat_seed994_905b_s192_full6/start_conditioned_bakeoff.json`;
+- audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_manifest_audit_905b_s192_full6_readout/fixed_start_manifest_audit.json`.
+
+### Findings
+
+The start-77 audit status is `warning`, no failures:
+
+- repeat-to-observed path energy `0.437`;
+- repeat-to-observed path variance `0.378`;
+- repeat-to-observed path Wasserstein `0.671`;
+- start-only-to-observed path energy/variance/Wasserstein all `0.0`;
+- bootstrap-to-observed path energy `2.118`;
+- bootstrap-to-observed path variance `0.588`;
+- bootstrap-to-observed path Wasserstein `1.332`;
+- bootstrap-to-sample-matched-observed path energy `1.000`;
+- bootstrap-to-sample-matched-observed path variance `0.559`;
+- bootstrap-to-sample-matched-observed path Wasserstein `0.979`.
+
+### Interpretation
+
+Start `77` repeats the start `40` pattern. The narrative signal is present
+relative to repeat and start-only controls, but not clean relative to
+bootstrap/readout noise. The broad component-path evidence is therefore not a
+blanket pass. It is a stratified result: start `18` has clean high-sample pass
+evidence; starts `22`, `40`, and `77` show narrative response but warning-level
+bootstrap uncertainty; start `0` remains a start-compatibility warning/failure
+case.
+
+### Decision
+
+Stop expanding one start at a time and consolidate the evidence into a
+stratified current-path component artifact. The next step should be a
+pass/warning/fail summary across available fixed starts, not another isolated
+rollout or a new text model.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- All four start-77 bakeoff runs completed with status `pass`.
+- The manifest audit completed and wrote the JSON report above.
+
+---
+## 2026-05-12: HEAD nl-prefix 171 component start stratification
+
+### Context
+
+After start `22`, `40`, and `77` all showed narrative response but
+bootstrap/readout warnings, the evidence needed consolidation. A product or
+paper claim should not depend on reading several separate JSON reports.
+
+### Change
+
+Added a reusable stratification helper:
+
+- script:
+  `experiments/backfill/block_ar/nl_prefix_latent_component_start_stratification.py`;
+- tests:
+  `test_code/test_905c_nl_prefix_latent_component_start_stratification.py`.
+
+The script reads fixed-start component audit JSON files and summarizes each
+start as `pass`, `warning`, or `fail`, with a concise reason such as
+`clean_pass`, `bootstrap_readout_warning`, or `start_incompatible`.
+
+### Evidence Artifact
+
+Generated:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_start_stratification_905c/component_start_stratification.json`
+
+and markdown companion:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_start_stratification_905c/component_start_stratification.md`
+
+Input audits:
+
+- start `0`, `64` samples: `fail`, `start_incompatible`;
+- start `18`, `384` samples: `pass`, `clean_pass`;
+- start `22`, `384` samples: `warning`, `bootstrap_readout_warning`;
+- start `40`, `192` samples: `warning`, `bootstrap_readout_warning`;
+- start `77`, `192` samples: `warning`, `bootstrap_readout_warning`.
+
+Overall counts:
+
+- `pass`: `1`;
+- `warning`: `3`;
+- `fail`: `1`.
+
+### Interpretation
+
+This is now the most accurate current statement: the component-preserving
+support mixture does create fixed-start narrative response, but the broad
+component-path claim is stratified rather than uniformly clean. Start `18` is a
+clean high-sample pass. Starts `22`, `40`, and `77` are usable only with
+bootstrap/readout warnings in the current evidence. Start `0` should not be a
+promotion case because the selected start is incompatible with the query/support
+manifold.
+
+### Decision
+
+Use this stratification language in future paper/demo updates. Do not claim
+"conditionality solved" without qualifiers. The next research step should
+either run production-budget controls for the warning starts or improve the
+conditioning/readout so warning starts become clean pass cases.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_905c_nl_prefix_latent_component_start_stratification.py -q` -> `3 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 172 support-overlap diagnostic
+
+### Context
+
+The stratification artifact showed one clean pass (`start 18`), three
+bootstrap/readout warnings (`starts 22`, `40`, `77`), and one start-incompatible
+failure (`start 0`). The next question was whether the warning starts are
+warning because the narratives select nearly identical support pools.
+
+### Change
+
+Added support-overlap diagnostics:
+
+- script:
+  `experiments/backfill/block_ar/nl_prefix_latent_component_support_diagnostics.py`;
+- tests:
+  `test_code/test_905d_nl_prefix_latent_component_support_diagnostics.py`.
+
+The script reads component rollout arrays, extracts the operational support
+component windows/weights, and reports pairwise weighted overlap, support-set
+Jaccard, same-top-window rate, support count, and effective support size.
+
+### Evidence
+
+Generated:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_diagnostics_905d/component_support_diagnostics.json`
+
+Inputs:
+
+- start `18`, `384` samples;
+- start `22`, `384` samples;
+- start `40`, `192` samples;
+- start `77`, `192` samples.
+
+Key result:
+
+- start `18`: median weighted support overlap `0.0`, median Jaccard `0.0`,
+  same-top-window rate `0.0`;
+- start `22`: median weighted support overlap `0.0`, median Jaccard `0.0`,
+  same-top-window rate `0.0`;
+- start `40`: median weighted support overlap `0.0`, median Jaccard `0.0`,
+  same-top-window rate `0.0`;
+- start `77`: median weighted support overlap `0.0`, median Jaccard `0.0`,
+  same-top-window rate `0.0`.
+
+All four starts have median effective support size around `7.25` to `7.48` out
+of eight components.
+
+### Interpretation
+
+The warning cases are not caused by narrative support collapse. The narrative
+channel is selecting distinct support components. The remaining bottleneck is
+downstream: for some selected starting levels, distinct support components do
+not produce rollout path distributions that are sufficiently separated relative
+to bootstrap/readout noise.
+
+### Decision
+
+Future work should focus on rollout/readout sensitivity or conditionality-aware
+calibration, not on adding another text embedding model just to diversify
+support selection. The support selector is already producing distinct support
+sets in these cases.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_905d_nl_prefix_latent_component_support_diagnostics.py -q` -> `2 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 173 prefix-to-rollout attenuation
+
+### Context
+
+The support-overlap diagnostic showed that warning starts do not reuse the same
+support pools. I extended the same diagnostic to compare decoded-prefix
+separation against generated path separation.
+
+### Change
+
+Extended
+`experiments/backfill/block_ar/nl_prefix_latent_component_support_diagnostics.py`
+to compute:
+
+- median decoded-prefix L2 distance across narrative pairs;
+- median generated path energy across narrative pairs;
+- generated path energy per decoded-prefix L2.
+
+Updated tests in
+`test_code/test_905d_nl_prefix_latent_component_support_diagnostics.py`.
+
+### Evidence
+
+Regenerated:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_diagnostics_905d/component_support_diagnostics.json`
+
+Key per-start summaries:
+
+- start `18`: decoded-prefix L2 `0.482`, generated path energy `0.076`,
+  generated-energy-per-prefix `0.158`;
+- start `22`: decoded-prefix L2 `0.706`, generated path energy `0.020`,
+  generated-energy-per-prefix `0.028`;
+- start `40`: decoded-prefix L2 `0.534`, generated path energy `0.021`,
+  generated-energy-per-prefix `0.040`;
+- start `77`: decoded-prefix L2 `0.466`, generated path energy `0.019`,
+  generated-energy-per-prefix `0.041`.
+
+Support overlap remained zero-median for all four starts.
+
+### Interpretation
+
+The warning starts are not weak because the narrative failed to choose different
+supports or because the decoded prefixes are nearly identical. The warning
+starts have decoded-prefix differences comparable to or larger than start `18`,
+but those differences are attenuated by the frozen rollout/readout. The
+bottleneck is therefore downstream rollout sensitivity under certain fixed
+starts, not the language embedding or support-selection stage.
+
+### Decision
+
+The next research step should target rollout/readout sensitivity or
+conditionality-aware calibration. Do not spend OpenAI/API budget or add another
+embedding model to solve this particular warning until the rollout attenuation
+mechanism is addressed.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_905d_nl_prefix_latent_component_support_diagnostics.py -q` -> `2 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 174 support-temperature probe
+
+### Context
+
+Prefix-to-rollout diagnostics suggested that warning starts are not caused by
+text/support collapse, but by downstream attenuation. A simple mechanistic
+falsifier is support-weight sharpening: if warning starts are weak because the
+support mixture is too diffuse, lowering the support temperature should
+materially increase generated path separation.
+
+### Change
+
+Added a diagnostic variant set to
+`experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py`:
+
+- `component_support_temperature`;
+- temperatures `0.20`, `0.10`, and `0.05`;
+- all use `rollout_mixture_mode=component_prefix_mixture`;
+- generator temperature remains `0.50`.
+
+Updated
+`test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`.
+
+### Runs
+
+Start-22 support-temperature TestFlight:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_temperature_start22_905e_s96/start_conditioned_bakeoff.json`
+
+Support diagnostics:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_temperature_diag_905e_temp0p20/component_support_diagnostics.json`;
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_temperature_diag_905e_temp0p10/component_support_diagnostics.json`;
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_support_temperature_diag_905e_temp0p05/component_support_diagnostics.json`.
+
+### Findings
+
+- temp `0.20`: effective support size `7.34`, generated path energy `0.026`,
+  generated-energy-per-prefix `0.043`;
+- temp `0.10`: effective support size `5.96`, generated path energy `0.028`,
+  generated-energy-per-prefix `0.049`;
+- temp `0.05`: effective support size `3.72`, generated path energy `0.031`,
+  generated-energy-per-prefix `0.058`.
+
+### Interpretation
+
+Sharpening helps in the expected direction but the effect is small. It does not
+close the gap to the clean start-18 ratio (`0.158`). Therefore the warning
+starts are not solved by a simple support-temperature knob.
+
+### Decision
+
+Do not promote support sharpening. Keep it as a diagnostic result. The next
+principled direction is deeper rollout/readout sensitivity or
+conditionality-aware calibration, not another small support-ranker knob.
+
+### Workflow Fields
+
+- research_lane: `exploration`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q` -> `13 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 175 generator-temperature probe
+
+### Context
+
+Support sharpening helped only modestly. The next readout-focused falsifier was
+generator temperature: if bootstrap/readout noise is the main issue, lower
+rollout temperature should make narrative-conditioned path differences clearer.
+
+### Change
+
+Added diagnostic variant sets to
+`experiments/backfill/block_ar/nl_prefix_latent_start_conditioned_bakeoff.py`:
+
+- `component_generator_temperature` with generator temperatures `0.25`, `0.50`,
+  and `0.75`;
+- `component_start_only_generator_temperature` for the matching low-temperature
+  start-only null.
+
+Updated
+`test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py`.
+
+### Runs
+
+Start-22 generator-temperature TestFlight:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_generator_temperature_start22_905f_s96/start_conditioned_bakeoff.json`
+
+Support diagnostics:
+
+- gen temp `0.25`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_generator_temperature_diag_905f_gen0p25/component_support_diagnostics.json`;
+- gen temp `0.50`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_generator_temperature_diag_905f_gen0p50/component_support_diagnostics.json`;
+- gen temp `0.75`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_generator_temperature_diag_905f_gen0p75/component_support_diagnostics.json`.
+
+Controlled low-temperature audit:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_generator_temperature_start22_audit_905g_s96_gen0p25/fixed_start_manifest_audit.json`
+
+### Findings
+
+- gen temp `0.25`: generated path energy `0.043`,
+  generated-energy-per-prefix `0.074`;
+- gen temp `0.50`: generated path energy `0.025`,
+  generated-energy-per-prefix `0.042`;
+- gen temp `0.75`: generated path energy `0.019`,
+  generated-energy-per-prefix `0.032`.
+
+The controlled gen-temp-`0.25` audit remains `warning`:
+
+- repeat-to-observed path energy `0.391`;
+- repeat-to-observed path variance `0.468`;
+- repeat-to-observed path Wasserstein `0.719`;
+- start-only ratios all `0.0`;
+- bootstrap-to-sample-matched-observed path energy `1.328`;
+- bootstrap-to-sample-matched-observed path Wasserstein `0.952`.
+
+### Interpretation
+
+Lowering generator temperature is directionally useful and more relevant than
+support sharpening for the readout bottleneck. But it does not clear the gate in
+the controlled low-sample audit. It is not yet a production fix.
+
+### Decision
+
+Do not promote generator-temperature lowering as a default. Keep the result as
+evidence that rollout/readout noise matters. The next step should be a more
+principled conditionality-aware calibration/readout design, or a production
+budget low-temperature audit only if we decide the undercoverage trade-off is
+acceptable.
+
+### Workflow Fields
+
+- research_lane: `exploration`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Verification
+
+- `uv run pytest test_code/test_806a_nl_prefix_latent_start_conditioned_bakeoff.py -q` -> `13 passed`
+
+---
+## 2026-05-12: HEAD nl-prefix 176 conditionality-aware readout intake
+
+### Context
+
+The current bottleneck is no longer text/support selection. Support diagnostics
+show distinct support pools and decoded-prefix differences, while rollout
+diagnostics show attenuation at the generated path/readout level. I performed a
+small related-work pass on ensemble postprocessing to identify a principled next
+method family.
+
+### Related Work
+
+The relevant literature is ensemble postprocessing, especially methods that
+calibrate marginal distributions while preserving multivariate and temporal
+dependence:
+
+- Ensemble Copula Coupling / dynamic ECC reconstructs scenario dependence after
+  calibration:
+  https://orbit.dtu.dk/en/publications/generation-of-scenarios-from-calibrated-ensemble-forecasts-with-a-2
+- ECC and member-by-member postprocessing are explicitly framed as preserving
+  correlation/dependence structures:
+  https://www.researchgate.net/publication/316558895_Ensemble_calibration_with_preserved_correlations_Unifying_and_comparing_ensemble_copula_coupling_and_member-by-member_postprocessing
+- Schaake shuffle warnings are relevant: empirical shuffling can fail when the
+  dependence template is wrong:
+  https://www.sciencedirect.com/science/article/pii/S0022169420304510
+- Multivariate quantile mapping literature also frames univariate calibration as
+  requiring an empirical copula/dependence template:
+  https://www.sciencedirect.com/science/article/pii/S2212094721000086
+
+### Artifact
+
+Added method-intake note:
+
+`docs/research_protocols/nl_prefix_latent_conditionality_aware_readout_intake.md`
+
+### Proposed Direction
+
+Try a conditionality-aware readout/calibration layer:
+
+```text
+component support rollout paths
+-> marginal/readout calibration
+-> preserve narrative-conditioned rank/path template
+-> evaluate CRPS/energy/coverage and fixed-start conditionality retention
+```
+
+This is more aligned with the observed bottleneck than adding another text
+embedding model. The text/support stage already creates distinct support
+components; the problem is preserving a useful narrative-conditioned path
+distribution through rollout and calibration.
+
+### Decision
+
+The next candidate should be readout/calibration, not support-ranker or LLM
+complexity. It must be evaluated on both distributional quality and
+conditionality retention. A calibration method that improves coverage while
+erasing fixed-start narrative differences is not acceptable.
+
+### Workflow Fields
+
+- research_lane: `candidate`
+- result_status: `method_intake_ready`
+- benchmark_floor_status: `not_tested`
+
+### Verification
+
+- Intake file written and linked from the current-truth index.
+
+---
+## 2026-05-12: HEAD nl-prefix 177 readout frontier rejects global fan scale
+
+### HEAD
+- H: If the fixed-start conditionality problem is mainly a readout/display issue, the existing global mean-preserving fan-scale calibration should show a viable frontier point that preserves enough narrative-conditioned path signal while reducing calibration/display weakness.
+- E: Added `experiments/backfill/block_ar/nl_prefix_latent_readout_frontier.py` and `test_code/test_905e_nl_prefix_latent_readout_frontier.py`. Ran the frontier diagnostic over existing alpha `2.5`, `3.0`, and `3.5` calibration-conditionality reports.
+- A: No global alpha candidate passed the retention gate. Best candidate was `alpha2p5`, with observed full-path energy retention `0.314`, observed path-Wasserstein retention `0.655`, and bootstrap-to-observed path energy `1.894`. Alpha `3.0` and `3.5` retained still less energy signal and also had bootstrap noise above observed narrative effect.
+- D: Global mean-preserving fan scaling is rejected as a production readout fix. This does not reject the narrative support mixture; it says the display/readout layer is washing out fixed-start narrative differences. Continue toward a conditionality-aware rank/dependence-preserving readout, inspired by ECC-style ensemble postprocessing, before another text-embedding or support-ranker tweak.
+
+### Governance Fields
+- research_lane: `post_experiment_analysis`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Frontier report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_readout_frontier_905e_alpha_global/readout_frontier_report.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_readout_frontier_905e_alpha_global/readout_frontier_report.md`
+- Current-truth update: `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 178 rank-preserving readout TestFlight
+
+### HEAD
+- H: A conditionality-aware readout should improve realized historical distribution quality without rerunning the generator, while preserving narrative-conditioned path structure better than global fan scaling. A minimal ECC-style proxy is to fit positive horizon/factor marginal scale corrections and preserve per-variable sample ranks.
+- E: Added `experiments/backfill/block_ar/nl_prefix_latent_rank_preserving_readout.py` and `test_code/test_905f_nl_prefix_latent_rank_preserving_readout.py`. The script fits a per-horizon/factor alpha map on the calibration side of the held-out component backtest, evaluates held-out CRPS/energy/coverage, and applies the same readout to fixed-start narrative/control cases.
+- A: The TestFlight improves held-out distribution quality: evaluation 80% coverage improves by `+0.359`, ensemble CRPS by `-0.078`, and energy by `-0.152` versus the uncalibrated component mixture. The fitted alpha map is aggressive (`median=3.0`, `mean=2.61`) and calibration coverage after selection is still only `0.678` mean. Fixed-start conditionality fails because same-narrative repeat controls are too close to observed narrative effects (`repeat_to_observed_path_energy=0.956`, path Wasserstein `0.968`, path variance `0.975`), while bootstrap path energy remains above observed (`2.131`).
+- D: Rank-preserving marginal readout is a useful mechanism probe and improves historical backtest quality, but it is not a promoted production readout. The next readout candidate must preserve path-level dependence and reduce seed/repeat noise relative to observed narrative effects, not only widen marginal bands.
+
+### Governance Fields
+- research_lane: `experiment`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_rank_preserving_readout_905f/rank_preserving_readout_report.json`
+- Alpha map: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_rank_preserving_readout_905f/rank_preserving_alpha_map.npz`
+- Raw fan plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_rank_preserving_readout_905f/rank_preserving_readout_raw_fans.png`
+
+---
+## 2026-05-12: HEAD nl-prefix 179 repeat-noise source diagnostic
+
+### HEAD
+- H: The rank-preserving readout fails fixed-start conditionality because same-narrative repeat noise becomes too visible. Before adding another readout method, identify whether the repeat noise comes from support selection, decoded-prefix instability, or stochastic rollout/readout.
+- E: Added `experiments/backfill/block_ar/nl_prefix_latent_repeat_noise_diagnostic.py` and `test_code/test_905g_nl_prefix_latent_repeat_noise_diagnostic.py`. The diagnostic compares observed cross-narrative pairs to same-story repeat pairs using support-weight overlap, decoded-prefix L2, and generated path energy.
+- A: Same-story repeats have support-weighted overlap `1.0`, so support selection is stable. However, repeat decoded-prefix L2 is `0.651` of observed cross-narrative decoded-prefix L2. Uncalibrated generated path energy repeat/observed is only `0.223`, so the base rollout hides most repeat instability, but the rank-preserving marginal readout amplifies these repeat/control differences until fixed-start conditionality fails.
+- D: The next candidate should stabilize the decoded-prefix/readout path before using aggressive marginal calibration. This can mean deterministic/cached prefix decoder outputs for fixed narrative/start inputs, common-random-number rollout controls, or a calibration method that regularizes repeat consistency while preserving narrative separation. Do not proceed by simply increasing sample count or alpha.
+
+### Governance Fields
+- research_lane: `post_experiment_analysis`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_repeat_noise_diagnostic_905g/repeat_noise_diagnostic.json`
+- Script: `experiments/backfill/block_ar/nl_prefix_latent_repeat_noise_diagnostic.py`
+- Tests: `test_code/test_905g_nl_prefix_latent_repeat_noise_diagnostic.py`
+
+---
+## 2026-05-12: HEAD nl-prefix 180 fixed decoder seed repeat TestFlight
+
+### HEAD
+- H: Same-story repeat prefix instability is caused by using one seed for both prefix-decoder training and rollout sampling. In production, the memory+start prefix decoder should be frozen/cached, so varying the rollout seed should not change decoded prefixes.
+- E: Updated `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py` to support separate `decoder_seed` and `rollout_seed`, preserving old behavior when omitted. Updated `experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py` so repeat controls can hold decoder seed fixed while varying rollout seed. Ran a fixed-decoder repeat TestFlight with 6 narratives, 64 samples, decoder seed `963`, and rollout seeds `963,964`.
+- A: Fixed decoder seeding eliminates decoded-prefix repeat instability. Repeat-to-observed decoded-prefix L2 falls from `0.651` to `0.0`; support overlap remains `1.0`. Same-story repeat generated path energy is `0.687` of observed narrative energy, below the `0.75` repeat gate. The terminal-gap control report is still `warning` because bootstrap noise is right on the threshold (`0.751`), but repeat no longer fails.
+- D: Promote the seed split as an engineering fix for production-style evaluation: prefix decoder randomness must be frozen/cached separately from rollout sampling. The remaining bottleneck is downstream rollout/bootstrap noise and readout calibration, not support instability or prefix decoder seed drift.
+
+### Governance Fields
+- research_lane: `experiment`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Fixed-decoder controls: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_decoder_repeat_905h_s64/component_fixed_start_controls.json`
+- Fixed-decoder repeat diagnostic: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_repeat_noise_fixed_decoder_905h/repeat_noise_diagnostic.json`
+- Code: `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`, `experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py`
+
+---
+## 2026-05-12: HEAD nl-prefix 181-182 fixed-decoder path gate and conservative readout
+
+### HEAD 181: Matched fixed-decoder controls
+- H: The uncalibrated component-preserving narrative mixture should pass the fixed-start path-distribution gate once same-story repeat controls use a fixed/cached prefix decoder and the control sample count matches the observed narrative cases.
+- E: Regenerated fixed-decoder start-only and repeat controls at `384` samples from `prefix_latent_component_mixture_fixed_start_904k_s384_uncalibrated`, holding `decoder_seed=963` and varying rollout seeds. Re-ran the fixed-start path audit against `decoder_component_topk_narrative_start_checked_gen_temp_0p50`.
+- A: The matched audit passes with no failures or warnings. Repeat-to-observed path energy is `0.120`, path variance is `0.293`, and path Wasserstein is `0.427`; start-only controls remain `0.0`. This resolves the earlier small-sample ambiguity and confirms that the current uncalibrated component-preserving rollout has risk-manager-visible narrative conditionality when the prefix decoder is treated as fixed/cached.
+- D: Keep the uncalibrated component-preserving mixture as the conditionality-safe production default. The prior failure was partly an evaluation/control issue and partly a readout calibration issue, not evidence that the narrative support mixture is unusable.
+
+### HEAD 182: Conservative global readout frontier
+- H: A tiny global mean-preserving fan scale may improve held-out distribution quality without erasing fixed-start narrative conditionality, while more aggressive marginal or global scaling should remain diagnostic if it crosses bootstrap/repeat controls.
+- E: Evaluated global fan scales `1.05`, `1.10`, `1.25`, `1.50`, and `2.00` using matched fixed-decoder controls. Scored fixed `1.05`, `1.10`, `1.25`, and `1.50` against the held-out component backtest. Also compared against the rank-preserving marginal readout cap sweep.
+- A: `alpha=1.05` is the first nontrivial global scale that passes the fixed-start path audit with no warnings. It improves held-out evaluation 80% coverage by `+0.0147`, ensemble CRPS by `-0.00418`, and energy by `-0.00738` versus the uncalibrated component mixture. Higher scales improve backtest quality more but trigger bootstrap-noise warnings: `1.10` already warns, while `1.25`, `1.50`, and `2.00` warn more strongly. The marginal rank-preserving readout improves CRPS/energy substantially, but repeat controls become too close to observed narrative effects, so it is not production-ready.
+- D: Treat `alpha=1.05` as a conservative candidate display/readout option, not as a new narrative-conditioning method. Do not promote aggressive marginal calibration. The next research bottleneck is a path/dependence-aware calibration layer that can improve coverage materially while preserving narrative-conditioned distribution differences and passing bootstrap/repeat controls.
+
+### Governance Fields
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `competitive`
+
+### Artifacts
+- Matched fixed-decoder controls: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_decoder_controls_905i_s384/component_fixed_start_controls.json`
+- Matched uncalibrated path audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_905i_fixed_decoder_s384/fixed_start_shape_audit.json`
+- Conservative global calibration: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_global_calibration_905j_alpha1p05/component_global_calibration_report.json`
+- Conservative global path audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start_path_audit_905j_fixed_decoder_global1p05/fixed_start_shape_audit.json`
+- Current-truth update: `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 183 readout gate selector
+
+### HEAD
+- H: Readout calibration should be selected by a joint gate, not by manually choosing the alpha with the best historical CRPS/energy. A candidate should be eligible only if it improves held-out quality and passes fixed-start narrative conditionality controls.
+- E: Added `experiments/backfill/block_ar/nl_prefix_latent_readout_gate_selector.py` and `test_code/test_905j_nl_prefix_latent_readout_gate_selector.py`. The selector reads calibration reports and fixed-start path audits, rejects candidates with warnings/failures, and chooses among candidates that improve coverage, CRPS, and energy. Ran it on global readout candidates `alpha1p05`, `alpha1p10`, `alpha1p25`, and `alpha1p50`.
+- A: The selector chose `alpha1p05`, matching the manual analysis. It rejected `alpha1p10`, `alpha1p25`, and `alpha1p50` because their path audits warned despite stronger backtest improvements. Regression tests passed: `24 passed in 1.99s` across component gates, calibration conditionality, fixed-start audits, readout frontier, rank-preserving readout, repeat-noise diagnostic, and the new selector.
+- D: Make the readout selector the governance rule for display/readout promotion. Historical distribution quality is necessary but not sufficient; fixed-start path conditionality must remain clean. The current product-safe default is uncalibrated component-preserving rollout, with `alpha=1.05` as a conservative candidate display option if a small calibrated widening is desired.
+
+### Governance Fields
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `competitive`
+
+### Artifacts
+- Selector script: `experiments/backfill/block_ar/nl_prefix_latent_readout_gate_selector.py`
+- Selector tests: `test_code/test_905j_nl_prefix_latent_readout_gate_selector.py`
+- Selection report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_readout_gate_selection_905j/readout_gate_selection.json`
+- Current-truth update: `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+---
+## 2026-05-12: HEAD nl-prefix 184 start-22 fixed-decoder path audit
+
+### HEAD
+- H: If the fixed-decoder correction solves the conditionality issue generally, start `22` should improve from the older warning audits once controls use the same fixed/cached decoder and matched `384` sample count.
+- E: Fixed `nl_prefix_latent_component_fixed_start_controls.py` and `nl_prefix_latent_fixed_start_shape_audit.py` so they discover arbitrary `*_startN` case roots instead of hard-coding start `18`. Regenerated start-22 fixed-decoder start-only and repeat controls at `384` samples, then ran the full path-distribution audit against the existing start-22 observed component root.
+- A: Start `22` remains `warning`. The path audit has no failures, and repeat path controls are below gate: repeat-to-observed path energy `0.419`, variance `0.273`, and Wasserstein `0.575`; start-only remains `0.0`. The warning is bootstrap-driven: bootstrap-to-observed path energy `1.521` and path Wasserstein `0.974`. The terminal-gap control is stricter and fails with bootstrap terminal ratio `1.895` and repeat terminal ratio `0.788`.
+- D: The fixed-decoder correction is necessary but not sufficient across starts. Start `18` is a clean pass; start `22` still has weak observed narrative separation relative to bootstrap/readout noise. The remaining bottleneck is start-dependent rollout/readout signal-to-noise, not support selection collapse. Broader production claims need start-level pass/warning stratification and a path/dependence-aware calibration method, not another text embedding knob.
+
+### Governance Fields
+- research_lane: `candidate`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Fixed start-22 controls: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start22_fixed_decoder_controls_905k_s384/component_fixed_start_controls.json`
+- Fixed start-22 path audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start22_path_audit_905k_fixed_decoder_s384/fixed_start_shape_audit.json`
+- Loader fixes: `experiments/backfill/block_ar/nl_prefix_latent_component_fixed_start_controls.py`, `experiments/backfill/block_ar/nl_prefix_latent_fixed_start_shape_audit.py`
+- Tests: `27 passed in 2.02s`
+
+---
+## 2026-05-12: HEAD nl-prefix 185 refreshed start-level stratification
+
+### HEAD
+- H: The production claim should be stratified by starting level. If only start `18` passes after fixed-decoder correction, the workflow should expose that rather than presenting uniform narrative conditionality across arbitrary starts.
+- E: Updated the component start-stratification classifier so raw `warnings` from path-audit reports are treated the same as `promotion_warnings`. Built a refreshed stratification over the fixed-decoder start-18 path audit, the fixed-decoder start-22 path audit, older start-40/start-77 readout audits, and the start-0 incompatibility audit.
+- A: The refreshed five-audit status is: one `pass`, three `warning`, and one `fail`. Start `18` is the clean pass. Starts `22`, `40`, and `77` are warnings driven by bootstrap/readout noise. Start `0` remains a start-incompatibility fail. Regression tests passed: `30 passed in 1.99s`.
+- D: Keep the current method as a guarded workflow, not a blanket arbitrary-start production claim. The product should surface start-level status: accepted/clean for starts with clean path gates, warning for starts where narrative effects are present but weak relative to bootstrap noise, and reject/warn strongly for incompatible starts. The next research step is to improve start-dependent rollout/readout signal-to-noise or build a principled path/dependence-aware calibration; not to add another text embedding knob.
+
+### Governance Fields
+- research_lane: `post_experiment_analysis`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `not_applicable`
+
+### Artifacts
+- Refreshed stratification: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_start_stratification_905k_fixed_decoder_refresh/component_start_stratification.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_start_stratification_905k_fixed_decoder_refresh/component_start_stratification.md`
+- Classifier update: `experiments/backfill/block_ar/nl_prefix_latent_component_start_stratification.py`
+- Tests: `test_code/test_905c_nl_prefix_latent_component_start_stratification.py`
+
+---
+## 2026-05-13: NL full OpenAI label expansion shows cache size is not the main bottleneck
+
+### Context
+The user raised the correct concern that weak narrative conditionality might be caused by a limited cached OpenAI label set. I tested that directly by expanding from the representative OpenAI narrative manifest to an all-window validation manifest.
+
+### Run
+- Built `window_selection_manifest_full_906b_all_windows` over all `441` available validation windows.
+- After temporal embargo, the selected manifest split was `279` train / `36` validation / `66` test windows.
+- Reused the existing `manifest_expansion_878e_openai_full` label cache and called OpenAI only for the `141` missing manifest labels.
+- Final cache: `398` JSONL rows; final usable manifest artifacts: `380` validated windows, `4663` text examples, and one rejected label (`joint39_val_0240`).
+- Label model: `gpt-5.4-mini`; embedding model: `text-embedding-3-small`.
+- Main artifacts:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/window_selection_manifest_full_906b_all_windows/window_selection_manifest.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_full_906b_all_windows/narrative_pipeline_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_full_906b_all_windows/bridge_eval_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_full_906b_all_windows_direct_memory/scenario_level_eval_report.json`
+
+### Findings
+- Compared with the `182`-window representative OpenAI run, the full `380`-window run keeps scenario-level quality competitive: narrative top-k CRPS improvement `+17.29%`, energy improvement `+21.28%`, and 80% coverage `0.623`, versus `+17.39%`, `+21.33%`, and `0.641` on the smaller representative split.
+- Direct text-memory generation remains weak on the full split: CRPS `+3.29%`, energy `+8.37%`, and 80% coverage `0.399`.
+- The bridge does not improve from more labels alone: held-out target cosine is mean `0.848` / median `0.860`, and recall@3 in the held-out test pool drops to `0.063` as candidate pool size grows.
+- Hard-negative separation recovers to `0.878`, close to the representative `0.883`, so the contrastive wording is not simply collapsing.
+
+### Decision
+Limited cached labeling was a plausible concern, but the all-window OpenAI expansion shows it is not the main blocker. More labels preserve scenario-level quality and improve regime coverage, but they do not by themselves solve direct text-to-memory conditioning or exact support retrieval. The current bottleneck is support ranking/readout/generator response under a larger candidate pool. The support mixture remains the right production path; the next research step should improve the support prior or component/readout calibration rather than blindly spending on more labels.
+
+---
+## 2026-05-13: NL oracle soft support weights show generator-response support-prior signal
+
+### Context
+The user clarified that direct text-to-memory conditioning is not required. The acceptable production architecture is narrative -> support mixture -> condition -> frozen SNI rollout, as long as the mixture produces visible and useful conditionality. The current question is therefore whether improving the support prior or generator-response-aware support weights is justified.
+
+### HEAD
+- H: If support-prior/weighting is a real lever, an oracle soft support-weight diagnostic using frozen-generator response labels should improve same-seed held-out scenario CRPS/energy versus equal support sampling. If it does not, the next work should move away from support weighting and toward readout/generator sensitivity.
+- E: Added `experiments/backfill/block_ar/nl_oracle_soft_support_weights.py` and tests in `test_code/test_906c_nl_oracle_soft_support_weights.py`. The script builds a leakage-only oracle bridge by converting generator-response labels into within-query candidate probabilities, marginalizing candidate-mixture probabilities into auditable support-window weights, and then letting `nl_scenario_level_evaluation.py` honor those weights via `--support-sampling-mode field_weight`.
+- A: On the 29-window representative held-out split, oracle top-3 support selection improved versus same-seed equal top-3: CRPS mean `0.6763` vs `0.6879`, energy mean `0.9742` vs `0.9895`, and 80% coverage `0.573` vs `0.558`. At top-3 the sample allocation stayed `[2,2,2]`, so this gain is support-set selection rather than non-uniform weighting. In the fair top-5 comparison, oracle field-weight sampling improved versus equal top-5: CRPS mean `0.6419` vs `0.6452`, energy mean `0.9295` vs `0.9348`, and coverage `0.633` vs `0.632`; non-uniform sample allocation occurred in `25/29` held-out windows.
+- D: The support-prior/weighting path has real upper-bound signal. The prior learned policies failed because they did not learn the generator-response weighting surface, not because support weighting is useless. This result is not deployable and not promoted because it uses realized future labels. The next deployable candidate should learn softer generator-response-aware support weights from train labels while preserving the auditable historical support mixture.
+
+### Governance Fields
+- research_lane: `exploration`
+- result_status: `mechanism_found`
+- benchmark_floor_status: `diagnostic_upper_bound`
+
+### Artifacts
+- Oracle bridge builder: `experiments/backfill/block_ar/nl_oracle_soft_support_weights.py`
+- Tests: `test_code/test_906c_nl_oracle_soft_support_weights.py`
+- Oracle bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout/oracle_soft_support_bridge_report.json`
+- Top-3 oracle scenario eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- Equal top-5 baseline: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_equal_top5_s2_seed884/scenario_level_eval_report.json`
+- Weighted top-5 eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_weighted_top5_s2_seed884/scenario_level_eval_report.json`
+- Comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout/oracle_soft_support_comparison.json`
+- Documentation: `docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md`, `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- Verification: `uv run pytest test_code/test_906c_nl_oracle_soft_support_weights.py test_code/test_776a_nl_scenario_level_evaluation.py -q` -> `18 passed`; `python -m py_compile experiments/backfill/block_ar/nl_oracle_soft_support_weights.py test_code/test_906c_nl_oracle_soft_support_weights.py`
+
+---
+## 2026-05-13: NL deployable kernel listwise support policy slightly beats equal top-5
+
+### Context
+After the oracle soft-support upper-bound showed that generator-response support weighting can improve the frozen SNI rollout, the next step was to build a deployable version that learns only from train-window generator-response labels and uses no held-out future labels at inference.
+
+### HEAD
+- H: A query-relative nonparametric/listwise support policy should generalize better than the previous linear/listwise policy because it can use train candidate prototypes and within-query feature geometry without forcing one global linear scoring surface.
+- E: Added `kernel_listwise_mixture_policy` to `experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py` with TDD coverage in `test_code/test_885a_nl_learned_mixture_policy.py`. The policy trains on the existing `128` train queries / `1280` candidate mixtures from `nl_rollout_response_train_mixture_labels_888a_128q`, augments candidate features with within-query standardized features, stores train candidate prototypes and query-standardized generator-response labels, then scores held-out candidate mixtures by kernel regression. At inference it marginalizes listwise probabilities into auditable support weights and uses `nl_scenario_level_evaluation.py --support-sampling-mode field_weight`.
+- A: Temperature `1.0` was too diffuse: all `29/29` held-out windows allocated `[2,2,2,2,2]` samples and only produced a tiny CRPS gain with slight energy regression. Temperature `0.20` was the best bounded candidate: CRPS mean `0.6441` versus equal top-5 `0.6452`, energy mean `0.9316` versus `0.9348`, and 80% coverage `0.636` versus `0.632`. It produced non-uniform support allocations in `24/29` held-out windows. Temperature `0.05` over-sharpened and worsened CRPS.
+- D: This is the first deployable learned support-weight policy in the branch that slightly beats the equal top-5 mixture on CRPS, energy, and coverage in the same-seed held-out diagnostic. It is not promoted because the gains are modest and still capture only a small part of the oracle soft-support upper bound. The mechanism is positive: the support mixture can be learned from train generator-response labels, but the learned response surface is still weak.
+
+### Governance Fields
+- research_lane: `exploration`
+- result_status: `candidate_diagnostic_positive`
+- benchmark_floor_status: `competitive_small_gain`
+
+### Artifacts
+- Code: `experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py`
+- Tests: `test_code/test_885a_nl_learned_mixture_policy.py`
+- Policy report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_temp0p20_128train_to_fullheldout/learned_mixture_policy_report.json`
+- Reranked bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_temp0p20_128train_to_fullheldout/learned_mixture_policy_bridge_report.json`
+- Scenario evaluation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_temp0p20_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- Comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_128train_to_fullheldout/kernel_listwise_policy_comparison.json`
+- Documentation: `docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md`, `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- Verification: `uv run pytest test_code/test_885a_nl_learned_mixture_policy.py -q`, `uv run pytest test_code/test_906c_nl_oracle_soft_support_weights.py test_code/test_776a_nl_scenario_level_evaluation.py -q`, and `python -m py_compile experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py experiments/backfill/block_ar/nl_oracle_soft_support_weights.py`
+
+---
+## 2026-05-13: NL scaled kernel/listwise support policy is competitive but not promoted
+
+### Context
+The previous deployable kernel/listwise support policy was positive but small on the `128` train-query diagnostic. The next principled step was to scale that same mechanism to all currently available OpenAI-labeled train windows while keeping the historical support mixture as the production backbone.
+
+### HEAD
+- H: If the query-relative kernel/listwise support policy is learning a real generator-response surface rather than noise from the smaller diagnostic, scaling from `128` train queries to the full available `278` train queries should improve the same-seed held-out comparison versus equal top-5 support sampling.
+- E: Reused the full OpenAI-labeled manifest split (`380` usable windows: `278` train, `66` test, `36` excluded). Built full train and test query bridges, generated all train top-5 choose-3 candidate-mixture labels (`2780` train rows) through the frozen SNI scenario evaluator, trained `kernel_listwise` with temperature `0.20`, then evaluated on the untouched `66` held-out test windows. No OpenAI API calls were made in this step; it used cached OpenAI labels/embeddings and local generator rollouts.
+- A: The equal top-5 baseline on the `66` held-out windows had CRPS `0.6690`, energy `0.9722`, and coverage `0.608`. The learned kernel/listwise policy had CRPS `0.6679`, energy `0.9737`, and coverage `0.610`. It created non-uniform support allocation in `46/66` held-out windows. The policy improves CRPS by about `0.16%` relative and coverage by `0.0024`, but energy regresses by about `0.16%` relative.
+- D: Scaling confirms the learned policy is competitive and operationally non-uniform, but not a clean promotion. The result does not beat the simple equal-weight support mixture on all core distributional metrics. The next step should improve the candidate representation or generator-response model, not perform a broad temperature sweep.
+
+### Governance Fields
+- research_lane: `candidate`
+- result_status: `candidate_diagnostic_competitive_not_promoted`
+- benchmark_floor_status: `competitive_mixed`
+
+### Artifacts
+- Train mixture labels: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_906e_train_mixture_labels/scenario_eval/scenario_level_eval_report.json`
+- Train label summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_906e_train_mixture_labels/rollout_response_label_summary.json`
+- Equal top-5 held-out baseline: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_equal_top5_test_s2_seed906/scenario_level_eval_report.json`
+- Learned policy: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20/learned_mixture_policy_report.json`
+- Learned-policy held-out evaluation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20_scenario_eval/scenario_level_eval_report.json`
+- Comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20/full_kernel_policy_comparison.json`
+- Documentation: `docs/research_protocols/nl_prefix_latent_current_truth.md`, `docs/research_protocols/nl_prefix_latent_soft_listwise_mixture_policy_intake.md`
+
+---
+## 2026-05-13: NL product framing should sell risk workflow value, not prompt-following
+
+### Context
+The user raised the core product concern: weak narrative conditionality can make a narrative-conditioned scenario generator feel less useful to day-to-day risk managers if it is sold as a prompt-following future generator. The better framing is not that language forces the future distribution, but that language connects qualitative risk narratives to auditable, historically supported scenario distributions and portfolio impact.
+
+### Product Framing
+The system should be positioned as a **narrative-to-risk-scenario workbench**:
+
+`risk-manager current-market story -> grounded implications and warnings -> historical support regimes and weights -> frozen SNI scenario distribution -> portfolio impact and committee-ready report`
+
+This is more attractive than only showing SPX/VIX fan charts. Risk managers care about what the scenario does to their book, which factors hurt them, which generated paths are dangerous, which historical regimes support the story, and whether the result can be placed into a risk meeting report.
+
+### Paper/Demo Implications
+The short technical paper should add a product-facing section or casebook layer that shows:
+
+- a simple portfolio or exposure vector;
+- 30-day P&L fan chart, VaR/ES-style summaries, and worst-path examples;
+- factor contribution to loss under generated paths;
+- side-by-side narratives such as fragile risk-on, dollar liquidity squeeze, and commodity inflation pressure;
+- readable historical support cards instead of raw support tables;
+- a one-page scenario briefing output containing narrative, starting level, grounded claims, warnings, supports, scenario distribution, and portfolio impact.
+
+### Quantitative Implication
+Stronger narrative conditionality still matters. The current evidence supports auditable, support-grounded conditionality with warnings, not strong prompt-following. To make the system more sellable without overclaiming, the next quantitative milestone should measure and improve:
+
+- fixed-start narrative sensitivity across path distributions, not only marginal factor fans;
+- portfolio-impact sensitivity across narratives using the same starting level and exposure vector;
+- support-set diversity and support-overlap differences across narratives;
+- calibration of generated fans so risk reports are credible;
+- learned support weighting only if it beats or remains competitive with the simple equal-weight support mixture.
+
+### Decision
+Do not sell the product as an LLM that predicts or commands future market paths. Sell it as a workflow accelerator that turns risk narratives into auditable scenario distributions and portfolio-impact reports. For the paper, the next attractive addition is a portfolio-impact casebook. For research, stronger conditionality is still needed, but it should be evaluated in business units such as P&L distribution, worst paths, factor loss attribution, and support provenance rather than only SPX/VIX visual separation.
+
+---
+## 2026-05-13: NL portfolio conditionality performance audit
+
+### Context
+The latest product concern is quantitative sellability: if the narrative-conditioned scenario generator cannot show material scenario-distribution differences across narratives, casebooks and UI improvements are not enough. The current fixed-start workflow was therefore audited in portfolio-risk units rather than only SPX/VIX factor fans.
+
+### Work Done
+- Added a portfolio-impact layer over generated raw-level paths using an illustrative multi-asset risk book and generated paper-facing portfolio fan/summary artifacts.
+- Added `nl_prefix_latent_portfolio_conditionality_audit.py`, which compares cross-narrative portfolio path distances against start-only, same-narrative repeat, and within-run bootstrap controls.
+- Exposed support-prior temperature, top-k, and rollout temperature in the fixed-start control runner for bounded TestFlight comparisons.
+- Added a re-projection utility that reuses cached OpenAI text embeddings but projects them through the full 380-window bridge adapter, avoiding new API calls while testing the larger support pool.
+
+### Findings
+- The older representative-support 384-sample run remains a warning: cross-narrative portfolio path distance is well above repeat noise (`path_vs_repeat=3.13`) but slightly below bootstrap noise (`path_vs_bootstrap=0.90`).
+- Sharpening support weights alone is not a promotion candidate. At 96 samples it did not beat matched noise controls, and the signal was mixed.
+- Lowering rollout temperature alone is not a promotion candidate. It improves repeat stability but weakens tail-risk separation, which is the wrong trade-off for a risk product.
+- The full OpenAI-labeled 380-window bridge/support pool is the best candidate so far. At 384 samples it improves product-relevant path conditionality: `path_vs_repeat=2.44`, `path_vs_bootstrap=1.00`, with a larger observed cross-narrative portfolio path gap than the representative bridge. Tail VaR-style separation remains a warning (`var95_vs_repeat=0.74`, `var95_vs_bootstrap=1.36`).
+
+### Decision
+Do not sell the system only through prettier casebook plots. The next defensible product claim is narrower: using the all-window OpenAI-labeled support pool, narrative conditions produce measurable portfolio-path distribution differences at a fixed starting level, but tail-risk conditionality is still an open quantitative bottleneck. Promote the full-support path only after either tail-repeat stability improves or the product report clearly labels tail metrics as diagnostic rather than accepted.
+
+### Artifacts
+- Full-support condition reports: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_condition_only_full906b_914a/`
+- Full-support fixed-start run: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_914c_full906b_s384/`
+- Full-support controls: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_decoder_controls_914c_full906b_s384/component_fixed_start_controls.json`
+- Portfolio audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_portfolio_conditionality_audit_914c_full906b_s384/portfolio_conditionality_audit.json`
+- Paper figures refreshed from the full-support run under `paper/narrative_grounded_scenarios/figures/`.
+
+---
+## 2026-05-14: NL conditionality-strength benchmark consolidation
+
+### Context
+The latest question was whether the narrative-conditioned scenario generator's conditionality problem is solved. The prior evidence was split across factor-path audits, portfolio conditionality audits, support tables, and held-out scenario evaluations, making it too easy to overstate or understate the result.
+
+### Work Done
+- Added `experiments/backfill/block_ar/nl_prefix_latent_conditionality_strength_benchmark.py` as a no-OpenAI, no-training consolidation benchmark.
+- Ran the benchmark on the current full-support component-preserving run:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_mixture_fixed_start_914c_full906b_s384/`.
+- Used matching fixed-decoder controls:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_decoder_controls_914c_full906b_s384/`.
+- The benchmark writes one report combining held-out distributional quality, support diversity, factor full-path conditionality, portfolio P&L conditionality, repeat controls, bootstrap controls, and start-only controls.
+
+### Results
+- Benchmark verdict: `conditionality_partially_supported_with_warnings`.
+- Held-out full906b narrative support mixture remains much stronger than direct text memory:
+  - direct memory: coverage `0.399`, CRPS improvement `+0.033`, energy improvement `+0.084` versus persistence;
+  - support mixture: coverage `0.623`, CRPS improvement `+0.173`, energy improvement `+0.213` versus persistence.
+- Support diversity is strong under the current six-narrative fixed-start casebook: median pairwise support Jaccard `0.000`, max `0.083`.
+- Factor-path conditionality is real but guarded:
+  - repeat/observed path-energy ratio `0.133`;
+  - bootstrap/observed path-energy ratio `0.938`.
+- Portfolio conditionality is also guarded:
+  - portfolio path observed/repeat `2.441`;
+  - portfolio path observed/bootstrap `1.004`;
+  - portfolio VaR95 observed/repeat `0.735`;
+  - portfolio VaR95 observed/bootstrap `1.357`.
+
+### Decision
+The conditionality problem is not fully solved. The current full-support workflow has real narrative signal: support sets differ, start-only controls are zero, and portfolio path distance is well above same-narrative repeat noise. It is not yet a clean production pass because bootstrap noise remains close to the observed cross-narrative effect and VaR-style tail separation is still below the repeat-control threshold.
+
+### Artifacts
+- Consolidated report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_915a_full906b_s384/conditionality_strength_benchmark.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_915a_full906b_s384/conditionality_strength_benchmark.md`
+- Factor-path audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_915a_full906b_s384/factor_path_audit/fixed_start_shape_audit.json`
+- Portfolio audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_915a_full906b_s384/portfolio_conditionality_audit.json`
+- Support overlap plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_915a_full906b_s384/support_overlap_matrix.png`
+
+### Next Step
+The next research step should target tail-risk conditionality and bootstrap-noise separation, not more OpenAI labeling. The most plausible path is a generator-response-aware support-mixture policy or calibration layer that improves portfolio VaR/ES separation while preserving the current support diversity and held-out CRPS/energy floor.
+
+---
+## 2026-05-15: NL scenario-to-text asymmetry and risk-manager captions
+
+### Context
+The narrative-specialist documents under `research/narrative_specialist/` describe what risk managers want to see when quant-generated scenarios are translated into human story narratives. This clarified an important asymmetry in the natural-language scenario-generator project.
+
+### Core Insight
+The `scenario -> text` direction is comparatively easy because the numerical scenario already exists. An LLM can translate structured quant evidence into a risk-manager narrative: what changed, the plausible mechanism, cross-asset transmission, portfolio impact, historical analogue or regime archetype, and risk flags. This is mostly summarization, interpretation, and report writing.
+
+The `text -> scenario` direction is the hard problem. A risk-manager narrative does not contain enough numerical information to directly define a calibrated 39-factor, 30-day stochastic distribution with realistic correlations, tails, IV-surface behavior, and autoregressive dynamics. An LLM can produce plausible prose, but it should not directly invent the scenario distribution.
+
+### Product Architecture Implication
+The LLM should be used where it is strong:
+
+```text
+historical/current quant scenario -> risk-manager-style caption
+risk-manager input narrative -> grounding/warnings/audit sidecar
+generated scenario distribution -> risk-manager report narrative
+```
+
+The numerical scenario distribution should remain the responsibility of the quant model:
+
+```text
+risk-manager narrative
+-> text embedding / bridge
+-> historical support mixture or latent condition
+-> frozen SNI autoregressive generator
+-> generated 30-day scenario distribution
+```
+
+### Training Implication
+The `scenario -> text` direction is valuable because it can generate better paired captions for historical prefixes. Instead of bland descriptions such as `SPX up, VIX down`, we should produce richer risk-manager-aligned captions such as fragile risk-on rebound, liquidity squeeze, inflation shock, credit stress, policy overshoot, or safe-haven rotation. These captions can then improve the `text -> latent/support` bridge through MLP training, hard-negative contrastive learning, and support-mixture ranking.
+
+Important guardrail: training captions used as conditioning inputs must describe the current/recent prefix, not the realized future. Future-looking statements such as `equities will crash next month` would leak the target and destroy the conditional scenario interpretation. Forward-looking language should remain warning-only or output-report language.
+
+### Updated Working Loop
+The clean loop is:
+
+```text
+historical prefix / current state
+-> risk-manager-style current-condition captions
+-> text embedding and contrastive bridge training
+-> learned text-to-support/latent conditioning
+-> frozen SNI scenario generation
+-> generated scenario-to-narrative report
+```
+
+This uses LLMs for language, caption quality, grounding, and reporting while keeping calibrated stochastic scenario generation inside the SNI quant backbone.
+
+### Decision
+Use the narrative-specialist documents to improve the captioning and reporting layers. Do not reinterpret them as evidence that an LLM should directly generate scenarios. The next research direction should be to convert historical prefixes into richer risk-manager-style current-condition captions, then test whether those captions improve bridge alignment, support-mixture selection, contrastive separation, and ultimately held-out scenario distribution quality.
+
+---
+## 2026-05-15: Risk-manager caption V2 TestFlight
+
+### Context
+The narrative-conditioned scenario generator depends on scenario-to-text training captions. The previous captions were too narrow and did not consistently match professional risk-manager language. The user asked that every narrative-generation change check both quant-specialist Word documents under `research/narrative_specialist/`, and allowed small OpenAI TestFlights before scale.
+
+### Hypothesis
+A structured `RiskManagerCaptionV2` caption contract, using both specialist Word documents as style sources, can produce professional current/recent-prefix captions suitable for future embedding and contrastive bridge training while avoiding future-outcome leakage.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_risk_manager_caption_v2.py`.
+- Added focused tests in `test_code/test_916a_nl_risk_manager_caption_v2.py`.
+- Updated the NL prefix-latent workflow so every scenario-to-text or narrative-generation change must check both specialist Word documents, record their paths and hashes, and pass a small TestFlight before scale.
+- Updated the tracked goal/current-truth/protocol docs with the caption-quality gate.
+- Ran local and OpenAI 10-window TestFlights.
+
+### Result
+- Local TestFlight: pass, 10 captions, 0 validation errors.
+- OpenAI TestFlight: pass, 10 captions, 0 validation errors.
+- OpenAI model: `gpt-5.4-mini`.
+- Prompt version: `risk_manager_caption_v2_2026_05_15`.
+- OpenAI token usage across 10 structured-output calls: 25,758 input, 13,521 output, 39,279 total.
+- Specialist document hashes recorded in the OpenAI artifact:
+  - `research/narrative_specialist/quant generated scenarios story narrative.docx`: `ef795e2d10ac...`
+  - `research/narrative_specialist/quant generated scenarios story narrative 2.docx`: `0226938939e3...`
+
+### Artifact Paths
+- OpenAI report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_openai/risk_manager_caption_v2_testflight_report.json`
+- OpenAI captions JSONL: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_openai/risk_manager_caption_v2_captions.jsonl`
+- Local report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_local/risk_manager_caption_v2_testflight_report.json`
+
+### Mechanism Read
+The OpenAI captions are materially closer to risk-manager prose than the old terse labels: they include a title, regime archetype, mechanical cross-asset summary, trigger caveat, transmission channel, portfolio vulnerability, risk-manager implication, evidence, leakage exclusions, and hard-negative contrastive captions. The TestFlight does not prove improved text-to-scenario conditionality yet; it proves the scenario-to-text data-quality gate is now strong enough to justify a future small embedding/bridge comparison.
+
+### Decision / Next Step
+Keep `gpt-5.4-mini` and the structured-output schema for the next bounded caption experiment; no LangChain/LangGraph/RAG escalation is justified yet. The next principled step is a small comparison of old captions versus `RiskManagerCaptionV2` captions on text-memory alignment, hard-negative separation, and historical backtest support selection before any all-training relabeling run.
+
+### Verification Commands
+- `uv run pytest test_code/test_916a_nl_risk_manager_caption_v2.py -q`
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_caption_v2.py`
+- `uv run python experiments/backfill/block_ar/nl_risk_manager_caption_v2.py --backend local --count 10 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_local`
+- `uv run python experiments/backfill/block_ar/nl_risk_manager_caption_v2.py --backend openai --count 10 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_openai --model gpt-5.4-mini`
+
+---
+## 2026-05-15: Premium caption challenger blocked by quota
+
+### Context
+The previous `gpt-5.4-mini` caption TestFlight proved the new `RiskManagerCaptionV2` pipeline was functional, but it did not prove the cheap model was adequate relative to a best-effort risk-manager writing ceiling. The user asked for an all-out premium TestFlight before accepting that claim.
+
+### Execution
+- Queried available OpenAI models from the API; `gpt-5.5-pro` is available on this account.
+- Ran a one-window diagnostic with `gpt-5.5-pro` and `max_output_tokens=6000`; the structured output parsed successfully.
+- Attempted a 10-window `gpt-5.5-pro` challenger run. The first attempt with `max_output_tokens=3000` failed because the premium model used more reasoning/output budget than the cap allowed. The larger-cap sequential run was stopped after it became too slow for an interactive batch.
+- Attempted a smaller 3-window `gpt-5.5-pro` challenger, but the API returned `429 insufficient_quota`.
+- Added checkpointed partial-report support to `nl_risk_manager_caption_v2.py` so future premium runs can write successful captions and API errors incrementally instead of losing the whole batch.
+
+### Result
+The premium diagnostic suggests `gpt-5.5-pro` may produce richer prose than `gpt-5.4-mini`: the first caption used fuller regime naming, explicit date context, more careful trigger caveats, and a more complete transmission chain. However, the evidence is only one diagnostic call, not a controlled 10-window comparison. Therefore we cannot yet claim that the cheap model is adequate relative to a premium ceiling.
+
+### Decision
+Keep `gpt-5.4-mini` as the operational default for bounded TestFlights, but mark adequacy as unproven until a saved premium challenger batch is run. The next premium run should use the checkpointed harness with `--continue-on-error`, a small count such as 3-5 windows, and `max_output_tokens=6000`; if it is materially better, use premium captions as gold labels or evaluator references and then test whether mini captions can be prompt-improved to match them.
+
+### Verification Commands
+- `uv run pytest test_code/test_916a_nl_risk_manager_caption_v2.py -q`
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_caption_v2.py`
+- `uv run python experiments/backfill/block_ar/nl_risk_manager_caption_v2.py --backend local --count 10 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_local`
+
+### Artifact Paths
+- Current mini TestFlight: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916a_openai/risk_manager_caption_v2_testflight_report.json`
+- Future premium challenger target: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_testflight_916b_gpt55pro_count3/`
+
+---
+## 2026-05-15: Codex CLI premium caption probe
+
+### Context
+After the premium API caption challenger exhausted API credit, the user asked whether ChatGPT-plan Codex could replace premium API calls for the description-generation part of the workflow. The target is offline scenario-to-text gold labeling; embeddings still require an embedding model/API or local embedder.
+
+### Execution
+- Confirmed `codex exec` is available and logged in with ChatGPT.
+- Generated a strict JSON schema from `RiskManagerCaptionV2` because Codex structured output requires all properties in `required`.
+- Ran `codex exec -m gpt-5.5 -c model_reasoning_effort='xhigh' --output-schema ...` on one historical window.
+- First Codex output was schema-valid but failed the existing leakage validator because the training caption contained the literal phrase `future outcome` in a negated caveat.
+- Reran with a stricter instruction to keep future/terminal/path wording out of `training_caption`; the second output passed `RiskManagerCaptionV2` validation with 0 errors and 0 warnings.
+
+### Result
+Codex can replace premium OpenAI API calls for offline risk-manager description generation, provided we use a strict schema and run the existing validator afterward. It should be treated as a gold-caption/reviewer lane, not as a production inference API. The passing caption used `gpt-5.5`, `xhigh`, reported 34,893 Codex tokens, and produced a 161-word training caption plus 4 hard-negative contrastive captions.
+
+### Artifact Paths
+- Probe report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_probe_916c/codex_caption_probe_report.json`
+- Passing caption: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_probe_916c/codex_gpt55_caption_pass.json`
+- Failed-validator caption: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_probe_916c/codex_gpt55_caption_failed_validator.json`
+- Strict schema: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_probe_916c/risk_manager_caption_v2_codex_strict_schema.json`
+
+### Decision / Next Step
+Add a Codex-backed offline caption lane only for small gold-label or evaluator batches. Do not use premium API models for caption batches without explicit cost approval. The next principled experiment is a 3-5 window Codex gold-caption batch compared against `gpt-5.4-mini` captions on validation quality, embedding/support selection, and downstream scenario conditionality.
+
+---
+## 2026-05-15: Codex versus API caption provider comparison
+
+### Context
+The user asked whether Codex should replace the OpenAI API for risk-manager scenario-to-text descriptions, and specifically requested case studies, spot checks, sanity checks, and online context before switching prematurely. The goal is to see whether a ChatGPT/Codex-subscribed user can route premium caption generation through Codex while preserving structured data and improving narrative sophistication.
+
+### Online Context
+- Codex non-interactive mode supports automation via `codex exec`, JSONL output, `--output-schema`, and `-o/--output-last-message` for saved outputs. This makes it plausible as an offline labeling/evaluation lane, but it is still an agent CLI rather than a production inference endpoint.
+- OpenAI evaluation guidance recommends eval-driven development, task-specific evals, logging, automated scoring where possible, and human judgment calibration; it warns against vibe-based evals.
+- OpenAI Batch API remains the cheaper API-native route for large offline jobs, offering a 50% discount and separate batch limits, but it still consumes API billing.
+
+### Execution
+- Built `experiments/backfill/block_ar/nl_caption_provider_comparison.py`.
+- Compared matched captions for three windows: `joint39_val_0000`, `joint39_val_0309`, and `joint39_val_0375`.
+- Providers compared:
+  - API: existing `gpt-5.4-mini` structured-output captions.
+  - Codex: `codex exec -m gpt-5.5 -c model_reasoning_effort='xhigh' --output-schema ...` captions.
+- Checks included schema validation, leakage validation, section completeness, training-caption length, evidence preservation, ambiguity flags, contrastive caption count, professional risk-manager terminology, and source-market coverage.
+
+### Result
+- Matched cases: 3.
+- API validation errors/warnings: 0 / 0.
+- Codex validation errors/warnings: 0 / 0 after adding an exact no-forecast caveat instruction.
+- Mean deterministic score delta, Codex minus API: +9.233.
+- Codex improved training-caption depth in all three cases:
+  - `joint39_val_0000`: 109 API words vs 161 Codex words; score 78.88 vs 88.00.
+  - `joint39_val_0309`: 73 API words vs 122 Codex words; score 74.92 vs 82.50.
+  - `joint39_val_0375`: 106 API words vs 188 Codex words; score 77.00 vs 88.00.
+- Codex preserved evidence counts and improved or matched source-market coverage in all three cases.
+- Codex sometimes changed the interpretation/archetype, e.g. `joint39_val_0000` from `financial_accident` to `demand_recession`. This can be an improvement when the mechanism is more precise, but it also means Codex is not yet an unreviewed drop-in replacement.
+
+### Artifact Paths
+- Comparison JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_provider_comparison_916d/caption_provider_comparison.json`
+- Comparison Markdown/casebook: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_provider_comparison_916d/caption_provider_comparison.md`
+- Codex probe report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_probe_916c/codex_caption_probe_report.json`
+- Comparison script: `experiments/backfill/block_ar/nl_caption_provider_comparison.py`
+
+### Decision
+Codex is justified as an optional premium gold-caption / evaluator lane for users with a Codex subscription. It should not yet replace API captioning wholesale. The next gate is downstream: embed API versus Codex captions for the same windows and test whether Codex captions materially improve support selection, hard-negative separation, and fixed-start scenario conditionality. If downstream conditioning does not improve, Codex should remain a report-quality/gold-label tool rather than the default caption generator.
+
+### Verification Commands
+- `python -m py_compile experiments/backfill/block_ar/nl_caption_provider_comparison.py`
+- `uv run python experiments/backfill/block_ar/nl_caption_provider_comparison.py`
+- `uv run pytest test_code/test_916a_nl_risk_manager_caption_v2.py -q`
+
+---
+## 2026-05-15: Codex caption lane and reverse-direction gate
+
+### Context
+The user asked whether the project now has risk-manager-level scenario-to-text narratives, whether it is ready to run the reverse text-to-scenario exercise, and whether the richer Codex-generated caption plus structured sidecar should change the embedding/support workflow.
+
+### Current Evidence
+- `risk_manager_caption_v2_2026_05_15` now checks both risk-manager specialist Word documents under `research/narrative_specialist/` and requires the professional caption shape: title, mechanical summary, archetype/regime, trigger, transmission, cross-asset reaction, sequence, portfolio/risk implication, evidence, ambiguity, contrastive hard negatives, and no-forecast caveat.
+- The 3-case provider comparison found schema/leakage-valid captions for both the `gpt-5.4-mini` API lane and the Codex CLI `gpt-5.5` xhigh lane.
+- Codex improved the deterministic caption-quality score by +9.233 points on the matched 3-case comparison, but it also changed one scenario archetype, so it is a gold-caption/evaluator lane rather than an unreviewed production replacement.
+- Current status is risk-manager-document compliant, not literal human risk-manager sign-off.
+
+### Decision
+The next caption-related step is a controlled reverse-direction TestFlight:
+
+```text
+scenario -> risk-manager-document-compliant caption
+caption + structured sidecar + fixed start
+-> text representation
+-> projected SNI terminal memory for support ranking
+-> diverse direction-checked historical support mixture
+-> component-preserving frozen SNI rollout
+-> held-out scenario metrics and qualitative conditionality plots
+```
+
+Do not run a full relabeling job just because Codex captions read better. First compare API and Codex captions on the same windows/starts, A/B `text-embedding-3-small` versus `text-embedding-3-large`, and test whether the richer text/sidecar improves support selection, hard-negative separation, direction/support audits, fixed-start conditionality, and held-out CRPS/energy/coverage.
+
+### Process Update
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` with the risk-manager-document-compliant status and immediate reverse-direction gate.
+- Updated `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` with the Codex gold-caption lane and caption-to-scenario A/B gate.
+- Updated `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md` so future autoresearch iterations do not treat better prose as sufficient evidence without downstream scenario gates.
+
+### Next Step
+Run a small matched-window reverse-direction embedding/support TestFlight before scaling: API caption vs Codex caption, `text-embedding-3-small` vs `text-embedding-3-large`, full-caption-only vs full-caption-plus-structured-fields, then measure support and scenario-level effects against the current diverse support mixture floor.
+
+---
+## 2026-05-15: Reverse-direction caption A/B TestFlight
+
+### Context
+The user asked for the most principled next step: a reverse-direction A/B showing whether the richer risk-manager-document-compliant captions materially improve the text-to-support-to-scenario path compared with the older simple/demo narrative style.
+
+### Implementation
+- Added `experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py`.
+- Added `test_code/test_916e_nl_risk_manager_caption_reverse_ab.py`.
+- The script builds matched text variants for 10 historical windows:
+  - legacy/simple pipeline text;
+  - simple fact-token text;
+  - the old generic fragile-risk-on demo narrative;
+  - `risk_manager_caption_v2` API training and structured captions;
+  - Codex `gpt-5.5` xhigh training and structured captions where available.
+- It embeds variants with `text-embedding-3-small` and `text-embedding-3-large`, projects through the SNI terminal-memory bridge, selects diverse non-overlapping support rows, and emits bridge-style reports consumable by `nl_scenario_level_evaluation.py`.
+- For `text-embedding-3-large`, the script embedded the existing 4,663-example bridge corpus and trained a fresh 250-step adapter for this TestFlight.
+
+### Results
+Artifacts:
+- Main A/B report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/caption_reverse_ab_report.json`
+- Group rollout summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/caption_reverse_ab_rollout_group_summary.md`
+- Small-embedding rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_rollout/scenario_level_eval_report.json`
+- Large-embedding rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_large_rollout/scenario_level_eval_report.json`
+
+Support/memory alignment:
+- `text-embedding-3-small`: rich API target-memory cosine `0.680` vs simple `0.373`; rich Codex `0.685`; old generic demo `0.477`.
+- `text-embedding-3-small`: rich API support cosine `0.838` vs simple `0.656`; rich Codex `0.859`.
+- `text-embedding-3-large`: rich API target-memory cosine `0.722` vs simple `0.585`; rich Codex `0.554`.
+
+Scenario rollout:
+- `text-embedding-3-small`: rich API rollout CRPS `0.873` and energy `1.112`, better than the old generic demo story (`0.909`, `1.121`) but behind the full simple group (`0.847`, `1.072`).
+- `text-embedding-3-large`: rich API rollout CRPS `0.866` and energy `1.100`, better than the old generic demo story (`0.913`, `1.130`) but still behind the full simple group (`0.852`, `1.079`).
+- The strongest simple subvariant is direct fact-token conditioning, which remains hard to beat at rollout even though it is less risk-manager-natural as user-facing prose.
+
+### Interpretation
+The richer risk-manager captions are useful, but the win is currently strongest at the bridge/support layer and against the old generic demo narrative. They do not yet prove better scenario-level performance than explicit fact-token conditioning. This means the next method should fuse channels instead of replacing one with the other: keep the full professional narrative for nuance, keep structured risk-manager fields for interpretation, keep fact tokens for direction/magnitude precision, and improve generator-response-aware support weighting.
+
+### Verification Commands
+- `uv run pytest test_code/test_916e_nl_risk_manager_caption_reverse_ab.py -q`
+- `uv run pytest test_code/test_916e_nl_risk_manager_caption_reverse_ab.py test_code/test_916a_nl_risk_manager_caption_v2.py -q`
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py`
+- `uv run python experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py --embedding-backend openai --embedding-models text-embedding-3-small,text-embedding-3-large --max-windows 10 --adapter-steps 250 --device cuda --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large --include-generic-demo`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/reverse_ab_bridge_report_text_embedding_3_small.json --bridge-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/reverse_ab_bridge_arrays_text_embedding_3_small.npz --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_rollout --query-role anchor --allow-duplicate-query-windows --top-k 3 --samples 2 --support-sampling-mode equal --seed 916 --device cuda --max_windows 441 --chunk-size 8`
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/reverse_ab_bridge_report_text_embedding_3_large.json --bridge-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_small_large/reverse_ab_bridge_arrays_text_embedding_3_large.npz --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916e_openai_large_rollout --query-role anchor --allow-duplicate-query-windows --top-k 3 --samples 2 --support-sampling-mode equal --seed 916 --device cuda --max_windows 441 --chunk-size 8`
+
+### Next Step
+Build the fused caption representation gate: risk-manager narrative + structured fields + explicit fact tokens + hard negatives, then test whether generator-response-aware support weighting can keep the scenario-level advantage of fact tokens while preserving risk-manager-grade narrative usability.
+
+---
+## 2026-05-15: Fused fact-token and professional narrative reverse A/B
+
+### Context
+After updating the narrative-conditioned scenario paper with the risk-manager caption standard, provider/cost comparison, and reverse-direction caption A/B, I ran the next bridge-side step: preserve the directional precision of simple fact tokens while keeping the richer professional risk-manager narrative.
+
+### Change
+Added fused text variants to `experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py`:
+- `api_v2_fused_fact_training_caption`
+- `api_v2_fused_fact_structured_caption`
+- `codex_v2_fused_fact_training_caption`
+- `codex_v2_fused_fact_structured_caption`
+
+Each fused variant prepends explicit `FACT_TOKENS` from the existing historical-window grounding/fact-token channel to the professional narrative caption. This keeps directionally precise signals such as SPX down / VIX up visible to the text embedding while preserving the richer scenario-story language required by the risk-manager specialist documents.
+
+### TestFlight
+Artifact root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_916f_fused_fact_testflight/`
+
+Commands run:
+- `uv run pytest test_code/test_916e_nl_risk_manager_caption_reverse_ab.py -q` -> 3 passed.
+- Reverse A/B over 10 matched windows with `text-embedding-3-small` and `text-embedding-3-large`, OpenAI embeddings, no new caption-generation calls.
+- Low-budget scenario rollout for both embedding models with duplicate query windows allowed, top-3 support, 2 samples per support, 92 text-variant query rows.
+
+### Results
+Bridge/support alignment:
+- Small embedding, fused API: target cosine 0.686, support cosine 0.858.
+- Small embedding, fused Codex: target cosine 0.735, support cosine 0.874.
+- Large embedding, fused API: target cosine 0.763, support cosine 0.913.
+- Large embedding, fused Codex: target cosine 0.678, support cosine 0.899.
+
+Low-budget rollout group means:
+- Small embedding: fused API CRPS 0.845 / energy 1.079 / coverage 0.515; rich API 0.874 / 1.111 / 0.499; simple 0.887 / 1.119 / 0.494.
+- Small embedding: rich Codex remains best on CRPS/energy at 0.775 / 0.996, while fused Codex is 0.788 / 1.013 and has higher coverage 0.515.
+- Large embedding: fused API CRPS 0.845 / energy 1.077 / coverage 0.502; rich API 0.870 / 1.102 / 0.517; simple 0.900 / 1.135 / 0.486.
+- Large embedding: rich Codex and fused Codex are effectively tied on CRPS/energy around 0.777 / 0.993-0.994, with fused Codex slightly higher coverage 0.494 versus 0.475.
+
+### Interpretation
+The fused representation is a promising candidate because it improves API-caption rollout quality versus both rich API-only captions and the simple group in this low-budget TestFlight. It also strongly improves bridge/support alignment, especially with `text-embedding-3-large`. Codex captions remain useful as a premium gold-caption/evaluator lane; fusion does not clearly beat pure Codex captions on this tiny 3-window Codex subset, but it improves coverage and preserves the directional channel. The next principled step is a larger held-out fused-vs-rich-vs-simple benchmark and, if it holds, a paper/demo update that positions the fused channel as the default text representation.
+
+---
+## 2026-05-15: Codex corpus-caption scaling and fused narrative reverse A/B
+
+### Context
+The current NL objective is still support-grounded latent scenario generation, not direct text-only generation. The new data-quality question was whether CodeX-level, risk-manager-document-compliant scenario captions can be generated and validated at corpus scale, then used in the reverse path:
+
+```text
+scenario -> professional caption + fact tokens -> text embedding -> terminal-memory bridge -> diverse support mixture -> frozen SNI rollout
+```
+
+### Changes
+- Added `experiments/backfill/block_ar/nl_codex_caption_batch.py`, a resumable Codex CLI batch runner for `RiskManagerCaptionV2` with strict all-fields-required schema, skip-existing behavior, per-window prompts/events/captions, and the same leakage validator as the API caption lane.
+- Tightened the caption prompt so `training_caption` avoids even negated leakage phrases such as future path / generated scenario / VaR / ES, and the caveat must include the exact phrase `not a forecast`.
+- Updated `experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py` so Codex captions may live in either a flat directory or the new nested `captions/` batch layout, and so reverse A/B uses the union of API and Codex caption windows instead of being capped by the older 10-window API caption report.
+- Added `experiments/backfill/block_ar/nl_caption_rollout_group_summary.py` to summarize scenario rollout quality by narrative variant group.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` with the 20-window Codex scaling result and the current promotion status.
+
+### Codex Caption Scaling
+Artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_batch_917a_pilot1/codex_caption_batch_report.json`
+
+Result:
+- 20 requested windows, 20 valid Codex `gpt-5.5` xhigh captions after prompt repair.
+- 0 validation errors and 0 Codex execution errors in the rebuilt manifest.
+- Approximate logged Codex CLI usage across the 20 event files: 706,600 input tokens, 141,824 cached input tokens, 35,095 output tokens, and 10,320 reasoning output tokens.
+- This is a safe scaling gate, not the full 380-window corpus. At observed speed, the full Codex corpus is a multi-hour resumable offline job.
+
+### Reverse A/B And Scenario Rollout
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917c_codex_batch_20_union/caption_reverse_ab_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917c_codex_batch_20_union/small_rollout/scenario_level_eval_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917c_codex_batch_20_union/small_rollout/caption_rollout_group_summary.md`
+
+Bridge/support result for `text-embedding-3-small`:
+- Fused Codex text target-memory cosine: 0.694 versus simple text 0.373.
+- Fused Codex support cosine: 0.813 versus simple text 0.645.
+- Generic demo text target-memory cosine: 0.512 and support cosine 0.726.
+
+Low-budget rollout group summary for `text-embedding-3-small`:
+- Fused Codex: CRPS improvement 0.207, energy improvement 0.216, 80% coverage 0.406.
+- Simple group: CRPS improvement 0.169, energy improvement 0.185, 80% coverage 0.395.
+- Rich Codex only: CRPS improvement 0.168, energy improvement 0.186, 80% coverage 0.383.
+- This supports the fused representation as a candidate: professional narrative plus explicit fact tokens is better than old generic narrative and is competitive with or slightly ahead of the simple group in this 20-window pilot. It is not yet promoted because the corpus is incomplete and coverage/terminal MAE are not clearly better.
+
+### Conditionality Refresh
+Artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_917a_refresh/conditionality_strength_benchmark.json`
+
+The fixed-start conditionality benchmark remains `conditionality_partially_supported_with_warnings`: support overlap is low, but bootstrap path/variance/energy noise remains close to observed narrative effects and portfolio tail separation is still weak. The caption work improves the narrative-to-support signal; it does not by itself close the fixed-start conditionality gate.
+
+### Verification
+- `uv run pytest test_code/test_916a_nl_risk_manager_caption_v2.py test_code/test_916e_nl_risk_manager_caption_reverse_ab.py test_code/test_917a_nl_codex_caption_batch.py test_code/test_917a_nl_caption_rollout_group_summary.py -q` -> 16 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_caption_v2.py experiments/backfill/block_ar/nl_codex_caption_batch.py experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py experiments/backfill/block_ar/nl_caption_rollout_group_summary.py` passed.
+- 20-window Codex caption manifest rebuilt with skip-existing and passed all caption validators.
+- 20-window union reverse A/B and small-embedding scenario rollout completed.
+
+### Decision
+Keep the production backbone as support-grounded mixture. Promote neither direct text memory nor full Codex relabeling yet. The next principled step is to run a larger stratified Codex batch or the full resumable 380-window corpus, then rerun reverse A/B and scenario-level rollout on a true held-out/non-train split. If the fused Codex representation keeps beating or matching the simple fact-token floor at scenario level, it becomes the default text representation for the narrative-to-support bridge.
+
+---
+## 2026-05-15: Split-balanced Codex caption pilot selection
+
+### Context
+After the 20-window Codex caption scaling run, I found that ordered `--count N` batches select the earliest chronological windows and are not representative enough for the next 80-100 window Codex pilot.
+
+### Change
+Updated `experiments/backfill/block_ar/nl_codex_caption_batch.py` with `--selection-mode split_balanced`, while keeping `ordered` as the default for true resumable full-corpus runs. Split-balanced mode round-robins train, validation, and test windows for representative pilots. Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to record this.
+
+### Verification
+- `uv run pytest test_code/test_917a_nl_codex_caption_batch.py -q` -> 4 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_codex_caption_batch.py` passed.
+- Dry run: `python experiments/backfill/block_ar/nl_codex_caption_batch.py --count 9 --selection-mode split_balanced --dry-run --continue-on-error --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_batch_917d_balanced_dryrun`.
+- The dry-run selected a representative sequence: `joint39_val_0000`, `joint39_val_0309`, `joint39_val_0375`, then the second train/validation/test rows.
+
+### Next Step
+Use `--selection-mode split_balanced` for the next larger Codex narrative-caption pilot, and use ordered `--count 0` only when intentionally running the full 380-window corpus.
+
+---
+## 2026-05-15: Balanced-80 Codex caption reverse A/B and rollout gate
+
+### Context
+The next candidate gate was to scale beyond the 20-window Codex caption pilot without jumping straight to the full corpus. I used split-balanced train/validation/test selection to test whether risk-manager-document-compliant Codex captions plus explicit fact tokens improve the reverse path:
+
+```text
+scenario -> professional caption + fact tokens -> text embedding -> bridge memory/support ranking -> component-preserving SNI rollout
+```
+
+### Artifacts
+- Caption batch: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_batch_917e_balanced80/codex_caption_batch_report.json`
+- Reverse A/B: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917e_balanced80/caption_reverse_ab_report.json`
+- Small rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917e_balanced80/small_rollout/scenario_level_eval_report.json`
+- Small group summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917e_balanced80/small_rollout/caption_rollout_group_summary.md`
+- Large rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917e_balanced80/large_rollout/scenario_level_eval_report.json`
+- Large group summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_917e_balanced80/large_rollout/caption_rollout_group_summary.md`
+
+### Caption Batch Result
+- 80 requested split-balanced windows; 80 valid Codex `gpt-5.5` xhigh captions.
+- 0 validation errors and 0 Codex execution errors.
+- Logged Codex CLI usage across event files: about 2.83M input tokens, 1.18M cached input tokens, 135.8k output tokens, and 43.6k reasoning output tokens.
+
+### Reverse A/B Result
+For `text-embedding-3-small`:
+- Fused Codex target/support cosine: `0.692` / `0.829`.
+- Simple text target/support cosine: `0.367` / `0.646`.
+- Fused Codex improves target/support cosine by `+0.325` / `+0.182` versus simple.
+
+For `text-embedding-3-large`:
+- Fused Codex target/support cosine: `0.751` / `0.885`.
+- Simple text target/support cosine: `0.577` / `0.686`.
+- Fused Codex improves target/support cosine by `+0.174` / `+0.199` versus simple.
+
+### Scenario Rollout Result
+Overall narrative top-k rollout versus persistence:
+- `text-embedding-3-small`: CRPS improvement `0.104`, energy improvement `0.125`, 80% coverage `0.504`.
+- `text-embedding-3-large`: CRPS improvement `0.111`, energy improvement `0.129`, 80% coverage `0.506`.
+
+Group-level rollout:
+- Small fused Codex: CRPS/energy improvement `0.139` / `0.155`, ahead of simple at `0.085` / `0.110`.
+- Large fused Codex: CRPS/energy improvement `0.124` / `0.142`, ahead of simple at `0.107` / `0.125`.
+- Rich Codex without fact-token fusion is weaker than fused Codex in the small rollout and only modestly competitive in the large rollout.
+
+### Decision
+This is a positive candidate result. Professional Codex captions plus explicit fact tokens now improve both bridge/support alignment and downstream scenario CRPS/energy versus the simple text group on a representative 80-window pilot. However, rollout gains are smaller than bridge-space gains, and terminal MAE/coverage are not decisively improved. Keep support-grounded mixture as the production backbone and keep fused Codex text as a candidate representation, not a promoted default.
+
+### Next Step
+Run a larger full-corpus or true held-out non-train gate before changing defaults. If the fused Codex representation remains competitive with the simple fact-token floor while improving risk-manager narrative quality, direction checks, and qualitative conditionality, update the paper/demo to make fused professional captioning the default narrative representation.
+
+---
+## 2026-05-15: Balanced-80 caption conditionality plot refresh
+
+### Context
+After the balanced-80 Codex caption reverse A/B showed scenario-level gains, I refreshed the qualitative and quantitative conditionality evidence. The gate was explicit: only make the plots if fused Codex captions plus fact tokens still beat the simple text floor at scenario level.
+
+### Scenario-Level Gate
+Artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/caption_conditionality_refresh_917f_balanced80/caption_conditionality_refresh_summary.json`
+
+The gain persisted under both embedding models:
+- `text-embedding-3-small`: fused Codex CRPS/energy improvement `0.139`/`0.155` versus simple text `0.085`/`0.110`; net gains `+0.054`/`+0.046`.
+- `text-embedding-3-large`: fused Codex CRPS/energy improvement `0.124`/`0.142` versus simple text `0.107`/`0.125`; net gains `+0.017`/`+0.016`.
+
+### Refreshed Plots
+Paper-facing figures were regenerated in raw levels:
+- `paper/narrative_grounded_scenarios/figures/caption_group_metric_gate_balanced80.png`
+- `paper/narrative_grounded_scenarios/figures/caption_support_quality_scatter_small_balanced80.png`
+- `paper/narrative_grounded_scenarios/figures/caption_same_window_raw_level_casebook_balanced80.png`
+
+I also refreshed the fixed-start conditionality benchmark with the balanced-80 scenario-quality report:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_strength_benchmark_917f_balanced80_caption_quality/conditionality_strength_benchmark.json`
+
+That benchmark remains `conditionality_partially_supported_with_warnings`: support diversity and repeat/start-only controls are favorable, but bootstrap path noise and portfolio tail separation still block a clean no-warning conditionality claim.
+
+### Mechanism Read
+The selected qualitative test window was `joint39_val_0378`. It was chosen because it is a non-train test window where fused Codex materially improves the generated distribution relative to simple fact tokens and changes support selection:
+- simple fact tokens support: `joint39_val_0079`, `joint39_val_0243`, `joint39_val_0197`;
+- Codex professional caption support: `joint39_val_0046`, `joint39_val_0219`, `joint39_val_0085`;
+- fused Codex+facts support: `joint39_val_0252`, `joint39_val_0040`, `joint39_val_0219`;
+- simple-vs-fused support Jaccard: `0.0`;
+- fused Codex CRPS/energy reduction versus simple on this window: `0.509`/`0.543`.
+
+The reason the gain persists is therefore support-selection quality. The richer Codex caption supplies regime/mechanism/transmission information, while fact fusion preserves directional precision. The bridge maps that representation to a better support pool; the frozen SNI generator then samples from that support-conditioned market memory. The reason the aggregate gain is not larger is that the support/readout/rollout layer still attenuates some of the text-side improvement.
+
+### Paper Update
+Updated `paper/narrative_grounded_scenarios/main.tex` to replace the stale 10-window caption A/B with the balanced-80 gate, add the quantitative and qualitative refreshed figures, and describe why the observed gain should be interpreted as a support-selection gain rather than LLM future forecasting.
+
+### Verification
+- `uv run pytest test_code/test_916a_nl_risk_manager_caption_v2.py test_code/test_916e_nl_risk_manager_caption_reverse_ab.py test_code/test_917a_nl_codex_caption_batch.py test_code/test_917a_nl_caption_rollout_group_summary.py test_code/test_917f_nl_caption_conditionality_refresh.py -q` -> 20 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_caption_v2.py experiments/backfill/block_ar/nl_codex_caption_batch.py experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py experiments/backfill/block_ar/nl_caption_rollout_group_summary.py experiments/backfill/block_ar/nl_caption_conditionality_refresh.py` passed.
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` in `paper/narrative_grounded_scenarios` passed and rebuilt `main.pdf`.
+
+---
+## 2026-05-15: Conditionality transmission audit
+
+### Context
+After the balanced-80 caption conditionality refresh, the next question was not whether richer captions improve scenario-level quality, but where the narrative signal is preserved or attenuated. I added an artifact-only transmission audit that runs only after the balanced-80 scenario-level gain gate passes.
+
+### Artifacts
+- Audit script: `experiments/backfill/block_ar/nl_conditionality_transmission_audit.py`
+- Audit report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_transmission_audit_918a_balanced80/conditionality_transmission_audit.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_conditionality_transmission_audit_918a_balanced80/conditionality_transmission_audit.md`
+- Paper figures: `paper/narrative_grounded_scenarios/figures/conditionality_transmission_ladder_914c_balanced80.png`, `paper/narrative_grounded_scenarios/figures/conditionality_transmission_pair_scatter_914c_balanced80.png`, and `paper/narrative_grounded_scenarios/figures/conditionality_transmission_pair_heatmaps_914c_balanced80.png`
+
+### Findings
+The scenario-level gate still passes: fused Codex captions beat simple fact tokens under both `text-embedding-3-small` and `text-embedding-3-large`. The transmission verdict is `support_and_prefix_preserved_rollout_tail_bottleneck`.
+
+Layer-level evidence:
+- Observed cross-narrative support TV distance: `1.000`; same-narrative repeat and start-only ratios: `0.000`.
+- Observed decoded-prefix RMSE: `0.710`; same-narrative repeat and start-only ratios: `0.000`.
+- Observed rollout path energy: `0.055`; same-narrative repeat/observed: `0.133`; within-run bootstrap/observed: `0.938`.
+- Portfolio VaR95 observed/repeat remains weak at `0.735` from the matched fixed-start benchmark.
+
+### Interpretation
+The conditionality issue is no longer primarily support retrieval or decoded-prefix construction. Different narratives select different support pools and become different decoded recent-prefix objects under the same fixed start. The limiting layer is downstream: frozen SNI rollout sampling/readout and portfolio-tail separation do not amplify those differences enough above within-run bootstrap noise. The next method work should focus on generator-response-aware support weighting or path/dependence-aware readout, not more OpenAI labeling by itself.
+
+---
+## 2026-05-15: Generator-response support-weighting frontier
+
+### Context
+After the conditionality transmission audit showed that narrative signal reaches support selection and decoded prefixes but weakens at the rollout/readout layer, I joined three existing artifacts into a frontier decision: the transmission audit, the non-deployable oracle soft-support upper bound, and the deployable learned kernel/listwise support-weight policy.
+
+### Artifacts
+- Frontier report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.json`
+- Frontier markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.md`
+- Frontier plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.png`
+- Script: `experiments/backfill/block_ar/nl_generator_response_weighting_frontier.py`
+- Tests: `test_code/test_918b_nl_generator_response_weighting_frontier.py`
+
+### Findings
+- Oracle soft top-5 upper bound over `29` held-out windows improves same-seed equal top-5 on all three metrics: CRPS delta `-0.0033`, energy delta `-0.0052`, and coverage delta `+0.0011`.
+- Deployable full-train kernel/listwise support weighting over `66` held-out windows is active but not cleanly better: CRPS delta `-0.0011`, energy delta `+0.0015`, and coverage delta `+0.0024`; non-uniform support allocation occurs in `46/66` windows.
+- The decision status is `upper_bound_found_learned_policy_insufficient`.
+
+### Decision
+Do not promote the current learned support-weight policy. The oracle result proves the support-weighting direction has real upper-bound signal, but the deployable learned policy has not learned the generator-response surface cleanly enough to replace the simple equal-weight support mixture. Continue this branch only with better regime/prototype-aware labels or portfolio-risk-aware candidate utilities. In parallel, keep rollout/readout noise and conditionality-aware calibration as the product bottleneck.
+
+### Verification
+- `uv run pytest test_code/test_918a_nl_conditionality_transmission_audit.py test_code/test_918b_nl_generator_response_weighting_frontier.py -q` -> `6 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_conditionality_transmission_audit.py experiments/backfill/block_ar/nl_generator_response_weighting_frontier.py` -> passed.
+- `python experiments/backfill/block_ar/nl_generator_response_weighting_frontier.py` -> wrote the frontier report and plot.
+
+---
+## 2026-05-19: Product conditionality objective and gate audit
+
+### Context
+After reviewing conditionality from the ideal risk-manager perspective, I updated the NL prefix-latent objective so conditionality is no longer a vague ML term. The working product definition is: for the same approved starting level, a professional current-market narrative is conditionally useful only if it changes the auditable support mixture and produces a distinguishable future risk distribution in the risk channels implied by the narrative, above repeat/bootstrap/start-only controls.
+
+### Objective Update
+The tracked goal, autoresearch plan, current-truth index, and NL prefix-latent skill now encode a six-gate conditionality ladder:
+
+1. semantic narrative representation;
+2. support mixture conditionality;
+3. decoded-prefix conditionality;
+4. factor-distribution conditionality;
+5. portfolio-tail conditionality;
+6. auditability/provenance.
+
+This explicitly prioritizes the ideal-user case: a skilled risk manager writes a professional narrative with scenario spine, trigger, mechanism, transmission, cross-asset reaction, sequencing, portfolio/risk implication, evidence, ambiguity, and a no-forecast caveat. The next research target is the layer that fails this product gate, not more prompt engineering by default.
+
+### Artifact
+Added an artifact-only product audit:
+
+- Script: `experiments/backfill/block_ar/nl_product_conditionality_contract_audit.py`
+- Tests: `test_code/test_919a_nl_product_conditionality_contract_audit.py`
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_product_conditionality_contract_919a/product_conditionality_contract_audit.json`
+- Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_product_conditionality_contract_919a/product_conditionality_contract_audit.md`
+- Plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_product_conditionality_contract_919a/product_conditionality_gate_ladder.png`
+
+### Findings
+Verdict: `product_conditionality_partially_supported_with_warnings`.
+
+Passing gates:
+- Semantic narrative representation: balanced-80 fused Codex captions plus fact tokens beat simple text on CRPS/energy under both embedding models. Minimum CRPS gain is `+0.0169`; minimum energy gain is `+0.0164`.
+- Support mixture conditionality: observed support TV median is `1.000`, repeat ratio is `0.000`, and start-only ratio is `0.000`.
+- Decoded-prefix conditionality: observed decoded-prefix RMSE median is `0.710`, repeat ratio is `0.000`, and start-only ratio is `0.000`.
+- Auditability/provenance: all `27` referenced artifacts exist.
+
+Warning gates:
+- Factor-distribution conditionality: observed rollout path energy median is `0.0553`; repeat/observed is `0.133`, start-only/observed is `0.000`, but bootstrap/observed is `0.938`.
+- Portfolio-tail conditionality: portfolio path separation is above repeat (`2.441`) and bootstrap (`1.004`), but VaR95/repeat is only `0.735`.
+
+### Decision
+The current system is not misreading professional narratives and is not collapsing support or decoded-prefix conditionality. The remaining product bottleneck is final factor distribution/readout noise and portfolio-tail separation. Continue autoresearch by targeting conditionality-aware readout or portfolio-risk-aware support response labels. Do not prioritize another generic text embedding, prompt-only change, or unpromoted learned support-weight policy unless it directly improves these warning gates.
+
+### Verification
+- `uv run pytest test_code/test_918a_nl_conditionality_transmission_audit.py test_code/test_918b_nl_generator_response_weighting_frontier.py test_code/test_919a_nl_product_conditionality_contract_audit.py -q` -> `10 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_product_conditionality_contract_audit.py` -> passed.
+- `python experiments/backfill/block_ar/nl_product_conditionality_contract_audit.py` -> wrote the report, markdown, and gate plot.
+
+---
+## 2026-05-19: NL start-aware readout gate
+
+### Context
+The product conditionality audit showed that text/support/prefix gates are mostly working, while factor/path distribution and portfolio-tail gates remain warning layers. The next bounded step was to test whether the small global readout scale selected by the existing readout selector can be promoted beyond the one clean fixed-start case.
+
+### What Changed
+- Added `experiments/backfill/block_ar/nl_prefix_latent_start_aware_readout_gate.py`.
+- Added `test_code/test_919b_nl_prefix_latent_start_aware_readout_gate.py`.
+- Re-scored existing generated fixed-start runs under the selected `alpha1p05` readout without OpenAI calls or generator reruns:
+  - start `22`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_fixed_start22_path_audit_919b_alpha1p05/fixed_start_shape_audit.json`;
+  - start `40`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start40_manifest_audit_919b_alpha1p05/fixed_start_manifest_audit.json`;
+  - start `77`: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_fixed_start77_manifest_audit_919b_alpha1p05/fixed_start_manifest_audit.json`.
+- Aggregated start-aware gate artifact:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_start_aware_readout_gate_919b/start_aware_readout_gate.json`.
+
+### Findings
+The selected `alpha1p05` readout improves held-out quality and passes the clean start `18`, but it does not pass broadly. The start-aware gate status is `warning`, with recommendation `keep_selected_readout_as_local_candidate_only`.
+
+Start counts are one `pass` and three `warning`:
+
+- start `18`: `pass`, clean pass;
+- start `22`: `warning`, bootstrap/readout warning;
+- start `40`: `warning`, bootstrap/readout warning;
+- start `77`: `warning`, bootstrap/readout warning.
+
+The warning starts still show narrative response versus same-narrative repeat and start-only controls, but within-run bootstrap/readout noise remains too close to observed cross-narrative path separation.
+
+### Decision
+Do not promote global fan/readout scaling as the production fix. The next principled branch is either:
+
+1. a conditionality-aware readout that adapts to start-level signal-to-noise without factor-specific hand rules; or
+2. a portfolio-risk-aware response label, because risk-manager value may be clearer in portfolio VaR/ES/contribution space than in individual factor fan separation.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_prefix_latent_start_aware_readout_gate.py ...` wrote the start-aware artifact and returned status `warning`.
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_start_aware_readout_gate.py`
+- `uv run pytest test_code/test_919b_nl_prefix_latent_start_aware_readout_gate.py test_code/test_905j_nl_prefix_latent_readout_gate_selector.py test_code/test_905c_nl_prefix_latent_component_start_stratification.py -q` passed: `7 passed`.
+
+---
+## 2026-05-19: NL portfolio-risk response labels
+
+### Context
+The previous start-aware readout gate showed that global fan scaling is not a broad production fix: `alpha1p05` remains local to the clean start and warning starts remain bootstrap/readout limited. The next principled step was to test conditionality in risk-manager-facing portfolio space rather than only individual factor fans.
+
+### What Changed
+- Added `experiments/backfill/block_ar/nl_portfolio_risk_response_label_audit.py`.
+- Added `test_code/test_920a_nl_portfolio_risk_response_label_audit.py`.
+- Added method intake note: `docs/research_protocols/nl_prefix_latent_portfolio_risk_response_label_intake.md`.
+- Updated current-truth and workflow goal docs to track the portfolio-risk response-label direction.
+
+### Experiment
+The audit uses the existing full906b fixed-start component cases and no OpenAI calls or generator reruns. It maps generated paths into six normalized portfolio books:
+
+- equity beta / carry;
+- credit + duration;
+- dollar-liquidity carry;
+- commodity inflation;
+- safe-haven hedge;
+- short volatility.
+
+For each book, it compares observed cross-narrative portfolio response against same-narrative repeat, within-run bootstrap, and start-only controls. Response labels include terminal median, signed VaR95 loss, signed ES95 loss, and max path loss.
+
+Artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_risk_response_label_audit_920a/portfolio_risk_response_label_audit.json`.
+
+### Findings
+Overall status is `warning`, recommendation `candidate_portfolio_labels_need_tail_noise_fix`.
+
+Three books pass:
+
+- equity beta / carry: path/repeat `3.431`, path/bootstrap `1.491`, VaR95/repeat `2.083`, ES95/repeat `1.751`;
+- dollar-liquidity carry: path/repeat `2.944`, path/bootstrap `1.276`, VaR95/repeat `5.734`, ES95/repeat `2.215`;
+- short volatility: path/repeat `3.937`, path/bootstrap `1.342`, VaR95/repeat `1.700`, ES95/repeat `1.729`.
+
+Three books remain warning:
+
+- credit + duration: path metrics pass, but VaR95/repeat is `0.868`;
+- commodity inflation: path metrics are modest and VaR/ES tails are below repeat controls;
+- safe-haven hedge: path and VaR95 metrics pass, but ES95/repeat is `0.971`.
+
+### Decision
+This is a better product target than asking whether every individual factor fan visibly changes. The system shows useful narrative conditionality for several risk-manager-facing portfolio books, but portfolio tails are not clean enough to promote a new support policy yet. The next candidate should test a compact portfolio-response-aware support utility against the simple mixture floor, while rejecting any method that improves one hand-picked book but regresses held-out CRPS/energy/coverage.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_portfolio_risk_response_label_audit.py` wrote the JSON, markdown, and heatmap artifacts.
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_risk_response_label_audit.py` passed.
+- `uv run pytest test_code/test_920a_nl_portfolio_risk_response_label_audit.py test_code/test_919b_nl_prefix_latent_start_aware_readout_gate.py -q` passed: `5 passed`.
+
+---
+## 2026-05-19: NL portfolio-response support-policy TestFlight
+
+### Context
+The previous portfolio-risk response-label audit showed that narrative effects are clearer in several risk-manager-facing portfolio books than in individual factor fans, but the labels were not clean enough to promote. The next HEAD iteration tested the smallest deployable support-policy change: keep the narrative/start support pool and frozen SNI generator unchanged, but train the existing compact kernel-listwise support policy on portfolio-response labels rather than only generic generator energy.
+
+### Related Work Basis
+- Listwise learning-to-rank supports treating each query's candidate support-mixture list as the training instance, not independent item pairs: https://www.microsoft.com/en-us/research/publication/learning-to-rank-from-pairwise-approach-to-listwise-approach/
+- RAG motivates explicit non-parametric memory and provenance, which maps to our auditable historical support store without letting an LLM invent scenarios: https://papers.nips.cc/paper_files/paper/2020/hash/6b493230205f780e1bc26945df7481e5-Abstract.html
+- Ensemble copula coupling / dynamic ECC support the idea that calibrated scenarios should preserve multivariate/time dependence structure rather than collapse mixtures before rollout: https://arxiv.org/abs/1305.3445 and https://orbit.dtu.dk/en/publications/generation-of-scenarios-from-calibrated-ensemble-forecasts-with-a/
+
+### What Changed
+- Added method intake: `docs/research_protocols/nl_prefix_latent_portfolio_response_support_policy_intake.md`.
+- Added script: `experiments/backfill/block_ar/nl_portfolio_response_support_policy_testflight.py`.
+- Added tests: `test_code/test_921a_nl_portfolio_response_support_policy.py`.
+- Updated current truth: `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+
+### Experiment
+The script built a portfolio-label scenario report from existing 906e train candidate rollouts. The label is `portfolio_reliable_path_score_z`, computed from the three previously reliable response books: `equity_beta_carry`, `dollar_liquidity`, and `short_volatility`. It then trained the existing `kernel_listwise` support policy on all `278` train queries / `2780` candidate mixtures and evaluated on the same `66` held-out windows used by the equal top-5 floor.
+
+No OpenAI calls were made. The only generator rerun was the held-out policy evaluation through `nl_scenario_level_evaluation.py` on CUDA.
+
+### Artifacts
+- Label report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_policy_921a/portfolio_response_label_scenario_report.json`
+- Learned policy: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_921a/learned_mixture_policy_report.json`
+- Held-out scenario eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_921a_scenario_eval/scenario_level_eval_report.json`
+- Comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_policy_921a/portfolio_response_support_policy_comparison.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_policy_921a/portfolio_response_support_policy_comparison.md`
+
+### Findings
+Status: `candidate_tradeoff_not_promoted`.
+Benchmark floor status: `competitive`.
+
+Against the equal/simple support mixture floor on the 66 held-out windows:
+- ensemble CRPS z delta: `-0.000296` (slightly better);
+- energy score z delta: `+0.002386` (slightly worse);
+- 80% coverage delta: `+0.002189` (slightly better);
+- reliable portfolio path score delta: `-0.005770`, about `+0.71%` relative reduction;
+- reliable portfolio CRPS delta: `-0.005507`, about `+0.73%` relative reduction;
+- reliable portfolio energy delta: `-0.006033`, about `+0.69%` relative reduction.
+
+### Decision
+This is a real but small mechanism signal: portfolio-aware labels can move support weights in the intended risk-manager-facing direction without damaging CRPS/coverage, but the energy regression means it cannot replace the simple mixture default. Keep it as a candidate diagnostic, not a promoted policy. The next principled step is not another generic embedding change; it is to understand whether the small energy trade-off is sampling noise, a label mismatch, or a limitation of the current deployable support features.
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_support_policy_testflight.py` passed.
+- `uv run pytest test_code/test_921a_nl_portfolio_response_support_policy.py -q` passed: `3 passed`.
+- `uv run pytest test_code/test_921a_nl_portfolio_response_support_policy.py test_code/test_885a_nl_learned_mixture_policy.py test_code/test_920a_nl_portfolio_risk_response_label_audit.py -q` passed: `18 passed`.
+- Initial plain-`python` generator eval failed because the base environment lacked a parquet engine; the same command passed under repo-supported `uv run`.
+
+---
+## 2026-05-19: NL portfolio-response oracle support gate
+
+### Context
+The 921a deployable portfolio-response support policy gave a small seed-906 portfolio gain but failed to persist under seed 907. I ran a post-experiment attribution gate to separate three possibilities: sampling noise, bad portfolio label, or insufficient deployable support features.
+
+### Experiment
+First, I reran the 66-window equal floor and 921a learned policy under seed `907`. The learned policy lost the previous portfolio gain and regressed CRPS/energy, so the 921a deployable policy is not stable enough to promote.
+
+Then I evaluated all `660` held-out candidate support mixtures from `nl_rollout_response_full_906e_test_mixture_candidates` with the frozen SNI generator on CUDA, converted those candidate paths into the same `portfolio_reliable_path_score_z` labels, and built a leakage-only oracle soft-support bridge using `nl_oracle_soft_support_weights.py`.
+
+### Artifacts
+- Held-out candidate rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_test_mixture_candidates_921b/scenario_eval/scenario_level_eval_report.json`
+- Held-out candidate portfolio labels: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_test_mixture_candidates_921b/portfolio_response_label_scenario_report.json`
+- Oracle bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_oracle_soft_support_921b/oracle_soft_support_bridge_report.json`
+- Same-seed equal floor: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_equal_top5_test_s2_seed921/scenario_level_eval_report.json`
+- Oracle rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_oracle_soft_support_921b_scenario_eval_seed921/scenario_level_eval_report.json`
+- Oracle comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_oracle_soft_support_921b_comparison_seed921/portfolio_response_support_policy_comparison.json`
+
+### Findings
+The deployable 921a policy is unstable:
+- seed `907` CRPS delta vs equal: `+0.001536`;
+- seed `907` energy delta vs equal: `+0.001956`;
+- seed `907` reliable portfolio path-score delta vs equal: `+0.004550`.
+
+The oracle support gate is positive:
+- oracle CRPS delta vs equal: `-0.000246`;
+- oracle energy delta vs equal: `-0.000165`;
+- oracle 80% coverage delta vs equal: `-0.003017`;
+- oracle reliable portfolio path-score delta: `-0.014482`, about `+1.82%` relative reduction;
+- oracle reliable portfolio CRPS delta: `-0.015228`, about `+2.05%` relative reduction;
+- oracle reliable portfolio energy delta: `-0.013737`, about `+1.62%` relative reduction.
+
+The oracle candidate effective-N is `5.84` out of `10`, and oracle support effective-N is `4.72`, so hindsight still prefers a soft mixture rather than one support component.
+
+### Decision
+Keep the historical support mixture as the core inductive bias. Do not promote the current deployable 921a kernel-listwise policy. The oracle result proves there is useful portfolio-response signal in the candidate support set, but the deployable feature/readout does not learn it robustly. The next principled step is to improve the learned response surface or candidate features, not to abandon support mixtures and not to add another text-embedding-only bridge.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py ... --bridge-report nl_rollout_response_full_906e_test_mixture_candidates/mixture_label_bridge_report.json --allow-duplicate-query-windows --device cuda` completed `660/660` candidate rollouts.
+- `python experiments/backfill/block_ar/nl_portfolio_response_support_policy_testflight.py --skip-comparison ...` built the held-out portfolio label report.
+- `python experiments/backfill/block_ar/nl_oracle_soft_support_weights.py ... --metric portfolio_reliable_path_score_z` built the oracle support bridge.
+- Same-seed equal and oracle held-out evaluations completed under `uv run` with seed `921`.
+
+---
+## 2026-05-19: NL portfolio-response deployable policy follow-ups
+
+### Context
+The portfolio-response oracle gate was positive, so the support-mixture direction remains valid. The next question was whether a modest deployable feature lift or existing set-based support scorer could close the gap to the oracle.
+
+### What Changed
+I updated `experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py` with signed recent-prefix portfolio features for the same reliable response books used by the label: `equity_beta_carry`, `dollar_liquidity`, and `short_volatility`. These features use only the query/support historical prefix and are available at inference. I did not add a new generator, text model, hidden start selector, or future-looking feature.
+
+### Experiments
+1. `nl_portfolio_response_kernel_listwise_feature_lift_921c`: kernel-listwise support policy with the new signed portfolio-prefix features.
+2. `nl_portfolio_response_support_set_921d`: existing set-based support scorer with the same portfolio labels/features.
+
+Both were trained on the same `278` train queries / `2780` candidate mixtures and evaluated against the same seed-921 equal floor.
+
+### Artifacts
+- Feature-lift policy: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_feature_lift_921c/learned_mixture_policy_report.json`
+- Feature-lift evaluation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_feature_lift_921c_scenario_eval_seed921/scenario_level_eval_report.json`
+- Feature-lift comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_feature_lift_921c_comparison_seed921/portfolio_response_support_policy_comparison.json`
+- Support-set policy: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_set_921d/learned_mixture_policy_report.json`
+- Support-set evaluation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_set_921d_scenario_eval_seed921/scenario_level_eval_report.json`
+- Support-set comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_set_921d_comparison_seed921/portfolio_response_support_policy_comparison.json`
+
+### Findings
+Feature-lift kernel-listwise remains diagnostic only:
+- CRPS delta vs equal: `+0.000714`;
+- energy delta vs equal: `+0.001078`;
+- coverage delta vs equal: `+0.001153`;
+- reliable portfolio path-score delta: `-0.002967`.
+
+Set-based support scorer is rejected:
+- CRPS delta vs equal: `+0.036520`;
+- energy delta vs equal: `+0.050584`;
+- coverage delta vs equal: `-0.060956`;
+- reliable portfolio path-score delta: `+0.065194`.
+
+### Decision
+The feature lift moves in the intended portfolio direction but is too small and still regresses scenario quality. The set-based scorer adds capacity without stability and should not be pursued in its current form. The positive oracle plus weak deployable policies imply the remaining bottleneck is not the existence of support-mixture signal; it is learning a stable response surface from deployable features and low-sample generator labels.
+
+Next HEAD should be post-experiment analysis, not another ranker knob: quantify out-of-sample label predictability, label sampling noise at `samples=2`, and whether richer candidate support generation is needed before training another policy.
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_learned_mixture_policy_testflight.py` passed.
+- `uv run pytest test_code/test_885a_nl_learned_mixture_policy.py test_code/test_921a_nl_portfolio_response_support_policy.py -q` passed: `15 passed`.
+- Both seed-921 held-out evaluations completed under `uv run ... --device cuda`.
+
+---
+## 2026-05-20: HEAD NL Prefix: Portfolio-Response Policy Postmortem And High-Sample Label Check
+
+### Context
+The previous portfolio-response support-policy branch found a positive non-deployable oracle gate, but deployable learned support policies were unstable or regressed. This entry documents the post-experiment analysis before launching another policy.
+
+### What Ran
+- Added `experiments/backfill/block_ar/nl_portfolio_response_policy_postmortem.py` to attribute support-policy failure to candidate headroom, label noise, or deployable feature predictability.
+- Added focused tests in `test_code/test_922a_nl_portfolio_response_policy_postmortem.py`.
+- Ran the postmortem on the existing low-sample held-out candidate labels (`660` candidate rows, `66` query windows, `samples=2` per analogue / `6` total samples per candidate).
+- Ran a local CUDA high-sample TestFlight and then full held-out rerun on the same `660` candidate rows with `samples=8` per analogue / `24` total samples per candidate. No OpenAI calls were made.
+
+### Key Evidence
+Low-sample postmortem artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922a/portfolio_response_policy_postmortem.json`
+
+- Decision: `label_noise_is_primary_bottleneck`.
+- Half-label Pearson: `0.4363`; Spearman: `0.4652`.
+- Half-diff/query-spread ratio: `0.4497`.
+- Test pairwise scorer accuracy: `0.4943`; rank baseline: `0.4983`.
+- Median top1-minus-oracle candidate headroom: `0.1834` reliable portfolio path-score z.
+
+High-sample full artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922c_highsample_full/portfolio_response_policy_postmortem.json`
+
+- Decision remains `label_noise_is_primary_bottleneck`, narrowly.
+- Half-label Pearson improves to `0.6447`; Spearman improves to `0.6961`.
+- Half-diff/query-spread ratio is `0.4794`.
+- Test pairwise scorer accuracy improves to `0.5222`, but rank baseline is still slightly better at `0.5242`.
+- Median top1-minus-oracle candidate headroom drops to `0.0839`, still nonzero.
+- High-sample narrative generator aggregate over the candidate rows improves `+18.8%` CRPS and `+22.8%` energy versus persistence, with `0.6634` 80% coverage.
+
+### Interpretation
+The support list still contains useful upper-bound information, but low-sample portfolio-response labels are too noisy for a learned deployable support policy. Increasing samples materially improves label stability and aggregate scenario quality, but the current feature surface still does not predict the best candidate mixture out of sample better than simple rank order. This means the next policy should not be another capacity increase over the same noisy labels/features.
+
+### Decision
+Do not promote the learned portfolio-response support policy. Keep the support-grounded mixture as the production backbone. The next principled research step is either:
+
+1. common-random-number or otherwise variance-reduced candidate labeling, then remeasure label stability; or
+2. a richer response-surface/prototype feature design, but only after the label-stability gate clears.
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_policy_postmortem.py`
+- `uv run pytest test_code/test_922a_nl_portfolio_response_policy_postmortem.py -q` -> `4 passed`
+- Full high-sample rerun used `uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py ... --samples 8 --device cuda --max_windows 441`
+
+---
+## 2026-05-20: HEAD NL Prefix: Common-Random-Number Candidate Labeling Gate
+
+### Context
+The high-sample postmortem showed that rollout label noise was a primary bottleneck, but simply increasing samples did not make the deployable candidate scorer beat rank order. The next variance-reduction test was to compare candidate mixtures for the same query under common random numbers.
+
+### What Changed
+Added `--common-random-numbers-by-query` and `--common-random-base-seed` to `experiments/backfill/block_ar/nl_scenario_level_evaluation.py`. When enabled, duplicate candidate rows with the same query window reset NumPy/Torch/CUDA RNGs to the same deterministic seed before rollout. This keeps the support mixture and frozen SNI generator unchanged; it only makes candidate-label comparisons less dominated by different random draws.
+
+### Evidence
+Pilot artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922d_crn_pilot/portfolio_response_policy_postmortem.json`
+
+- 80 candidate rows / 8 query windows.
+- Half-label Pearson improved from `0.6226` without CRN to `0.8322` with CRN.
+- Half-label Spearman improved from `0.6314` to `0.8364`.
+- Learned scorer pairwise accuracy improved from `0.4917` to `0.5139`, while rank baseline dropped from `0.5222` to `0.4667`.
+
+Full held-out artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922e_crn_full/portfolio_response_policy_postmortem.json`
+
+- 660 candidate rows / 66 query windows, `samples=8` per analogue / `24` total samples per candidate.
+- Half-label Pearson: `0.7380`; Spearman: `0.7914`.
+- Test pairwise scorer accuracy: `0.5481`; rank baseline: `0.5253`.
+- Mean selection regret: `0.0713`; rank baseline: `0.0804`.
+- Candidate headroom is smaller but nonzero: median top1-minus-oracle `0.0464` reliable portfolio path-score z.
+- Aggregate narrative-generator quality remains strong: `+18.2%` CRPS and `+22.4%` energy versus persistence, coverage `0.6609`.
+
+### Interpretation
+Common-random-number labeling materially improves the candidate-label surface. This suggests the prior failed learned policies were partly learning a noisy rollout comparison, not only suffering from weak candidate features. CRN is therefore the first clean improvement to the portfolio-response support-policy workflow.
+
+### Decision
+Do not promote a new policy yet. The next principled step is to regenerate the training candidate-label surface with CRN and rerun the learned support-policy scenario evaluation. Promotion requires that the train-on-CRN/evaluate-on-CRN policy beat the simple mixture floor without sacrificing the support-grounded audit contract.
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_portfolio_response_policy_postmortem.py`
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_922a_nl_portfolio_response_policy_postmortem.py -q` -> `19 passed`
+
+---
+## 2026-05-20: HEAD NL Prefix: CRN-Trained Support Policy Same-Seed Bakeoff
+
+### Context
+The portfolio-response support-policy branch needed post-experiment analysis after the earlier oracle and low-sample tests showed that support weighting had possible upper-bound signal, but deployable policies were not stable enough to replace the equal/simple support mixture.
+
+### What Changed
+- Added a postmortem diagnostic for candidate support labels: `experiments/backfill/block_ar/nl_portfolio_response_policy_postmortem.py`.
+- Added common-random-number candidate labeling to `experiments/backfill/block_ar/nl_scenario_level_evaluation.py` via `--common-random-numbers-by-query` and `--common-random-base-seed`.
+- Regenerated a CRN training candidate-label surface: `2780` candidate rows across `278` train queries, `samples=8` per analogue.
+- Trained the compact kernel-listwise support policy on that CRN label surface, then compared it to the equal top-5 support-mixture floor on the same 66 held-out windows.
+
+### Findings
+The postmortem explains the earlier failure: the original low-sample labels were too noisy. On held-out candidate rows, half-label Pearson improved from `0.4363` at the original low-sample setting to `0.6447` with more samples, and then to `0.7380` with common-random-number labeling. CRN also improved half-label Spearman to `0.7914` and produced a diagnostic pairwise scorer above rank order on the held-out label surface (`0.5481` versus `0.5253`).
+
+The CRN-trained policy, however, is not seed-stable enough to promote. On `seed=922`, it barely beats the equal top-5 floor: CRPS delta `-0.000554`, energy delta `-0.000619`, and reliable portfolio path-score delta `-0.002219`. On the immediate `seed=923` repeat, it falls below the floor: energy delta `+0.000070`, reliable portfolio path-score delta `+0.000774`, and coverage delta `-0.000427`.
+
+### Decision
+Keep CRN candidate labeling as a better evaluation protocol. Do not promote the learned portfolio-response support policy as the production/default mixture policy. The current bottleneck is now deployable response-feature predictability and seed-stable support weighting, not the equal support-mixture backbone.
+
+### Evidence
+- Low-sample postmortem: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922a/portfolio_response_policy_postmortem.json`
+- High-sample no-CRN postmortem: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922c_highsample_full/portfolio_response_policy_postmortem.json`
+- CRN held-out postmortem: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_postmortem_922e_crn_full/portfolio_response_policy_postmortem.json`
+- CRN train labels: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_train_mixture_labels_922f_crn_full/portfolio_response_label_scenario_report.json`
+- Learned policy: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_922g_crn_train_to_test66/learned_mixture_policy_report.json`
+- Seed 922 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_922h_crn_policy_comparison/portfolio_response_support_policy_comparison.json`
+- Seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_kernel_listwise_922i_crn_policy_comparison_seed923/portfolio_response_support_policy_comparison.json`
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_portfolio_response_policy_postmortem.py`
+- `uv run pytest test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_922a_nl_portfolio_response_policy_postmortem.py -q` passed: `19 passed`.
+
+---
+## 2026-05-20: HEAD NL Prefix: Portfolio-Response Label Seed-Stability Diagnostic
+
+### Context
+After the CRN-trained support policy beat the equal floor on one seed but failed the immediate repeat, the next question was whether the candidate label surface itself was unstable or whether the deployable support scorer was the remaining bottleneck.
+
+### What Changed
+Added `experiments/backfill/block_ar/nl_portfolio_response_label_seed_stability.py` with tests in `test_code/test_922b_nl_portfolio_response_label_seed_stability.py`. The diagnostic matches candidate rows by `query_id` across two portfolio-response label reports and measures row-level correlation, within-query pairwise ranking agreement, top-1 match rate, and cross-seed selection regret.
+
+### Findings
+Re-running the same `660` held-out candidate mixtures under a second CRN base seed and rebuilding portfolio-response labels produced a seed-stable label surface: Pearson `0.9157`, Spearman `0.9184`, weighted within-query pairwise agreement `0.8835`, top-1 match rate `0.6970`, and median first-to-second top-1 regret `0.0`.
+
+### Decision
+CRN candidate labels are stable enough to keep as the evaluation/training protocol. The failed policy promotion is therefore not mainly explained by random rollout-label noise. The remaining bottleneck is likely the deployable support-response feature surface, the compact scorer, and the small achievable effect size relative to the equal top-5 support-mixture floor.
+
+### Evidence
+- Second-seed candidate scenario report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_test_mixture_candidates_922j_crn_full_seed923/scenario_eval/scenario_level_eval_report.json`
+- Second-seed portfolio label report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_test_mixture_candidates_922j_crn_full_seed923/portfolio_response_label_scenario_report.json`
+- Seed-stability report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_label_seed_stability_922j/portfolio_response_label_seed_stability.json`
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_label_seed_stability.py`
+- `uv run pytest test_code/test_922b_nl_portfolio_response_label_seed_stability.py -q` passed: `3 passed`.
+
+---
+## 2026-05-20: HEAD NL Prefix: Support-Reliability Prior For Portfolio-Response Weighting
+
+### Context
+The CRN label seed-stability diagnostic showed that portfolio-response candidate labels are stable enough to learn from. The remaining question was whether deployable candidate information contains a better signal than simple rank order or the existing generic feature scorer.
+
+### What Changed
+Added `experiments/backfill/block_ar/nl_portfolio_response_feature_sufficiency.py` and `test_code/test_923a_nl_portfolio_response_feature_sufficiency.py`. This diagnostic compares candidate rank, existing kernel/listwise features, train-only support reliability, and small rank/support-prior blends on the stable CRN portfolio-response labels.
+
+Added `experiments/backfill/block_ar/nl_portfolio_response_support_reliability_policy.py` and `test_code/test_923b_nl_portfolio_response_support_reliability_policy.py`. This writes a bridge report that can be consumed by the standard frozen SNI scenario evaluator. The policy learns a query-standardized reliability prior for each historical support window from training backtests, then uses that prior to score or softly weight candidate support mixtures.
+
+### Findings
+The feature-sufficiency diagnostic found a deployable support-identity signal that the generic feature scorer missed. On the 66-window held-out label surface, support reliability reaches pairwise `0.5717` versus rank `0.5253`, and reduces mean selection regret from `0.0804` to `0.0540`.
+
+The scenario-level result is a real but still trade-off-bearing candidate. A near-equal softmax at temperature `1.0` is too weak and fails seed `923` on portfolio response. Hard best-candidate selection improves seed-923 reliable portfolio path score by about `2.17%`, but regresses broad scenario quality too much (`+0.0127` CRPS, `+0.0177` energy). The calibrated middle point, candidate-softmax temperature `0.25`, improves reliable portfolio path score on both tested seeds (`+0.80%` relative reduction on seed `922`, `+0.53%` on seed `923`) and improves CRPS on both seeds (`-0.000735`, `-0.000478`). It still has a tiny seed-923 energy regression (`+0.000051`) and lower coverage (`-0.00236`).
+
+### Decision
+Keep the support-reliability prior as the current best candidate lever for useful narrative-conditioned portfolio-risk response. Do not promote it as the production default yet. The next principled step is a quality-guard or damping rule that preserves the portfolio-response gain while removing the residual energy/coverage trade-off, followed by another same-seed comparison.
+
+### Evidence
+- Feature sufficiency: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_feature_sufficiency_923a/portfolio_response_feature_sufficiency.json`
+- Softmax `t=1.0` seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923b_softmax_comparison_seed923/portfolio_response_support_policy_comparison.json`
+- Best-candidate seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923c_best_comparison_seed923/portfolio_response_support_policy_comparison.json`
+- Calibrated softmax `t=0.25` seed 922 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923d_softmax_t025_comparison_seed922/portfolio_response_support_policy_comparison.json`
+- Calibrated softmax `t=0.25` seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923d_softmax_t025_comparison_seed923/portfolio_response_support_policy_comparison.json`
+
+### Verification
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_feature_sufficiency.py experiments/backfill/block_ar/nl_portfolio_response_support_reliability_policy.py`
+- `uv run pytest test_code/test_923a_nl_portfolio_response_feature_sufficiency.py test_code/test_923b_nl_portfolio_response_support_reliability_policy.py -q` passed: `6 passed`.
+
+---
+## 2026-05-20: HEAD NL Prefix: Support-Reliability Damping Check
+
+### Context
+After the calibrated support-reliability prior at temperature `0.25` improved portfolio response on both seeds but retained a tiny energy/coverage trade-off, the next bounded check was whether a more damped softmax temperature could preserve the portfolio benefit while removing the quality trade-off.
+
+### Findings
+Temperature `0.5` is worse than temperature `0.25` on the seed-923 comparison. It remains `candidate_tradeoff_not_promoted`: reliable portfolio path-score improves only `-0.000257` (`+0.03%` relative reduction), while CRPS regresses by `+0.000080`, energy regresses by `+0.000385`, and coverage falls by `-0.002150`. The temperature `0.25` candidate remains the better current candidate: it improves reliable portfolio path-score by `-0.003957` on seed `923`, improves CRPS by `-0.000478`, and has only a tiny energy regression `+0.000051`.
+
+### Decision
+Do not continue a naive temperature sweep. The useful mechanism is support-reliability weighting, but simple damping alone does not remove the trade-off. The next principled step should be a quality-aware gate or support-set construction rule, not another generic ranker or broad hyperparameter sweep.
+
+### Evidence
+- Temperature `0.5` seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923e_softmax_t05_comparison_seed923/portfolio_response_support_policy_comparison.json`
+- Temperature `0.25` seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923d_softmax_t025_comparison_seed923/portfolio_response_support_policy_comparison.json`
+
+---
+## 2026-05-20: HEAD NL Prefix: Entropy-Gated Support-Reliability Overlay
+
+### Context
+The calibrated support-reliability prior improved portfolio-response metrics but retained a small broad scenario-quality trade-off. A per-window delta analysis suggested that high candidate-probability entropy is a useful deployable warning signal: when the reliability prior is indecisive, fall back to the equal support mixture.
+
+### What Changed
+Added `experiments/backfill/block_ar/nl_portfolio_response_policy_delta_analysis.py` and `test_code/test_923f_nl_portfolio_response_policy_delta_analysis.py` to analyze per-window equal-vs-policy deltas and deployable gate features. Updated `experiments/backfill/block_ar/nl_portfolio_response_support_reliability_policy.py` with `--max-candidate-entropy-quantile`, a train-set entropy gate that leaves high-entropy held-out queries on the base equal support pool.
+
+### Findings
+The delta analysis on the `t=0.25` seed-923 run found viable simple gates. Candidate-probability entropy at the 0.75 quantile was a useful gate: use reliability weighting on lower-entropy, more decisive queries and fall back to equal support otherwise.
+
+The train-derived entropy gate at quantile `0.75` activates `47/66` held-out windows and falls back on `19/66`. It improves portfolio response and CRPS on seeds `922` and `923`: reliable portfolio path score deltas are `-0.005108` and `-0.005959`; CRPS deltas are `-0.000504` and `-0.000546`. Seed `922` cleanly beats the floor, while seed `923` remains competitive with a tiny energy regression `+0.000031`. Seed `924` under an ordinary non-CRN comparison fails portfolio response, but the paired CRN comparison still improves reliable portfolio path score by `-0.004764` and CRPS by `-0.000099`, with energy `+0.000487`.
+
+### Decision
+Do not promote the entropy-gated reliability policy as the production default yet. It is now the best current candidate for a portfolio-risk overlay and shows stronger risk-manager-facing conditionality than the equal mixture, but the broad scenario energy/coverage trade-off is not resolved. The default remains equal support mixture; the support-reliability view should be treated as a candidate alternate portfolio-risk view until a verifier/promotion gate accepts the trade-off or a cleaner quality guard removes it.
+
+### Evidence
+- Delta analysis: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_policy_delta_analysis_923f_t025_seed923/portfolio_response_policy_delta_analysis.json`
+- Entropy-gated bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923g_t025_entropyq75/support_reliability_policy_bridge_report.json`
+- Seed 922 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923g_t025_entropyq75_comparison_seed922/portfolio_response_support_policy_comparison.json`
+- Seed 923 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923g_t025_entropyq75_comparison_seed923/portfolio_response_support_policy_comparison.json`
+- Seed 924 comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923g_t025_entropyq75_comparison_seed924/portfolio_response_support_policy_comparison.json`
+- Paired CRN comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_support_reliability_923g_t025_entropyq75_comparison_crn925/portfolio_response_support_policy_comparison.json`
+
+---
+## 2026-05-20: HEAD NL Prefix: Quality-Guard Portfolio Overlay
+
+### Context
+
+The prior support-reliability overlay improved reliable portfolio path scores but still had small broad scenario-quality trade-offs. The next test was a train-derived quality guard: keep the portfolio-response support prior, but penalize candidate support mixtures whose train-derived CRPS or energy support utility is below average.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/nl_portfolio_response_quality_guard_policy.py` and `test_code/test_924a_nl_portfolio_response_quality_guard_policy.py`.
+
+The bridge construction uses no OpenAI calls and no generator calls. It builds train-only support priors from existing candidate-mixture backtests:
+
+- reliable portfolio path utility;
+- ensemble CRPS utility;
+- energy utility.
+
+Held-out candidate mixtures are scored as portfolio utility plus one-sided penalties for negative train-derived CRPS and energy utilities. Candidate probabilities are marginalized into auditable support weights and consumed by the standard frozen SNI scenario evaluator with `--support-sampling-mode field_weight`.
+
+The bridge artifact now records source paths under `mixture_policy.source_artifacts`, and the test suite includes an integration-style bridge construction check in addition to score arithmetic tests.
+
+### Evidence
+
+Quality-guard bridge:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_quality_guard_924a_t025/quality_guard_policy_bridge_report.json`
+
+Paired CRN comparisons versus equal support mixture:
+
+- CRN `925`: `candidate_beats_equal_floor`; CRPS `-0.001326`, energy `-0.000250`, coverage `+0.001813`, reliable portfolio path score `-0.006648`.
+- CRN `926`: `candidate_beats_equal_floor`; CRPS `-0.001420`, energy `-0.001494`, coverage `+0.004416`, reliable portfolio path score `-0.007780`.
+- CRN `927`: `candidate_tradeoff_not_promoted`; CRPS `-0.000267`, energy `+0.000221`, coverage `+0.001813`, reliable portfolio path score `-0.004537`.
+
+Entropy-gated quality guard at train entropy quantile `0.75` did not fix the weak seed: CRN `927` gives portfolio path score `-0.002287`, CRPS `-0.000218`, coverage `+0.002253`, but energy `+0.000434`.
+
+Independent verifier agreed that CRN `925`/`926` support candidate-overlay promotion, not production-default promotion. After the verifier response, CRN `927` kept the same conclusion: promising overlay, not clean default.
+
+Verifier artifact:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-20_quality_guard_portfolio_overlay.md`
+
+### Decision
+
+Promote this as the strongest current portfolio-risk overlay for narrative conditionality, but do not replace the equal support mixture default. The practical product framing is now: default broad scenario distribution remains equal support mixture; optional portfolio-response overlay can be exposed as a research/demo view when the user wants portfolio-risk-sensitive conditioning.
+
+### Verification
+
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_quality_guard_policy.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py`
+- `uv run pytest test_code/test_924a_nl_portfolio_response_quality_guard_policy.py -q` -> `3 passed`
+- Prior focused suite after support-reliability work: `uv run pytest test_code/test_923a_nl_portfolio_response_feature_sufficiency.py test_code/test_923b_nl_portfolio_response_support_reliability_policy.py test_code/test_923f_nl_portfolio_response_policy_delta_analysis.py -q` -> `10 passed`
+
+---
+## 2026-05-20: HEAD NL Prefix: Portfolio Overlay Stability Gate
+
+### Context
+
+The quality-guard portfolio-response overlay had two clean paired CRN wins and one mixed paired CRN seed with a tiny energy regression. To avoid relying on prose interpretation, I added a fixed stability gate for overlay promotion.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/nl_portfolio_response_overlay_stability_gate.py` and `test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py`.
+
+The script reads already-computed candidate-vs-equal comparison JSON files and classifies the overlay as:
+
+- `overlay_default_candidate` when every seed improves CRPS, energy, coverage, and reliable portfolio response;
+- `overlay_portfolio_candidate` when every seed improves portfolio response, CRPS, and coverage with at most a tiny energy trade-off;
+- `overlay_not_current_lever` otherwise.
+
+### Result
+
+Running the gate on CRN `925`, `926`, and `927` for the quality-guard overlay gives `overlay_portfolio_candidate`, not default promotion:
+
+- clean seeds: `2/3`;
+- portfolio-useful seeds: `3/3`;
+- mean CRPS delta: `-0.001004`;
+- mean energy delta: `-0.000508`;
+- mean coverage delta: `+0.002681`;
+- mean reliable portfolio path-score delta: `-0.006322`;
+- max energy delta: `+0.000221`.
+
+Artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_overlay_stability_gate_924c_t025_3seed/portfolio_response_overlay_stability_gate.json`
+
+### Decision
+
+The current best method is an optional portfolio-risk overlay, not a replacement for the default equal support mixture. This is still a useful production-facing direction because it gives risk managers a portfolio-risk-sensitive view while preserving the broad default distribution.
+
+### Verification
+
+- `python -m py_compile experiments/backfill/block_ar/nl_portfolio_response_overlay_stability_gate.py test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py`
+- `uv run pytest test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py -q` -> `3 passed`
+
+---
+## 2026-05-20: HEAD NL Prefix: Support-Max Quality Guard Passes Default-Candidate Gate
+
+### Context
+
+The first quality-guard overlay (`924a`) improved portfolio response, CRPS, and coverage across three paired CRN seeds, but one seed had a tiny energy regression. A postmortem found the weak seed was concentrated in diffuse final support-weight allocations. I tested a train-derived support-concentration gate: apply the quality-guard overlay only when the final support distribution's max weight is above the train `0.25` quantile, otherwise fall back to equal support.
+
+### Implementation
+
+Updated `experiments/backfill/block_ar/nl_portfolio_response_quality_guard_policy.py` with `--min-support-weight-max-quantile` and added test coverage in `test_code/test_924a_nl_portfolio_response_quality_guard_policy.py`.
+
+The final `924e` bridge records `min_support_weight_max_quantile: 0.25`, threshold `0.23393332011672088`, active rows `49/66`, and fallback rows `17/66`.
+
+Important provenance: the idea came from held-out postmortem analysis, but the final threshold is train-derived from train candidate groups only.
+
+### Evidence
+
+Bridge:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_quality_guard_924e_t025_supportmaxq25/quality_guard_policy_bridge_report.json`
+
+Paired CRN comparisons versus equal support mixture:
+
+- CRN `925`: `candidate_beats_equal_floor`; CRPS `-0.000796`, energy `-0.000186`, coverage `+0.000648`, reliable portfolio path score `-0.004546`.
+- CRN `926`: `candidate_beats_equal_floor`; CRPS `-0.001403`, energy `-0.001431`, coverage `+0.004170`, reliable portfolio path score `-0.005937`.
+- CRN `927`: `candidate_beats_equal_floor`; CRPS `-0.000338`, energy `-0.000069`, coverage `+0.002461`, reliable portfolio path score `-0.003440`.
+
+The stability gate now returns `overlay_default_candidate`: clean seeds `3/3`, mean CRPS delta `-0.000846`, mean energy delta `-0.000562`, mean coverage delta `+0.002426`, mean reliable portfolio path-score delta `-0.004641`.
+
+Stability gate artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_overlay_stability_gate_924e_supportmaxq25_3seed/portfolio_response_overlay_stability_gate.json`
+
+Independent verifier recomputed the comparisons from eval JSON/NPZ inputs and agreed with the claim as default-candidate promotion, not final production-default promotion.
+
+Verifier artifact:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-20_supportmax_quality_guard_default_candidate.md`
+
+### Decision
+
+Promote `924e` as the current default candidate for portfolio-risk-sensitive narrative support weighting. Do not yet replace equal support mixture as the unconditional production default. The next principled step is broader split/time-block confirmation, because three paired CRN seeds reduce sampling-noise risk but do not eliminate split-selection risk.
+
+### Verification
+
+- `uv run pytest test_code/test_923a_nl_portfolio_response_feature_sufficiency.py test_code/test_923b_nl_portfolio_response_support_reliability_policy.py test_code/test_923f_nl_portfolio_response_policy_delta_analysis.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py -q` -> `16 passed`
+- Independent verifier ran `uv run pytest test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py -q` -> `7 passed`
+
+---
+## 2026-05-20: HEAD NL Prefix: Excluded-Block Confirmation For 924e
+
+### Context
+
+The verifier warned that three paired CRN seeds on the 66-window test block reduce sampling-noise risk but do not remove split-selection risk. I therefore tested the same train-derived `924e` support-max quality guard on the previously excluded middle time block (`278-313`), which was not part of the 278 train windows or the 66 test windows.
+
+### Implementation
+
+Built cached bridges from existing artifacts without OpenAI calls:
+
+- query bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_924f_excluded_query_bridge/query_bridge_report.json` (`36` query windows);
+- mixture candidate bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_924f_excluded_mixture_candidates/mixture_label_bridge_report.json` (`360` candidate mixtures);
+- quality-guard bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_quality_guard_924f_excluded_t025_supportmaxq25/quality_guard_policy_bridge_report.json`.
+
+The same train-derived support-max threshold is used. On the excluded block it activates `28/36` windows and falls back on `8/36`.
+
+### Evidence
+
+Paired CRN excluded-block comparisons versus equal support mixture:
+
+- CRN `928`: `candidate_beats_equal_floor`; CRPS `-0.000846`, energy `-0.000700`, coverage `+0.002991`, reliable portfolio path score `-0.004410`.
+- CRN `929`: `candidate_beats_equal_floor`; CRPS `-0.000997`, energy `-0.001116`, coverage `+0.003181`, reliable portfolio path score `-0.000414`.
+
+The excluded-block stability gate returns `overlay_default_candidate`.
+
+Stability artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_overlay_stability_gate_924f_excluded_supportmaxq25_2seed/portfolio_response_overlay_stability_gate.json`
+
+### Decision
+
+This materially strengthens the case for `924e`: it now passes both the original 66-window held-out test block and the excluded 36-window middle block. It still needs product/paper integration and should be described as a train-derived conservative support-weighting policy, not as an unrestricted neural text-to-scenario generator.
+
+---
+## 2026-05-20: HEAD NL Prefix: Paper Integrates Support-Max Portfolio Quality Guard
+
+### Context
+
+The verified `924e` support-max portfolio-response quality guard and the `924f` excluded-block confirmation had been documented in the current-truth file and research log, but the short technical paper still described portfolio conditionality mainly as a warning-level bottleneck. This created stale paper wording relative to the current evidence.
+
+### Hypothesis
+
+Updating the paper to show the conservative support-weighting guard will make the product and paper story consistent: fixed-start narrative conditionality remains guarded because bootstrap rollout noise is still high, but portfolio-response-aware support weighting is now a current default candidate rather than only an unresolved target.
+
+### Research Lane
+
+`production_demo` / paper-integration checkpoint.
+
+### Result Status
+
+`promotion_candidate_integrated_in_local_paper`.
+
+### Benchmark Floor Status
+
+`beats_floor` for the support-max quality guard evidence already verified in `924e` and confirmed on the excluded block in `924f`.
+
+### Execution
+
+Updated the local ignored paper draft under `paper/narrative_grounded_scenarios/main.tex`:
+
+- revised the abstract to state that fixed-start narrative signal enters through support and decoded-prefix layers, while bootstrap rollout noise still limits a clean no-warning conditionality claim;
+- added the train-derived portfolio-response quality guard to the contribution list;
+- added a portfolio-response support-weighting section after the portfolio conditionality controls;
+- added a table summarizing the held-out 66-window and excluded 36-window support-max quality-guard results;
+- updated the discussion/conclusion to describe the method as a current default candidate, not a final production default;
+- added the `924e`, `924f`, and verifier artifact paths to the appendix.
+
+### Result
+
+The paper now states the current position more accurately:
+
+- the equal support mixture remains the broad incumbent floor;
+- `924e` is the current default-candidate support policy for portfolio-response-sensitive support weighting;
+- the quality guard uses train-only candidate priors and a train-derived support-max threshold;
+- the fixed-start narrative conditionality warning remains honest because bootstrap rollout noise and tail separation are not fully solved.
+
+The paper remains intentionally local because `paper/` is ignored by `.gitignore` and the under-review paper material should not be uploaded by default.
+
+### Verification
+
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` from `paper/narrative_grounded_scenarios` -> success, `main.pdf` rebuilt.
+- `uv run pytest test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_924c_nl_portfolio_response_overlay_stability_gate.py -q` -> `7 passed`.
+
+### Decision / Next Step
+
+Continue the active `/goal` workflow. The next principled step is to convert this support-max portfolio quality guard from paper evidence into product behavior: expose it as a controlled support-policy option/default candidate in the narrative workflow only where the support-max gate passes, while preserving the equal support mixture fallback and the fixed-start conditionality warnings.
+
+---
+## 2026-05-20: HEAD NL Prefix: Live Story-Smoke Support-Max Quality Guard Adapter
+
+### Context
+
+After integrating the verified `924e`/`924f` portfolio-response quality guard into the local paper draft, the next product step was to determine whether the same policy can be used by the live narrative/story-smoke workflow. The independent code-path inspection found that `924e` was an offline bridge rewriter over historical query rows, while the live story-smoke path builds support mixtures directly from a fresh narrative memory and fixed start.
+
+### Hypothesis
+
+The safe product-wiring step is not to flip the demo default. It is to factor the verified quality-guard selection core into a reusable helper, then add an opt-in `portfolio_quality_guard_924e` memory-prior mode that returns the same `memory_prior` shape as the existing live support selector. The mode must preserve the train-only priors, support-max fallback gate, fixed-start contract, component-preserving rollout, and equal/base support fallback.
+
+### Research Lane
+
+`candidate` / product-wiring TestFlight.
+
+### Result Status
+
+`candidate`.
+
+### Benchmark Floor Status
+
+`not_tested` in this iteration. The prior `924e`/`924f` evidence beats the equal floor offline; this iteration only wires and smokes the live contract.
+
+### Execution
+
+Implemented three bounded changes:
+
+- factored `select_quality_guard_support(...)` and `build_quality_guard_policy_context(...)` in `experiments/backfill/block_ar/nl_portfolio_response_quality_guard_policy.py`;
+- added opt-in `portfolio_quality_guard_924e` support to `build_mixture_memory_prior(...)` in `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py`, with lazy imports to avoid circular dependencies;
+- allowed `nl_prefix_latent_story_smoke.py` to accept `--memory-prior-mode portfolio_quality_guard_924e` and report the quality-guard policy metadata.
+
+The opt-in mode builds live candidate mixtures from the existing narrative/start support table, applies the same train-only portfolio-plus-quality guard, and falls back to the base diverse direction-checked support prior when the support-max gate fails.
+
+### Result
+
+The live contract now works:
+
+- Skip-rollout smoke:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_925b_portfolio_quality_guard_skip/prefix_latent_story_smoke_report.json`.
+- Tiny rollout smoke:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_925c_portfolio_quality_guard_rollout_smoke/prefix_latent_story_smoke_report.json`.
+
+The rollout smoke produced `generated_shape: [2, 4, 30, 39]` with finite rate `1.0`. The report exposes `portfolio_response_quality_guard_prior`, the support-max threshold `0.23393332011672088`, selected support windows, and fallback status. With strict temporal non-overlap and explicit start `18`, the operational smoke had only one admissible candidate mixture, so it validates plumbing but not a meaningful live reweighting gain.
+
+### Mechanism Read
+
+The quality guard can be product-wired without changing the validated offline bridge contract. However, the live candidate set can become too small under the strict 30-window non-overlap gap, especially for a fixed explicit start. The next evaluation should therefore compare the opt-in mode against the base support prior on cached casebook rows and report candidate-count diagnostics before exposing it as the demo default.
+
+### Verification
+
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_portfolio_response_quality_guard_policy.py` -> pass.
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> `63 passed`.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py ... --memory-prior-mode portfolio_quality_guard_924e --skip-rollout --steps 1 --device cpu` -> report written.
+- `uv run python experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py ... --memory-prior-mode portfolio_quality_guard_924e --samples 4 --steps 1 --device cpu` -> generated shape `[2, 4, 30, 39]`.
+
+### Decision / Next Step
+
+Keep `portfolio_quality_guard_924e` as an opt-in candidate mode, not the Gradio/default mode. The next principled HEAD iteration is a cached casebook comparison: run the base diverse support prior and the opt-in quality guard on the same fixed starts and narratives, then measure candidate counts, fallback rates, support overlap, path metrics, and portfolio-response deltas. Promote to demo default only if the opt-in path has enough candidate breadth and does not weaken the existing fixed-start warning contract.
+
+---
+## 2026-05-20: HEAD NL Prefix: Casebook Check For Live Quality Guard Candidate
+
+### Context
+The verified `924e` support-max quality guard now exists as an opt-in live story-smoke prior mode, but the first operational smoke had only one admissible candidate mixture under strict temporal non-overlap. I therefore ran a cached three-case comparison (`925d`) against the existing base diverse support prior before considering any demo/default promotion.
+
+### Results
+- Summary artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_casebook_compare_925d_summary/casebook_quality_guard_comparison.json`.
+- Markdown artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_casebook_compare_925d_summary/casebook_quality_guard_comparison.md`.
+- Fragile risk-on: base and quality-guard support sets were identical (`[18, 68, 101]`), with only one admissible quality-guard candidate mixture.
+- Defensive risk-off: quality guard had ten candidate mixtures but fell back to the base support set (`[54, 0]`).
+- Commodity inflation: quality guard did not fall back and selected a materially different support set (`[45, 32, 18, 93, 22]` versus base `[91, 43]`).
+- Aggregate diagnostics: mean support Jaccard `0.667`, mean quality-guard candidate count `7.0`, fallback count `1/3`, and mean absolute portfolio terminal delta `0.745`.
+
+### Interpretation
+This is mixed product evidence. The opt-in quality guard can materially alter support for some narratives, but strict support diversity can still leave too little live candidate breadth, and one case fell back. The result supports keeping `portfolio_quality_guard_924e` as an opt-in candidate, not the default Gradio/product path.
+
+### Decision
+Do not promote the live quality guard yet. The next HEAD step should either (a) run a broader paired comparison with adequate candidate-breadth diagnostics, or (b) improve the live candidate generator/fallback contract so quality-guard activation is evaluated only when enough distinct candidate mixtures exist.
+
+---
+## 2026-05-20: HEAD NL Prefix: Live Quality Guard Candidate-Breadth Gate
+
+### Context
+The cached `925d` casebook comparison showed that the live `portfolio_quality_guard_924e` path could change support for some narratives, but it could also activate when strict temporal diversity left only one admissible candidate mixture. That is not a meaningful learned support choice, so the next HEAD step was to expose live quality-guard candidate-breadth controls and add a fallback gate.
+
+### Changes
+- Added story-smoke CLI controls for `portfolio_quality_guard_924e`: candidate pool size, mixture size, max mixtures, and minimum candidate-mixture count.
+- Added `quality_guard_min_candidate_mixtures` to `build_mixture_memory_prior(...)`.
+- If the live guard has fewer candidate mixtures than the minimum, it now falls back to the base diverse support prior and records `fallback_reason: insufficient_live_candidate_mixtures`.
+- Added `nl_portfolio_quality_guard_live_breadth_diagnostic.py` and tests to evaluate live candidate breadth without running rollout.
+
+### Evidence
+- Unit/integration slice: `uv run pytest test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> `67 passed`.
+- Pre-gate breadth diagnostic (`925e`): 36 narrative/start rows, status `candidate_breadth_warning`, changed support `15/36`, median candidate count `64`, but low-breadth rows `9/36` and one fallback.
+- Post-gate breadth diagnostic (`925f`): `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_live_breadth_925f_minbreadth/portfolio_quality_guard_live_breadth.json`.
+- Post-gate status: `fallback_warning`; changed support `15/36`, low-breadth rows `9/36`, active low-breadth rows `0/36`, fallback rows `10/36`, mean support Jaccard `0.397`.
+- Story-smoke CLI check: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_story_smoke_925f_qg_minbreadth_skip/prefix_latent_story_smoke_report.json` records fallback reason `insufficient_live_candidate_mixtures`, candidate count `1`, and minimum candidates `4`.
+
+### Interpretation
+The low-breadth failure is now contained: the opt-in guard no longer presents one-candidate cases as active learned support reweighting. However, the guard still falls back on many rows, and the active rows sometimes expand support to a broader support set. This is safer, but it is still not default-ready.
+
+### Decision
+Keep `portfolio_quality_guard_924e` as an opt-in candidate/overlay. The next principled step is a paired rollout comparison only on rows where the guard is active and has adequate candidate breadth, with base diverse support as the same-start baseline and common random numbers.
+
+---
+## 2026-05-20: HEAD NL Prefix: Active-Row Quality Guard Paired Rollout Pilot
+
+### Context
+After `925f`, low-breadth live quality-guard activations were contained by fallback, but the remaining question was whether active adequate-breadth rows actually move generated scenario distributions in useful risk-manager channels. I ran a small paired rollout pilot on cached professional narratives with the same fixed start (`18`), comparing base `diverse_topk_narrative_start_checked` against opt-in `portfolio_quality_guard_924e`.
+
+### Execution Note
+A four-way parallel rollout attempt caused excessive CPU contention and was killed before reports were produced. I switched to a sequential low-cost TestFlight pattern. This should be the execution pattern for future local rollout pilots unless we build a dedicated batched runner.
+
+### Evidence
+- Defensive risk-off paired summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_925g_defensive/portfolio_quality_guard_paired_rollout_summary.json`.
+- Commodity inflation paired summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_925h_commodity/portfolio_quality_guard_paired_rollout_summary.json`.
+- Rates selloff paired summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_925i_rates/portfolio_quality_guard_paired_rollout_summary.json`.
+- Aggregate pilot summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_925ghi_summary/paired_rollout_pilot_summary.json`.
+- Test slice: `uv run pytest test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py test_code/test_925g_nl_portfolio_quality_guard_paired_rollout_summary.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> `68 passed`.
+
+### Results
+Across the three active-row pilot cases, mean support Jaccard was `0.051`, so the guard selected materially different support than the base prior. In the aggregate table, the quality guard shifted SPX terminal means lower in all three cases (`-6.83`, `-13.51`, `-3.72`) and widened VIX distributions in all three cases (`+0.85`, `+0.95`, `+0.41`). Equity-beta/carry portfolio effects were more adverse in the commodity and rates cases, with path-loss deltas `+0.92` and `+0.97`, while the defensive case was near flat on path loss.
+
+### Interpretation
+This is useful candidate evidence: the quality-guard overlay is not merely changing provenance tables; it can change the generated distribution in risk-manager-visible channels. However, the quality-guard story-smoke runs still reported warning status, sample counts are small, and this is not a held-out CRPS/energy promotion benchmark.
+
+### Decision
+Keep `portfolio_quality_guard_924e` as an opt-in candidate/overlay. The next principled step is not to promote it, but to build a batched/sequential paired-rollout evaluator over all active adequate-breadth rows so the candidate can be judged with enough samples, no CPU contention, common-random-number controls where possible, and portfolio/factor distribution summaries.
+
+---
+## 2026-05-20: HEAD NL Prefix: Sequential Paired-Rollout Evaluator For Quality Guard
+
+### Context
+The active-row paired rollout pilot showed useful candidate signal, but the earlier four-way parallel run stalled from CPU contention. To scale the test without repeating that failure mode, I built a sequential paired-rollout runner that reads the live breadth report, selects only active adequate-breadth rows, and runs base versus `portfolio_quality_guard_924e` one pair at a time.
+
+### Changes
+- Added `experiments/backfill/block_ar/nl_portfolio_quality_guard_paired_rollout_runner.py`.
+- The runner filters out fallback, low-breadth, inactive, and unchanged-support rows by default.
+- For each selected row it runs base `diverse_topk_narrative_start_checked`, then opt-in `portfolio_quality_guard_924e`, then writes factor/portfolio paired summaries using raw start levels.
+- Added `test_code/test_925j_nl_portfolio_quality_guard_paired_rollout_runner.py`.
+
+### Evidence
+- Runner smoke: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_runner_925j_smoke/paired_rollout_runner_summary.json`.
+- Smoke result: `case_count=1`, `status=pilot_completed`; selected case `commodity_inflation_start18_start77`, support Jaccard `0.000`, SPX delta `+5.69`, VIX delta `+0.28`, equity-beta path-loss delta `+0.82`.
+- Test slice: `uv run pytest test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py test_code/test_925g_nl_portfolio_quality_guard_paired_rollout_summary.py test_code/test_925j_nl_portfolio_quality_guard_paired_rollout_runner.py test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_924a_nl_portfolio_response_quality_guard_policy.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> `70 passed`.
+
+### Interpretation
+This is workflow infrastructure, not a promotion result. It fixes the execution bottleneck that prevented scaling the active-row rollout comparison. It also enforces the current product contract: quality-guard rollouts are evaluated only where the guard is active and candidate breadth is adequate.
+
+### Decision
+Use the sequential runner for the next larger paired rollout comparison. Do not promote the quality guard until the runner has covered enough active rows with adequate samples and the result is checked against warning status, factor response, portfolio response, and broad scenario-quality trade-offs.
+
+---
+## 2026-05-20: HEAD NL Prefix: Active-Row Quality Guard Runner Scale-Up
+
+### Context
+The `925j` sequential paired-rollout runner fixed the CPU-contention problem but had only been smoke-tested on one active row. I scaled it to all active adequate-breadth rows from the `925f` live-breadth diagnostic to judge whether opt-in `portfolio_quality_guard_924e` is a promotion candidate or still only a diagnostic overlay.
+
+### Evidence
+- Five-row pilot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_runner_925k/paired_rollout_runner_summary.json`.
+- Full active-row pass: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_paired_rollout_runner_925l_active23/paired_rollout_runner_summary.json`.
+- The full pass covered `23` active adequate-breadth rows, comparing base `diverse_topk_narrative_start_checked` against opt-in `portfolio_quality_guard_924e` with the same cached condition reports, fixed starts, `samples=12`, and `steps=100`.
+
+### Results
+The quality guard materially changed support selection: mean support Jaccard was `0.0557`, and all quality-guard runs stayed active with no fallback. It also produced visible scenario movement: mean absolute SPX terminal-mean delta was `7.64`, mean VIX terminal-mean delta was positive in most groups, and mean equity-beta/carry path-loss delta was `-0.94` versus the base prior.
+
+Grouped by narrative, the response was not production-clean. Commodity inflation rows showed mostly lower SPX and consistently higher VIX. Defensive risk-off rows showed consistently higher VIX and worse equity-beta/carry path loss, but SPX sign was split by start. Rates and dollar-liquidity rows also had mixed SPX and portfolio responses. Quality-guard runs were warning-level while most base runs passed.
+
+### Interpretation
+This resolves one wiring question: the opt-in guard is not merely changing provenance tables; it changes generated distributions across a broad active set. But it does not yet solve the product conditionality problem. The response is too mixed to claim that the learned support-response scorer reliably maps professional narratives into risk-manager-expected distribution changes.
+
+### Decision
+Do not promote `portfolio_quality_guard_924e` to the default demo/product path. Keep it as an opt-in diagnostic candidate. The next principled step is to improve the response-aligned support scorer or readout target so it optimizes risk-manager-visible distribution behavior directly: narrative-consistent factor responses, portfolio-tail movement, and warning-aware calibration, rather than just selecting a different support set.
+
+---
+## 2026-05-21: HEAD NL Prefix: Narrative-Book Conditioned Quality Guard Diagnostic
+
+### Context
+The `925l` active-row paired rollout showed that `portfolio_quality_guard_924e` changes support and generated distributions, but its response is mixed by narrative and start. The suspected issue is that `924e` uses one fixed reliable portfolio-response basket for every narrative, even though risk-manager stories imply different risk books: commodity inflation, dollar liquidity, defensive risk-off, rates/duration, safe-haven hedge, or short-volatility.
+
+### Changes
+- Built an all-book portfolio-response label report from existing rollout arrays, without OpenAI calls or generator calls: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_allbook_labels_926a/portfolio_response_label_scenario_report.json`.
+- Added `experiments/backfill/block_ar/nl_narrative_book_conditioned_quality_guard.py`.
+- Added `test_code/test_926a_nl_narrative_book_conditioned_quality_guard.py`.
+- The diagnostic maps grounding sidecar implications to portfolio-book relevance weights, blends train-only per-support book priors, then compares selected support against the base diverse prior and the non-promoted `924e` guard.
+
+### Evidence
+- Corrected live-context diagnostic: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_book_conditioned_quality_guard_926b_context_fixed/narrative_book_quality_guard.json`.
+- Test slice: `uv run pytest test_code/test_926a_nl_narrative_book_conditioned_quality_guard.py test_code/test_925j_nl_portfolio_quality_guard_paired_rollout_runner.py test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py -q` -> `9 passed`.
+
+### Results
+The diagnostic covered `36` cached narrative/start rows. It was active on `30/36` rows and fell back on `6/36` fragile risk-on rows with only one candidate mixture. It changed support versus the base prior on `24/36` rows, with mean Jaccard versus base `0.362`, and it differed from `924e` on all rows, with mean Jaccard versus `924e` `0.089`.
+
+The selected book weights are narrative-legible: commodity narratives emphasize `commodity_inflation`, dollar-liquidity narratives emphasize `dollar_liquidity`, safe-haven narratives emphasize `safe_haven_hedge`, and defensive/rates narratives emphasize equity/dollar/safe-haven risk books. This addresses the mechanism flaw in `924e`: one fixed reliable-book basket is not enough for all narratives.
+
+### Interpretation
+This is a promising pre-rollout candidate because it makes the support-response objective narrative-specific instead of one-size-fits-all. It is not promoted yet. The next required step is a paired rollout comparison, using the same sequential runner pattern, to test whether the narrative-book scorer improves risk-manager-visible scenario distributions versus both the base diverse prior and `924e` without worsening warning status or broad scenario quality.
+
+---
+## 2026-05-21: Fixed-start narrative support-policy bake-off
+
+### Context
+The fixed-start narrative casebook showed weak-looking marginal fan conditionality, and support tables were concentrated in nearby 2016 windows. The question was whether the user-selected starting level had become the main support selector rather than a boundary condition.
+
+### Hypothesis
+If starting-level similarity is dominating, a start-only null should overlap heavily with the narrative-conditioned support. If the bottleneck is instead hard direction gating plus a narrow support bank, then a full-bank narrative-first support selector should increase support count and breadth while keeping start-only overlap low.
+
+### Research Lane
+exploration
+
+### Result Status
+mechanism_found
+
+### Benchmark Floor Status
+not_tested; this was a support-selection diagnostic without SNI rollout or scenario-level CRPS/energy.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_fixed_start_support_policy_bakeoff.py`.
+- Added focused tests in `test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py`.
+- Ran:
+  - `uv run python experiments/backfill/block_ar/nl_fixed_start_support_policy_bakeoff.py`
+  - `uv run pytest test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py -q`
+
+### Result
+Artifact paths:
+- JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_support_policy_bakeoff_930a/fixed_start_support_policy_bakeoff.json`
+- Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_support_policy_bakeoff_930a/fixed_start_support_policy_bakeoff.md`
+
+Key readout under fixed start 18:
+- Full 906b 380-window bank:
+  - current hard-checked selector: mean support count 4.00, 23 distinct supports, mean support Jaccard 0.006, mean start-only Jaccard 0.000, direction pass 6/6.
+  - narrative-first hard-direction selector: mean support count 3.83, 22 distinct supports, mean support Jaccard 0.006, mean start-only Jaccard 0.000, direction pass 6/6.
+  - narrative-first soft-direction selector: mean support count 7.83, 31 distinct supports, mean support Jaccard 0.109, mean start-only Jaccard 0.012, direction pass 3/6 and reject 3/6.
+  - narrative-only selector: mean support count 8.00 but mean support Jaccard 0.302 and direction reject 5/6.
+  - start-only null: mean support Jaccard 1.000 and mean start-only Jaccard 1.000.
+- Representative 182-window bank:
+  - current selector only selected 2.33 supports on average, with 11 distinct supports across the six narratives.
+  - narrative-first soft-direction selected 3.83 supports on average, with 13 distinct supports.
+
+### Mechanism Read
+The evidence does not say the selected supports are literally the same as a nearest-start policy: start-only overlap is near zero for the narrative policies. The bigger mechanism is that the representative 182-window bank plus hard direction gate and 30-window diversity gap leaves too few eligible supports for several narratives. The full 380-window bank improves breadth substantially. Pure narrative-only support is not enough because it fills top-k but fails direction audits for most narratives.
+
+### Decision / Next Step
+Do not abandon the fixed-start paradigm. Change the contract to narrative-first support selection with start as boundary condition/audit, then test whether the fuller support bank and softer direction treatment improve actual rollout conditionality. The next experiment should run component-preserving rollouts for the full-bank `narrative_first_soft_direction_gap30` candidate and the current hard-checked selector under the same fixed start, then compare factor fans, portfolio-tail distributions, and support provenance against the start-only null.
+
+---
+## 2026-05-21: Fixed-start rollout policy comparison
+
+### Context
+The support-only 930a diagnostic found that the representative 182-window bank was too narrow, while the full 380-window bank produced broader narrative support. The next question was whether broader/narrative-first support translated into scenario-level conditionality under the same fixed start.
+
+### Hypothesis
+Under the same fixed start and component-preserving rollout, a policy with real narrative conditionality should produce non-zero support separation, non-zero raw-factor terminal distribution separation, and non-zero portfolio-tail separation versus the start-only null. If soft direction scoring only broadens support by admitting direction-inconsistent candidates, scenario separation should weaken or trigger direction rejects.
+
+### Research Lane
+exploration
+
+### Result Status
+mechanism_found
+
+### Benchmark Floor Status
+not_tested; this was a fixed-start rollout conditionality diagnostic, not a held-out CRPS/energy backtest.
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py`.
+- Added focused tests in `test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py`.
+- Exposed the already-implemented `soft_topk_start_only` prior mode in the story-smoke CLI so the start-only null runs through the same path.
+- Ran a one-case smoke, then the full six-narrative comparison with 64 samples and 400 decoder steps per run.
+- Reran summary generation with plot artifacts.
+- Verified:
+  - `uv run pytest test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q`
+  - `uv run pytest test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q`
+
+### Result
+Artifact paths:
+- JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_931a/fixed_start_rollout_policy_comparison.json`
+- Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_931a/fixed_start_rollout_policy_comparison.md`
+- Factor fan plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_931a/fixed_start_rollout_factor_fans.png`
+- Portfolio tail plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_931a/fixed_start_rollout_portfolio_tail.png`
+
+Fixed-start rollout metrics:
+- current hard-checked selector: direction pass 6/6, mean support count 4.00, mean support Jaccard 0.006, mean factor terminal KS 0.224, mean portfolio terminal KS 0.172, VaR95-loss range 9.35.
+- narrative-first hard-direction ablation: direction pass 6/6, mean support count 3.83, mean support Jaccard 0.006, mean factor terminal KS 0.201, mean portfolio terminal KS 0.167, VaR95-loss range 9.64.
+- narrative-first soft-direction candidate: direction pass 3/6 and reject 3/6, mean support count 7.83, mean support Jaccard 0.109, mean factor terminal KS 0.139, mean portfolio terminal KS 0.111, VaR95-loss range 2.54.
+- start-only null: direction pass 1/6 and reject 5/6, support Jaccard 1.000, factor KS 0.000, portfolio KS 0.000, VaR95-loss range 0.000.
+
+### Mechanism Read
+The fixed start is not solely controlling the generator: the start-only null produces identical support and identical scenarios across narratives. Narrative-conditioned hard-direction policies produce distinct supports and non-zero factor/portfolio distribution separation under the same start. Removing the start penalty while keeping hard direction barely changes the result, so the start-distance penalty is not the main bottleneck. Soft direction scoring broadens support, but it admits direction-inconsistent mixtures and weakens rollout separation.
+
+### Decision / Next Step
+Keep the fixed-start contract. Do not promote the soft-direction candidate. The best current direction is full-bank hard direction-checked support with component-preserving rollout, plus a future learned support-weighting or response-aware scorer that preserves direction consistency instead of simply softening it. The next principled experiment should run a higher-sample/paper-quality version of the hard-direction full-bank selector and update the qualitative conditionality plots/table around the finding that start-only null is flat while narrative-conditioned hard-direction support produces factor and portfolio-tail variation.
+
+---
+## 2026-05-21: High-sample fixed-start narrative conditionality control
+
+### Context
+The previous fixed-start rollout diagnostic showed that hard direction-checked narrative support produces non-zero scenario separation under the same accepted starting level, while the start-only null is flat. The next paper-facing step was to rerun the strongest current policies at higher sample count and update the narrative-conditioned scenario paper around the clean control.
+
+### Execution
+- Ran the full six-narrative fixed-start comparison with 384 generated paths per narrative and 400 decoder steps.
+- Policies compared: current hard direction/start-aware support, narrative-first hard direction ablation, and start-only top-k null.
+- Reused cached condition reports and the frozen SNI/prefix artifacts; no OpenAI calls were made.
+- Command:
+  - `uv run python experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py --policy current_start_checked_gap30 --policy narrative_first_hard_direction_gap30 --policy start_only_topk --samples 384 --decoder-steps 400 --output-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --force`
+
+### Results
+Artifacts:
+- JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384/fixed_start_rollout_policy_comparison.json`
+- Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384/fixed_start_rollout_policy_comparison.md`
+- Factor fans: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384/fixed_start_rollout_factor_fans.png`
+- Portfolio tail plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384/fixed_start_rollout_portfolio_tail.png`
+
+High-sample readout:
+- Current hard direction/start-aware policy: direction pass 6/6, mean support count 4.00, mean support Jaccard 0.006, mean factor terminal KS 0.178, mean portfolio terminal KS 0.118, VaR95-loss range 10.34.
+- Narrative-first hard direction ablation: direction pass 6/6, mean support count 3.83, mean support Jaccard 0.006, mean factor terminal KS 0.166, mean portfolio terminal KS 0.120, VaR95-loss range 8.89.
+- Start-only null: direction pass 1/6 and reject 5/6, mean support Jaccard 1.000, mean factor terminal KS 0.000, mean portfolio terminal KS 0.000, VaR95-loss range 0.00.
+
+### Mechanism Read
+The start-only null selects identical support and generates identical distributions across all six narratives, so the fixed starting level alone is not the source of conditionality. Hard direction-checked narrative support keeps direction consistency, selects distinct support under the same start, and produces non-zero raw-factor and portfolio-tail distribution separation. Removing the start-distance ranking pressure barely changes the result, which supports the interpretation that the accepted start is a boundary condition while narrative-conditioned support ranking drives the response.
+
+### Paper Update
+Updated the local narrative-conditioned scenario paper with a new high-sample policy-comparison table and two paper-facing control figures:
+- `paper/narrative_grounded_scenarios/generated_tables/table_fixed_start_rollout_policy_comparison.tex`
+- `paper/narrative_grounded_scenarios/figures/fixed_start_rollout_policy_s384_factor_fans.png`
+- `paper/narrative_grounded_scenarios/figures/fixed_start_rollout_policy_s384_portfolio_tail.png`
+- `paper/narrative_grounded_scenarios/main.tex`
+
+Compiled the paper with `latexmk -pdf -interaction=nonstopmode main.tex` from `paper/narrative_grounded_scenarios`; it produced `main.pdf` successfully. Focused tests also pass: `uv run pytest test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q` returned 7 passed.
+
+### Decision
+The conditionality problem is not closed at final production grade, but the core mechanism is now supported by the right fixed-start control: narrative-conditioned hard-direction support produces scenario and portfolio-tail differences while start-only support is flat. The next method work should improve the support distribution or response-aware weighting, not soften direction checks or abandon the support mixture.
+
+---
+## 2026-05-21: Verifier pass for high-sample fixed-start policy comparison
+
+### Context
+The 932a high-sample fixed-start policy comparison is now a paper-facing claim, so the NL prefix-latent workflow requires an independent verifier artifact before promotion.
+
+### Verification
+Saved verifier report:
+- `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-21_fixed_start_policy_comparison_932a.md`
+
+Verifier verdict: `AGREE` for the bounded claim that, under the same accepted starting level, hard direction-checked narrative support selects different support pools and produces non-zero factor/portfolio distribution separation, while the start-only null selects identical support and produces zero cross-narrative separation.
+
+### Follow-up Fix
+The verifier pass caught a presentation issue: the first generated plot used internal policy identifiers in subplot labels. I added public policy labels to `experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py`, reran the 932a summary/plot generation from saved arrays, copied the refreshed figures into the local paper folder, and recompiled the paper.
+
+### Verification Commands
+- `uv run python experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py --policy current_start_checked_gap30 --policy narrative_first_hard_direction_gap30 --policy start_only_topk --samples 384 --decoder-steps 400 --output-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --summarize-only`
+- `uv run pytest test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q` returned 7 passed.
+- `latexmk -pdf -interaction=nonstopmode main.tex` from `paper/narrative_grounded_scenarios` produced `main.pdf`; only a non-blocking underfull hbox warning remains.
+
+---
+## 2026-05-21: NL conditionality stress-test evidence
+
+### Context
+The fixed-start narrative fan charts still looked visually similar in generic SPX/VIX/gold panels, so the product question was sharpened: conditionality should be evaluated in the risk channels each narrative actually invokes, with a start-only null proving the response is not just the starting level.
+
+### Work Performed
+- Added `experiments/backfill/block_ar/nl_conditionality_stress_test.py` as an offline diagnostic over the saved 932a component-preserving rollouts.
+- Added narrative-relevant factor panels, reference-contrast panels, terminal raw-level overlays, and portfolio tail-delta plots.
+- Added a clean start-only null check: identical sample clouds now report zero path energy.
+- Added focused regression tests in `test_code/test_933a_nl_conditionality_stress_test.py`.
+- Updated the narrative-conditioned scenario paper with the new stress-test figures and product-facing interpretation.
+
+### Findings
+The selected hard-direction start-aware policy passes 6/6 gates: same start, direction consistency, low support overlap, relevant-factor response, path-distribution response, and portfolio-tail response. The start-only null passes only 1/6, with support Jaccard 1.000 and zero factor KS, path energy, portfolio KS, and VaR95 range. This supports the current claim that narrative conditioning is present, but should be shown through narrative-relevant factor panels, contrast plots, support provenance, and portfolio-tail readouts rather than a single generic fan chart.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_conditionality_stress_test.py --input-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_933a`
+- `uv run pytest test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_933a_nl_conditionality_stress_test.py -q` passed with 9 tests.
+- `latexmk -pdf -interaction=nonstopmode main.tex` in `paper/narrative_grounded_scenarios` completed and produced a 32-page PDF.
+
+---
+## 2026-05-21: NL workflow objective: response-aware support weighting
+
+### Context
+After the 933a fixed-start conditionality stress test, the baseline component-preserving narrative support mixture shows nonzero conditionality: narrative policies pass the fixed-start gates and the start-only null is flat. The remaining product goal is not to prove that narrative response exists again, but to make that response stronger and more useful in the risk channels named by the narrative.
+
+### Workflow Update
+The NL prefix-latent workflow objective is now response-aware support weighting inside support-grounded latent scenario generation. The method should keep the fixed start, historical support prior, and frozen SNI rollout, while learning or calibrating support weights from generator-response evidence. The new tracked intake is `docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md`.
+
+### Required Evidence
+Every candidate must collect evidence and demonstrate conditionality before promotion: fixed-start multi-narrative controls, start-only nulls, relevant-factor KS/path-energy, qualitative raw-level fans and contrast panels, portfolio VaR/ES or tail-impact separation, held-out CRPS/energy/coverage, provenance, direction checks, and independent verification before any paper/demo default changes.
+
+### Files Updated
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `docs/research_protocols/nl_prefix_latent_goal.json`
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- `docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md`
+- local ignored `autoresearch-session/nl_prefix_latent_goal.json`
+
+---
+## 2026-05-21: NL response-aware support weighting TestFlight
+
+### Context
+The new workflow objective is response-aware support weighting: keep the fixed start, historical support prior, and frozen SNI rollout, but improve how the support weights express the risk channels named by the narrative. The first bounded experiment should collect evidence and demonstrate conditionality without new OpenAI calls or new generator calls.
+
+### Work Performed
+- Added `experiments/backfill/block_ar/nl_response_aware_support_weighting_testflight.py`.
+- Added `test_code/test_934a_nl_response_aware_support_weighting.py`.
+- Ran the TestFlight on cached 932a fixed-start component-preserving rollouts.
+- Added the initial evidence to `docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md` and `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+
+### Findings
+The alpha `0.75` response-aware candidate improved fixed-start conditionality metrics versus the current component baseline: relevant-factor KS `0.1775 -> 0.2127`, path energy `0.0431 -> 0.0489`, portfolio KS `0.1179 -> 0.1462`, and VaR95 range `10.339 -> 10.658`. The start-only null remains flat with zero relevant-factor KS, zero path energy, zero portfolio KS, and zero VaR95 range. Bounded sensitivity checks also improved relevant-factor KS and portfolio KS at alpha `0.35` and `1.25`.
+
+### Interpretation
+This is promising mechanism evidence that response-aware support weighting can strengthen narrative conditionality in product-facing channels. It is not promoted yet: it reweights cached rollout samples rather than training a pre-rollout support scorer, and it does not yet prove held-out CRPS/energy/coverage competitiveness. The next promotion-quality step is to train or calibrate a pre-rollout scorer that approximates the response-aware weights from narrative/start/support features available before final generation, then run held-out backtests and independent verification.
+
+### Verification
+- `uv run pytest test_code/test_933a_nl_conditionality_stress_test.py test_code/test_934a_nl_response_aware_support_weighting.py -q` returned 5 passed.
+- `uv run python experiments/backfill/block_ar/nl_response_aware_support_weighting_testflight.py --input-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_response_aware_support_weighting_934a --response-alpha 0.75 --response-temperature 1.0` completed successfully.
+
+---
+## 2026-05-21: NL response-aware pre-rollout book guard probe
+
+### Context
+The response-aware support-weighting objective needs evidence that stronger narrative conditionality can be produced operationally, not only by reweighting cached rollout samples after the fact. I therefore wired a pre-rollout response-aware candidate into the live support selector: `narrative_book_quality_guard_926b` blends train-only per-book portfolio-response priors according to the grounded narrative risk channels, then selects support mixtures before frozen SNI rollout.
+
+### Work Performed
+- Added reusable narrative-book response-prior context construction in `experiments/backfill/block_ar/nl_narrative_book_conditioned_quality_guard.py`.
+- Added `narrative_book_quality_guard_926b` to `experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py` and exposed it through `nl_prefix_latent_story_smoke.py`.
+- Added fixed-start policy `narrative_book_response_guard_gap30` to `experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py`.
+- Ran six fixed-start 384-sample frozen-SNI rollouts under the new policy and then ran the conditionality stress test.
+
+### Evidence
+Artifacts:
+- Rollout root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384`
+- Stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_934b_response_book_guard/conditionality_stress_test.json`
+
+Result:
+- Current component baseline: `6/6` conditionality gates, relevant-factor KS `0.1775`, path energy `0.0431`, portfolio KS `0.1179`, VaR95 range `10.339`.
+- Pre-rollout narrative-book guard: `3/6` conditionality gates, relevant-factor KS `0.0985`, path energy `0.0085`, portfolio KS `0.0536`, VaR95 range `1.479`.
+- Start-only null: `1/6` conditionality gates and zero separation.
+
+### Decision
+The narrative-book pre-rollout guard is `candidate_rejected_as_default`. It is useful as a negative result: train-only risk-book support priors are too blunt and can over-broaden the support pool, smoothing away narrative-specific response. The next response-aware candidate should approximate the successful 934a generator-response surface more directly while avoiding realized-future leakage.
+
+### Verification
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_926a_nl_narrative_book_conditioned_quality_guard.py test_code/test_930a_nl_fixed_start_support_policy_bakeoff.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_934a_nl_response_aware_support_weighting.py -q` returned 33 passed.
+- `uv run python experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py --output-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --policy narrative_book_response_guard_gap30 --samples 384 --decoder-steps 400 --seed 934 --memory-prior-top-k 8 --memory-prior-temperature 0.2 --diverse-max-pairwise-cosine 0.95 --quality-guard-candidate-pool-size 12 --quality-guard-mixture-size 3 --quality-guard-max-mixtures 64 --quality-guard-min-candidate-mixtures 4 --device cuda` completed.
+- `uv run python experiments/backfill/block_ar/nl_conditionality_stress_test.py --input-root experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_932a_s384 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_934b_response_book_guard --policy current_start_checked_gap30 --policy narrative_book_response_guard_gap30 --policy start_only_topk --selected-policy narrative_book_response_guard_gap30` completed.
+
+---
+## 2026-05-21: NL preview-split response-aware support weighting
+
+### Context
+
+The workflow objective is now response-aware support weighting for the narrative-conditioned scenario generator. The product problem is not merely finding semantically similar historical windows; it is making the fixed-start support mixture respond visibly and quantitatively to the risk channels named by the professional narrative while preserving the historical support prior, frozen SNI rollout, provenance, and direction checks.
+
+The previous operational pre-rollout attempt, `narrative_book_response_guard_gap30`, was rejected as a default because it used a train-only risk-book prior that broadened support too much and weakened conditionality. The next hypothesis was that the useful signal lives closer to the frozen generator's local response surface.
+
+### What Changed
+
+Added and tested a preview-split response-aware support-weighting TestFlight in:
+
+- `experiments/backfill/block_ar/nl_response_aware_support_weighting_testflight.py`
+- `test_code/test_934a_nl_response_aware_support_weighting.py`
+- `docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md`
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+The TestFlight scores each support component on a small shuffled preview subset of cached component-preserving frozen-SNI rollouts, then samples the final scenario deck from the remaining component paths when possible. This emulates a two-stage production path: small preview rollouts per support component, response-aware weight update, final component-preserving scenario rollout. It uses no realized future paths, no OpenAI calls, and no direct LLM-generated scenarios.
+
+### Evidence
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_response_preview_support_weighting_934c_p8/response_aware_support_weighting_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_response_preview_support_weighting_934c_p16/response_aware_support_weighting_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_response_preview_support_weighting_934c_p32/response_aware_support_weighting_report.json`
+
+Against the same current component-preserving baseline:
+
+| Preview samples/component | Gates | Relevant KS delta | Path-energy delta | Portfolio KS delta | VaR95 range delta |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| `8` | `6/6` | `+0.0352` | `+0.0095` | `+0.0467` | `+4.4488` |
+| `16` | `6/6` | `+0.0359` | `+0.0076` | `+0.0439` | `+0.4514` |
+| `32` | `6/6` | `+0.0327` | `+0.0065` | `+0.0437` | `+3.9899` |
+
+The start-only null remains flat at `1/6` gates with zero factor/path/portfolio separation. Focused regression coverage passed:
+
+`uv run pytest test_code/test_934a_nl_response_aware_support_weighting.py test_code/test_933a_nl_conditionality_stress_test.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q -> 13 passed`.
+
+### Decision
+
+Status: `candidate_mechanism_found_not_promoted`.
+
+The preview-split response-aware mechanism is the strongest current direction for demonstrating conditionality. It improves narrative-relevant factor separation and portfolio-tail separation under the same starting level while keeping the start-only null flat. It is not yet production/default/paper promoted because this is still an artifact-level split over cached rollouts.
+
+Next gate: implement a true live two-stage story-smoke mode with small preview rollouts per support component, response-aware support-weight update, final component-preserving rollout, and held-out CRPS/energy/coverage checks against the incumbent mixture floor before any promotion claim.
+
+---
+## 2026-05-21: NL live response-preview support weighting gate
+
+### Context
+
+The active NL prefix-latent objective is response-aware support weighting:
+keep the historical support prior and frozen SNI rollout, but make the
+fixed-start support mixture respond more clearly to the risk channels named by
+the professional narrative.
+
+The cached 934c preview-split TestFlight suggested that scoring each support
+component by a small preview subset could strengthen narrative-relevant factor
+and portfolio-tail separation. This iteration tested whether that mechanism
+survives as a true live two-stage story-smoke mode.
+
+### Hypothesis
+
+A live two-stage response-preview policy can improve fixed-start narrative
+conditionality by:
+
+1. selecting the incumbent diverse, direction-checked support pool;
+2. running a small preview rollout for each support component;
+3. reweighting support components by their response in the narrative's risk
+   channels;
+4. resetting the seed and running the final component-preserving scenario deck.
+
+The falsifier was a 384-sample fixed-start comparison where response-preview
+conditionality fails to beat the current component baseline.
+
+### Research Lane
+
+Lane: `candidate`
+
+Result status: `candidate_mechanism_not_promoted_live_probe_negative_at_scale`
+
+Benchmark floor status: `below_floor_for_conditionality_strength`
+
+### Execution
+
+Implementation touched:
+
+- `experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py`
+- `experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py`
+- `test_code/test_791a_nl_prefix_latent_story_smoke.py`
+- `test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py`
+
+New live rollout mode: `response_preview_component_mixture`.
+
+Main artifacts:
+
+- 64-sample rollout root:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_935a_response_preview_s64`
+- 64-sample stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_935a_response_preview_s64/conditionality_stress_test.json`
+- 384-sample full-preview stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_935b_response_preview_s384/conditionality_stress_test.json`
+- 384-sample bounded-preview stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_935c_response_preview_blend035_s384/conditionality_stress_test.json`
+
+### Result
+
+The 64-sample live smoke was positive:
+
+| Policy | Gates | Relevant KS | Path energy | Portfolio KS | VaR95 range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| current component baseline | `6/6` | `0.1714` | `0.0162` | `0.1354` | `3.587` |
+| response preview | `6/6` | `0.1894` | `0.0222` | `0.1479` | `4.686` |
+| start-only null | `1/6` | `0.0000` | `0.0000` | `0.0000` | `0.000` |
+
+The 384-sample gate did not confirm the gain:
+
+| Policy | Gates | Relevant KS | Path energy | Portfolio KS | VaR95 range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| current component baseline | `6/6` | `0.1775` | `0.0431` | `0.1179` | `10.339` |
+| response preview, full | `6/6` | `0.1574` | `0.0272` | `0.1071` | `5.935` |
+| response preview, `0.35` blend | `6/6` | `0.1422` | `0.0215` | `0.0847` | `5.559` |
+| start-only null | `1/6` | `0.0000` | `0.0000` | `0.0000` | `0.000` |
+
+### Mechanism Read
+
+The full response-preview scorer changes support weights and can concentrate
+them too much. The bounded blend reduces concentration but still weakens the
+final 384-sample distributional separation. Therefore the cached 934c result
+was useful mechanism evidence, not a deployable default.
+
+The failure is informative: per-run preview rollouts are too noisy or too local
+to serve as the promoted support-weighting method by themselves. The next
+method should learn or calibrate a deployable response surface from historical
+backtest labels and preview-response labels, rather than adding more preview
+temperature or blend knobs.
+
+### Decision / Next Step
+
+Do not promote `response_preview_component_mixture` as the demo, paper, or
+production default. Keep it as a diagnostic and label-source tool.
+
+The next principled step is a post-experiment analysis / candidate design:
+train or calibrate a response-aware support scorer that predicts useful support
+weights from pre-rollout narrative, start, support, and preview-label features,
+then compare against the current component-preserving baseline using held-out
+CRPS, energy, coverage, fixed-start conditionality, support provenance, and
+direction checks.
+
+### Verification
+
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_934a_nl_response_aware_support_weighting.py -q`
+  returned `32 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py`
+  passed.
+- `git diff --check -- experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md docs/research_protocols/nl_prefix_latent_current_truth.md`
+  passed.
+
+---
+## 2026-05-21: NL response-aware support weighting objective and 936d direction-safe gate
+
+### Context
+The workflow objective is now explicitly response-aware support weighting for the narrative-conditioned scenario generator. The goal is not to replace the historical support prior or the frozen SNI rollout. The goal is to make the support weights more responsive to professional risk-manager narratives under the same fixed starting level, while preserving provenance, direction checks, calibration, and scenario-quality gates.
+
+### Evidence Collected
+- Feature-sufficiency refresh: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_response_feature_sufficiency_936a_refresh/portfolio_response_feature_sufficiency.json`.
+- Best deployable scorer: `support_reliability_prior`.
+- Test pairwise accuracy: `0.5717` versus rank floor `0.5253`.
+- Mean selection regret: `0.0540` versus rank floor `0.0804`.
+- Direction-safe fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_936d_portfolio_quality_guard_direction_safe_s64`.
+- Conditionality stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_936d_portfolio_quality_guard_direction_safe_s64/conditionality_stress_test.json`.
+
+### Conditionality Demonstration
+The direction-safe portfolio quality support guard passed the fixed-start 64-sample stress gate with `6/6` gates. It slightly improved the main separation metrics versus the incumbent component-preserving policy:
+
+- relevant-factor KS: `0.1831` versus `0.1805`;
+- relevant path energy: `0.0247` versus `0.0237`;
+- portfolio terminal KS: `0.1385` versus `0.1302`.
+
+The start-only null still failed with `1/6` gates and zero factor/path/portfolio separation, which confirms that the measured differences are not caused merely by the fixed starting level. VaR95 range was slightly lower for the quality guard (`4.1152` versus `4.3177`), so this is promising but not a final promotion.
+
+### Implementation Change
+`portfolio_quality_guard_924e` and `narrative_book_quality_guard_926b` now fall back to the base direction-checked support prior when the final mixed prefix fails the direction audit. This fixed the earlier 936b safety issue where one response-aware mixture reached rollout despite a final mixed-prefix direction rejection.
+
+### Decision
+Status: `candidate_promising_not_promoted`.
+
+The workflow objective and current-truth docs now point to this direction-safe response-aware support weighting lane. Before this can become a demo or paper default, it needs a larger-sample fixed-start rollout, held-out CRPS/energy/coverage checks, qualitative raw-level narrative-relevant factor and portfolio-tail plots, and independent verification.
+
+---
+## 2026-05-21: NL response-aware support weighting 937 larger fixed-start gate
+
+### Context
+
+The active NL prefix-latent objective is to build a response-aware support
+weighting method that improves fixed-start narrative responsiveness while
+preserving the historical support prior, frozen SNI rollout, provenance, and
+direction checks. The previous 936d direction-safe portfolio quality guard was
+promising on a 64-sample fixed-start stress gate, but it needed a larger
+fixed-start check before promotion.
+
+### Hypothesis
+
+A direction-safe portfolio quality guard should remain direction-consistent and
+improve narrative-conditioned factor/path/portfolio separation versus the
+current component-preserving support mixture. If larger-sample metrics regress
+or the guard mostly falls back, then the response-aware mechanism is not yet a
+default candidate.
+
+### Research Lane
+
+`candidate`
+
+### Result Status
+
+`candidate_not_promoted_larger_gate_mixed`
+
+### Benchmark Floor Status
+
+`below_incumbent_on_larger_fixed_start_gate`
+
+### Execution
+
+Ran the larger fixed-start rollout and stress check:
+
+- rollout:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_937a_portfolio_quality_guard_direction_safe_s384/fixed_start_rollout_policy_comparison.json`
+- stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_937a_portfolio_quality_guard_direction_safe_s384/conditionality_stress_test.json`
+
+Added research controls for the portfolio quality guard's candidate-entropy and
+support-max thresholds, plus a direction-safe candidate recovery path: if the
+marginal response-weighted mixture fails the final mixed-prefix direction
+check, the selector tries high-scoring candidate mixtures that pass final
+direction before falling back.
+
+Ran fallback and rollout diagnostics:
+
+- fallback-reason breadth:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_live_breadth_937d_start18_supportmax_off_reasons/portfolio_quality_guard_live_breadth.json`
+- direction-safe candidate recovery:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_portfolio_quality_guard_live_breadth_937e_start18_direction_safe_candidate/portfolio_quality_guard_live_breadth.json`
+- support-max-off stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_937f_qg_direction_candidate_supportmax_off_s64/conditionality_stress_test.json`
+- default-guard stress after candidate recovery:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_937g_qg_direction_candidate_default_s64/conditionality_stress_test.json`
+
+### Result
+
+The 384-sample gate confirms conditionality versus the start-only null, but
+does not beat the incumbent:
+
+- incumbent: `6/6` gates, portfolio KS `0.1137`, relevant terminal KS
+  `0.1331`, path energy `0.0239`;
+- portfolio quality guard: `6/6` gates, portfolio KS `0.1198`, relevant
+  terminal KS `0.1305`, path energy `0.0234`;
+- start-only null: `1/6` gates and zero separation.
+
+The support-max-off branch was worse. In the 937f stress, the quality guard
+fell to `5/6` gates and underperformed the incumbent on relevant terminal KS,
+path energy, portfolio KS, and VaR95 range.
+
+The default guard after direction-safe candidate recovery is still below the
+incumbent:
+
+- incumbent: `6/6` gates, relevant terminal KS `0.1884`, path energy `0.0283`,
+  portfolio KS `0.1625`, VaR95 range `4.5227`;
+- portfolio quality guard: `6/6` gates, relevant terminal KS `0.1677`, path
+  energy `0.0215`, portfolio KS `0.1354`, VaR95 range `2.2341`;
+- start-only null: `1/6` gates and zero separation.
+
+### Mechanism Read
+
+Candidate breadth is not the main blocker. The fallback diagnostics show that
+response-weighted mixtures often fail the final mixed-prefix direction check.
+Disabling the support-max concentration guard does not fix this and weakens the
+conditionality readout. Direction-safe candidate recovery is useful for
+auditable failure handling, but it is not enough to make the generic portfolio
+quality guard a promotable response-aware support policy.
+
+### Decision / Next Step
+
+Reject the current direction-safe portfolio quality guard as a default or
+paper-promotion candidate. Keep the implementation and tests as diagnostic
+safety infrastructure because defaults are preserved and failure reasons are
+clear.
+
+The next principled step is not another threshold sweep. The method needs a
+better candidate-selection mechanism: either enforce final direction
+compatibility before response-quality marginalization, or learn a
+narrative-channel-specific response scorer whose candidate support sets pass
+both final direction and scenario-quality gates before rollout.
+
+### Verification
+
+Local tests and compile checks were run after the implementation edits:
+
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py -q`
+  -> `23 passed`
+
+Final touched-group verification after the log entry:
+
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_925e_nl_portfolio_quality_guard_live_breadth.py -q`
+  -> `31 passed`
+- `python -m py_compile ...`
+  -> passed for the touched NL prefix-latent scripts
+- `python -c 'import json; json.load(open("autoresearch-session/nl_prefix_latent_state.json", encoding="utf-8")); print("state json ok")'`
+  -> `state json ok`
+- `git diff --check -- ...`
+  -> passed
+
+---
+## 2026-05-22: NL broad support start-dominance pilot
+
+### Context
+The narrative-conditioned scenario workflow previously selected historical support mostly from the 2016 validation-era slice. That made it hard to separate two failure modes: an artificially narrow support bank and true start-level dominance over narrative similarity.
+
+### Execution
+- Added a broad SNI training support bank covering 4,010 candidate prefixes with history-end dates from 2000-02-14 through 2016-01-26.
+- Wired the broad bank into the prefix-latent story-smoke and fixed-start rollout comparison paths.
+- Ran fixed-start conditionality pilot `fixed_start_rollout_policy_comparison_939b_broad_support_start_guard_pilot_s64` with policies `current_start_checked_gap30`, `narrative_first_hard_direction_gap30`, `narrative_first_soft_direction_gap30`, and `start_only_topk`.
+- Wired the component held-out backtest to accept the broad support bank and ran 6-window smoke backtests for the current policy and a no-start-penalty variant.
+
+### Findings
+- The broad support bank removes the old date-range collapse for narrative-aware policies. Current start-checked support spans 2002, 2004-2008, 2011, and 2013-2016 instead of only 2016-era windows.
+- The start-only null still collapses to 2015-2016, has support Jaccard 1.000, factor KS 0.000, portfolio KS 0.000, and fails direction checks for 4/6 narratives.
+- Narrative-aware broad-bank policies all pass direction checks and produce low support overlap under the same fixed start: support Jaccard about 0.033.
+- Conditionality is present but not strongly improved by simply removing the start penalty: current policy factor KS 0.1397, portfolio KS 0.1031, VaR95 range 2.376; no-start-penalty/narrative-first variants have similar factor/portfolio KS and smaller VaR95 ranges.
+- Small held-out broad-bank component backtest still passes versus persistence. Current policy: CRPS +11.19%, energy +23.07%, coverage 0.727 on 6 held-out windows. No-start-penalty variant: CRPS +11.13%, energy +22.95%, coverage 0.723.
+
+### Decision
+The narrow support-bank problem is fixed. Start level is no longer the only driver once broad support and narrative checks are used, but simply reducing the start penalty is not the path to stronger product-visible conditionality. The next research step should target generator-response-aware weighting or bounded residual refinement over the broad support pool, with fixed-start conditionality and held-out backtest gates kept together.
+
+---
+## 2026-05-22: NL broad support response-preview TestFlight
+
+### Context
+After fixing the narrow support-bank range, the next principled candidate was response-aware support weighting on the broad support pool. The mechanism: keep the same fixed start and diverse direction-checked support set, run small per-component frozen-generator previews, score response in the narrative-relevant risk channels, then blend those response weights into the final component-preserving rollout.
+
+### Execution
+- Ran broad-bank fixed-start comparison `fixed_start_rollout_policy_comparison_939c_broad_support_response_preview_s64` with `current_start_checked_gap30`, `response_preview_gap30`, and `start_only_topk`.
+- Used the broad support bank `prefix_latent_support_bank_train_all_939a`, 64 final samples per case, 8 preview samples per component, response alpha 0.75, temperature 1.0, and bounded blend 0.35.
+- Ran the product conditionality stress test `nl_conditionality_stress_test_939c_broad_support_response_preview_s64` on the saved rollout arrays.
+
+### Findings
+- The broad-bank incumbent remains stronger than response preview on this TestFlight: relevant-factor KS 0.1640 versus 0.1530, relevant path energy 0.02485 versus 0.02010, portfolio KS 0.1479 versus 0.1375, and VaR95 range 3.888 versus 3.280.
+- Both narrative-aware policies pass 6/6 fixed-start conditionality gates, and the start-only null fails with 1/6 gates, support Jaccard 1.000, and zero factor/path/portfolio response.
+- Response preview moved weights only moderately: average weight L1 shifts were about 0.18-0.20 per case and response-score ranges were small, about 0.009-0.016. The preview response surface is therefore not discriminative enough to improve final distribution separation.
+
+### Decision
+Do not promote response-preview weighting, and do not continue with preview-temperature or blend sweeps as the main research path. The broad support bank plus current diverse direction-checked selector is the stronger incumbent. The next method should learn or calibrate a more discriminative generator-response-aware support utility, or add bounded residual refinement, while preserving the broad support pool and held-out backtest gates.
+
+---
+## 2026-05-22: NL broad-support response-guard transfer gate
+
+### Context
+The current NL prefix-latent objective is stronger narrative conditionality under a fixed risk-manager-selected start, while preserving the historical support-mixture backbone and frozen SNI rollout. The 939a broad support bank fixed the narrow 2016-2017 support-range collapse, and the next question was whether existing response-aware / direction-first quality guards transfer to that broader support inventory.
+
+### Hypothesis
+A direction-first response-aware support guard over the broad support bank should improve fixed-start narrative separation without losing direction checks or held-out historical scenario quality. If it improves conditionality but regresses CRPS/energy/coverage, keep it diagnostic and move to a learned broad-support response utility instead of sweeping thresholds.
+
+### Research Lane / Status
+- research_lane: `candidate`
+- result_status: `candidate_not_promoted`
+- benchmark_floor_status: `mixed_fixed_start_gain_but_below_quality_floor`
+
+### Execution
+- Patched `experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py` to pass quality-guard candidate controls through to the story-smoke runner.
+- Test: `uv run pytest test_code/test_939b_nl_prefix_latent_component_backtest.py -q` -> `1 passed`.
+- Fixed-start broad-bank comparison:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/fixed_start_rollout_policy_comparison_939d_broad_support_quality_guard_s64/fixed_start_rollout_policy_comparison.json`
+- Conditionality stress:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_939d_broad_support_quality_guard_s64/conditionality_stress_test.json`
+- Held-out component backtests:
+  - incumbent current broad support: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_939b_broad_support_current_s32_w6/component_backtest_report.json`
+  - portfolio direction-first: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_939d_broad_support_portfolio_direction_first_s32_w6/component_backtest_report.json`
+  - narrative-book direction-first: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_component_backtest_939d_broad_support_narrative_book_direction_first_s32_w6/component_backtest_report.json`
+
+### Results
+Fixed-start stress, same approved start across six narratives:
+
+| Policy | Gates | Relevant KS | Path Energy | Portfolio KS | VaR95 Range | Direction |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| current start-aware hard direction | 6/6 | 0.1622 | 0.0195 | 0.1198 | 1.3097 | pass 6/6 |
+| portfolio direction-first guard | 6/6 | 0.1643 | 0.0274 | 0.1260 | 2.2086 | pass 6/6 |
+| narrative-book direction-first guard | 6/6 | 0.1644 | 0.0264 | 0.1188 | 2.2086 | pass 6/6 |
+| start-only null | 1/6 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | reject 4/6 |
+
+Six-window held-out historical backtest, component-preserving rollout:
+
+| Policy | CRPS Improvement | Energy Improvement | 80% Coverage |
+| --- | ---: | ---: | ---: |
+| current broad support | +11.19% | +23.07% | 0.727 |
+| portfolio direction-first guard | +10.16% | +22.80% | 0.713 |
+| narrative-book direction-first guard | +9.07% | +22.07% | 0.706 |
+
+### Mechanism Read
+The direction-first guards do address the product conditionality symptom: they increase relevant path energy, portfolio KS, and tail separation while preserving direction checks and keeping the start-only null flat. However, they do not beat the current broad-support incumbent on held-out CRPS, energy, or coverage in this TestFlight. The gain is therefore a conditionality/interpretability trade-off, not a clean production improvement.
+
+This suggests that the inherited quality guards are not the right final mechanism. The broad support bank provides enough inventory, but response utility should be learned or calibrated directly on broad-bank candidate supports and historical generator-response labels, rather than transferred from the older narrow-bank response priors.
+
+### Decision / Next Step
+Do not promote either direction-first guard as the default. Keep the result as evidence that response-aware scoring can strengthen narrative response, but the next principled step is to build a broad-support response-utility training dataset and train a lightweight scorer over candidate support sets. The promotion gate remains: beat or remain competitive with the current broad-support incumbent on held-out CRPS/energy/coverage while improving fixed-start narrative-relevant factor and portfolio-tail separation.
+
+No independent-verifier gate was triggered because no default, paper-facing claim, or production-readiness claim was promoted.
+
+---
+## 2026-05-22: NL broad response utility weighted support gate
+
+### Context
+The user set a persistent goal for the narrative-conditioned scenario generator: reduce over-dependence on the starting level, demonstrate risk-manager-meaningful fixed-start conditionality, and keep historical backtest quality competitive with the current broad-support incumbent. This HEAD iteration tested a broad support-bank response-utility scorer rather than another narrow 2016-era support transfer.
+
+### Hypothesis
+A response-utility prior trained on the broad 4010-window support bank can select narrative-responsive support mixtures under a fixed start. The method should preserve the historical support mixture as the auditable support prior, while letting learned support utilities reduce start-level dominance.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`candidate`
+
+### Benchmark Floor Status
+`competitive`
+
+### Execution
+- Added `experiments/backfill/block_ar/nl_broad_support_response_utility.py` to train broad-bank support utility priors from historical future-delta replay labels without OpenAI calls or generator calls.
+- Added the `broad_replay_response_guard_940a` memory-prior mode to the story smoke, fixed-start comparison, and component backtest paths.
+- First pilot showed the support-ID prior was below chance at 48/12 windows, so I added feature-level candidate-prefix dynamics. The larger 192/48 run reversed the small-pilot read: support-level priors became mildly predictive while the feature model regressed.
+- Fixed a mechanism issue in the broad live selector: the first live implementation chose one best three-window candidate, which narrowed support and weakened conditionality. The updated implementation preserves listwise support weights across direction-safe candidate mixtures, so the selected prior remains broad and weighted.
+- Added regression tests for weighted support aggregation and the broad learned-support command contract.
+
+### Results
+Broad response-utility context, 192 train queries / 48 eval queries:
+
+- Portfolio support prior pairwise accuracy: `0.5256`.
+- CRPS support prior pairwise accuracy: `0.5319`.
+- Energy support prior pairwise accuracy: `0.5249`.
+- Feature quality model pairwise accuracy: `0.4793`; diagnostic only, not selected.
+- Preferred selector: support-prior path.
+
+Fixed-start six-narrative rollout comparison at 32 samples / 200 decoder steps:
+
+- Incumbent `current_start_checked_gap30`: factor KS `0.2158`, portfolio KS `0.1479`, VaR95 range `3.7293`, mean supports `8.0`, all 6 direction checks pass.
+- New `broad_replay_response_guard_gap30`: factor KS `0.2235`, portfolio KS `0.2083`, VaR95 range `4.8751`, mean supports `20.0`, all 6 direction checks pass.
+- Start-only null: factor KS `0.0640`, portfolio KS `0.0833`, support Jaccard `1.0`, 4/6 direction rejects.
+
+Held-out component backtest, 12 windows, same 32-sample/200-step CPU TestFlight:
+
+- Incumbent component mixture: CRPS improvement `+12.705%`, energy improvement `+24.125%` versus persistence.
+- New broad weighted guard: CRPS improvement `+12.949%`, energy improvement `+23.934%` versus persistence.
+- Read: CRPS is slightly better, energy is slightly lower but close. The candidate is competitive, not yet promoted.
+
+### Mechanism Read
+The important mechanism was not the feature MLP. The useful change was preserving the listwise support distribution after response-utility scoring. The failed three-support version showed that selecting one best candidate mixture over-concentrates the support prior and weakens generated distribution separation. Weighted aggregation restored broad support while retaining narrative-conditioned direction checks.
+
+This directly addresses the starting-level dominance concern: the start is still respected, but it no longer collapses all narratives into the same local start-neighbor set. Different narratives now form broad, direction-safe weighted support distributions under the same start, and the generated portfolio distribution separates more strongly than the start-only null and the incumbent TestFlight.
+
+### Decision / Next Step
+Do not promote yet. Treat 940a as the active candidate. Next run should scale validation: production-like sample count, larger held-out backtest, qualitative raw-level risk-channel fan audit, and independent verifier before changing paper/demo defaults.
+
+### Artifacts
+- Broad response-utility context: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_broad_support_response_utility_940a/broad_support_response_utility_context.json`
+- Broad response-utility report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_broad_support_response_utility_940a/broad_support_response_utility_report.json`
+- Fixed-start comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940a/fixed_start_rollout_policy_comparison.json`
+- Fixed-start factor fans: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940a/fixed_start_rollout_factor_fans.png`
+- Fixed-start portfolio tail plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940a/fixed_start_rollout_portfolio_tail.png`
+- Incumbent 12-window backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940a_current_12w/component_backtest_report.json`
+- Broad 12-window backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940a_broad_12w/component_backtest_report.json`
+
+### Verification Commands
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_broad_support_response_utility.py experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py`
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q` -> `34 passed`.
+
+### Independent Verifier
+Not triggered. This is a candidate TestFlight, not a promotion/default/paper-facing claim.
+
+---
+## 2026-05-22: NL broad weighted guard scaled validation
+
+### Context
+After 940a showed that preserving listwise weighted support aggregation made the broad response-utility guard competitive, I scaled the validation instead of adding another knob. The test asks whether the candidate still improves fixed-start narrative conditionality and remains competitive on historical backtests when the rollout is less noisy.
+
+### Hypothesis
+If the broad weighted guard is a real improvement rather than a small-sample artifact, then at 64 samples / 400 decoder steps it should keep fixed-start narrative separation above the start-only null and remain competitive with the incumbent current start-checked support mixture. On a larger held-out historical backtest, it should not materially regress CRPS or energy.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`candidate`
+
+### Benchmark Floor Status
+`competitive`
+
+### Execution
+- Reran the fixed-start six-narrative comparison at `64` samples and `400` decoder steps for the incumbent, the broad weighted guard, and the start-only null.
+- Reran a 24-window held-out component backtest for the incumbent and broad weighted guard at the same TestFlight rollout settings used in 940a (`32` samples / `200` decoder steps) to reduce runtime while expanding the held-out slice.
+- Updated the fixed-start qualitative plot to show all main risk-channel factors (`SPX`, `VIX`, `Crude`, `US10Y`, `BBB_OAS`, `Gold`, `IV_ATM_1Y`) instead of only `SPX`, `VIX`, and `Gold`.
+
+### Results
+Scaled fixed-start comparison, 64 samples / 400 decoder steps:
+
+- Incumbent `current_start_checked_gap30`: factor KS `0.1932`, portfolio KS `0.1677`, VaR95 range `1.9083`, mean supports `8.0`, all 6 direction checks pass.
+- Candidate `broad_replay_response_guard_gap30`: factor KS `0.1961`, portfolio KS `0.1302`, VaR95 range `3.5174`, mean supports `20.0`, all 6 direction checks pass.
+- Start-only null: factor KS `0.0`, portfolio KS `0.0`, VaR95 range `0.0`, support Jaccard `1.0`, 4/6 direction rejects.
+
+Risk-channel readout from the scaled fixed-start report:
+
+- The broad guard improves average terminal KS in `BBB_OAS`, `Crude`, and `US10Y` relative to the incumbent.
+- It is weaker in `VIX` and `Gold`, and similar in `SPX` / `IV_ATM_1Y`.
+- The product interpretation is therefore not "all factors separate more". It is "the broad weighted support prior produces stronger separation in several narrative-relevant channels and a larger portfolio VaR spread, while portfolio distribution KS is mixed."
+
+Held-out component backtest, 24 windows:
+
+- Incumbent component mixture: CRPS improvement `+21.447%`, energy improvement `+31.012%` versus persistence.
+- Broad weighted guard: CRPS improvement `+21.673%`, energy improvement `+30.761%` versus persistence.
+- Read: CRPS is slightly better; energy is slightly lower by about `0.25` percentage points. This is competitive, not a clean all-metric win.
+
+### Mechanism Read
+The scaled results confirm that the support-weight aggregation fix is not a pure small-sample artifact. The start-only null remains flat, so the candidate is not merely reflecting the fixed starting level. The candidate also preserves a broader support distribution (`20` supports versus `8`) while direction checks pass for every narrative.
+
+The remaining weakness is metric-specific: portfolio terminal KS is lower than the incumbent in the 64-sample fixed-start rollout, even though the VaR95 range is larger and the historical backtest remains competitive. A risk manager may care more about tail-risk differentiation than whole-distribution KS, but this needs a verifier-grade qualitative audit before any product/default claim.
+
+### Decision / Next Step
+Keep 940b as the active candidate, but do not promote yet. The next gate is independent verification plus qualitative audit of the all-risk-channel fan plot, portfolio-tail plot, and support provenance. If the verifier rejects the candidate because of the portfolio-KS trade-off, the next bounded experiment should be a one-axis support-concentration calibration, not a new architecture family.
+
+### Artifacts
+- Scaled fixed-start comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940b_s64_d400/fixed_start_rollout_policy_comparison.json`
+- Scaled fixed-start factor fans: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940b_s64_d400/fixed_start_rollout_factor_fans.png`
+- Scaled fixed-start portfolio tail plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940b_s64_d400/fixed_start_rollout_portfolio_tail.png`
+- Incumbent 24-window backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940b_current_24w/component_backtest_report.json`
+- Broad 24-window backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940b_broad_24w/component_backtest_report.json`
+
+### Verification Commands
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q` -> `34 passed`.
+- `uv run pytest test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py -q` -> `10 passed` after the all-risk-channel plot update.
+
+### Independent Verifier
+Not yet triggered. The next step is verifier review before changing any production default or paper-facing claim.
+
+---
+## 2026-05-22: NL broad weighted guard verifier review
+
+### Context
+After the 940b scaled validation, I ran an independent-verifier review before any production/default or paper-facing promotion. The goal was to check whether the broad weighted response guard can be considered solved production conditionality or only an active candidate.
+
+### Verifier Artifact
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_broad_weighted_guard_940b.md`
+
+### Verifier Verdict
+`PARTIAL`
+
+### Confirmed
+- The broad response-utility context really selects the support-prior path, not the weaker feature model.
+- Weighted aggregation is a substantive mechanism fix: it prevents collapse to one three-window candidate mixture and preserves a broader weighted support distribution.
+- The scaled fixed-start artifact supports nonzero narrative conditioning under the same start: start-only null is flat, incumbent has factor KS `0.1932` / VaR95 range `1.9083`, broad guard has factor KS `0.1961` / VaR95 range `3.5174`.
+- The 24-window backtest is competitive: broad component CRPS `+21.673%` versus incumbent `+21.447%`; broad energy `+30.761%` versus incumbent `+31.012%`.
+- Regression tests pass.
+
+### Issues
+- Portfolio terminal KS is lower for the broad guard (`0.1302`) than the incumbent (`0.1677`) in the scaled fixed-start rollout.
+- The backtest is still a 24-window TestFlight, not the full promotion suite.
+- Support-prior accuracies are only mildly above chance; the method should be framed as a calibrated support prior, not a highly accurate supervised predictor.
+- The feature-level model is diagnostic only and should not be described as the driver of the improvement.
+
+### Decision / Next Step
+Keep 940b as the active candidate but do not promote it to production default yet. The next bounded move should resolve the support-concentration / portfolio-KS trade-off, likely with a single-axis calibration of support-weight concentration or probability temperature, followed by the same fixed-start and held-out backtest gates. Do not add a new architecture family before testing that trade-off.
+
+---
+## 2026-05-22: NL broad weighted guard temperature calibration
+
+### Context
+The independent verifier for 940b recommended one bounded calibration before promotion because the broad weighted guard improved VaR95 range and backtest CRPS but had lower portfolio terminal KS than the incumbent at 64 samples / 400 decoder steps. I tested one axis only: support-policy probability temperature.
+
+### Hypothesis
+Lower support-policy temperature should concentrate the weighted support aggregation on higher-utility direction-safe candidates. If portfolio KS was low because the broad weighted distribution was too diffuse, a lower temperature should improve portfolio KS without breaking direction checks. Higher temperature should diffuse the support distribution and should not improve KS if the mechanism read is correct.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`candidate_rejected`
+
+### Benchmark Floor Status
+`not_tested_for_historical_backtest`
+
+### Execution
+- Added an optional `--memory-prior-quality-guard-probability-temperature` override to story-smoke, fixed-start comparison, and component-backtest paths.
+- Tested temperature `0.10` and `0.50` in the 32-sample / 200-step fixed-start comparison against the existing `0.25` context default.
+- Scaled the initially promising `0.10` setting to 64 samples / 400 decoder steps.
+
+### Results
+Quick 32-sample / 200-step fixed-start checks for `broad_replay_response_guard_gap30`:
+
+- Temperature `0.10`: factor KS `0.2533`, portfolio KS `0.2292`, VaR95 range `3.9439`.
+- Temperature `0.25` baseline from 940a: factor KS `0.2235`, portfolio KS `0.2083`, VaR95 range `4.8751`.
+- Temperature `0.50`: factor KS `0.2164`, portfolio KS `0.2063`, VaR95 range `5.4014`.
+
+Scaled 64-sample / 400-step check for temperature `0.10`:
+
+- Temperature `0.10`: factor KS `0.1799`, portfolio KS `0.1427`, VaR95 range `3.8008`.
+- Temperature `0.25` from 940b: factor KS `0.1961`, portfolio KS `0.1302`, VaR95 range `3.5174`.
+- Incumbent from the same 0.10 scaled run: factor KS `0.1932`, portfolio KS `0.1677`, VaR95 range `1.9083`.
+- Start-only null remains flat with factor KS `0.0`, portfolio KS `0.0`, and VaR95 range `0.0`.
+
+### Mechanism Read
+The lower-temperature gain did not scale. It improved the quick low-sample run, but at the larger rollout it reduced factor KS below the 0.25 candidate and below the incumbent. It slightly improved portfolio KS versus 0.25 but still did not beat the incumbent. The evidence does not justify changing the active temperature away from the context default `0.25`.
+
+### Decision / Next Step
+Reject the temperature calibration as a promotion fix. Keep 940b temperature `0.25` as the active candidate. The next principled step is not another small temperature sweep; it is either a full held-out backtest / qualitative promotion package for the 0.25 candidate or a better response objective that directly targets portfolio-tail differentiation without reducing factor separation.
+
+### Artifacts
+- Temp `0.10` quick check: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940c_temp010_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Temp `0.50` quick check: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940c_temp050_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Temp `0.10` scaled check: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_940c_temp010_s64_d400/fixed_start_rollout_policy_comparison.json`
+
+### Verification Commands
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py`
+- `uv run pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q` -> `34 passed`.
+
+---
+## 2026-05-22: NL broad weighted guard full held-out backtest
+
+### Context
+The persistent NL prefix-latent goal is to reduce over-dependence on the fixed starting level, demonstrate risk-manager-meaningful narrative conditionality, and keep historical backtest quality competitive with the broad-support incumbent. After the 940b verifier kept the broad weighted response guard as an active candidate but not a default, I ran the larger held-out component backtest for both the incumbent selector and the broad response-aware selector.
+
+### Hypothesis
+If `broad_replay_response_guard_940a` is a viable production candidate rather than only a fixed-start conditionality diagnostic, it should remain competitive with the incumbent `diverse_topk_narrative_start_checked` on the full available held-out cached narrative backtest while preserving the previously observed fixed-start narrative separation.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`mechanism_found_not_promoted`
+
+### Benchmark Floor Status
+`competitive`
+
+### Execution
+- Incumbent command: `uv run python experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940d_current_66w --support-bank-report experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_bank_train_all_939a/support_bank_report.json --support-bank-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_bank_train_all_939a/support_bank_arrays.npz --memory-prior-mode diverse_topk_narrative_start_checked --max-windows 66 --samples 32 --decoder-steps 200 --memory-prior-quality-guard-candidate-pool-size 20 --memory-prior-quality-guard-max-mixtures 96 --device cpu --keep-going`
+- Broad candidate command: same evaluator with `--memory-prior-mode broad_replay_response_guard_940a`.
+- Both runs used the full available held-out query set resolved by the cached bridge/pipeline artifacts: 29 scored windows, 32 samples, 200 decoder steps, CPU execution, no OpenAI API calls.
+
+### Result
+Incumbent `component_prefix_mixture`:
+- CRPS improvement vs persistence: `+20.701%`.
+- Energy improvement vs persistence: `+30.364%`.
+- 80% coverage mean: `0.8085`.
+- Terminal MAE improvement vs persistence: `+0.567%`.
+
+Broad response-aware `component_prefix_mixture`:
+- CRPS improvement vs persistence: `+20.891%`.
+- Energy improvement vs persistence: `+30.160%`.
+- 80% coverage mean: `0.8167`.
+- Terminal MAE improvement vs persistence: `-0.096%`.
+
+Per-window comparison of broad minus incumbent for component-prefix rollouts:
+- CRPS mean delta `-0.00104`; broad wins `15/29` windows.
+- Energy mean delta `+0.00201`; broad wins `10/29` windows.
+- Coverage mean delta `+0.00819`; broad improves or ties `19/29` windows.
+- Terminal MAE mean delta `+0.00390`; broad wins `9/29` windows.
+
+### Mechanism Read
+The full held-out result supports the broad weighted response guard as a real candidate: it does not collapse historical quality, and it slightly improves CRPS and coverage. The trade-off remains: energy and terminal point metrics are mildly weaker than the incumbent, and earlier fixed-start evidence showed stronger VaR-range response but mixed portfolio-KS behavior. This means the method improves support breadth and some distributional quality, but it is not yet a solved production default.
+
+The important positive result is that broad support weighting no longer fails because of the earlier narrow 2016 support-store issue. The remaining bottleneck is objective alignment: support weights should preserve the broad candidate's CRPS/coverage competitiveness while directly improving portfolio-tail and risk-channel distribution separation.
+
+### Decision / Next Step
+Keep `broad_replay_response_guard_940a` as the active candidate, not promoted. The next HEAD step should be post-experiment analysis and then a bounded objective revision: learn or calibrate a support-weight objective that targets risk-channel/portfolio-tail separation under fixed-start controls without giving up the incumbent's energy quality. Do not run another temperature sweep; the 940c calibration already failed to scale.
+
+### Artifacts
+- Incumbent full held-out backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940d_current_66w/component_backtest_report.json`.
+- Broad full held-out backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940d_broad_66w/component_backtest_report.json`.
+- Prior verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_broad_weighted_guard_940b.md`.
+
+---
+## 2026-05-22: NL broad response-preview support weighting gate
+
+### Context
+The full held-out 940d backtest kept the broad response-aware support guard competitive but not cleanly promoted: it improved CRPS/coverage while leaving an energy and portfolio-tail trade-off. The next bounded mechanism test combined two existing pieces instead of adding a new architecture: broad direction-safe response-utility support selection plus small frozen-generator response previews before the final component-preserving rollout.
+
+### Hypothesis
+If the broad support pool fixes start-level over-dependence and response previews score the actual generator response in the narrative's risk channels, then `broad_response_preview_gap30` should improve fixed-start narrative conditionality versus the broad guard while remaining historically competitive on held-out CRPS/energy.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`mechanism_found_not_promoted`
+
+### Benchmark Floor Status
+`competitive`
+
+### Execution
+- Added the fixed-start policy `broad_response_preview_gap30`, which uses `broad_replay_response_guard_940a` for support selection and `response_preview_component_mixture` for final rollout weighting.
+- Extended `nl_prefix_latent_component_backtest.py` so held-out backtests can run `response_preview_component_mixture` and pass preview parameters through to story-smoke.
+- Ran focused tests: `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py && uv run pytest test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q` -> `12 passed`.
+- Ran fixed-start TestFlight with current, broad, broad-plus-preview, and start-only policies: 6 narratives, same fixed start, 32 samples, 200 decoder steps, CPU.
+- Ran conditionality stress test on that fixed-start output.
+- Ran held-out response-preview backtests: first 12 windows, then full available 29 held-out windows, 32 samples, 200 decoder steps, CPU, no OpenAI calls.
+
+### Result
+Fixed-start policy comparison, 32 samples / 200 decoder steps:
+- Incumbent `current_start_checked_gap30`: factor KS `0.2095`, portfolio KS `0.2021`, VaR95 loss range `2.538`, support mean `8`, all 6 direction checks pass.
+- Broad guard `broad_replay_response_guard_gap30`: factor KS `0.2310`, portfolio KS `0.1854`, VaR95 loss range `5.317`, support mean `20`, all 6 direction checks pass.
+- New `broad_response_preview_gap30`: factor KS `0.2295`, portfolio KS `0.2146`, VaR95 loss range `5.668`, support mean `20`, all 6 direction checks pass.
+- Start-only null: factor KS `0.0`, portfolio KS `0.0`, VaR95 loss range `0.0`, support Jaccard `1.0`, only 2/6 direction checks pass.
+
+Conditionality stress test:
+- `broad_response_preview_gap30` passes `6/6` gates.
+- Relevant-terminal KS `0.2378`, relevant path energy `0.0522`, portfolio KS `0.2146`, VaR95 loss range `5.668`.
+- This is stronger than both the incumbent and broad-only policy on relevant-terminal KS, path energy, portfolio KS, and tail-range in the same fixed-start TestFlight.
+
+Held-out 29-window backtest:
+- Incumbent component CRPS improvement `+20.701%`, energy `+30.364%`, coverage `0.8085`.
+- Broad component CRPS improvement `+20.891%`, energy `+30.160%`, coverage `0.8167`.
+- Broad-plus-preview CRPS improvement `+20.801%`, energy `+30.215%`, coverage `0.8150`.
+- Broad-plus-preview beats the incumbent on CRPS in `17/29` windows and coverage in `19/29`; it is slightly weaker on energy and terminal MAE. Versus broad-only it gives slightly lower CRPS, slightly better energy and terminal MAE, and similar coverage.
+
+### Mechanism Read
+This is the first candidate that improves the product-facing fixed-start conditionality readout while preserving the historical backtest floor. The mechanism is coherent: broad support keeps the system away from narrow start-level support collapse, and preview reweighting uses the frozen generator itself to adjust support weights in the risk channels named by the narrative. The trade-off is cost and remaining energy underperformance versus the incumbent.
+
+This does not yet prove production readiness. The fixed-start evidence is a 32-sample / 200-step TestFlight; promotion still needs a higher-sample fixed-start run and independent verification. But the direction is stronger than the previous temperature sweep: the change targets the actual bottleneck, generator-response conditionality, and the full held-out historical backtest stays competitive.
+
+### Decision / Next Step
+Keep `broad_response_preview_gap30` as the active candidate. Next run a scaled fixed-start comparison, preferably 64 samples / 400 decoder steps, with current, broad-only, broad-plus-preview, and start-only policies. If the scaled result keeps stronger conditionality and the backtest remains competitive, trigger independent verification before updating current-truth or paper/demo claims.
+
+### Artifacts
+- Fixed-start comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_941a_broad_response_preview_s32_d200/fixed_start_rollout_policy_comparison.json`.
+- Conditionality stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_941a_broad_response_preview_s32_d200/conditionality_stress_test.json`.
+- 12-window held-out TestFlight: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_941a_broad_response_preview_12w/component_backtest_report.json`.
+- 29-window held-out backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_941b_broad_response_preview_66w/component_backtest_report.json`.
+
+---
+## 2026-05-22: NL broad response-preview scaled fixed-start verification
+
+### Context
+The 941a TestFlight showed that `broad_response_preview_gap30` improved fixed-start narrative conditionality while preserving the historical backtest floor. The next gate was a scaled fixed-start run and independent verification before treating this as a durable current candidate.
+
+### Hypothesis
+If the broad response-preview method is addressing the actual narrative-conditionality bottleneck rather than sample noise, then the 64-sample / 400-step fixed-start run should keep stronger factor, portfolio, and tail separation than the incumbent and broad-only policies while the start-only null remains flat.
+
+### Research Lane
+`candidate`
+
+### Result Status
+`promotion_candidate_not_default`
+
+### Benchmark Floor Status
+`competitive`
+
+### Execution
+- Ran scaled fixed-start comparison with policies `current_start_checked_gap30`, `broad_replay_response_guard_gap30`, `broad_response_preview_gap30`, and `start_only_topk`.
+- Command used 64 samples, 400 decoder steps, fixed start 18, broad support bank, candidate pool 20, max mixtures 96, response preview 4 samples/component, alpha 0.75, temperature 1.0, blend 0.35, CPU.
+- Ran conditionality stress test on the scaled output.
+- Ran independent-verifier review and saved the report.
+
+### Result
+Scaled fixed-start comparison:
+- Incumbent: factor KS `0.1836`, portfolio KS `0.1573`, VaR95 loss range `1.938`, all 6 direction checks pass.
+- Broad-only: factor KS `0.1655`, portfolio KS `0.1604`, VaR95 loss range `3.277`, all 6 direction checks pass.
+- Broad-plus-preview: factor KS `0.1969`, portfolio KS `0.1677`, VaR95 loss range `3.777`, all 6 direction checks pass.
+- Start-only null: factor KS `0.0`, portfolio KS `0.0`, VaR95 loss range `0.0`, only 2/6 direction checks pass.
+
+Scaled conditionality stress test:
+- `broad_response_preview_gap30` passes `6/6` gates.
+- Relevant-terminal KS `0.1881`, relevant path energy `0.0284`, portfolio KS `0.1677`, VaR95 loss range `3.777`.
+- Start-only null fails with `1/6` gates and support Jaccard `1.0`.
+
+Historical backtest floor from the already completed 29-window run:
+- Current component CRPS `+20.701%`, energy `+30.364%`.
+- Broad component CRPS `+20.892%`, energy `+30.160%`.
+- Broad-plus-preview CRPS `+20.801%`, energy `+30.215%`.
+
+### Independent Verifier
+Verifier artifact: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_broad_response_preview_941c.md`.
+
+Verdict: `PARTIAL`. The verifier agrees that 941c is a credible active promotion candidate for stronger fixed-start narrative conditionality and that it preserves historical backtest quality. The verifier does not support a production-default claim yet because this is one fixed start, one seed, and a more expensive two-stage method.
+
+### Mechanism Read
+This is the strongest candidate so far for the risk-manager product concern. The starting level is held fixed and the start-only null is flat, so the observed separation is not caused by changing the initial market level. Broad support prevents narrow historical-support collapse, while response previews use the frozen generator's own local response surface to reweight components in the narrative's risk channels.
+
+The remaining limitation is validation breadth, not a broken mechanism: we need repeat-seed or multi-start evidence before calling this production default. The method also adds latency because it performs preview rollouts before the final scenario deck.
+
+### Decision / Next Step
+Promote `broad_response_preview_gap30` to active candidate / paper-facing diagnostic result, not production default. The next principled gate is a compact multi-start or repeat-seed validation. Prefer multi-start because the user's central concern is over-dependence on the starting level; starts `18`, `22`, and `40` are natural demo-valid starts already used in the product workflow.
+
+### Artifacts
+- Scaled fixed-start comparison: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_941c_broad_response_preview_s64_d400/fixed_start_rollout_policy_comparison.json`.
+- Scaled conditionality stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_941c_broad_response_preview_s64_d400/conditionality_stress_test.json`.
+- Verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_broad_response_preview_941c.md`.
+
+---
+## 2026-05-22: NL broad response-preview multi-start gate
+
+### Context
+The active NL prefix-latent objective is to reduce over-dependence on the selected starting level while keeping historical support mixtures as the auditable production backbone. The current candidate is `broad_response_preview_gap30`: build a broad, non-overlapping support pool; run a small frozen-generator preview per support component; reweight support components by narrative-relevant generator response; then run final component-preserving SNI rollouts.
+
+### Hypothesis
+A bounded response-preview support scorer should preserve the current fixed-start support contract while making narrative-conditioned scenario distributions more visibly different across multiple user-selected starting levels.
+
+### Research lane
+Candidate / promotion-gate diagnostic.
+
+### Result status
+`promotion_candidate_not_default`.
+
+### Benchmark floor status
+`competitive`.
+
+### Execution
+I extended the previous start-18 evidence with compact same-start validations at start windows 22 and 40, then aggregated starts 18, 22, and 40 against the current hard-direction start-aware policy and a start-only null.
+
+Artifacts:
+
+- Start 18 stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_941a_broad_response_preview_s32_d200/conditionality_stress_test.json`
+- Start 22 fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_941d_start22_broad_response_preview_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Start 22 stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_941d_start22_broad_response_preview_s32_d200/conditionality_stress_test.json`
+- Start 40 fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_941e_start40_broad_response_preview_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Start 40 stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_941e_start40_broad_response_preview_s32_d200/conditionality_stress_test.json`
+- Multi-start summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_multistart_response_preview_941f_summary.json`
+
+### Result
+Across starts 18, 22, and 40:
+
+| Policy | Pass starts | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range | Support Jaccard |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 3/3 | 0.2141 | 0.0440 | 0.2056 | 3.5769 | 0.0317 |
+| Broad response-preview | 3/3 | 0.2313 | 0.0454 | 0.1924 | 5.4112 | 0.0320 |
+| Start-only null | 0/3 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 1.0000 |
+
+The response-preview candidate passes all same-start conditionality gates at all three starts and strongly beats the start-only null. It improves average narrative-relevant terminal KS and VaR95 loss-range separation versus the current policy. It does not dominate the current policy on portfolio KS because start 22 is mixed: response-preview has higher relevant terminal KS and VaR range, but lower portfolio KS.
+
+### Mechanism read
+The start-level dominance issue is materially reduced but not fully solved. The same fixed start no longer forces identical distributions: different narratives select low-overlap supports and create nonzero factor/path/portfolio differences. The remaining bottleneck is objective alignment. The current preview score mainly rewards narrative-relevant factor activation, direction, and width, while the product gate also measures portfolio-tail distribution separation. That mismatch explains the mixed portfolio-KS result.
+
+### Decision / next step
+Do not promote `broad_response_preview_gap30` as the production default yet. Keep it as the active candidate and run one mechanism-focused next step: add a portfolio-aware response-preview objective that scores preview components by both narrative-relevant factor response and portfolio-tail response, then compare against the current policy, broad response-preview, and start-only null on the same multi-start gate plus the held-out component backtest. This is a single mechanism correction, not a broad hyperparameter sweep.
+
+---
+## 2026-05-22: NL portfolio-aware response-preview falsifier
+
+### Context
+The 941f multi-start gate showed that broad response-preview support weighting reduces start-level dominance and improves average narrative-relevant factor separation plus VaR-range, but it does not dominate the current policy on portfolio KS. The mechanism read was an objective mismatch: the preview scorer rewards narrative-relevant factor response while the product gate also measures portfolio-tail response.
+
+### Hypothesis
+Adding a fixed portfolio-tail term to the response-preview score should improve portfolio-tail conditionality at the previously mixed start-22 gate without abandoning the support-mixture backbone.
+
+### Research lane
+Exploration / candidate falsifier.
+
+### Result status
+`candidate_rejected`.
+
+### Benchmark floor status
+`below_floor`.
+
+### Execution
+I added a `factor_portfolio` response-preview objective, exposed it through the story-smoke and fixed-start rollout harnesses, added `broad_portfolio_response_preview_gap30`, and ran focused tests plus a compact start-22 fixed-start rollout.
+
+Validation commands:
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py`
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q`
+
+Experiment artifacts:
+
+- Fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_942a_start22_portfolio_response_preview_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_942a_start22_portfolio_response_preview_s32_d200/conditionality_stress_test.json`
+
+### Result
+At start 22:
+
+| Policy | Gates | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 6/6 | 0.2324 | 0.0461 | 0.2104 | 4.1666 |
+| Broad response-preview | 6/6 | 0.2402 | 0.0461 | 0.1750 | 7.6301 |
+| Broad portfolio-aware response-preview | 6/6 | 0.2198 | 0.0395 | 0.1729 | 6.9922 |
+| Start-only null | 1/6 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+The portfolio-aware objective still passes the same-start conditionality gate and beats the start-only null, but it worsens relevant terminal KS, path energy, and portfolio KS versus the plain broad response-preview at the exact start where it was supposed to help. It only increases VaR-range versus the current policy, which is not enough because it looks like generic tail activation rather than sharper narrative-specific conditionality.
+
+### Mechanism read
+The fixed portfolio term is too generic. It rewards broad tail movement in the static portfolio used by the evaluator, not the narrative-specific risk channel the story is about. That can inflate VaR-range without improving pairwise portfolio distribution separation or factor/path response. This confirms that the next improvement should be narrative-channel-specific portfolio/readout scoring, not a generic portfolio add-on.
+
+### Decision / next step
+Kill `broad_portfolio_response_preview_gap30` as a default candidate. Keep the implementation as a diagnostic option only. The next principled experiment is a narrative-channel portfolio-preview objective: build a small synthetic portfolio from the grounded narrative factors and signs, score preview components on the joint channel response, and test whether it improves start-22 portfolio/factor separation without degrading held-out backtests.
+
+---
+## 2026-05-22: NL channel-portfolio preview and repeat-seed read
+
+### Context
+After the generic portfolio-aware preview objective failed at start 22, I tested a narrower narrative-channel portfolio objective. The idea was to build a synthetic preview readout from the signed market channels extracted from the narrative, rather than from a static generic portfolio.
+
+### Hypothesis
+A narrative-channel portfolio preview should preserve the plain response-preview factor response while improving portfolio-style distribution separation at the start-22 hard case.
+
+### Research lane
+Exploration / post-experiment analysis.
+
+### Result status
+`diagnostic_not_promoted`.
+
+### Benchmark floor status
+`competitive_for_plain_preview`.
+
+### Execution
+I added `channel_portfolio` as a response-preview objective, exposed `broad_channel_portfolio_preview_gap30`, added focused tests, and ran the start-22 compact gate. I then aggregated the existing start-22 stress artifacts across three rollout seeds for the plain broad response-preview candidate.
+
+Validation commands:
+
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_story_smoke.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py experiments/backfill/block_ar/nl_prefix_latent_component_backtest.py`
+- `uv run pytest test_code/test_791a_nl_prefix_latent_story_smoke.py test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_939b_nl_prefix_latent_component_backtest.py -q`
+
+Artifacts:
+
+- Channel-portfolio fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_942b_start22_channel_portfolio_preview_s32_d200/fixed_start_rollout_policy_comparison.json`
+- Channel-portfolio stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_942b_start22_channel_portfolio_preview_s32_d200/conditionality_stress_test.json`
+- Start-22 repeat-seed summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start22_repeat_seed_response_preview_942c_summary.json`
+
+### Result
+At start 22, seed 945:
+
+| Policy | Gates | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 6/6 | 0.2109 | 0.0449 | 0.1417 | 6.2951 |
+| Broad response-preview | 6/6 | 0.2582 | 0.0713 | 0.2292 | 6.1442 |
+| Broad channel-portfolio preview | 6/6 | 0.2552 | 0.0647 | 0.2208 | 6.5940 |
+| Start-only null | 1/6 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+Across existing start-22 seeds 942, 944, and 945:
+
+| Policy | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 0.2220 | 0.0470 | 0.2000 | 4.7827 |
+| Broad response-preview | 0.2453 | 0.0543 | 0.1938 | 6.1550 |
+| Start-only null | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+### Mechanism read
+The channel-portfolio readout is more defensible than the generic portfolio add-on, but it still does not beat the plain broad response-preview on the main start-22 KS metrics. The plain broad response-preview is the better active candidate: it improves relevant-factor response and VaR-range across seeds while retaining all 6/6 same-start conditionality gates. The remaining weakness is portfolio KS stability, which appears sensitive to rollout seed and sample count.
+
+### Decision / next step
+Do not promote the channel-portfolio objective. Keep `broad_response_preview_gap30` as the active candidate and run a larger-sample repeat on the start-22 hard case to reduce sampling noise. If the larger run preserves the repeat-seed average pattern and the 29-window historical backtest remains competitive, update current truth as an active candidate rather than a production default.
+
+---
+## 2026-05-22: NL response-preview larger start-22 rejection
+
+### Context
+The 942c repeat-seed read suggested that plain `broad_response_preview_gap30` may improve relevant-factor response and VaR-range at start 22, but portfolio KS was seed-sensitive. I ran a larger start-22 repeat to reduce sampling noise before promoting any response-preview method.
+
+### Hypothesis
+If broad response-preview is a stable improvement, a 64-sample / 400-step start-22 repeat should preserve its advantage over the current hard-direction start-aware policy.
+
+### Research lane
+Candidate promotion gate.
+
+### Result status
+`candidate_rejected_as_default`.
+
+### Benchmark floor status
+`below_floor`.
+
+### Execution
+I reran start 22 with `current_start_checked_gap30`, `broad_response_preview_gap30`, and `start_only_topk` at 64 samples and 400 decoder steps.
+
+Artifacts:
+
+- Fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_942d_start22_broad_response_preview_s64_d400/fixed_start_rollout_policy_comparison.json`
+- Stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_942d_start22_broad_response_preview_s64_d400/conditionality_stress_test.json`
+
+### Result
+At start 22, 64 samples / 400 decoder steps:
+
+| Policy | Gates | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 6/6 | 0.1820 | 0.0241 | 0.1521 | 4.0234 |
+| Broad response-preview | 6/6 | 0.1638 | 0.0236 | 0.1271 | 3.7300 |
+| Start-only null | 1/6 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+### Mechanism read
+Response-preview remains useful as a diagnostic, but it is not a stable production/default improvement. At the larger start-22 gate it falls below the incumbent on relevant-factor KS, path energy, portfolio KS, and VaR-range. This rejects the response-preview family as the next default. The important positive result remains that the incumbent current hard-direction start-aware support mixture passes the same-start conditionality gates and beats the start-only null; the start-only pathway remains flat.
+
+### Decision / next step
+Downgrade response-preview methods to diagnostics. Move the promotion focus back to the simpler current hard-direction start-aware component-preserving support mixture, because it has stronger held-out backtest evidence and stable same-start conditionality controls. Before updating current truth or making a production-readiness claim, run an independent verifier over the incumbent evidence bundle: multi-start controls, start-only nulls, 29-window historical backtest, and current code paths.
+
+---
+## 2026-05-22: NL incumbent verifier and current-truth update
+
+### Context
+The larger start-22 response-preview gate rejected the response-preview family as a stable default candidate. I ran an independent-verifier review before changing the tracked current-truth claim.
+
+### Verification
+Verifier artifact:
+
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_incumbent_after_response_preview_rejection.md`
+
+Verifier verdict: `PARTIAL`.
+
+The verifier agrees that response-preview variants should be diagnostic only and that the current hard-direction start-aware component-preserving support mixture is the best active production candidate. It does not support a stronger claim that the full product is production-ready or that conditionality is completely solved.
+
+### Current-truth update
+Updated:
+
+`docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+The current active production candidate is now explicitly:
+
+`current_start_checked_gap30 -> diverse_topk_narrative_start_checked -> component-preserving frozen SNI rollout`
+
+The tracked evidence bundle is:
+
+- 29 scored held-out windows with CRPS improvement `+20.701%`, energy improvement `+30.364%`, and 80% coverage `0.8085` versus persistence.
+- Compact fixed-start controls across starts 18, 22, and 40, with the current policy passing all three and the start-only null failing all three.
+- Larger start-22 hard-case repeat, where the current policy beats response-preview on relevant terminal KS, path energy, portfolio KS, and VaR95 range.
+
+### Decision / next step
+Do not claim solved production readiness yet. The next gate is to close the verifier's residual evidence gap: run a larger start-40 repeat to pair with the existing scaled start-18 and start-22 evidence, then update the current-truth status again if the incumbent remains stable.
+
+---
+## 2026-05-22: NL scaled multi-start incumbent evidence
+
+### Context
+The verifier's main residual evidence gap was that the incumbent needed a larger-sample repeat beyond the compact multi-start controls. Start 18 already had scaled evidence, start 22 was rerun in 942d, and this iteration added start 40.
+
+### Hypothesis
+If the incumbent hard-direction start-aware support mixture controls start-level dominance, it should continue to pass fixed-start narrative conditionality gates at start 40 under a larger 64-sample / 400-step rollout, while the start-only null remains flat.
+
+### Research lane
+Promotion evidence.
+
+### Result status
+`active_candidate_strengthened`.
+
+### Benchmark floor status
+`beats_null_and_response_preview_on_scaled_conditionality`.
+
+### Execution
+I ran the larger start-40 fixed-start rollout and stress test, then aggregated scaled starts 18, 22, and 40.
+
+Artifacts:
+
+- Start 40 fixed-start rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_942f_start40_incumbent_s64_d400/fixed_start_rollout_policy_comparison.json`
+- Start 40 stress test: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_942f_start40_incumbent_s64_d400/conditionality_stress_test.json`
+- Scaled multi-start summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_scaled_multistart_incumbent_942g_summary.json`
+
+### Result
+Start 40, 64 samples / 400 decoder steps:
+
+| Policy | Gates | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 6/6 | 0.1821 | 0.0273 | 0.1646 | 4.4687 |
+| Broad response-preview | 6/6 | 0.1666 | 0.0174 | 0.1646 | 5.3147 |
+| Start-only null | 1/6 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+Scaled starts 18, 22, and 40:
+
+| Policy | Pass starts | Relevant terminal KS | Relevant path energy | Portfolio KS | VaR95 loss range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Current hard-direction start-aware | 3/3 | 0.1840 | 0.0258 | 0.1580 | 3.4768 |
+| Broad response-preview diagnostic | 3/3 | 0.1728 | 0.0231 | 0.1531 | 4.2738 |
+| Start-only null | 0/3 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+
+### Mechanism read
+This strengthens the claim that the current support-mixture path is not merely selecting the same future from the starting level. With the same fixed start, different narratives produce low-overlap support mixtures and nonzero factor/path/portfolio distribution differences. The start-only null remains flat. Response-preview can widen VaR in some starts, but it is less stable on the main factor/path/portfolio conditionality metrics.
+
+### Decision / next step
+Keep `current_start_checked_gap30` as the active production candidate. Do not promote response-preview. The next production-hardening step is to clean stale fixed-start case labels and then update paper/demo defaults around the incumbent evidence bundle.
+
+---
+## 2026-05-22: NL Incumbent Cleanup 943a: Public Case Labels And Paper Defaults
+
+### Context
+Cleaned the narrative-conditioned scenario workflow so paper/demo defaults use the supported incumbent hard-direction start-aware component-preserving support mixture, not diagnostic response-preview variants. Also removed stale public-facing `start18` case labeling from the current fixed-start evidence path while preserving legacy aliases for cached condition reports.
+
+### Changes
+- Fixed-start rollout comparison now writes clean public narrative ids: `fragile_risk_on`, `defensive_risk_off`, `commodity_inflation`, `dollar_liquidity`, `rates_selloff`, and `safe_haven_gold`.
+- Default rollout comparison policies are now incumbent `current_start_checked_gap30` plus `start_only_topk` null.
+- Stress-test and casebook plotting defaults now point to the clean 943a start-22 incumbent artifacts.
+- Paper figures/tables were refreshed around the incumbent evidence and raw-level fixed-start casebook.
+- Gradio demo remains on the incumbent path: `diverse_topk_narrative_start_checked` support selection and `component_prefix_mixture` rollout.
+
+### Evidence
+Clean fixed-start comparison:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_fixed_start_policy_comparison_943a_start22_incumbent_clean_s64_d400/fixed_start_rollout_policy_comparison.json`
+
+- Incumbent: direction checks `6/6`, mean support Jaccard `0.033`, mean factor terminal KS `0.169`, mean portfolio terminal KS `0.124`, VaR95 loss range `2.290`.
+- Start-only null: direction checks `1/6`, support Jaccard `1.000`, zero factor/path/portfolio/tail separation.
+
+Clean stress test:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_943a_start22_incumbent_clean/conditionality_stress_test.json`
+
+- Incumbent passes `6/6` fixed-start conditionality gates.
+- Start-only null passes `1/6` gates.
+
+Paper figures now include:
+- `paper/narrative_grounded_scenarios/figures/fixed_start_rollout_policy_s64_incumbent_factor_fans.png`
+- `paper/narrative_grounded_scenarios/figures/narrative_relevant_factor_panels_943a.png`
+- `paper/narrative_grounded_scenarios/figures/narrative_reference_contrast_panels_943a.png`
+- `paper/narrative_grounded_scenarios/figures/narrative_casebook_fixed_start.png`
+- `paper/narrative_grounded_scenarios/figures/narrative_portfolio_impact_fixed_start.png`
+- `paper/narrative_grounded_scenarios/figures/narrative_portfolio_tail_deltas_943a.png`
+
+### Verification
+Focused tests passed:
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py experiments/backfill/block_ar/nl_conditionality_stress_test.py experiments/backfill/block_ar/plot_narrative_casebook_backtest.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_paper_conditionality_evidence_pack.py`
+- `uv run pytest test_code/test_931a_nl_fixed_start_rollout_policy_comparison.py test_code/test_933a_nl_conditionality_stress_test.py -q` -> `16 passed`
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_vix_spx_case_study_helpers.py test_code/test_927a_nl_paper_conditionality_evidence_pack.py -q` -> `51 passed`
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` under `paper/narrative_grounded_scenarios/` -> 33-page PDF built.
+
+Independent verifier report:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-22_incumbent_cleanup_943a.md`
+
+Verifier verdict: `PARTIAL`. The cleanup/default/paper-facing evidence is verified. The report does not claim full product production readiness; it supports the incumbent as the current product-facing candidate and keeps response-preview methods diagnostic.
+
+### Decision
+Use the incumbent hard-direction start-aware component-preserving support mixture as the demo/paper default. Keep response-aware/response-preview methods on the research track until they beat the incumbent on fixed-start conditionality and held-out scenario quality, then run a new verifier before promotion.
+
+---
+## 2026-05-25: Start-versus-narrative attribution diagnostic
+
+### Context
+The paper already had a fixed-start control showing that narrative-conditioned support changes the scenario while a start-only null is flat. The missing question was attribution: how much variation is due to the accepted starting level versus the narrative and their interaction?
+
+### Related-work framing
+The diagnostic follows the variance-based sensitivity / functional-ANOVA idea used in computer experiments: use a crossed design, decompose standardized output-summary variation into main effects and interactions, and keep common rollout settings so comparisons are not dominated by random simulation noise.
+
+### Experiment
+Added `experiments/backfill/block_ar/nl_start_narrative_attribution.py` and `test_code/test_944a_nl_start_narrative_attribution.py`. The script consumes saved rollout bundles for starts 18, 22, and 40 crossed with the six professional narratives, then writes JSON/Markdown plus paper artifacts.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_narrative_attribution_944a/start_narrative_attribution.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_narrative_attribution_944a/start_narrative_attribution.md`
+- `paper/narrative_grounded_scenarios/generated_tables/table_start_narrative_attribution.tex`
+- `paper/narrative_grounded_scenarios/figures/start_narrative_attribution.png`
+
+### Findings
+For the current hard-direction start-aware support mixture:
+- Raw terminal-level features: start share `81.3%`, narrative share `7.8%`, interaction `10.9%`.
+- Start-normalized terminal-move features: start share `57.6%`, narrative share `22.3%`, interaction `20.1%`.
+- At fixed start, narrative changes produce mean factor KS `0.176` and portfolio KS `0.149`.
+- Across starts under the same narrative, start changes produce larger mean factor KS `0.566` and portfolio KS `0.486`.
+- Start-only null assigns `100%` of standardized variation to start and `0%` to narrative, with zero same-start narrative KS.
+
+### Interpretation
+The fixed-start conditionality is real and not a pure starting-level artifact. However, accepted starting level remains the dominant source of raw-level scenario geometry. The best product framing is therefore: the user-selected start anchors the market level, while the narrative changes support, normalized future moves, and portfolio/tail readouts. Future method work should continue improving narrative-responsive support weighting rather than hiding or removing the starting-level role.
+
+---
+## 2026-05-25: NL narrative ensemble calibration TestFlight 945a
+
+### Context
+The new HEAD objective is narrative-conditioned ensemble calibration over the incumbent support-grounded frozen SNI ensemble. Before running the branch, the prior research-log failure recap was used as a mistake gate: do not repeat a ranker-only response-preview/support-weighting loop, do not promote cached-only gains, and do not treat one metric such as VaR range as product conditionality.
+
+### Hypothesis
+If the incumbent support-grounded SNI ensemble is already on-manifold but too start-dominated in raw fan geometry, then a small bounded narrative-direction calibration layer can increase start-normalized narrative response and portfolio-tail separation while preserving held-out CRPS, energy, coverage, support provenance, and fixed-start auditability.
+
+### Work Done
+- Added `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py`.
+- Added focused tests in `test_code/test_945a_nl_narrative_ensemble_calibration.py`.
+- The calibrator keeps support selection and frozen SNI rollout unchanged, extracts signed factor directions from the grounding sidecar or cached narrative text, fits one bounded beta on calibration rows, and applies a time-increasing direction tilt in delta-scale units.
+- Ran the first offline TestFlight on the incumbent 29-window component backtest and the fixed-start attribution grid.
+
+### Results
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945a/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945a/narrative_ensemble_calibration_report.md`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945a/fixed_start_calibrated_factor_fans.png`
+
+The split-fit selected beta `0.25`. On the 14-row evaluation split:
+- calibrated minus identity CRPS: `-0.000480` (slightly better; lower is better),
+- calibrated minus identity energy: `-0.000642` (slightly better),
+- calibrated minus identity 80% coverage: `-0.000733` (negligible).
+
+Fixed-start attribution improved materially:
+- start-normalized narrative plus interaction share: `42.4% -> 66.4%`,
+- mean same-start factor KS: `0.176 -> 0.326`,
+- mean same-start portfolio KS: `0.149 -> 0.402`.
+
+### Decision
+Status: `candidate_not_promoted_initial_testflight`.
+
+This is the first positive candidate for the new ensemble-calibration objective. It is not promoted as a production default yet. The next gate should test repeat/split robustness, inspect the qualitative fans, and then trigger independent verification if the gain survives. The mistake gates remain active: no cached-only promotion, no ranker-only loop, no single-metric promotion, and no demo/paper default change without verifier support.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py -q` -> `4 passed`.
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` -> `6 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` -> passed.
+
+---
+## 2026-05-25: NL narrative ensemble calibration split robustness 945b-c
+
+### Context
+After the initial 945a TestFlight, the candidate needed a split robustness check before it could be treated as more than a promising one-split result. I also found and fixed a reporting bug: calibrated attribution rows recomputed shares and KS metrics correctly, but pairwise feature-distance fields were hard-coded to zero.
+
+### Hypothesis
+If the bounded narrative-direction calibration is a real candidate rather than split noise, it should preserve CRPS/energy/coverage on alternate splits and continue to improve start-normalized fixed-start narrative response. A weaker chronological result would mean the candidate remains useful but should not be promoted without a better selection rule.
+
+### Research Lane
+`candidate`
+
+### Execution
+- Added a regression test that fails when calibrated pairwise feature distances are zero despite different start/narrative cells.
+- Fixed `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` to compute calibrated pairwise feature distances using the same helper as the baseline attribution script.
+- Reran the three offline calibration reports:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945a/narrative_ensemble_calibration_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945b_odd_even/narrative_ensemble_calibration_report.json`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945c_chronological/narrative_ensemble_calibration_report.json`
+
+### Results
+Even/odd 945a selected beta `0.25`: held-out CRPS `-0.000480`, energy `-0.000642`, coverage `-0.000733` versus identity. Start-normalized narrative plus interaction share improved from `42.4%` to `66.4%`; factor KS from `0.176` to `0.326`; portfolio KS from `0.149` to `0.402`.
+
+Odd/even 945b also selected beta `0.25`: held-out CRPS `-0.000561`, energy `-0.001140`, coverage `-0.000684`. Fixed-start conditionality metrics match 945a because the selected beta is the same.
+
+Chronological 945c selected beta `0.05`: held-out CRPS `-0.000283`, energy `-0.000480`, coverage `+0.000114`. It still improves the candidate gates, but start-normalized narrative plus interaction share rises only to `44.5%`; factor KS to `0.193`; portfolio KS to `0.167`.
+
+### Mechanism Read
+The calibration signal is not pure split noise: all three splits choose nonzero beta and preserve held-out quality. However, pure CRPS-based beta selection can choose a conservative beta that preserves quality while barely improving product-visible conditionality. This means the candidate mechanism is alive, but the selection objective is not yet aligned with the product objective.
+
+### Decision / Next Step
+Status: `candidate_not_promoted_split_robustness_partial`.
+
+Continue the family, but do not promote it. The next HEAD step should implement a quality-constrained conditionality selection rule: fit beta subject to held-out quality floors while selecting for start-normalized narrative response / factor KS / portfolio KS. Then rerun the same split robustness checks and fixed-start qualitative plots. Independent verification is required before any demo, paper, or production-default change.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py -q` -> `5 passed`.
+- The three report reruns completed and emitted candidate status.
+- `docs/research_protocols/nl_prefix_latent_current_truth.md` and `autoresearch-session/nl_prefix_latent_state.json` were updated with the partial robustness verdict.
+
+---
+## 2026-05-25: NL quality-constrained response calibration 945e-g
+
+### Context
+The split robustness check showed the bounded calibration candidate was alive, but pure CRPS-based beta selection picked a conservative beta on the chronological split and left product-visible conditionality weak. A forced-beta diagnostic showed beta `0.25` actually improved chronological held-out CRPS and energy, so the failure was selection-objective mismatch rather than necessary quality protection.
+
+### Hypothesis
+The right objective is not minimum calibration-split CRPS. For this product, the bounded calibrator should select the strongest narrative response that remains inside explicit historical quality floors. This should preserve CRPS/energy/coverage while making fixed-start narrative conditionality consistent across splits.
+
+### Research Lane
+`candidate`
+
+### Work Done
+- Added `quality_constrained_response` beta selection to `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py`.
+- The selector chooses the largest effective bounded beta whose calibration quality remains within CRPS/energy regression and coverage floors.
+- Clipped duplicate grid values are now reported as effective betas, so a grid value such as `0.30` cannot be reported when the beta bound is `0.25`.
+- Added tests for the quality-constrained selector and effective-beta reporting.
+
+### Results
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945e_qcr_even_odd/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945f_qcr_odd_even/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945g_qcr_chronological/narrative_ensemble_calibration_report.json`
+
+All three split modes select effective beta `0.25` and pass the quality gates. Even/odd and odd/even match the previous strong result. Chronological, the weak split under pure CRPS selection, now shows held-out CRPS `-0.001162`, energy `-0.002080`, and coverage `-0.000399` versus identity. Fixed-start start-normalized narrative plus interaction share is `66.4%`; same-start factor KS is `0.326`; same-start portfolio KS is `0.402`.
+
+### Mechanism Read
+The candidate improves because the selection rule now matches the product contract: maximize narrative response subject to quality floors, instead of accidentally minimizing away response when a tiny CRPS edge appears on the calibration split. This keeps the method simple and bounded: no new ranker, no new generator, no hidden support change, and no OpenAI call.
+
+### Decision / Next Step
+Status: `candidate_not_promoted_verifier_required`.
+
+This is now the strongest ensemble-calibration candidate. Do not change demo/paper defaults yet. The next gate is independent verification focused on code/artifact consistency, split metrics, qualitative fan generation, and the product-contract risk that directional calibration must remain a bounded response to current/recent narrative implications rather than a prescribed future path.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` -> `10 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` -> passed.
+- `file experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945g_qcr_chronological/fixed_start_calibrated_factor_fans.png` -> `PNG image data, 1690 x 1722`.
+- Current-truth and local autoresearch state were updated with the candidate-not-promoted verdict.
+
+---
+## 2026-05-25: Independent verifier on NL calibration 945e-g
+
+### Context
+The 945e/f/g quality-constrained response calibration became the strongest candidate in the ensemble-calibration family, so it triggered the independent-verifier gate before any demo, paper, or production-default promotion.
+
+### Verifier Artifact
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_narrative_ensemble_calibration_945efg.md`
+
+### Verdict
+`PARTIAL`
+
+### What The Verifier Confirmed
+- The code and 945e/f/g artifacts are internally consistent.
+- Effective beta reporting is fixed; the artifacts report selected beta `0.25` and candidate betas only up to the beta bound.
+- The three split reports use `quality_constrained_response`, pass candidate gates, and preserve/improve held-out CRPS, energy, and coverage versus identity.
+- Fixed-start conditionality metrics are materially stronger than the 944a incumbent baseline: start-normalized narrative plus interaction share `66.4%`, factor KS `0.326`, portfolio KS `0.402`.
+
+### Issues / Non-Promotion Reasons
+- The fixed-start conditionality grid is the same grid for all split modes, so it is a useful mechanism check but not final promotion evidence.
+- The method shifts future deltas along extracted current/recent market directions. This is acceptable as bounded ensemble calibration only if the product clearly explains that it is not free-form user-prescribed future direction.
+- The selected beta hits the configured bound, so beta-bound sensitivity is required before promotion.
+- The method does not improve the text embedding bridge itself; it is an ensemble calibration layer over the support-grounded SNI rollout.
+
+### Decision / Next Step
+Status remains `candidate_not_promoted_verifier_required` / `verifier_partial`.
+
+Continue with the verifier's bounded controls before any default change: confirm start-only/null behavior under calibration, add repeat or shuffled-narrative controls if practical, run beta-bound sensitivity, and inspect qualitative raw-level fans.
+
+---
+## 2026-05-25: NL support-gated calibration controls 945i-n
+
+### Context
+The independent verifier accepted the 945e/f/g calibration as a real candidate but raised a product-contract risk: the directional calibration might create conditionality even when the support prior itself is not narrative-conditioned. I ran the explicit start-only null and found this risk was real: without a support gate, identical start-only support still produced nonzero narrative separation.
+
+### Hypothesis
+A support-grounded calibration layer should only activate when the support prior is narrative-conditioned and not rejected by the direction/evidence audit. If the support prior is explicit start-only or fails the direction check, the calibration should be suppressed and the null should remain flat.
+
+### Work Done
+- Added `support_gate_mode=direction_status` to `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py`.
+- The gate blocks calibration for `soft_topk_start_only` support and for rejected/failed support-direction status.
+- Added tests that verify rejected support and explicit start-only support block calibration, even if a start-only case coincidentally has a passing direction check.
+- Reran current-policy split checks, explicit start-only null, and beta-bound sensitivity.
+
+### Results
+Current support-gated candidate artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945k_qcr_support_gated_even_odd/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945l_qcr_support_gated_odd_even/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945j_qcr_support_gated_current_chronological/narrative_ensemble_calibration_report.json`
+
+All three current-policy splits select beta `0.25`, pass quality gates, and keep fixed-start start-normalized narrative plus interaction share `66.4%`, factor KS `0.326`, portfolio KS `0.402`, and support Jaccard `0.032`.
+
+Explicit start-only null artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945i_qcr_support_gated_start_only_null/narrative_ensemble_calibration_report.json`
+
+The start-only null is flat again under the support gate: narrative plus interaction share is effectively `0`, factor KS `0`, portfolio KS `0`, and support Jaccard `1.000`.
+
+Beta-bound sensitivity on chronological split:
+- bound `0.15`: CRPS `-0.000773`, energy `-0.001344`, coverage `+0.000057`, narrative plus interaction `56.6%`, factor KS `0.263`, portfolio KS `0.294`.
+- bound `0.25`: CRPS `-0.001162`, energy `-0.002080`, coverage `-0.000399`, narrative plus interaction `66.4%`, factor KS `0.326`, portfolio KS `0.402`.
+- bound `0.35`: CRPS `-0.001448`, energy `-0.002687`, coverage `-0.000285`, narrative plus interaction `72.6%`, factor KS `0.374`, portfolio KS `0.482`.
+
+### Mechanism Read
+The support gate restores the support-grounded contract. The stronger conditionality is no longer produced by applying a direction overlay to an explicit start-only support pool; it requires accepted narrative-conditioned support. The beta-bound sensitivity shows a monotone response/quality improvement in this small gate, but the larger `0.35` bound should not be promoted without qualitative review because it may be visually over-directed.
+
+### Decision / Next Step
+Status: `candidate_not_promoted_qualitative_and_verifier_followup_required`.
+
+Keep beta `0.25` as the conservative current candidate. Next run a qualitative raw-level fan/panel review and a second independent verifier pass on the support-gated candidate before updating paper/demo defaults. If the qualitative response looks plausible, this can become a promotion candidate; if it looks too directional, keep it diagnostic and reduce the bound or soften the gate.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py -q` -> `8 passed`.
+- Current-truth and local autoresearch state were updated with the support-gated control result.
+
+---
+## 2026-05-25: NL support-gated qualitative calibration review 945o
+
+### Context
+The 945i-n support-gated calibration controls fixed the start-only-null failure but still needed a qualitative raw-level review and second independent verifier pass before any candidate promotion claim. The concern was that the stronger conditionality could be visually over-directed or could still be produced without accepted narrative support.
+
+### What changed
+- Added qualitative review helpers to `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py`.
+- Added focused tests in `test_code/test_945a_nl_narrative_ensemble_calibration.py` for raw-level qualitative summaries, markdown reporting, and plot generation.
+- Reran the chronological support-gated quality-constrained response candidate into `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945o_qualitative_review/`.
+- Saved the second verifier report at `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_support_gated_calibration_945o.md`.
+
+### Evidence
+Chronological 945o uses `selection_objective=quality_constrained_response`, `support_gate_mode=direction_status`, and selected beta `0.25`. Held-out calibrated-minus-identity metrics are CRPS `-0.001162`, energy `-0.002080`, and coverage `-0.000399`; all recorded quality and response gates pass.
+
+Fixed-start start-normalized attribution remains strong: narrative plus interaction share `66.4%`, factor KS `0.326`, portfolio KS `0.402`, and same-start support Jaccard `0.032`. The support-gated start-only null remains flat from 945i.
+
+Qualitative raw-level panels now show narrative-relevant differences against the start-only null under the same approved start. Terminal median examples: fragile risk-on SPX `+18.74` and VIX `-1.73`; defensive risk-off SPX `-8.67`, VIX `+1.20`, BBB OAS `+0.16`; commodity inflation crude `+1.25`, US10Y `+0.11`; dollar liquidity DXY `+0.92`, BBB OAS `+0.14`, VIX `+1.23`; rates selloff US10Y `+0.10`; safe-haven gold gold `+9.27`, US10Y `-0.06`, VIX `+1.39`.
+
+Artifacts:
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945o_qualitative_review/narrative_ensemble_calibration_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945o_qualitative_review/support_gated_qualitative_review.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945o_qualitative_review/support_gated_narrative_relevant_raw_panels.png`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945o_qualitative_review/support_gated_start_only_null_contrasts.png`
+
+Verification commands:
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py -q` -> `11 passed`
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` -> passed
+- chronological 945o run -> status `candidate`, selected beta `0.25`
+
+### Independent verifier decision
+Verifier verdict: `PARTIAL`. The result is a legitimate paper/demo candidate for risk-manager-visible support-gated narrative response. It is not a silent production default yet. The claim should remain scoped as bounded ensemble calibration over accepted historical support, not a solved direct text-to-latent bridge and not an LLM forecast.
+
+### Next decision
+The next principled step is either a broader default-promotion replication for 945o, or a paper/demo update that clearly marks 945o as candidate evidence under the support-gated null-control contract. Do not claim production default until that broader gate or explicit product-owner promotion decision is complete.
+
+---
+## 2026-05-25: NL support-gated per-start promotion gates 945q
+
+### Context
+After 945o, the remaining concern was that aggregate fixed-start attribution might hide a weak accepted start. I added an explicit per-start narrative gate so a candidate must show narrative separation for every accepted start in the three-start diagnostic grid, not only on average.
+
+### Implementation
+- Added `_per_start_narrative_metrics` and `_per_start_promotion_gates` to `experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py`.
+- Extended the calibration report and markdown with per-start factor KS, portfolio KS, and support Jaccard.
+- Added focused tests in `test_code/test_945a_nl_narrative_ensemble_calibration.py`.
+
+### Result
+Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945q_per_start_promotion_gates/narrative_ensemble_calibration_report.json`
+
+945q keeps the same support-gated chronological candidate: selected beta `0.25`; CRPS `-0.001162`, energy `-0.002080`, and coverage `-0.000399` versus identity; all quality and response gates pass.
+
+The new per-start gates also pass:
+
+- start18: factor KS `0.320`, portfolio KS `0.398`, support Jaccard `0.033`.
+- start22: factor KS `0.316`, portfolio KS `0.393`, support Jaccard `0.033`.
+- start40: factor KS `0.342`, portfolio KS `0.416`, support Jaccard `0.029`.
+
+Aggregate fixed-start start-normalized metrics remain narrative plus interaction `66.4%`, factor KS `0.326`, portfolio KS `0.402`, and support Jaccard `0.032`.
+
+### Decision
+The per-start gate strengthens the candidate: narrative conditionality is not coming from only one favorable start in the three-start diagnostic grid. This is still not a silent production default, because the mechanism remains a bounded post-rollout calibration overlay. It is now suitable as a paper/demo candidate under explicit support-gated calibration framing, pending either product-owner default approval or a larger time-block replication.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py -q` -> `13 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` -> passed.
+- 945q run completed with status `candidate` and all recorded promotion gates true.
+
+---
+## 2026-05-25: NL broad-support calibration replication 945r
+
+### Context
+945q showed that support-gated calibration passes per-start narrative gates on the three accepted starts. Before treating it as paper/demo candidate evidence, I checked whether the calibration fit/evaluation result also holds on the broad-support 940d component-backtest artifact rather than only the current-support artifact.
+
+### Result
+Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_945r_broad_support_backtest/narrative_ensemble_calibration_report.json`
+
+945r again selects beta `0.25` with `support_gate_mode=direction_status` and `selection_objective=quality_constrained_response`. Held-out calibrated-minus-identity metrics on the broad-support artifact are CRPS `-0.001146`, energy `-0.002094`, and coverage `+0.000399`. All recorded quality, response, and per-start gates are true.
+
+The per-start and qualitative panels are unchanged in interpretation because the fixed-start visual deck still comes from the saved current fixed-start runs. Therefore 945r should be read as calibration-fit/evaluation replication on the broad-support backtest report, not as a new broad-support visual policy.
+
+### Independent verifier addendum
+Verifier addendum saved at `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_support_gated_calibration_945q_r_addendum.md`.
+
+Verdict: `PARTIAL`. The verifier accepts 945q-r as current paper/demo candidate evidence under careful framing. It warns that the 940d `66w` reports expose `29` usable `window_scores`, so the result must not be described as a 66-window calibration evaluation. It also warns that the mechanism remains bounded post-rollout calibration over accepted support, not direct text-to-latent generation.
+
+### Decision
+Status: `paper_demo_candidate_not_silent_production_default`.
+
+The next public-facing task can update the paper/demo around 945q-r candidate evidence if desired. Production default promotion still requires explicit product-owner approval or a true larger time-block replication with matched visual/support decks.
+
+---
+## 2026-05-25: NL support-gated paper evidence refresh
+
+### Context
+After the 945q per-start support-gated calibration pass and the 945r broad-support replication, I refreshed the narrative-conditioned scenario paper surface so the public-facing evidence matches the current candidate rather than older weak-conditionality figures.
+
+### Evidence Added
+- Added a support-gated calibration table comparing current-support and broad-support held-out deltas versus identity calibration, plus fixed-start narrative separation and per-start floors.
+- Replaced older qualitative panels with raw-level narrative-relevant support-gated panels and start-only-null contrast panels from the 945q candidate.
+- Updated the paper text to frame the candidate as a bounded support-gated ensemble calibration layer over the incumbent support-grounded frozen SNI rollout.
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` passed: 16 tests.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` passed.
+- `git diff --check` passed on the touched research, test, log, and paper sources.
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` passed twice under `paper/narrative_grounded_scenarios`, with no warning hits from `rg "Warning|undefined|Citation|Reference|Overfull|Underfull" main.log`.
+
+### Status
+This is a paper/demo candidate update, not a silent production default. The support-gated candidate improves visible fixed-start narrative response while preserving the incumbent held-out metric floor, but production promotion still needs either a larger matched time-block replication or explicit product-owner acceptance of the current bounded calibration layer.
+
+---
+## 2026-05-25: NL matched broad-support calibration deck 946a
+
+### Context
+The 945q-r support-gated candidate had one remaining paper/demo evidence mismatch: held-out calibration was replicated on the broad-support component-backtest report, but the fixed-start qualitative panels still came from the older current-support visual deck. I added explicit `--start-root LABEL=PATH` wiring to `nl_narrative_ensemble_calibration.py` so fixed-start attribution and qualitative plots can be generated from a matched rollout deck.
+
+### Run
+Built matched broad-support fixed-start decks for starts `18`, `22`, and `40` using the broad support bank, the `broad_replay_response_guard_gap30` policy, and the `start_only_topk` null. Then reran the support-gated calibrator on the broad-support 940d report with those three broad roots:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_946a_matched_broad_support_deck/narrative_ensemble_calibration_report.json`
+
+### Findings
+- Selected beta: `0.25`.
+- Broad held-out calibrated-minus-identity: CRPS `-0.001146`, energy `-0.002094`, coverage `+0.000399`.
+- Matched broad fixed-start attribution: factor KS `0.309`, portfolio KS `0.426`, support Jaccard `0.028`.
+- Per-start floors pass: minimum factor KS `0.297`, minimum portfolio KS `0.402`, maximum support Jaccard `0.032`.
+- Start-only null remains flat under each start.
+- Qualitative raw-level panels now use the same broad support universe as the broad held-out calibration run.
+
+### Paper Surface
+Updated `paper/narrative_grounded_scenarios/` to use the 946a table and figures:
+
+- `paper/narrative_grounded_scenarios/generated_tables/table_support_gated_calibration.tex`
+- `paper/narrative_grounded_scenarios/figures/support_gated_narrative_relevant_raw_panels_946a.png`
+- `paper/narrative_grounded_scenarios/figures/support_gated_start_only_null_contrasts_946a.png`
+
+### Verification
+- `uv run pytest test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` passed: 17 tests.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py` passed.
+- `git diff --check` passed on touched sources.
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` passed twice under `paper/narrative_grounded_scenarios`, with no warning hits from `rg "Warning|undefined|Citation|Reference|Overfull|Underfull" main.log`.
+
+### Independent Verifier
+Saved verifier report:
+
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_matched_broad_support_calibration_946a.md`
+
+Verdict: `PARTIAL`. The verifier accepts 946a as the current paper/demo candidate because it fixes the mixed-evidence issue and supports visible fixed-start narrative response under matched broad support. It is not a silent production default: the broad backtest artifact still exposes only `29` usable window scores despite the `66w` request label, and the method remains a bounded post-rollout support-gated calibration layer over the frozen support-grounded SNI ensemble.
+
+### Decision
+Status: `paper_demo_candidate_not_silent_production_default`. The next principled production-promotion step is to build or recover a larger usable-window broad backtest manifest and rerun this same matched-deck verifier.
+
+---
+## 2026-05-25: NL full906b matched broad-support calibration 946d
+
+### Context
+946a fixed the mixed-evidence problem by using matched broad-support fixed-start decks, but its held-out calibration still came from the representative-220 broad report with only `29` usable windows. I traced this to the bridge report path: the representative bridge has 29 held-out anchors, while the full906b bridge-evaluation manifest has 66 anchors.
+
+### Run
+Built a new broad component backtest with explicit full906b bridge/report paths:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_946c_broad_full906b_66w_s32_d200/component_backtest_report.json`
+
+Then reran support-gated calibration with the same matched broad fixed-start decks from 946a:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_946d_full906b_66w_matched_broad_support_deck/narrative_ensemble_calibration_report.json`
+
+### Findings
+- Component backtest status: `ok`, with `66/66` held-out windows scored.
+- Component rollout versus persistence: CRPS improvement `0.2161`, energy improvement `0.3045`, coverage `0.8063`.
+- 946d selected beta: `0.25`.
+- Full906b held-out calibrated-minus-identity: CRPS `-0.001810`, energy `-0.002893`, coverage `+0.001010`.
+- Calibration split: `33` calibration rows and `33` evaluation rows.
+- Matched broad fixed-start attribution remains unchanged from the matched decks: factor KS `0.309`, portfolio KS `0.426`, support Jaccard `0.028`.
+- Per-start floors pass: minimum factor KS `0.297`, minimum portfolio KS `0.402`, maximum support Jaccard `0.032`.
+
+### Paper Surface
+Updated the paper to use the 946d full-window evidence and copied the matched figures as:
+
+- `paper/narrative_grounded_scenarios/figures/support_gated_narrative_relevant_raw_panels_946d.png`
+- `paper/narrative_grounded_scenarios/figures/support_gated_start_only_null_contrasts_946d.png`
+
+The support-gated calibration table now reports the full906b 66-window held-out deltas.
+
+### Independent Verifier
+Saved verifier report:
+
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_matched_broad_support_calibration_946d.md`
+
+Verdict: `PARTIAL`. The verifier accepts 946d as the current paper/demo candidate and notes that it removes the old 29-window caveat. It remains not a silent production default because it is a bounded post-rollout support-gated calibration layer over frozen support-grounded SNI rollouts.
+
+### Decision
+Status: `paper_demo_candidate_not_silent_production_default`. 946d is now the current public-facing candidate. The next production-readiness step is broader multi-start visual acceptance or demo-default wiring, not another repair of the representative-220 backtest limitation.
+
+---
+## 2026-05-25: NL 946d public-surface cleanup
+
+### Context
+After the 946d matched broad-support calibration run, the public paper/demo surface still had a few stale phrases that could make the evidence look mixed: the main evaluation protocol described only the older 29-window ablation table, the fixed-start policy table called the method a production candidate, and the current-truth file still described the 945q-r addendum as current in one historical section.
+
+### Changes
+- Kept the 29-window table as the representative ablation table because it contains the direct-memory and replay baselines.
+- Added the 66-window full-manifest replication to the main paper text: all `66/66` requested held-out anchors scored, ensemble CRPS improves `+21.6%`, energy improves `+30.4%`, and 80% coverage is `0.806` versus persistence.
+- Updated the paper evaluation-protocol row to say the quality evidence is the 29-window ablation plus the 66-window full-manifest replication.
+- Reworded the fixed-start comparison table from "current production candidate" to "current support-grounded candidate" so it does not overstate silent-production readiness.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` to mark 946d as the current public-facing paper/demo evidence surface and to mark the older 945q-r caveat as superseded by the true `66/66` full906b backtest.
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` passed: `58 passed`.
+- `python -m py_compile experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` passed.
+- `git diff --check` passed on the touched public-surface files.
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` passed twice in `paper/narrative_grounded_scenarios`.
+- `rg -n "Warning|undefined|Citation|Reference|Overfull|Underfull|Rerun" main.log` found no LaTeX warning/citation/reference issues; the only hit was the package name `rerunfilecheck`.
+
+---
+## 2026-05-25: NL 947b matched five-start narrative calibration
+
+### Context
+The prior 946d paper/demo surface fixed the broad-support held-out backtest and showed narrative response under matched support, but its fixed-start qualitative deck covered only three accepted starts. The next autoresearch step was to check whether the support-gated narrative calibration remains useful across a broader fixed-start deck without mixing seeds/settings or weakening the held-out quality floor.
+
+### What changed
+- Rebuilt matched broad-support fixed-start decks for starts `0`, `18`, `22`, `40`, and `77` under the same seed/settings family.
+- Reran narrative ensemble calibration as `947b` against the true `66/66` full906b component backtest and the five-start matched fixed-start deck.
+- Refreshed the paper/current-truth surface to point at 947b figures, attribution table, and verifier report.
+- Refreshed the start-versus-narrative attribution plot/table to use the five-start 947b values instead of the older three-start values.
+
+### Evidence
+Primary artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_narrative_ensemble_calibration_947b_full906b_66w_5start_broad_support_deck_matched_seed/narrative_ensemble_calibration_report.json`
+
+Key results:
+- selected beta: `0.25`
+- held-out calibrated-minus-identity: CRPS `-0.00181`, energy `-0.00289`, coverage `+0.00101`
+- held-out calibrated improvements versus persistence: CRPS `+21.7%`, energy `+30.6%`, 80% coverage `0.823`
+- matched broad fixed-start attribution after calibration: factor KS `0.328`, portfolio KS `0.411`, support Jaccard `0.030`
+- start-normalized narrative plus interaction share improves from `25.2%` to `52.4%`
+- weakest per-start floor across the five-start deck: factor KS `0.311`, portfolio KS `0.373`, support Jaccard `0.032`
+- all promotion gates in the 947b report are true.
+
+Verifier:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-25_matched_broad_support_calibration_947b_5start.md`
+
+Verifier verdict: `PARTIAL`. The verifier accepts 947b as the current paper/demo candidate because it preserves the 66/66 full906b held-out quality check while extending matched fixed-start evidence to five starts. It keeps the non-production caveat: this is support-gated calibration over the frozen support-grounded SNI ensemble, not a direct text-to-scenario model and not a silent production default.
+
+### Verification
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` -> `58 passed`
+- `python -m py_compile experiments/backfill/block_ar/nl_start_narrative_attribution.py experiments/backfill/block_ar/nl_narrative_ensemble_calibration.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_fixed_start_rollout_policy_comparison.py` -> pass
+- JSON validation for the 947b calibration report and 946c component backtest report -> pass
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` twice in `paper/narrative_grounded_scenarios` -> pass, 34-page PDF
+- paper stale-reference sweep for old 946/three-start public strings -> clean
+- `git diff --check` on touched paper/protocol/report surfaces -> clean
+
+### Decision
+Use 947b as the current paper/demo evidence surface. It materially strengthens the conditionality claim: same-start narrative response is now demonstrated across five fixed starts, the start-only null remains flat in the fixed-start control, and held-out scenario quality remains above the incumbent floor. Do not call it production-default yet; expose it as the current strongest paper/demo candidate with support provenance and warnings visible.
+
+---
+## 2026-05-26: NL live demo support-gated calibration wiring
+
+### Context
+
+The 947b matched broad-support calibration deck had been promoted as the current paper/demo candidate, but the live Gradio story path still needed to apply that bounded support-gated calibration after the support-grounded frozen SNI rollout. The goal of this pass was to wire the current candidate into the actual demo path without hiding it as a silent production default.
+
+### Implementation
+
+- Added live-demo support-gated directional delta calibration to `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`.
+- The calibration runs only after rollout, only when rollout arrays are present, only when the support direction gate passes, and only when the grounding sidecar contains active current/recent directional claims.
+- The run records `generation.narrative_ensemble_calibration` with mode, beta, support gate, active directional claims, operational variant index, and summary scope.
+- The markdown report receives a visible `Live Demo Narrative Calibration` section so the adjustment is auditable.
+- Start-only support is explicitly blocked rather than calibrated.
+
+### Evidence
+
+- Fresh live OpenAI smoke: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_run/prefix_latent_story_smoke_report.json`.
+  - fresh condition report with OpenAI grounding and embedding metadata;
+  - direction-checked support selected `3/8` non-overlapping components with minimum gap `30`;
+  - forward-looking volatility-reversal language was warning-only;
+  - calibration applied with effective beta `0.25`, support gate `1.0`, and `3` active directional claims.
+- Cached-condition markdown smoke: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/cached_casebook_run/condition_only_report/prefix_latent_story_smoke_report.md`.
+- Focused regression suite passed: `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_945a_nl_narrative_ensemble_calibration.py test_code/test_944a_nl_start_narrative_attribution.py -q` reported `60 passed`.
+- Verifier artifact: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-26_live_demo_support_gated_calibration.md`.
+
+### Decision
+
+The live demo can use this as the visible demo-facing calibrated candidate. This does not mark the full narrative-conditioned scenario generator production-ready: the verifier verdict remains `PARTIAL`, and the next promotion step is a multi-narrative live or cached-live sweep showing that the calibrated path preserves provenance, warnings, and fixed-start conditionality across the public narrative deck.
+
+---
+## 2026-05-26: NL 948d fixed-start live story-deck calibration
+
+### Context
+
+The prior live-demo verifier showed that support-gated narrative ensemble calibration was wired into the Gradio path, but the evidence was only one fresh story smoke. The next gap was to run a multi-narrative sweep through the same user-facing API path and verify that the calibrated path does not silently fall back to the old uncalibrated behavior.
+
+### Implementation
+
+- Extended `nl_prefix_latent_gradio_api_smoke.py` to require narrative calibration metadata, positive support gate, and active directional claims.
+- Fixed the redraw smoke to use the analogue scope returned by the app instead of hard-coding `ALL`, because the production UI defaults to the operational selected-start scope when `ALL` would mix diagnostic starts.
+- Added per-case report, markdown, and array snapshots to the smoke output so a casebook run remains reproducible after the app's shared output directory is overwritten by later cases.
+- Extended `nl_prefix_latent_gradio_live_api_casebook.py` with a fixed-start default-story-deck mode, allowing the six professional narratives to be replayed under one explicit historical start.
+
+### Evidence
+
+- Three-case live casebook: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_api_casebook_948b_calibrated_scope_fix/gradio_live_api_casebook_summary.json`.
+  - `3/3` passed, calibration applied `3/3`, minimum support gate `1.0`.
+- Six-case fixed-start live story deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_deck_948d_fixed_start22_calibrated_snapshots/gradio_live_api_casebook_summary.json`.
+  - fixed start index `22`;
+  - `6/6` passed;
+  - calibration applied `6/6`;
+  - minimum calibration support gate `1.0`;
+  - OpenAI tokens `11240`;
+  - per-case report/array snapshots preserved.
+- Compact conditionality summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_deck_948d_fixed_start22_calibrated_snapshots/fixed_start22_calibrated_story_deck_conditionality_summary.json`.
+  - mean pairwise support Jaccard `0.0`;
+  - max pairwise support Jaccard `0.0`.
+- Tests: `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py -q` reported `11 passed`.
+- Verifier: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-26_fixed_start_live_story_deck_calibration_948d.md`.
+
+### Decision
+
+Use 948d as the live-demo path validation artifact. It strengthens the demo-facing conditionality claim: six professional narratives at the same explicit starting level pass the live API route, apply bounded support-gated calibration, preserve snapshots/provenance, and select disjoint support sets. It is still not a full production promotion by itself; keep 947b as the held-out quantitative paper/demo evidence surface and use 948d for live UI/demo validation.
+
+---
+## 2026-05-26: NL 948d live story-deck analysis script
+
+### Context
+
+After the 948d fixed-start live story-deck sweep, the compact conditionality summary was initially produced by an ad hoc Python snippet. That was not good enough for a repeatable autoresearch artifact.
+
+### Implementation
+
+- Added `experiments/backfill/block_ar/nl_live_story_deck_analysis.py` to rebuild the live story-deck support/calibration/terminal-delta summary from a Gradio live casebook summary and per-case report snapshots.
+- Added `test_code/test_948d_nl_live_story_deck_analysis.py` covering support-window extraction, calibration aggregation, pairwise support Jaccard, terminal mean-delta extraction, and missing snapshot rejection.
+- Regenerated `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_deck_948d_fixed_start22_calibrated_snapshots/fixed_start22_calibrated_story_deck_conditionality_summary.json` with the script.
+- Added terminal-delta plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_deck_948d_fixed_start22_calibrated_snapshots/fixed_start22_terminal_mean_deltas.png`.
+
+### Evidence
+
+- `uv run pytest test_code/test_948d_nl_live_story_deck_analysis.py -q` reported `2 passed`.
+- The script output reports `6/6` live cases passed, calibration applied `6/6`, and max pairwise support Jaccard `0.0`.
+
+### Decision
+
+Keep 948d as a reproducible live-demo validation artifact, not a one-off notebook-style result. The script should be reused for future fixed-start live story-deck sweeps before updating paper/demo claims.
+
+---
+## 2026-05-26: NL 949a combined production-readiness audit
+
+### Context
+
+The project had two strong but separate evidence surfaces: 947b for held-out scenario quality and five-start fixed-start conditionality, and 948d for live Gradio demo-path fixed-start support conditionality. The next step was to combine them into one gate-level readiness audit instead of relying on scattered research-log prose.
+
+### Implementation
+
+- Added `experiments/backfill/block_ar/nl_production_readiness_audit.py`.
+- Added `test_code/test_949a_nl_production_readiness_audit.py`.
+- The audit reads the 947b calibration report and the 948d live story-deck summary directly.
+- Gates include held-out quality, promotion gates, start-normalized narrative response, fixed-start factor/portfolio/support distribution, live demo support conditionality, qualitative artifact existence, and production-default readiness.
+- Qualitative evidence now checks that expected figure/snapshot paths exist, not just that strings are non-empty.
+
+### Evidence
+
+Generated audit:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_production_readiness_audit_949a/production_readiness_audit.json`.
+
+Headline result:
+- overall status: `paper_demo_candidate`;
+- goal complete: `false`;
+- failed hard gates: none;
+- calibrated CRPS improvement vs persistence: `0.216852726562`;
+- calibrated energy improvement vs persistence: `0.306246897599`;
+- calibrated 80% coverage: `0.822636622637`;
+- start-normalized narrative plus interaction: `0.5239292248283334`;
+- fixed-start factor KS: `0.3283035714285714`;
+- fixed-start portfolio KS: `0.4110416666666667`;
+- live fixed-start case count: `6`;
+- live max support Jaccard: `0.0`.
+
+Verifier:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-26_combined_production_readiness_audit_949a.md`.
+
+Tests:
+`uv run pytest test_code/test_949a_nl_production_readiness_audit.py -q` reported `3 passed`.
+
+### Decision
+
+949a is the current production-readiness checkpoint. It supports a paper/demo candidate: hard quantitative and live-demo gates pass. It does not close the active goal or promote the system as a silent production default, because the production-default gate remains warning-level and calls for broader UX/product validation or paper/demo synchronization before a stronger claim.
+
+---
+## 2026-05-26: NL paper/demo surface sync to 949a
+
+### Context
+The latest combined NL prefix-latent audit (`nl_production_readiness_audit_949a`) supports the support-gated narrative scenario workflow as a paper/demo candidate: hard gates pass, but `goal_complete=false` and the production-default gate remains scoped to broader UX/deployment validation. The paper surface still mainly reflected the 947b support-gated calibration evidence, so I synchronized the public paper/demo claims with the 948d live story-deck and 949a combined readiness audit.
+
+### Changes
+- Added `paper/narrative_grounded_scenarios/generated_tables/table_combined_readiness_audit.tex`.
+- Updated `paper/narrative_grounded_scenarios/main.tex` to include the combined paper/demo readiness table and a concise paragraph tying held-out quality, fixed-start conditionality, live demo-path validation, and qualitative evidence together.
+- Refreshed `docs/research_protocols/nl_prefix_latent_current_truth.md` date to 2026-05-26.
+- Added verifier report `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-26_paper_demo_sync_949a.md`.
+
+### Evidence
+- 949a audit artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_production_readiness_audit_949a/production_readiness_audit.json`.
+- 948d live fixed-start story-deck artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_deck_948d_fixed_start22_calibrated_snapshots/fixed_start22_calibrated_story_deck_conditionality_summary.json`.
+- Headline synchronized metrics: CRPS improvement vs persistence `0.2169`, energy improvement `0.3062`, 80% coverage `0.8226`, start-normalized narrative plus interaction `0.5239`, fixed-start factor KS `0.3283`, fixed-start portfolio KS `0.4110`, and live max support Jaccard `0.0`.
+
+### Verification
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` twice from `paper/narrative_grounded_scenarios` succeeded.
+- `uv run pytest test_code/test_949a_nl_production_readiness_audit.py test_code/test_948d_nl_live_story_deck_analysis.py test_code/test_945a_nl_narrative_ensemble_calibration.py -q` passed: `19 passed`.
+- `python -m py_compile` passed for the touched NL audit/live/calibration scripts.
+- `git diff --check` passed on the paper/current-truth sync files.
+
+### Decision
+The synchronized claim remains: the current method is a risk-manager-facing paper/demo candidate with auditable support-conditioned narrative response. It should not be called production-ready or treated as fully automatic production behavior until broader product/UX validation is complete.
+
+---
+## 2026-05-26: NL 950c broad live multi-start story-deck sweep
+
+### Context
+The 949a combined readiness audit still listed broader multi-start live UX validation as required next evidence. I added a reproducible multi-start live story-deck runner and ran the six default professional narratives through the public Gradio API path across five explicit starts.
+
+### Implementation
+- Added `experiments/backfill/block_ar/nl_live_story_multistart_casebook.py` to run `nl_prefix_latent_gradio_live_api_casebook.py` across repeated fixed starts and aggregate per-start analysis artifacts.
+- Added `test_code/test_950a_nl_live_story_multistart_casebook.py`.
+- Updated the Gradio API smoke/casebook path to allow warning-level selected starts and non-leaking condition-validation warnings when explicitly requested by the multi-start UX sweep. These warnings are still counted in artifacts instead of being hidden.
+
+### Live Run
+Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/multi_start_live_story_deck_summary.json`.
+
+Results:
+- Starts: `0`, `18`, `22`, `40`, `77`.
+- Cases: `30/30` passed.
+- Calibration applied: `30/30`.
+- Minimum calibration support gate: `1.0`.
+- Maximum within-start pairwise support Jaccard: `0.0`.
+- Selected-start warnings: `6`, all at start `0` due large start-distance warnings.
+- Condition-validation warnings: `0` in the final 950c sweep.
+- OpenAI tokens: `55,447`.
+
+Per-start terminal mean-delta ranges show narrative response under fixed starts. For example, SPX terminal-mean ranges across narratives were about `39.6`, `38.2`, `45.8`, `30.7`, and `51.1` index points for starts `0`, `18`, `22`, `40`, and `77`, respectively; VIX ranges were about `2.15`, `2.44`, `2.42`, `2.09`, and `2.44`.
+
+### Verification
+- TestFlight before scale: `prefix_latent_gradio_live_story_multistart_950a_testflight_start0_two_case_v2` passed `2/2` cases and used `3,693` OpenAI tokens.
+- `uv run pytest test_code/test_808a_nl_prefix_latent_gradio_api_smoke.py test_code/test_809a_nl_prefix_latent_gradio_live_api_casebook.py test_code/test_950a_nl_live_story_multistart_casebook.py test_code/test_948d_nl_live_story_deck_analysis.py test_code/test_949a_nl_production_readiness_audit.py -q` passed: `20 passed`.
+- `python -m py_compile` passed for the touched live smoke/casebook/multistart/analysis/audit scripts.
+- `git diff --check` passed for the touched live sweep files.
+
+### Interpretation
+The live UX evidence is stronger: across five explicit starts, the professional narratives select disjoint support sets within each start and the support-gated calibration applies consistently. This materially reduces the concern that the live system always collapses to one start-dominated support set. It does not mean raw-level scenario geometry is independent of the starting level. The accepted start still strongly shapes raw path levels, and start `0` correctly surfaces warning-level support distance. The current claim should remain: start-level overdependence is mitigated and auditable, not completely eliminated.
+
+---
+## 2026-05-26: NL component pooling conditionality diagnostic
+
+### Context
+The user asked for a direct diagnostic of where fixed-start narrative conditionality is being attenuated: support selection, frozen-generator rollout, or pooling. The test used one fixed start (22), each narrative's selected supports from the 950c live story deck, component-preserving rollout snapshots, and a pooled-vs-component comparison.
+
+### Artifacts
+- Diagnostic script: `experiments/backfill/block_ar/nl_component_pooling_diagnostic.py`
+- Regression test: `test_code/test_952a_nl_component_pooling_diagnostic.py`
+- Report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/component_pooling_conditionality_diagnostic.json`
+- Plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/component_pooling_terminal_medians.png`
+
+### Findings
+- Six narratives, 13 support components, fixed start 22.
+- Cross-narrative support Jaccard mean/max: 0.0 / 0.0. Support selection is not identical across narratives.
+- Pooled cross-narrative path energy median: 1.795.
+- Component-level cross-narrative path energy median: 8.019.
+- Within-narrative component path energy median: 13.467.
+- Within-component split path energy median: 14.268 over 11 usable components.
+- Terminal component-vs-pooled median response ratios: SPX 3.35, VIX 3.84, BBB_OAS 10.25, US10Y 3.19, DXY 2.32, GOLD 3.42, CRUDE_OIL 14.43.
+
+### Interpretation
+The diagnostic supports the user's concern that narrative support is different, but visible pooled fan conditionality is strongly attenuated. Conditionality is not dying at the first support-selection step: support sets are disjoint. Individual support components have materially larger terminal-response spread than the pooled story medians. The current pooling/readout therefore smooths away much of the regime-specific response, while the frozen generator's stochasticity and component-level dispersion remain large relative to the pooled narrative signal.
+
+### Decision
+Do not keep trying to prove conditionality only with pooled marginal fan charts. The next principled method should preserve or expose component families, use a regime-component readout or sparse mixture display, and evaluate narrative response at component-family and portfolio-risk levels before presenting pooled fans as the sole product view.
+
+### Verification
+- `uv run pytest test_code/test_952a_nl_component_pooling_diagnostic.py test_code/test_951a_nl_live_story_fan_chart_views.py -q` -> 6 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_component_pooling_diagnostic.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_component_pooling_diagnostic.py --summary .../start_22/gradio_live_api_casebook_summary.json --output .../start_22/component_pooling_conditionality_diagnostic.json --plot .../start_22/component_pooling_terminal_medians.png` -> completed.
+
+---
+## 2026-05-26: NL sparse component-family readout
+
+### Context
+Following the component-pooling diagnostic, the user approved the next product/evidence step: stop making the averaged pooled fan the only visible result. The implemented readout preserves sparse support components and exposes component-family fans before the final sparse pooled summary.
+
+### Implementation
+- Added script: `experiments/backfill/block_ar/nl_sparse_component_family_view.py`
+- Added tests: `test_code/test_953a_nl_sparse_component_family_view.py`
+- Input deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/gradio_live_api_casebook_summary.json`
+- Output report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/sparse_component_family_view.json`
+- Output plots:
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/sparse_component_family_raw_levels.png`
+  - `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/sparse_component_family_standardized_moves.png`
+
+### Method
+For each narrative, keep the highest-weight support components up to `max_components=2` or until their original weights cover `min_cumulative_weight=0.80`, then expose the selected components separately. The sparse pooled fan remains available as a summary, but component-family fans remain visible so the narrative response is not hidden by averaging.
+
+### Start-22 Deck Evidence
+- Six narratives, 11 selected support components.
+- Terminal standardized p50 narrative range comparison:
+  - SPX: full pooled `1.020`, sparse pooled `2.037`, selected components `3.421`.
+  - VIX: full pooled `0.570`, sparse pooled `1.276`, selected components `1.629`.
+  - BBB_OAS: full pooled `0.397`, sparse pooled `1.268`, selected components `4.067`.
+  - US10Y: full pooled `0.461`, sparse pooled `0.281`, selected components `1.387`.
+  - DXY: full pooled `0.434`, sparse pooled `0.347`, selected components `0.886`.
+  - GOLD: full pooled `0.250`, sparse pooled `0.203`, selected components `0.853`.
+  - CRUDE_OIL: full pooled `0.169`, sparse pooled `0.167`, selected components `2.442`.
+
+### Interpretation
+Sparse component-family display materially improves visible narrative separation for SPX, VIX, and BBB OAS in this fixed-start live deck, while showing that some channels remain averaged or weak under the current selected supports. This is the right product/evidence direction: display support-family regimes and their sparse summary, not only one averaged marginal fan. It is not yet a claim that every narrative channel has strong conditionality.
+
+### Verification
+- `uv run pytest test_code/test_953a_nl_sparse_component_family_view.py test_code/test_952a_nl_component_pooling_diagnostic.py -q` -> 5 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_sparse_component_family_view.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_sparse_component_family_view.py --summary .../start_22/gradio_live_api_casebook_summary.json --output .../start_22/sparse_component_family_view.json --plot-raw .../start_22/sparse_component_family_raw_levels.png --plot-standardized .../start_22/sparse_component_family_standardized_moves.png --max-components 2 --min-cumulative-weight 0.80 --max-markets 4` -> completed.
+
+---
+## 2026-05-26: NL prefix-level conditionality audit
+
+### Context
+The user rejected future-response-based support choice as unprincipled. The correct diagnostic is to inspect the selected historical 30-day prefixes themselves, before any frozen-generator rollout or pooling, and ask whether they match the current/recent narrative plus grounding claims.
+
+### Implementation
+- Added script: `experiments/backfill/block_ar/nl_prefix_level_conditionality_audit.py`
+- Added tests: `test_code/test_954a_nl_prefix_level_conditionality_audit.py`
+- Output report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/prefix_level_conditionality_audit.json`
+- Output plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_gradio_live_story_multistart_950c_5start_default_deck_warning_aware/start_22/prefix_level_selected_support_paths.png`
+
+### Method
+For each live narrative case, rebuild the bridge-selected validation history from the checkpoint/panel, retrieve the selected support prefixes by bridge-local index, compute raw 30-day prefix terminal deltas by market, and compare those deltas to the grounded current/recent market implications. The generated future is not used in the audit.
+
+### Start-22 Findings
+- Six narratives, fixed start 22.
+- Cross-narrative support Jaccard mean/max: 0.0 / 0.0.
+- Pairwise weighted-prefix terminal-signature distance median: 153.824.
+- Prefix-level weighted direction checks:
+  - Fragile risk-on rebound: 3/3 pass.
+  - Defensive risk-off shock: 5/5 pass.
+  - Rates selloff tightening fear: 4/4 pass.
+  - Commodity inflation pressure: 4/4 pass.
+  - Dollar liquidity squeeze: 2/4 warning; mismatches were SPX down claim versus +80.37 SPX prefix delta and VIX up claim versus -3.78 VIX prefix delta.
+  - Safe-haven gold bid: 2/4 warning; mismatches were VIX up claim versus -3.41 VIX prefix delta and DXY flat claim versus -0.72 DXY prefix delta.
+
+### Interpretation
+The condition path is mixed. Support sets are different and several narratives are correctly represented at the recent-prefix layer. However, two important narratives already lose part of their grounding before rollout. This means weak product conditionality is not only a pooling/readout problem; for dollar-liquidity and safe-haven stories, the selected historical support prefixes are not fully compatible with all grounded current/recent claims. The next method step should improve prefix-level support compatibility and coverage, not select supports by generated future behavior.
+
+### Verification
+- `uv run pytest test_code/test_954a_nl_prefix_level_conditionality_audit.py test_code/test_953a_nl_sparse_component_family_view.py test_code/test_952a_nl_component_pooling_diagnostic.py -q` -> 8 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_prefix_level_conditionality_audit.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_prefix_level_conditionality_audit.py --summary .../start_22/gradio_live_api_casebook_summary.json --output .../start_22/prefix_level_conditionality_audit.json --plot .../start_22/prefix_level_selected_support_paths.png --max-markets 4` -> completed.
+
+---
+## 2026-05-26: Risk-manager narrative corpus refresh and visual conditionality goal
+
+### Context
+We standardized the narrative layer so future paper-facing, demo-facing, casebook, fixed-start conditionality, caption-to-embedding, and autoresearch narratives must be risk-manager qualified against the two specialist documents unless explicitly marked as a legacy/smoke/ablation exception.
+
+This solves the input-quality problem, but it does not by itself solve the product conditionality problem. The product-facing requirement is stricter: with the same approved starting level, different qualified current/recent market narratives should produce visually and quantitatively different scenario distributions in the relevant risk channels.
+
+### Decision
+Yes, we likely need to regenerate a professional risk-manager-quality narrative corpus for the historical dataset, but the corpus refresh is only one part of the solution. The refreshed corpus must be used to improve text representation, support selection, and fan-chart separation, not merely to produce better prose.
+
+### Goal Program
+1. Rerun the fixed-start narrative fan-chart casebook using only the new qualified narratives.
+   - Same starting level across narratives.
+   - Same axes across narratives where appropriate.
+   - Raw-level fans plus state-normalized / innovation-style views.
+   - Narrative-relevant factor panels, not only SPX.
+2. Regenerate a larger/full professional narrative corpus under the two-doc standard.
+   - Use the strict qualified-narrative guard.
+   - Use a small TestFlight before larger generation.
+   - Record source-document hashes, prompt/model/provider, validation status, token/cost metadata, and artifact paths.
+3. Refresh embeddings and retrain or re-evaluate the text-to-support / text-to-memory bridge.
+   - Compare old short descriptions versus qualified professional narratives.
+   - Preserve explicit fact tokens for directional precision.
+   - Test whether richer captions improve support selection, hard-negative separation, direction audits, fixed-start conditionality, and held-out scenario quality.
+4. Fix the displayed conditional distribution if broad pooling hides narrative differences.
+   - Prefer sparse narrative-posterior / component-preserving rollout views for the product fan chart.
+   - Keep broad pooled fans as calibration diagnostics, not the main conditionality proof.
+5. Add a visual conditionality promotion gate.
+   - Start-only/null views should remain near-identical.
+   - Different qualified narratives at the same start should show visible fan differences in the story's risk channels.
+   - Quantitative separation must clear repeat/bootstrap noise.
+   - If richer narratives plus refreshed bridge still do not create visible fan-chart separation, promote the stronger narrative-conditioned ensemble calibration layer as the next method branch.
+
+### Interpretation
+Narrative standardization is now a necessary precondition for credible conditioning experiments. The remaining question is whether professional narratives materially improve the mapping from text to support mixture and then to generated scenario fans. If they do not, the current historical support mixture/readout is too weak for the risk-manager-facing visual conditionality requirement and must be strengthened with a clearer sparse posterior or learned ensemble-calibration method.
+
+---
+## 2026-05-26: Qualified narrative grounding and fixed-start conditionality checkpoint
+
+### Context
+The NL prefix-latent workflow was updated so paper/demo/autoresearch narratives use the professional risk-manager story standard by default. The immediate question was whether richer two-doc-qualified narratives should be regenerated for the broader corpus, and what else is needed to solve the weak fixed-start conditionality problem.
+
+### What changed
+- Added section-aware temporal grounding for professional stories: `Scenario title`, `Portfolio/risk implication`, and `No-forecast caveat` are audit-only rather than forward-warning content.
+- Kept current/recent story sections as conditioning candidates even when they contain risk-manager ambiguity language such as `may` or `can`.
+- Tightened warning-leakage validation so it blocks reused future-action content, but does not reject benign shared market context words such as volatility, rebound, inflation, or safe-haven demand.
+- Cleaned the default professional story deck so current cross-asset sections are more declarative and future/stress language remains warning-only.
+
+### Validation
+- Targeted tests passed: `67 passed` for the live-casebook/story-app/grounding suite after the deck cleanup.
+- A two-story fixed-start live TestFlight passed: 2/2 cases, 4,825 OpenAI tokens.
+- A six-story fixed-start live deck at start 22 produced usable artifacts for all six professional narratives. Grounding now passes for all generated case artifacts.
+
+### Six-story fixed-start checkpoint
+Artifact root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_fixed_start_testflight_955a/start_22_six_story_samples16_v4/`
+
+Generated outputs:
+- Enriched summary: `gradio_live_api_casebook_summary_enriched.json`
+- Fan views: `fan_views/qualified_professional_start22_six_story_samples16_combined_views.png`
+- Deck analysis: `fixed_start_live_story_deck_analysis.json`
+- Terminal mean plot: `fixed_start_live_story_deck_terminal_mean_deltas.png`
+
+Key results:
+- 6 professional narratives run at the same fixed start.
+- 4/6 pass the full live smoke gate.
+- 2/6 fail the calibration/support gate because the story is not compatible with start 22 enough for the support-gated calibrator to apply: rates selloff and dollar liquidity squeeze.
+- Support sets are diverse: mean pairwise support Jaccard 0.047, max 0.4.
+- Terminal means show narrative response across channels, e.g. fragile risk-on SPX +26.4 and VIX -1.80; defensive risk-off SPX -8.85 and VIX +0.41; commodity inflation crude +1.90; safe-haven gold gold +7.28.
+
+### Interpretation
+The current system demonstrates narrative-conditioned support selection and some channel-level response under a fixed start. The remaining issue is not the professional narrative standard or grounding. The blocker is product-level conditionality: some narratives are rejected or weakly calibrated when the accepted start is inconsistent with the story, and the raw fan charts still show overlapping calibrated SNI distributions rather than strongly separated shape families.
+
+### Decision
+Yes, a full qualified corpus refresh is still valuable, but it should not be the next blind large call. The next principled step is a multi-start qualified-deck audit: run the same six professional narratives across several accepted starts, separate story/start compatibility failures from true conditionality weakness, and only then regenerate the full historical corpus and retrain/refresh the text-to-support bridge.
+
+---
+## 2026-05-26: Qualified narrative corpus and conditionality goal checkpoint
+
+### Context
+The workflow now treats professional risk-manager narratives as the required input standard for paper-facing, demo-facing, casebook, fixed-start conditionality, caption-to-embedding, and autoresearch runs unless a run is explicitly marked as legacy, smoke, or ablation. The two specialist narrative documents define the expected standard: a professional story should describe current/recent market mechanics, regime/archetype, transmission channels, cross-asset evidence, ambiguity, portfolio relevance, and a no-forecast caveat.
+
+This standardization fixes the first layer of the problem: the language we train and evaluate on should look like a real risk-manager narrative rather than a short toy prompt. It does not, by itself, prove that the generated scenario distributions respond strongly enough to the narrative.
+
+### Current evidence
+A multi-start professional deck audit was run after the fixed-start start-22 checkpoint so we could separate start-specific compatibility problems from narrative-conditioning problems.
+
+Artifact root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_multistart_audit_956a/start_0_22_77_samples8/`
+
+Key outputs:
+- Summary: `multi_start_live_story_deck_summary.json`
+- Story/start matrix: `multistart_story_start_matrix.md`
+- Start-0 fan views: `start_0/fan_views/qualified_professional_start0_samples8_combined_views.png`
+- Start-22 fan views: `start_22/fan_views/qualified_professional_start22_samples8_combined_views.png`
+- Start-77 fan views: `start_77/fan_views/qualified_professional_start77_samples8_combined_views.png`
+
+Observed results:
+- 18 story/start cases were analyzed across 3 accepted starts and 6 professional narratives.
+- 11/18 cases passed the current live gate.
+- Fragile risk-on, defensive risk-off, and safe-haven gold passed across all three starts.
+- Commodity inflation passed on 2/3 starts.
+- Rates selloff and dollar liquidity squeeze failed across the tested starts because the direction-support/calibration gate rejected the available support pool.
+- The fan views show measurable response in some channels, but still overlap enough that product-level visual conditionality is not yet fully solved.
+
+### Interpretation
+The remaining blocker is not only narrative quality. It is the mapping from professional narrative plus fixed starting level into a support mixture and calibrated scenario distribution that is visibly different in the narrative-relevant risk channels.
+
+The current failure mode is specific enough to guide the next work:
+- The support store and ranking can produce diverse support sets.
+- Some risk channels pass reliably.
+- Rates-selloff and dollar-liquidity narratives often fail the direction-support gate, suggesting either true sparse support for those channels, brittle direction checking, or insufficient narrative-aware support scoring.
+- Broad pooling can still hide conditionality even when the selected support components differ.
+
+### Goal setup
+The active long-running goal is to refresh and validate the risk-manager-qualified narrative-to-scenario workflow:
+1. Use only two-doc-qualified professional narratives for promoted casebooks and paper/demo evidence.
+2. Run fixed-start visual conditionality casebooks and require same-start narratives to create visible and quantitative differences in narrative-relevant channels.
+3. Regenerate a larger/full qualified historical narrative corpus only after TestFlight validation.
+4. Refresh embeddings and re-evaluate or retrain the text-to-support/text-to-memory bridge against the old short-description baseline.
+5. Preserve directional fact tokens while keeping the full narrative as the main semantic channel.
+6. Build sparse narrative-posterior or component-preserving fan-chart views so broad pooling does not erase regime differences.
+7. Promote only if support provenance, direction checks, held-out scenario quality, and visible fixed-start conditionality all hold.
+
+### Next action
+Before scaling the full corpus refresh, diagnose the failed rates/dollar cases. The immediate question is whether the direction-support gate is correctly rejecting unavailable support or whether it is too brittle for professional narratives. The next diagnostic should report per-implication support coverage, candidate-level direction matches/mismatches, selected support weights, and which implications trigger rejection.
+
+---
+## 2026-05-26: Broad support bank default and professional deck direction-gate TestFlight
+
+### Context
+After standardizing paper/demo/autoresearch narratives to the professional risk-manager format, the remaining weak point was conditionality under fixed starts. The prior multi-start professional deck showed 7/18 direction-support rejects, especially rates-selloff and dollar-liquidity cases. Inspection showed that the live demo/default run path was still searching only the 182-window labeled bridge set, whose support window calendar end dates were limited to 2016-01-27 through 2017-10-23.
+
+A broader frozen-SNI support bank already existed:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_support_bank_train_all_939a/`
+
+That bank has 4,010 support windows with calendar end dates from 2000-02-14 through 2016-01-26. The app/default run args were updated to pass this support bank when present.
+
+### Code and diagnostic changes
+- Added artifact-only direction failure diagnostic:
+  `experiments/backfill/block_ar/nl_support_direction_failure_diagnostic.py`
+- Added regression tests:
+  `test_code/test_956a_nl_support_direction_failure_diagnostic.py`
+- Updated the Gradio/live run args to use the broad support bank by default when the report and arrays exist:
+  `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+- Added a regression assertion that app run args expose the support bank paths:
+  `test_code/test_785a_nl_risk_manager_story_gradio_app.py`
+
+### Validation
+Targeted tests passed:
+- `uv run pytest test_code/test_956a_nl_support_direction_failure_diagnostic.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q -k 'support_direction_failure_diagnostic or build_prefix_latent_run_args_sets_cached_smoke_controls'`
+  - 4 passed, 42 deselected.
+
+A small broad-support live TestFlight at fixed start 22 was run with the six professional default narratives.
+
+Artifact root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_testflight_956b/start_22_six_story_samples8/`
+
+Key outputs:
+- Summary: `start_22/gradio_live_api_casebook_summary.json`
+- Direction diagnostic: `start_22/support_direction_failure_diagnostic.json`
+- Fan views: `start_22/fan_views/qualified_professional_broad_support_start22_samples8_combined_views.png`
+
+Results:
+- 6/6 professional narratives passed at fixed start 22.
+- Direction diagnostic rejected 0/6 cases.
+- Each case used 8 support candidates from the 4,010-window broad support bank.
+- Broad support bank date range in the reports: 2000-02-14 to 2016-01-26.
+- OpenAI usage for the six-story TestFlight: 15,497 tokens.
+
+### Interpretation
+This resolves one concrete implementation problem: the live/product path was not fully using the broad historical support inventory. The previous rates/dollar direction-gate failures were at least partly caused by the support search being artificially constrained to the small labeled bridge set.
+
+This does not yet prove product-level conditionality is solved. The new start-22 fan view shows the six professional narratives are now direction-supported, but raw-level fans still overlap. The next required evidence is a broader fixed-start/multi-start audit with the broad support bank enabled, plus quantitative same-start separation metrics and narrative-relevant factor/portfolio-tail readouts.
+
+### Decision
+Do not blindly regenerate the full professional narrative corpus yet. The next principled order is:
+1. rerun the multi-start professional deck using the broad support bank default;
+2. refresh fixed-start visual and quantitative conditionality evidence;
+3. if conditionality remains weak, improve support weighting/sparse posterior readout;
+4. then regenerate the larger/full professional corpus and retrain/re-evaluate the bridge against the old short-description baseline.
+
+---
+## 2026-05-26: Broad-support multi-start professional deck conditionality audit
+
+### Context
+The prior single-start broad-support TestFlight showed that using the 4,010-window frozen-SNI support bank fixed the start-22 direction-gate failures. The next required check was whether the result generalized across multiple accepted starting market states using the same six professional risk-manager narratives.
+
+### Run
+Artifact root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_multistart_956c/start_0_18_22_40_77_samples8/`
+
+Command class:
+- Local Gradio app path with broad support defaults.
+- Five accepted starts: 0, 18, 22, 40, 77.
+- Six professional default narratives per start.
+- Eight generator samples per narrative/start case.
+
+Key outputs:
+- Multi-start summary: `multi_start_live_story_deck_summary.json`
+- Direction diagnostic: `support_direction_failure_diagnostic.json`
+- Aggregate conditionality summary: `broad_support_multistart_conditionality_summary.json`
+- Per-start fan views under `start_*/fan_views/`
+- Per-start component/pooling diagnostics: `start_*/component_pooling_diagnostic.json`
+
+### Results
+- 30/30 live narrative/start cases passed.
+- 30/30 cases applied support-gated calibration.
+- Direction-support diagnostic rejected 0/30 cases.
+- Minimum calibration support gate: 1.0.
+- Total OpenAI usage: 75,576 tokens.
+- All 30 reports used the broad support bank with 4,010 support candidates.
+- Broad support bank date range in all reports: 2000-02-14 to 2016-01-26.
+- Each case retained 8 selected support candidates.
+- Maximum pairwise support Jaccard by start stayed low: 0.143 to 0.231.
+
+Component/pooling conditionality diagnostics by start:
+- Start 0: pooled path-energy median 1.129; component path-energy median 30.394; support Jaccard max 0.143.
+- Start 18: pooled path-energy median 0.753; component path-energy median 23.916; support Jaccard max 0.143.
+- Start 22: pooled path-energy median 0.820; component path-energy median 25.776; support Jaccard max 0.231.
+- Start 40: pooled path-energy median 0.663; component path-energy median 22.787; support Jaccard max 0.231.
+- Start 77: pooled path-energy median 0.674; component path-energy median 20.851; support Jaccard max 0.143.
+- Mean component/pooled path-energy ratio: 31.09.
+
+### Interpretation
+The broad support fix generalizes across the tested starts. The previous rates/dollar failures were not a fundamental narrative-standard failure; they were largely caused by insufficient support inventory in the live path.
+
+However, this is not yet a full product-level conditionality promotion. Direction gates, support diversity, and component-level response are now strong, but pooled fan charts still visually dampen differences because the component-preserving rollout is ultimately pooled into broad calibrated fans. The next product-facing work should focus on sparse posterior/component-family readouts or stronger narrative-relevant portfolio/factor panels, not another blind narrative relabeling run.
+
+### Decision
+Do not regenerate the full professional narrative corpus as the immediate next action. First refresh the paper/demo conditionality evidence using this broad-support run and decide whether the product view should expose sparse component families alongside pooled fans. Then, once the readout is fixed, regenerate the larger/full professional corpus and retrain/re-evaluate the bridge against the old short-description baseline.
+
+---
+## 2026-05-26: Codex full professional narrative corpus regenerated
+
+### Context
+The user chose to defer readout work and regenerate the full professional narrative corpus first. This is not risk-free by itself, so the run reused the existing RiskManagerCaptionV2 schema, two specialist narrative documents, leakage checks, and resume-safe Codex caption workflow.
+
+### Implementation
+- Added batch-mode support to `experiments/backfill/block_ar/nl_codex_caption_batch.py` so Codex can generate multiple `RiskManagerCaptionV2` captions per call while still writing individual per-window caption files.
+- Added regression coverage in `test_code/test_917a_nl_codex_caption_batch.py` for the strict batch schema, multi-window prompt, and dry-run artifact behavior.
+- Seeded the new full-corpus output with the previously validated 80-window Codex batch, then resumed ordered full-corpus generation with `--batch-size 8`.
+
+### Artifact
+Full-corpus output root:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_full_corpus_956d/`
+
+Key files:
+- `codex_caption_batch_report.json`
+- `codex_caption_batch_captions.jsonl`
+- `captions/codex_gpt55_caption_*.json`
+
+### Results
+- Requested windows: 380.
+- Captions generated/assembled: 380.
+- Unique caption IDs: 380.
+- Missing expected windows: 0.
+- Extra windows: 0.
+- Duplicate IDs: 0.
+- Runner validation errors: 0.
+- Runner Codex errors: 0.
+- Recomputed validation errors: 0.
+- Recomputed validation warnings: 0.
+- Training-caption word count min/median/max: 27 / 43 / 139.
+- Specialist document hashes recorded:
+  - `research/narrative_specialist/quant generated scenarios story narrative.docx`: `ef795e2d10ac1bcd6b695ecac95d7038315f0b080a8f4b9e5194380d57eaee78`
+  - `research/narrative_specialist/quant generated scenarios story narrative 2.docx`: `0226938939e368383a6c1dc39981f8003cf3b76ec9148ae486311d368ce9ea1b`
+
+### Validation
+- `uv run pytest test_code/test_917a_nl_codex_caption_batch.py test_code/test_916a_nl_risk_manager_caption_v2.py -q` -> 11 passed.
+- `git diff --check -- experiments/backfill/block_ar/nl_codex_caption_batch.py test_code/test_917a_nl_codex_caption_batch.py` -> passed.
+
+### Interpretation
+The project now has a complete risk-manager-document-compliant professional caption corpus for the 380-window manifest. This removes the immediate data-quality blocker for the reverse direction. It does not by itself prove stronger scenario conditionality; the next step is to refresh embeddings and rerun the text-to-support / scenario-level A/B against the old short-description baseline using this full corpus.
+
+---
+## 2026-05-26: Full-corpus professional caption embedding and scenario A/B
+
+### Context
+After regenerating the full 380-window professional RiskManagerCaptionV2 corpus, the next step was to refresh text embeddings and test whether the richer corpus improves the reverse direction: text -> bridge memory/support ranking -> frozen SNI scenario rollout. The comparison used the old/simple text variants as the baseline and the full Codex professional captions as the candidate.
+
+### Artifacts
+- Full caption corpus: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_v2_codex_full_corpus_956d/`
+- Small-embedding reverse A/B: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_956e_full_corpus_small/caption_reverse_ab_report.json`
+- Small-embedding held-out core rollout: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_956e_full_corpus_small/nontrain_core_rollout/scenario_level_eval_report.json`
+- Small-embedding group summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_956e_full_corpus_small/nontrain_core_rollout/caption_rollout_group_summary.json`
+- Large-embedding support-level check: `experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_caption_reverse_ab_956e_full_corpus_large/caption_reverse_ab_report.json`
+
+### Text-to-support results
+Using `text-embedding-3-small` over 3,079 text variants / 380 windows:
+- Simple non-train text: target cosine 0.3504; support cosine 0.6460; mean true-rank 171.10.
+- Codex professional captions: target cosine 0.6139; support cosine 0.7867; mean true-rank 169.36.
+- Codex+fact fused captions: target cosine 0.6664; support cosine 0.8199; mean true-rank 169.94.
+- Generic old demo text: target cosine 0.4717; support cosine 0.7261; mean true-rank 198.06.
+
+Using `text-embedding-3-large` with a newly trained 300-step adapter:
+- Simple non-train text: target cosine 0.5763; support cosine 0.6930; mean true-rank 178.24.
+- Codex professional captions: target cosine 0.7200; support cosine 0.8512; mean true-rank 184.92.
+- Codex+fact fused captions: target cosine 0.7476; support cosine 0.8886; mean true-rank 192.91.
+
+The large model improves raw cosine but worsens mean true-rank versus the small-embedding incumbent in this quick support-level check, so it was not promoted to a second scenario rollout.
+
+### Scenario-level held-out A/B
+The scenario rollout used validation/test windows only, seven core variants per window, common random numbers by query, top-k 3 support, 2 samples per support, and the frozen SNI generator. It evaluated 714 query variants across 102 non-train windows.
+
+Overall narrative-generator result:
+- CRPS improvement vs persistence: +7.65%.
+- Energy improvement vs persistence: +12.62%.
+- 80% coverage: 0.579.
+- Historical replay top-k was weaker: CRPS +2.83%, energy +7.92%, 80% coverage 0.409.
+
+Group-level scenario results:
+- Simple text: CRPS +6.53%, energy +11.74%, 80% coverage 0.589, terminal MAE z 0.997.
+- Codex professional captions: CRPS +9.85%, energy +14.57%, 80% coverage 0.571, terminal MAE z 0.951.
+- Codex+fact fused captions: CRPS +9.64%, energy +14.17%, 80% coverage 0.569, terminal MAE z 0.951.
+- Generic old demo text: CRPS +1.49%, energy +7.37%, 80% coverage 0.593, terminal MAE z 1.055.
+
+### Interpretation
+The full professional corpus materially improves the text-to-memory/support alignment signal and improves held-out scenario distribution quality versus the simple text group. The effect is visible in CRPS, energy, and terminal MAE, while coverage is slightly lower than simple text but still far above historical replay. This supports the decision to regenerate the corpus and use professional captions for the reverse direction.
+
+This does not fully solve product-visible fixed-start narrative conditionality. It confirms that better captions improve the historical backtest pipeline. The next step is to decide whether to promote `text-embedding-3-small` + professional captions as the corpus/bridge incumbent, then run the conditionality-facing fixed-start/deck plots and support diagnostics with this refreshed corpus.
+
+### Validation
+- `uv run pytest test_code/test_916e_nl_risk_manager_caption_reverse_ab.py test_code/test_917a_nl_caption_rollout_group_summary.py test_code/test_917a_nl_codex_caption_batch.py test_code/test_916a_nl_risk_manager_caption_v2.py -q` -> 18 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_codex_caption_batch.py experiments/backfill/block_ar/nl_risk_manager_caption_reverse_ab.py experiments/backfill/block_ar/nl_caption_rollout_group_summary.py experiments/backfill/block_ar/nl_scenario_level_evaluation.py` -> passed.
+
+---
+## 2026-05-26: Full-corpus fixed-start caption conditionality audit
+
+### Context
+The active goal required a fixed-start conditionality audit using the new full professional risk-manager caption corpus. The audit needed to determine whether the improved professional narrative data changes final scenario distributions, not only bridge cosine or support retrieval.
+
+### Implementation
+- Added reusable audit script: `experiments/backfill/block_ar/nl_full_corpus_fixed_start_conditionality_audit.py`.
+- Added tests: `test_code/test_957a_nl_full_corpus_fixed_start_conditionality_audit.py`.
+- The audit uses cached `text-embedding-3-small` full-corpus professional caption condition vectors, so it makes no new caption or embedding calls.
+- It selects six diverse non-train professional caption cases, forces all cases to use explicit start `22`, and compares:
+  - professional Codex+fact captions;
+  - simple fact-token text;
+  - a true shared start-only null.
+- A first run incorrectly varied the start-only null by query window/seed. The audit was fixed so the start-only null is one shared fixed-start reference distribution repeated across cases.
+
+### Artifacts
+- Final report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/full_corpus_fixed_start_conditionality_audit_957c_start22_s8_shared_startonly/full_corpus_fixed_start_conditionality_audit.json`
+- Markdown summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/full_corpus_fixed_start_conditionality_audit_957c_start22_s8_shared_startonly/full_corpus_fixed_start_conditionality_audit.md`
+- Raw-level fan panel: `experiments/backfill/block_ar/nl_scenario_demo_outputs/full_corpus_fixed_start_conditionality_audit_957c_start22_s8_shared_startonly/full_corpus_fixed_start_raw_level_fan_panel.png`
+- Terminal-range plot: `experiments/backfill/block_ar/nl_scenario_demo_outputs/full_corpus_fixed_start_conditionality_audit_957c_start22_s8_shared_startonly/full_corpus_fixed_start_terminal_range.png`
+
+### Results
+- Decision status: `pass`.
+- Professional captions versus shared start-only null:
+  - factor terminal KS delta: `+0.2611`;
+  - portfolio terminal KS delta: `+0.3750`;
+  - path energy delta: `+7.2127`;
+  - support not collapsed: max support Jaccard `0.2857`.
+- Professional captions versus simple fact-token text:
+  - factor terminal KS delta: `+0.0792`;
+  - portfolio terminal KS delta: `+0.2083`;
+  - path energy delta: `+4.4262`.
+- Group summaries:
+  - professional captions: mean support Jaccard `0.0299`, factor KS `0.2611`, portfolio KS `0.3750`, path energy `7.2127`;
+  - simple facts: mean support Jaccard `0.5797`, factor KS `0.1819`, portfolio KS `0.1667`, path energy `2.7865`;
+  - shared start-only null: support Jaccard `1.0`, factor KS `0.0`, portfolio KS `0.0`, path energy `0.0`.
+
+### Interpretation
+The full professional caption corpus now has evidence on both sides of the pipeline: it improves held-out historical scenario quality and, under a fixed accepted start, produces final pooled scenario distributions that move more than simple fact-token text and more than a true start-only null. This supports promoting the professional-caption bridge evidence as bounded paper/demo evidence.
+
+This does not mean the whole product is finished. The result is one fixed-start audit with six diverse full-corpus caption cases and eight samples per condition. The next production hardening step is to refresh paper/demo artifacts around this evidence and then repeat or extend the audit across additional starts/sample budgets before claiming broad production readiness.
+
+### Validation
+- `uv run pytest test_code/test_957a_nl_full_corpus_fixed_start_conditionality_audit.py -q` -> 2 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_full_corpus_fixed_start_conditionality_audit.py` -> passed.
+
+---
+## 2026-05-26: Full-corpus fixed-start paper refresh and verifier
+
+### Context
+After the full-corpus fixed-start caption audit passed, I refreshed the
+narrative-conditioned scenario paper so the conditionality claim is tied to the
+new artifact rather than older balanced-80 pilot language.
+
+### Paper updates
+- Added `paper/narrative_grounded_scenarios/generated_tables/table_full_corpus_fixed_start_caption_audit.tex`.
+- Added full-corpus fixed-start raw-level fan and terminal-range figures to
+  `paper/narrative_grounded_scenarios/figures/`.
+- Updated `paper/narrative_grounded_scenarios/main.tex` so the conditionality
+  section distinguishes:
+  - full professional corpus fixed-start caption audit;
+  - older balanced-80 caption pilot;
+  - six-story policy casebook.
+- Reframed the claim as bounded evidence that professional captions change
+  final support-conditioned scenario distributions under a fixed start, not as
+  free-form prompt following or broad production readiness.
+
+### Independent verification
+Saved verifier report:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-26_full_corpus_fixed_start_caption_audit_957c.md`
+
+Verifier verdict: `AGREE, with bounded scope`.
+
+The verifier confirmed that the new paper table matches the JSON artifact and
+that the corrected start-only null is one shared fixed-start reference
+distribution repeated across cases. The main warning is scope: six cases and
+eight samples per condition are enough for paper/demo evidence, but not enough
+for a broad production-readiness claim across all starts.
+
+### Validation
+- `uv run pytest test_code/test_957a_nl_full_corpus_fixed_start_conditionality_audit.py -q` -> 2 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_full_corpus_fixed_start_conditionality_audit.py` -> passed.
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` in
+  `paper/narrative_grounded_scenarios/` -> built `main.pdf` successfully.
+
+---
+## 2026-05-26: Demo evidence pack includes fixed-start caption audit
+
+### Context
+I also refreshed the demo evidence-pack surface so the Gradio app can expose
+the full-corpus fixed-start caption audit without adding new user controls.
+
+### Changes
+- Updated `experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py` to
+  include an optional fixed-start caption audit snapshot.
+- Updated `experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py`
+  so the compact demo readiness summary reports the fixed-start caption audit
+  status and key deltas when the pack contains them.
+- Regenerated
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/prefix_latent_boss_demo_pack_829a_live_casebook/boss_demo_pack.json`
+  and `.md` from the current validation, live casebook, and 957c fixed-start
+  caption-audit artifacts.
+
+### Validation
+- `uv run pytest test_code/test_807a_nl_prefix_latent_boss_demo_pack.py test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` -> 52 passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_prefix_latent_boss_demo_pack.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` -> passed.
+
+---
+## 2026-05-27: NL component-aware scenario view audit
+
+### Context
+The user asked for a focused investigation of weak visual narrative conditionality: same starting level, six professional narratives, top support-regime component fans, pooled fan comparison, sparse/regime-family pooling variants, and CRPS/energy/coverage guardrails.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/nl_component_aware_scenario_view_audit.py`
+- Test: `test_code/test_958a_nl_component_aware_scenario_view_audit.py`
+- Audit JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_multistart_956c/start_0_18_22_40_77_samples8/component_aware_scenario_view_audit/component_aware_scenario_view_audit.json`
+- Audit Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_multistart_956c/start_0_18_22_40_77_samples8/component_aware_scenario_view_audit/component_aware_scenario_view_audit.md`
+- Primary start-22 plots: `component_terminal_medians.png`, `sparse_top1_component_*`, `sparse_top2_or_80pct_*`, and `sparse_top3_or_90pct_*` under the audit `start_22/` directory.
+
+### Findings
+- The broad-support professional deck has 5 starts, 6 narratives per start, and 48 rollout support components per start.
+- Support selection is not collapsing to the starting date: max support Jaccard across starts is `0.231`.
+- Component-level cross-narrative path energy is far larger than broad pooled path energy:
+  - start 0: pooled `1.129`, component `30.394`, ratio `26.93`;
+  - start 18: pooled `0.753`, component `23.916`, ratio `31.78`;
+  - start 22: pooled `0.820`, component `25.776`, ratio `31.44`;
+  - start 40: pooled `0.663`, component `22.787`, ratio `34.37`;
+  - start 77: pooled `0.674`, component `20.851`, ratio `30.93`.
+- Mean component-to-pooled path-energy ratio is `31.09`. This means the weak visual fan effect is mainly a broad-pooling/display attenuation problem, not a first-step support-selection failure.
+- Sparse component-family policies increase visible terminal p50 separation relative to the broad pooled fan:
+  - top-1 component: median sparse/full terminal range ratio `2.98`, mean kept original weight `0.177`;
+  - top-2 or 80%: median sparse/full terminal range ratio `1.98`, mean kept original weight `0.327`;
+  - top-3 or 90%: median sparse/full terminal range ratio `1.74`, mean kept original weight `0.460`.
+- Existing held-out quality guardrail for the incumbent professional-caption pipeline remains reference-only for this artifact-only audit: count `204`, CRPS improvement vs persistence `0.096`, energy improvement `0.142`, 80% coverage `0.569`, terminal MAE z `0.951`. Replacing broad pooling with sparse pooling as the actual distribution would require rerunning CRPS/energy/coverage.
+
+### Decision
+Do not diagnose this as "no conditionality." The support components respond strongly to the professional narratives, but the final broad pooled fan hides much of that response. The most defensible product solution is a component-aware scenario view: show selected support-regime component fans, then a sparse component-family summary, then the broad pooled calibrated fan. Keep broad pooling as the calibrated default until sparse pooling is separately backtested; use sparse/component views as the narrative-conditional explanation layer.
+
+### Verification
+- `uv run pytest test_code/test_958a_nl_component_aware_scenario_view_audit.py test_code/test_953a_nl_sparse_component_family_view.py test_code/test_952a_nl_component_pooling_diagnostic.py -q` -> 6 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_component_aware_scenario_view_audit.py` -> passed.
+- `uv run python experiments/backfill/block_ar/nl_component_aware_scenario_view_audit.py --root experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_multistart_956c/start_0_18_22_40_77_samples8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/qualified_narrative_broad_support_multistart_956c/start_0_18_22_40_77_samples8/component_aware_scenario_view_audit --primary-start 22 --max-plot-markets 4` -> completed.
+
+---
+## 2026-05-27: NL support-coherence component-posterior autoresearch setup
+
+### Context
+After the component-aware audit showed that support components carry much stronger narrative signal than the broad pooled fan, the user refined the next objective: do not only compare full pooled/top-1/top-2/top-3 distributions; also test support-selection policies that choose internally coherent historical supports so pooled scenarios are not averaged across incompatible sub-regimes.
+
+### Setup
+- Active Codex goal created for the support-coherence/component-posterior bakeoff.
+- Added method intake: `docs/research_protocols/nl_prefix_latent_support_cohesion_component_posterior_intake.md`.
+- Updated tracked goal: `docs/research_protocols/nl_prefix_latent_goal.json`.
+- Mirrored local resumable goal: `autoresearch-session/nl_prefix_latent_goal.json`.
+- Updated tracked plan: `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`.
+- Updated current-truth index: `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+- Updated NL autoresearch skill text: `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`.
+
+### New HEAD Objective
+Run a support-selection by component-posterior bakeoff:
+
+1. Support selection policies:
+   - current broad diverse support;
+   - most-similar cohesive support around the top candidate;
+   - cluster/family support;
+   - low-temperature similarity-kernel support.
+2. Distribution policies:
+   - full pooled distribution;
+   - top-1 component posterior;
+   - top-2 or 80% sparse posterior;
+   - top-3 or 90% sparse posterior.
+
+### Promotion Gate
+A candidate can only be promoted if it improves same-start professional-narrative visual/economic conditionality while remaining competitive with the incumbent on held-out CRPS, energy, 80% coverage, terminal MAE, direction checks, support provenance, and start-only/null controls.
+
+### Verification
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json` -> passed.
+- `python -m json.tool autoresearch-session/nl_prefix_latent_goal.json` -> passed.
+- Stale immediate-objective references to the old ensemble-calibrator objective were replaced in the active skill/current-truth/plan surfaces.
+
+---
+## 2026-05-27: NL support-coherence component-posterior smoke
+
+### Context
+Continued the NL prefix-latent autoresearch goal for fixing weak fixed-start narrative conditionality without abandoning the historical support-mixture backbone. The specific hypothesis was that broad heterogeneous support pooling may average away narrative response, so we should compare support-coherence selectors and component-posterior readouts.
+
+### Implementation
+- Added direction-checked support-coherence prior modes in `nl_prefix_latent_analogue_mixture_prior.py`:
+  - `cohesive_topk_narrative_start_checked`: top narrative hit plus closest latent-family members.
+  - `cluster_family_narrative_start_checked`: highest aggregate-score latent family rather than isolated top hits.
+  - `kernel_topk_narrative_start_checked`: low-temperature similarity-kernel weights over direction-safe support.
+- Exposed the modes through `nl_prefix_latent_story_smoke.py`, `nl_fixed_start_rollout_policy_comparison.py`, and `nl_prefix_latent_component_backtest.py`.
+- Added artifact-only component-posterior analyzer `nl_support_component_posterior_bakeoff.py` for `full`, `top1`, `top2_80`, and `top3_90` readouts.
+- Added tests for the new selectors and posterior selection.
+
+### Smoke Evidence
+Artifacts:
+- Fixed-start smoke root: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_smoke_s8_start22`
+- Component-posterior report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_smoke_s8_start22/component_posterior_bakeoff.md`
+- Guardrail incumbent: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_guardrail_current_6w_s16/component_backtest_report.json`
+- Guardrail cluster-family: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_guardrail_cluster_6w_s16/component_backtest_report.json`
+
+Fixed-start six-professional-narrative smoke, start 22, broad support bank, samples 8, steps 80:
+- Start-only null stayed flat: support Jaccard 1.0, factor KS 0.0, portfolio KS 0.0, VaR95 range 0.0.
+- Incumbent full pooling: factor KS 0.263, portfolio KS 0.225, VaR95 range 2.473.
+- Cohesive full pooling: factor KS 0.314, portfolio KS 0.242, VaR95 range 0.699.
+- Cluster-family full pooling: factor KS 0.308, portfolio KS 0.350, VaR95 range 13.017.
+- Kernel full pooling: factor KS 0.296, portfolio KS 0.250, VaR95 range 1.385.
+
+Component-posterior analysis showed pooling loss: sparse posterior readouts increased narrative separation while the start-only null remained flat. For cluster-family, top1 reached factor KS 0.794 and portfolio KS 0.933; top3_90 reached factor KS 0.425 and portfolio KS 0.424 versus full factor KS 0.308 and portfolio KS 0.350.
+
+Small six-window held-out guardrail, samples 16, steps 80:
+- Incumbent component CRPS improvement vs persistence: +0.0980; energy improvement: +0.2058.
+- Cluster-family component CRPS improvement vs persistence: +0.0870; energy improvement: +0.2016.
+
+### Interpretation
+The smoke supports the mechanism hypothesis: narrative information exists at the support/component level and is partially washed out by full broad pooling. Cluster-family support gave the strongest full-pooled portfolio separation in this smoke while maintaining positive held-out improvements, but it slightly trailed the incumbent in the small guardrail. Therefore it is a candidate mechanism, not a promoted default.
+
+### Next Step
+Scale the guardrail comparison beyond six windows and include posterior-mode quality diagnostics before promoting any support-coherence or sparse posterior default. If scaled guardrails confirm only small quality regression with materially stronger conditionality, run independent verification and then update paper/demo defaults. If not, refine the cluster-family scorer rather than adding unrelated knobs.
+
+---
+## 2026-05-27: NL support-coherence guardrail scale-up
+
+### Context
+Scaled the support-coherence/component-posterior candidate check beyond the first six-window smoke. The goal was to determine whether stronger fixed-start narrative separation can be obtained without breaking the historical distributional guardrails that made the incumbent support mixture credible.
+
+### Guardrail Evidence
+Artifacts:
+- 24-window incumbent: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960b_guardrail_current_24w_s24/component_backtest_report.json`
+- 24-window cohesive: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960b_guardrail_cohesive_24w_s24/component_backtest_report.json`
+- 24-window cluster-family: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960b_guardrail_cluster_24w_s24/component_backtest_report.json`
+- 24-window low-temperature kernel: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960b_guardrail_kernel_24w_s24/component_backtest_report.json`
+- Comparable 29-scored-window incumbent baseline: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_component_backtest_940d_current_66w/component_backtest_report.json`
+- 29-scored-window cluster-family comparable run: `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960c_guardrail_cluster_66req_s32_d200/component_backtest_report.json`
+
+24-window guardrail, samples 24, steps 120:
+- Incumbent: CRPS improvement +0.214250, energy improvement +0.304095, cov80 0.779095, terminal MAE 0.616488.
+- Cohesive: CRPS improvement +0.213287, energy improvement +0.303971, cov80 0.783547, terminal MAE 0.614136.
+- Cluster-family: CRPS improvement +0.212316, energy improvement +0.305110, cov80 0.780271, terminal MAE 0.617722.
+- Low-temperature kernel: CRPS improvement +0.215874, energy improvement +0.306683, cov80 0.771581, terminal MAE 0.614100.
+
+Comparable requested-66 setup with 29 scored windows, samples 32, steps 200:
+- Existing incumbent: CRPS improvement +0.207014, energy improvement +0.303640, cov80 0.808547, terminal MAE 0.584248.
+- Cluster-family: CRPS improvement +0.204215, energy improvement +0.301895, cov80 0.805040, terminal MAE 0.590476.
+
+### Interpretation
+All three support-coherence candidates remained close to the incumbent on 24-window guardrails. The low-temperature kernel was best on 24-window CRPS/energy but had lower coverage. Cluster-family gave the strongest fixed-start smoke conditionality and portfolio VaR separation, but was a small quality regression at the comparable 29-window guardrail. Cohesive is the most conservative quality-wise but did not produce the strongest portfolio separation in the fixed-start smoke.
+
+### Decision
+Do not promote a new default yet. The evidence supports a product/paper framing that full broad pooling is calibrated, while component-aware or sparse posterior readouts expose narrative conditionality that the full pool smooths away. The next principled move is to add plots/tables that show full pooled versus sparse posterior distributions, then decide whether kernel or cluster-family should be a non-default "component-aware scenario view" rather than replacing the incumbent scenario distribution.
+
+### Verification
+- `pytest test_code/test_797a_nl_prefix_latent_analogue_mixture_prior.py test_code/test_960a_nl_support_component_posterior_bakeoff.py -q` -> 29 passed.
+- `python -m py_compile` on the changed NL prior, story-smoke, fixed-start comparison, component-backtest, and component-posterior analyzer modules -> passed.
+
+---
+## 2026-05-27: NL posterior ensemble selection for production candidate
+
+### Context
+The objective was to stop choosing ensemble/readout variants by visual appeal alone and select one reproducible production candidate for the narrative-conditioned scenario generator. The candidate needed strong visible conditionality, acceptable historical backtest quality, and clear product semantics.
+
+### Work Done
+- Added `experiments/backfill/block_ar/nl_posterior_ensemble_selection.py`, an artifact-only scorer that reuses saved component-prefix rollout samples and rescales candidate posterior views without OpenAI calls or rerunning the SNI generator.
+- Improved `experiments/backfill/block_ar/nl_support_component_posterior_bakeoff.py` plot labels so support/readout rows are product-facing rather than internal IDs.
+- Ran a 24-window apples-to-apples selection screen across diverse, nearest-similar, clustered-family, and similarity-weighted support selectors crossed with all-regime and main-regime posterior views.
+- Ran comparable 29-window held-out backtests for the missing nearest-similar and similarity-weighted support methods, matching the existing current and cluster 29-window setup.
+- Built the 29-window selection report at `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_selection_961b_29w/posterior_ensemble_selection_report.json`.
+- Saved verifier notes at `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_selection_961b.md`.
+
+### Findings
+- The recommended candidate is **Nearest similar regimes / Main-regime view: top 3 / 90%**.
+- 29-window historical backtest for this candidate: CRPS improvement versus persistence `+0.172`, energy improvement `+0.269`, 80% coverage `0.746`.
+- Fixed-start conditionality for this candidate: factor KS `0.524`, portfolio KS `0.572`, path energy `66.244`, VaR95 range `5.275`.
+- This candidate also ranked first in the 24-window screen.
+- Full all-regime views remain stronger on pure calibration metrics, but they visibly smooth away the narrative-specific scenario families. The selected main-regime view is the better production-facing compromise.
+
+### Decision
+Use **Nearest similar regimes / Main-regime view: top 3 / 90%** as the current single production ensemble candidate. Keep all-regime views as calibration diagnostics, not as the primary product fan chart. The next step is to regenerate demo/paper fan charts at higher sample count using this candidate.
+
+---
+## 2026-05-27: NL posterior ensemble promotion workflow setup
+
+### Context
+The user selected the next workflow step: align the NL prefix-latent autoresearch surfaces around the selected posterior ensemble candidate, then run higher-sample paper/demo and backtest confirmation before claiming paper/demo readiness.
+
+### Workflow update
+The active candidate is now **Nearest similar regimes / Main-regime view: top 3 / 90%**. This candidate was selected because the 961b posterior ensemble report ranked it first on the combined tradeoff between held-out distributional quality and fixed-start narrative conditionality.
+
+Tracked setup updates:
+- `docs/research_protocols/nl_prefix_latent_goal.json` now names nearest-similar top3/90 as the current production candidate and lists the five-step confirmation plan.
+- `autoresearch-session/nl_prefix_latent_goal.json` was mirrored from the tracked goal for resumability.
+- `docs/research_protocols/nl_prefix_latent_current_truth.md` now replaces the stale broad-incumbent default wording with the selected posterior candidate and keeps all-regime pooling as a calibration diagnostic.
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` now frames the immediate HEAD task as confirmation and synchronization, not another selector search.
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md` now directs the next loop to confirm the selected candidate before opening new methods.
+
+### Immediate task order
+1. Regenerate higher-sample paper/demo fan charts using nearest-similar top3/90.
+2. Run a higher-sample confirmation backtest for the same candidate.
+3. Update the paper around the conditionality-versus-calibration tradeoff: stronger risk-manager-visible conditionality with acceptable historical quality, while all-regime pooling remains a calibration diagnostic.
+4. Run independent verification before any paper/demo-ready claim.
+
+### Validation
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json` passed.
+- `python -m json.tool autoresearch-session/nl_prefix_latent_goal.json` passed.
+- Active goal created in Codex for the confirmation workflow.
+
+---
+## 2026-05-27: NL posterior ensemble high-sample confirmation verifier
+
+### Context
+The active NL prefix-latent goal asked us to synchronize the workflow around the posterior-ensemble candidate, regenerate higher-sample fan charts, run a higher-sample confirmation backtest, update the paper around the conditionality/calibration tradeoff, and run an independent verifier before any paper/demo-ready claim.
+
+### Evidence
+- High-sample fixed-start deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_962a_start22_s384_d400`.
+- Posterior bakeoff: `component_posterior_bakeoff_all_modes.json/md`.
+- Higher-sample guardrail backtest: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_962b_guardrail_cohesive_66req_s64_d250/component_backtest_report.json`.
+- Selection confirmation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_962c_selection_confirmation/posterior_ensemble_selection_report.json/md`.
+- Verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_confirmation_962c.md`.
+
+### Finding
+The high-sample confirmation supports the `Nearest similar regimes / Main-regime view` posterior family but does not support promoting the earlier low-sample `top3_90` view as the single paper/demo default. The 962c selection report ranks `top2_80` first as the current presentation tradeoff: CRPS improvement `+0.189`, energy improvement `+0.281`, 80% coverage `0.778`, factor KS `0.187`, and portfolio KS `0.177`. `top3_90` is better calibrated than `top2_80` but weaker on factor and portfolio separation, so it should remain a calibration-leaning main-regime variant. All-regime pooling remains the calibration diagnostic.
+
+### Decision
+Tracked current-truth, plan, goal, skill, and paper surfaces should frame this as a conditionality-versus-calibration tradeoff: use `top2_80` as the current high-sample product-facing presentation candidate if one view is needed; keep `top3_90` as a calibration-leaning variant; keep all-regime pooling as the calibration diagnostic. Do not claim production-ready or conditionality-solved from this evidence alone.
+
+---
+## 2026-05-27: NL top3 posterior goal completion audit
+
+### Context
+The active goal still names `Nearest similar regimes / Main-regime view: top 3 / 90%` as the selected posterior ensemble candidate. After the high-sample 962 confirmation and the 962c verifier, I performed a requirement-by-requirement completion audit rather than treating the partial verifier as completion.
+
+### Audit artifact
+- Completion audit: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_top3_goal_completion_audit.md`.
+- Updated workflow truth and goal surfaces now state that the exact top3/90 promotion is not supported by current evidence.
+
+### Result
+The executable parts of the objective were completed: high-sample fixed-start fan charts, higher-sample historical backtest, paper tradeoff update, and independent verification. The literal top3/90 promotion remains unachieved because 962c ranks `top2_80` first and the verifier gives `PARTIAL`, blocking a top3/90 paper/demo-ready claim.
+
+### Current decision
+Do not mark the active goal complete unless the user accepts the evidence-based pivot to `top2_80` as the presentation candidate, or new evidence reverses the high-sample top3/90 ranking. The current evidence supports the nearest-similar main-regime family, not exact top3/90 as the single default.
+
+---
+## 2026-05-27: NL posterior ensemble multistart top3 promotion
+
+### Context
+The active goal asked for promotion of `Nearest similar regimes / Main-regime view: top 3 / 90%`. A single-start high-sample confirmation at start22 temporarily favored `top2_80`, so I broadened the evidence to three high-sample fixed-start decks before deciding whether top3/90 could be promoted.
+
+### New evidence
+- Start18 high-sample deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_963a_start18_s384_d400`.
+- Start40 high-sample deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_963b_start40_s384_d400`.
+- Existing start22 high-sample deck: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_962a_start22_s384_d400`.
+- Multistart aggregation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_963c_multistart_confirmation/posterior_ensemble_multistart_confirmation.json`.
+- Verifier: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_multistart_confirmation_963c.md`.
+
+### Findings
+Across starts `18`, `22`, and `40`, `top3_90` ranks first on the current weighted calibration-plus-conditionality score: CRPS improvement `+0.207`, energy improvement `+0.295`, coverage `0.807`, mean factor KS `0.163`, mean portfolio KS `0.134`, mean path energy `10.109`, mean VaR95 range `3.046`, and score `0.800`. `top2_80` ranks second with stronger KS but weaker calibration and lower VaR range: CRPS `+0.189`, energy `+0.281`, coverage `0.778`, factor KS `0.177`, portfolio KS `0.147`, VaR95 range `2.288`, and score `0.753`. Start-only controls remain flat across all starts.
+
+### Decision
+Promote `Nearest similar regimes / Main-regime view: top 3 / 90%` as the current paper/demo candidate under explicit tradeoff framing. `top2_80` remains the sharper KS-oriented variant, and all selected regimes remain the calibration diagnostic. This is not a production-ready or conditionality-solved claim.
+
+### Validation
+- JSON validation passed for tracked goal files and the 963c artifact.
+- `uv run python -m py_compile` passed for the relevant posterior/backtest/fixed-start scripts.
+- Focused tests passed: `18 passed`.
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` rebuilt the narrative paper successfully.
+
+---
+## 2026-05-27: NL top3 goal final completion audit
+
+### Context
+After the 963c multistart confirmation and verifier, I added a final requirement-by-requirement completion audit for the active top3/90 posterior-ensemble goal.
+
+### Audit artifact
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_top3_goal_completion_audit_963c.md`.
+
+### Result
+The explicit goal requirements are now satisfied for the bounded paper/demo candidate claim: tracked truth/plan/goal files name `Nearest similar regimes / Main-regime view: top 3 / 90%`; higher-sample fan charts exist for starts 18, 22, and 40; higher-sample held-out backtest evidence exists; the paper tradeoff text/table is updated; and the 963c independent verifier agrees with promoting top3/90 under the explicit tradeoff framing. The claim remains bounded: this is a paper/demo candidate, not production-ready or conditionality-solved.
+
+---
+## 2026-05-27: NL top3 attribution paper sync
+
+### Context
+The posterior-ensemble work promoted nearest-similar support regimes with the main-regime top3/90 posterior view as the current paper/demo candidate. The paper still needed a refreshed start-versus-narrative attribution diagnostic that uses this current posterior view instead of older full-pooling or support-gated calibration artifacts.
+
+### Changes
+- Updated the NL prefix-latent autoresearch objective, current-truth, plan, goal JSON, local session goal JSON, and skill text to make paper synchronization plus top3/90 attribution refresh the active HEAD objective.
+- Extended `experiments/backfill/block_ar/nl_start_narrative_attribution.py` with a `--posterior-mode` option and component-posterior sample selection, defaulting to `top3_90`.
+- Generated `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_964a_start_narrative_attribution_top3_90/start_narrative_attribution.json` and the matching paper table/figure.
+
+### Result
+For nearest-similar top3/90 across starts 18, 22, and 40:
+- Raw terminal levels: start share `83.1%`, narrative share `11.1%`, interaction `5.7%`.
+- Start-normalized terminal moves: start share `58.1%`, narrative share `31.8%`, interaction `10.1%`.
+- Start-only null same-start narrative separation remains flat: factor KS `0.000`, portfolio KS `0.000`.
+
+### Decision
+Use this refreshed attribution plot/table in the paper. The correct framing is that raw level paths remain materially anchored by the risk-manager-approved starting state, while the promoted top3/90 posterior view shows material narrative plus interaction variation after start normalization and a flat start-only null under the same start.
+
+### Validation
+- `uv run python experiments/backfill/block_ar/nl_start_narrative_attribution.py --posterior-mode top3_90 --policy cohesive_support_gap30 --policy start_only_topk`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_start_narrative_attribution.py`
+- `uv run pytest test_code/test_944a_nl_start_narrative_attribution.py -q`
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` from `paper/narrative_grounded_scenarios`
+
+---
+## 2026-05-28: NL top3 paper demo consistency goal
+
+### Context
+The current narrative-conditioned scenario-generator candidate is nearest-similar main-regime top3/90. The next autoresearch goal is now a paper/demo consistency audit, not another selector search.
+
+### Decision
+- Paper-facing surfaces should present top3/90 as the current product candidate.
+- Demo defaults should use the same top3/90 candidate.
+- Top2/80 and all-regime pooling may appear only as explicitly labeled diagnostics, appendix tradeoffs, or calibration references.
+- Public paper/demo text should remove or relabel stale all-pooling and old weak-conditionality language.
+- The demo should explain, in plain language, the professional narrative, selected starting level, selected support regimes, top3/90 ensemble rule, and resulting 30-day fan chart.
+
+### Updated workflow surfaces
+- `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+- `docs/research_protocols/nl_prefix_latent_goal.json`
+- `autoresearch-session/nl_prefix_latent_goal.json`
+- `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+### Next validation
+Run targeted JSON validation, stale-string greps, and a local demo smoke after the paper/demo sync pass. Use the independent verifier again if the public claim expands beyond the already verified 963c top3/90 framing.
+
+---
+## 2026-05-28: NL top3 paper demo sync plus CRPS energy appendix
+
+### Context
+The paper/demo consistency goal was extended with a user request to add appendix intuition for CRPS and energy score.
+
+### Changes
+- Added an appendix section, `How to Read CRPS and Energy Score`, explaining what each proper scoring rule measures, why lower is better, why tables report positive improvement versus persistence, and why both single-factor CRPS and multivariate energy score are needed for scenario decks.
+- Updated the paper-facing top3/90 wording so the nearest-similar main-regime top3/90 posterior is the current product-facing presentation candidate; all-regime pooling is described as a calibration diagnostic.
+- Updated the Gradio demo path so live generated reports default to the nearest-similar top3/90 posterior ensemble and explain narrative, selected start, selected support regimes, top3/90 ensemble rule, and the scenario fan chart.
+- Kept older support-gated calibration code explicitly labeled as diagnostic audit/replay metadata rather than current product default.
+- Added a focused demo regression test that constructs rollout component metadata and verifies the top3/90 posterior keeps the dominant three support regimes, rewrites the displayed fan rows to `TOP3_90`, and excludes the fourth lower-weight component from the product support table.
+
+### Validation
+- `python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py` passed.
+- `uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q` passed: 44 tests.
+- `latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex` passed in `paper/narrative_grounded_scenarios`, producing `main.pdf` with 37 pages.
+- Paper stale-string grep found no `support-gated`, `support_gated`, `broad-support`, `weak conditionality`, `current hard direction`, `response-preview`, `384 generated`, `start18`, or `fixed_start_18` references in `main.tex` or the posterior confirmation table.
+- Demo stale-label grep found no removed UI labels in the app source; remaining old strings are limited to negative test assertions or diagnostic fixtures.
+
+### Status
+The active paper/demo consistency surface now presents top3/90 as the product-facing candidate and includes an appendix explanation of CRPS and energy score.
+
+---
+## 2026-05-28: NL grounding reliability audit objective
+
+### Context
+Grounding is now a visible demo and paper trust surface. It is an LLM interpretation layer, not a model trained by historical backtest. The scenario backtest validates generated path distributions; it does not prove that every extracted grounding phrase is faithful or directionally correct.
+
+### Decision
+Set the active NL prefix-latent autoresearch objective to a Grounding Reliability Audit. The audit should measure claim faithfulness, unsupported-claim rate, future-language detection, leakage of future-looking language into conditioning claims, historical-prefix direction agreement, support-direction consistency, and warning coverage for mismatches.
+
+### Workflow Updates
+- Added `docs/research_protocols/nl_prefix_latent_grounding_reliability_audit_intake.md`.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json` to make grounding reliability the active HEAD objective.
+- Updated `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md` and `docs/research_protocols/nl_prefix_latent_current_truth.md` to separate grounding reliability from scenario-quality backtesting.
+- Mirrored the updated goal into `autoresearch-session/nl_prefix_latent_goal.json` and refreshed ignored local state.
+
+### First Tasks
+1. Build a reproducible grounding audit script and tests.
+2. Run a TestFlight on the six professional casebook narratives, known historical-prefix captions, and explicit future-looking hard cases.
+3. Scale to the available professional-caption corpus only if schema and sanity checks pass.
+4. Produce a paper-ready reliability table and appendix examples.
+
+---
+## 2026-05-28: NL grounding reliability audit 965a
+
+### Context
+We added a dedicated grounding reliability audit for the narrative-conditioned scenario generator. The audit measures the visible story-to-claims interpretation layer, not generated scenario quality. Scenario quality remains governed by CRPS, energy, coverage, fixed-start conditionality, and portfolio/tail readouts.
+
+### Implementation
+- Added/validated `experiments/backfill/block_ar/nl_grounding_reliability_audit.py`.
+- Added focused tests in `test_code/test_965a_nl_grounding_reliability_audit.py`.
+- The script writes JSON, Markdown, and a paper-ready LaTeX table.
+- Updated `paper/narrative_grounded_scenarios/main.tex` and `paper/narrative_grounded_scenarios/generated_tables/table_grounding_reliability.tex` with a cautious grounding reliability subsection.
+- Updated `docs/research_protocols/nl_prefix_latent_current_truth.md` with the latest audit artifact and interpretation.
+- Saved verifier note: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-28_grounding_reliability_audit_965a.md`.
+
+### Evidence
+Primary artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_grounding_reliability_audit_965a_66case/grounding_reliability_audit.json`.
+
+The 965a audit combines six live professional narratives with support-direction checks and 66 API-grounded historical-prefix captions with known realized prefix directions:
+
+- total cases: 72;
+- API-grounded historical cases: 66;
+- extracted market claims: 651;
+- claim faithfulness: 100.0%;
+- future-language detection: 100.0%;
+- future-language leakage: 0.0%;
+- historical direction agreement: 100.0% over 607 checked directions;
+- historical direction coverage: 94.0%;
+- support-direction pass rate: 100.0%;
+- API grounding tokens: 152,633.
+
+### Interpretation
+This supports the product claim that the grounding layer is auditable and directionally reliable on the current test set. It should be framed as a structured reliability sanity check, not a human-labeled semantic benchmark and not proof that the generated scenario distribution is correct. The paper now states this distinction explicitly.
+
+### Verification
+- `uv run pytest test_code/test_965a_nl_grounding_reliability_audit.py -q` passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_grounding_reliability_audit.py` passed.
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` passed twice from `paper/narrative_grounded_scenarios`.
+
+---
+## 2026-05-29: NL scenario confidence calibration target
+
+### Context
+The live demo start-22 fragile-risk-on run showed many `Low` values in the baseline-vs-narrative 30-day confidence table even when the narrative direction looked economically sensible. The user asked to reproduce the case, diagnose why confidence was low, and make this the new autoresearch target.
+
+### Reproduction
+Used the saved live report rather than a fresh LLM call:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/risk_manager_story_gradio_demo/prefix_latent_live_smoke/condition_only_run/prefix_latent_story_smoke_report.json`.
+
+The reproduced table matches the pasted demo values. Selected top3/90 support regimes were `joint39_train_3952`, `joint39_train_3668`, and `joint39_train_3760`, each with `0/6` grounding-direction mismatches.
+
+### Diagnosis
+The current terminal confidence rule is conservative: `High` only when the terminal 10%-90% band is entirely above or below zero; `Medium` when the band crosses zero but `abs(mean) >= 25%` of band width; otherwise `Low`. Most low labels are caused by wide terminal bands crossing zero, not by support failure. Example diagnostics from the reproduced case:
+
+- SPX narrative mean is positive (`38.49`), but p10/p90 is `[-44.82, 160.42]`, so terminal direction confidence is low.
+- DXY narrative mean is positive (`1.15`), but p10/p90 is `[-1.89, 4.56]`, so confidence is low.
+- VIX narrative mean is negative (`-2.08`) with p10/p90 `[-5.14, 0.31]`, so confidence is medium.
+- IV surface narrative mean is negative (`-0.0135`) with p10/p90 `[-0.0418, 0.0025]`, so confidence is medium.
+
+### Decision
+Make scenario confidence calibration the new nl-prefix-latent autoresearch target. Separate three concepts:
+
+1. grounding confidence: textual evidence strength for current/recent claims;
+2. terminal direction confidence: generated day-30 sign certainty versus the accepted start;
+3. baseline-impact strength: narrative-conditioned distribution versus start-only baseline.
+
+Added tracked intake:
+`docs/research_protocols/nl_prefix_latent_confidence_calibration_intake.md`.
+Updated current-truth, plan, and goal JSON to make this the active target.
+
+### Next Step
+Build a confidence diagnostic over saved reports/arrays, then run a held-out historical reliability audit so low/medium/high labels are calibrated before any new demo rule is promoted.
+
+---
+## 2026-05-29: NL scenario confidence sign-share prototype
+
+Context: After reproducing the start-22 fragile-risk-on demo table, the confidence issue was narrowed to readout calibration rather than support selection. The table previously used only mean, p10, and p90 terminal deltas. This made Low labels correct but opaque: broad zero-crossing distributions remained Low even when most samples leaned in the narrative direction.
+
+Implementation: Added empirical terminal sign-share metrics to live top3/90 report terminal rows: terminal_probability_up, terminal_probability_down, terminal_probability_flat, and terminal_sample_count. The demo confidence cell now keeps the conservative Low/Medium/High bucket but can append the relevant sign share, for example Low (61% up) or Medium (83% down). This is a readout-only change. It does not change grounding, support selection, support weights, top3/90 posterior selection, decoded prefixes, or frozen SNI rollout.
+
+Start-22 fragile-risk-on reproduction with the prototype: SPX remains Low but is now explainable as Low (61% up); VIX becomes Medium (83% down); IV surface becomes Medium (74% down); DXY remains Low (57% up). This confirms that the low labels mostly mean terminal sign uncertainty, not missing narrative support.
+
+Decision: Keep the prototype as an interpretability improvement while the active autoresearch target remains calibration. Do not promote looser confidence thresholds until a held-out historical reliability audit shows that high/medium/low buckets are calibrated against realized 30-day directions and do not overstate broad zero-crossing scenario fans.
+
+Verification: Focused Gradio demo tests passed: uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q.
+
+---
+## 2026-05-29: NL scenario summary separates typical view and mean bias
+
+Context: The sign-share prototype exposed a user-facing contradiction: a row could display Up with Low (45% up) because the arrow was mean-based while the share was sample-probability based. This is mathematically explainable for skewed distributions but confusing in a risk-manager demo.
+
+Implementation: Changed the public scenario summary table from separate baseline/narrative confidence columns to a compact distribution readout: Market, 30d Typical View, Path Share, Mean Bias, and 30d vs Baseline. The typical view uses empirical terminal sign shares when available: strong majorities become Up or Down, while close splits become mixed. Mean Bias separately reports whether tail paths pull the arithmetic mean up or down. The baseline comparison remains the narrative distribution versus the start-only baseline.
+
+Start-22 fragile-risk-on check: SPX no longer shows Up when the path split is mixed. The reproduced table shows SPX as mixed with 58% up / 42% down and mean up, while VIX and IV surface show Down with stronger down path shares. This resolves the confusing Up with low up-share display without changing the generator, support selection, top3/90 posterior ensemble, or baseline calculation.
+
+Verification: Focused and adjacent demo tests passed: uv run pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py test_code/test_948d_nl_live_story_deck_analysis.py test_code/test_951a_nl_live_story_fan_chart_views.py -q.
+
+---
+## 2026-05-29: NL scenario summary restores baseline and narrative confidence columns
+
+Context: The first compact table separated typical view, path share, mean bias, and baseline change, but it hid the explicit baseline-vs-narrative distinction and removed the visible confidence column. That made the readout harder to interpret even though the mean/probability contradiction was fixed.
+
+Implementation: Revised the public scenario summary table to: Market, Baseline 30d View, Narrative 30d Typical View, Narrative Confidence, Narrative Path Share, Mean Bias, and 30d Change vs Baseline. The baseline and narrative views are now explicit. The narrative typical view is path-share based; narrative confidence is a compact Low/Medium/High bucket from the narrative sign share; mean bias remains a separate expected-value/tail-skew indicator.
+
+Interpretation: This preserves the useful fix for cases like SPX, where the path share is mixed but the mean is pulled up by upside tails, while restoring the user's requested narrative view and confidence suggestion. The generator, support selection, top3/90 posterior ensemble, and baseline calculation remain unchanged.
+
+---
+## 2026-05-29: NL demo summary adopts symmetric path-count and mean-move table
+
+Context: The user rejected both the compact table and the high/medium/low confidence wording. The clearer product requirement is a symmetric baseline-versus-narrative table with one headline view for each side, plus quantitative evidence for how many paths move in that direction and how large the mean move is.
+
+Implementation: Updated the demo scenario summary to: Market, Baseline View, Baseline Path Count, Baseline Mean Move, Narrative View, Narrative Path Count, Narrative Mean Move, and 30d Change vs Baseline. Arrows appear only in the view columns and the baseline-change column. Path-count and mean-move columns use plain quantitative text. Mean move is formatted as market-unit terminal mean plus standardized size, for example +38 pts / +0.5σ or -1.4 vol pts / -0.8σ.
+
+Interpretation: This resolves the previous confusion around Up with Low confidence. The view is the headline direction versus the starting level, path count shows the dominant generated terminal share, and mean move shows expected-value magnitude. The table remains a readout-only change: no change to grounding, support selection, top3/90 posterior ensemble, decoded prefixes, or frozen SNI rollout.
+
+---
+## 2026-05-29: NL fixed-start demo-style casebook appendix
+
+### Context
+The active NL prefix-latent goal was set to add a fixed-start multi-narrative
+casebook appendix to the narrative-conditioned scenario paper. The user wanted
+the appendix to mirror the live demo summary table: markets on the vertical
+axis, a start-only baseline, and the narrative-conditioned view for every
+professional narrative at the same accepted start.
+
+### Work Completed
+- Added artifact-only generator
+  `experiments/backfill/block_ar/nl_paper_fixed_start_demo_casebook_tables.py`.
+- Generated
+  `paper/narrative_grounded_scenarios/generated_tables/table_fixed_start_demo_casebook_readout.tex`
+  and
+  `paper/narrative_grounded_scenarios/figures/fixed_start_demo_casebook_readout_summary.json`
+  from the saved professional start-22 top3/90 artifact root
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_966a_professional_start22_s384_d400`.
+- Updated `paper/narrative_grounded_scenarios/main.tex` to reference the
+  appendix readout from the casebook section and to include a new
+  `Fixed-Start Demo-Style Scenario Tables` appendix.
+- Synced the fixed-start casebook support dependencies in the appendix to the
+  promoted top3/90 support weights and support end dates.
+- Updated the tracked NL autoresearch objective/current-truth/plan files so
+  the active HEAD task is this casebook appendix sync, not the older confidence
+  table calibration task.
+
+### Verification
+- `uv run python experiments/backfill/block_ar/nl_paper_fixed_start_demo_casebook_tables.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_paper_fixed_start_demo_casebook_tables.py`
+- `python -m json.tool docs/research_protocols/nl_prefix_latent_goal.json`
+- `git diff --check -- ...` on the touched tracked files and generated table
+- `pdflatex -interaction=nonstopmode -halt-on-error main.tex` twice from
+  `paper/narrative_grounded_scenarios`
+- Checked `paper/narrative_grounded_scenarios/main.log` for undefined
+  references or fatal errors; none remain after the second pass.
+
+### Notes
+The paper directory is ignored by repository `.gitignore`, so the updated TeX,
+generated appendix table, summary JSON, and compiled PDF are local paper
+artifacts rather than tracked Git changes. The running Gradio demo was not
+stopped or restarted.
+
+---
+## 2026-05-29: NL Safe-Haven Gold Channel Audit 966b
+
+### Context
+The Safe-haven gold fixed-start appendix table showed Gold as similar to the start-only baseline even though the narrative and grounding say Gold is supported. I audited whether this was a table, factor-index, support-selection, or top3/90 workflow bug.
+
+### Artifact
+- Script: `experiments/backfill/block_ar/nl_safe_haven_gold_channel_audit.py`
+- Output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_channel_audit_966b/safe_haven_gold_channel_audit.json`
+- Source reports: `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_966a_professional_start22_s384_d400/safe_haven_gold/`
+
+### Findings
+- The paper/demo Gold row reproduces exactly: baseline `59% up`, `+5 pts / +0.3 sigma`; narrative `58% up`, `+5 pts / +0.3 sigma`; change `Similar to baseline`.
+- Gold factor indexing is correct: `factor:gold` is index 37 in `JOINT39_SPEC_NAMES`.
+- Grounding extracts a high-confidence `GOLD up` current/recent claim, supported by evidence phrases such as gold supported and gold is higher.
+- The Safe-haven top3/90 support prefixes all pass the Gold-up prefix direction check.
+- The generated day-30 terminal Gold distribution is baseline-neutral: narrative top3/90 mean delta `+4.98` points and `57.7%` up paths versus start-only top3/90 `+5.08` points and `59.3%` up paths.
+
+### Decision
+No evidence of a workflow bug. This is an expected current model/support outcome: grounding and support checks validate the current/recent conditioning prefix, not a requested terminal Gold forecast. For this fixed start, Safe-haven gold is prefix-supported but terminal-neutral versus baseline for Gold. Public wording should describe the narrative impact as baseline-relative distributional tilt and support provenance, and should not imply that every named factor must move in the story direction at day 30.
+
+---
+## 2026-05-29: Verifier Addendum: Safe-Haven Gold Channel Audit 966b
+
+### Context
+After the Safe-haven Gold channel audit, I added an independent verifier-style report before relying on the no-bug conclusion.
+
+### Artifact
+- Verifier report: `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-29_safe_haven_gold_channel_audit_966b.md`
+
+### Verdict
+`AGREE`. The verifier found no evidence of a table-generation, factor-index, or top3/90 selection bug. It confirmed that Safe-haven Gold is prefix-supported but terminal-neutral versus the start-only baseline for Gold in this fixed-start case. The warning is that this uses saved generator artifacts, so it verifies the paper/demo table and interpretation rather than rerunning the frozen SNI checkpoint.
+
+---
+## 2026-05-29: NL Safe-Haven Gold Start Sensitivity Audit 966c
+
+### Context
+After the Safe-haven Gold channel audit found that Gold is prefix-supported but terminal-neutral versus the start-only baseline at start 22, I tested whether this was caused by that specific accepted starting level.
+
+### Artifact
+- Script: `experiments/backfill/block_ar/nl_safe_haven_gold_start_sensitivity_audit.py`
+- Output: `experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_start_sensitivity_966c/safe_haven_gold_start_sensitivity_audit.json`
+- Source roots: professional top3/90 Safe-haven artifacts for starts 18, 22, and 40.
+
+### Findings
+- Start 18: Gold start `1222.30`; narrative mean `+5.44`, baseline mean `+6.25`, difference `-0.80`; narrative up-share `59.1%`, baseline `60.6%`.
+- Start 22: Gold start `1233.90`; narrative mean `+4.98`, baseline mean `+5.08`, difference `-0.10`; narrative up-share `57.7%`, baseline `59.3%`.
+- Start 40: Gold start `1221.40`; narrative mean `-1.13`, baseline mean `-0.78`, difference `-0.35`; narrative up-share `44.2%`, baseline `46.2%`.
+- Maximum absolute Gold mean-delta difference across the three starts is `0.80` points; maximum absolute up-share difference is `2.1` percentage points.
+- Narrative support prefixes pass Gold-up support alignment. The start-only support pools also often contain Gold-up prefixes, so the baseline already contains much of the same Gold-prefix information.
+
+### Decision
+The weak terminal Gold response is not just a bad start-22 artifact. Within the current professional top3/90 evidence pack, changing the accepted start does not create material day-30 Gold separation versus the start-only baseline. The current interpretation should remain: Safe-haven Gold is current/recent-prefix supported, but terminal Gold is baseline-neutral under the frozen SNI rollout. If product requirements demand stronger factor-specific terminal sensitivity, that requires a separate method branch, not a start-selection fix.
+
+---
+## 2026-05-29: NL Safe-Haven Gold Mechanism Audit 966d
+
+### Context
+The Safe-haven gold paper/demo table showed Gold as similar to the start-only baseline even though the narrative extracted a high-confidence Gold-up current/recent claim and selected Gold-up support prefixes. The earlier 966b/966c audits showed this was not a table/index bug and not unique to start 22. This audit asks why the terminal Gold response remains weak.
+
+### Evidence
+- Script: `experiments/backfill/block_ar/nl_safe_haven_gold_mechanism_audit.py`.
+- Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_mechanism_audit_966d/safe_haven_gold_mechanism_audit.json`.
+- Broad support bank: 4,010 windows from `prefix_latent_support_bank_train_all_939a`.
+- Safe-haven prefix definition: Gold up, US10Y down, VIX up, SPX down.
+
+### Findings
+- 564 support-bank windows satisfy the Safe-haven prefix pattern, but their next-30-day Gold terminal future is only mildly positive: mean `+5.62` Gold points, median `+4.30`, and `53.9%` up futures.
+- Across all support-bank windows, Gold prefix delta and next-30-day Gold terminal delta have correlation `-0.169`; within the Safe-haven prefix subset the correlation is `-0.365`.
+- Across 18 selected top3 components from starts 18, 22, and 40, `94.4%` have Gold-up prefixes, but realized next-30-day Gold futures are mixed: median `+5.8`, `61.1%` up, and p10/p90 about `-63.9`/`+160`.
+- The frozen SNI rollout shrinks component-specific historical Gold outcomes: generated component Gold means have median about `+3.6` and p10/p90 about `-2.2`/`+8.3`; actual support future Gold and generated component Gold mean correlation is only `0.159`.
+
+### Decision
+The root cause is conceptual and empirical, not a plotting bug. Grounding/support checks validate the current/recent prefix, not the day-30 Gold forecast. Historical Gold-up Safe-haven prefixes are not strong evidence of further Gold upside, and the start-only baseline often already selects similar Gold-up supports. Public-facing claims should say Safe-haven Gold is prefix-supported and baseline-relative; do not imply terminal Gold must separate. A stronger Gold-facing claim would require an explicitly tested response-aware hedge-channel selector/readout with CRPS/energy and calibration guardrails.
+
+---
+## 2026-05-30: NL public paper cleanup plan
+
+### Context
+
+The paper review found that the natural-language conditioned scenario-generator
+manuscript has a coherent method and evidence base, but still reads partly like
+an internal autoresearch report. The accepted recommendation is to revise it
+into a shorter public technical paper without changing the promoted method.
+
+### Decision
+
+Set the active NL-prefix-latent objective to public paper cleanup. The method
+remains nearest-similar, direction-checked, non-overlapping support regimes
+with the main-regime top3/90 posterior view and frozen SNI rollout.
+
+### Cleanup Plan
+
+- Rewrite the abstract as a concise problem-method-evidence-conclusion
+  paragraph.
+- Simplify the introduction and shrink the contribution list.
+- Tighten related work around LLM numerical limits, stochastic scenario
+  generation, multimodal/text-latent alignment, and provenance.
+- Replace internal language such as "product-facing candidate", "promotion
+  gate", and unlabeled "diagnostic" with public-facing terms.
+- Move or soften provider/cost details as implementation notes, not core
+  scientific claims.
+- Preserve the Safe-haven Gold explanation as a useful example that grounding
+  validates the current/recent conditioning prefix rather than the terminal
+  future sign.
+- Rebuild the PDF and run citation, label, stale-language, and LaTeX checks.
+
+### Tracked Plan
+
+`docs/research_protocols/nl_prefix_latent_public_paper_cleanup_plan.md`
+
+---

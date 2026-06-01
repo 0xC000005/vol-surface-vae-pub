@@ -288,3 +288,169 @@ predictions. The current bottleneck is therefore feature/model weakness, not a
 pure label-diffuseness issue. A next candidate should either add a principled
 regime/prototype conditioning layer or improve candidate features before making
 the scorer more complex.
+
+## Oracle Soft-Support Upper Bound
+
+Status: `mechanism_found_not_deployable`.
+
+Artifacts:
+
+- oracle weighted bridge:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout/oracle_soft_support_bridge_report.json`
+- top-3 weighted scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- equal top-5 baseline:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_equal_top5_s2_seed884/scenario_level_eval_report.json`
+- weighted top-5 scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_weighted_top5_s2_seed884/scenario_level_eval_report.json`
+- comparison summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_oracle_soft_support_weights_906c_fullheldout/oracle_soft_support_comparison.json`
+
+Result:
+
+- top-3 oracle support selection improves versus same-seed equal top-3:
+  CRPS mean `0.6763` versus `0.6879`, energy mean `0.9742` versus `0.9895`,
+  and coverage `0.573` versus `0.558`;
+- at top-3 the integer sample counts remain `[2,2,2]`, so the improvement is
+  support-set selection, not non-uniform sample allocation;
+- top-5 oracle field-weight sampling improves versus same-seed equal top-5:
+  CRPS mean `0.6419` versus `0.6452`, energy mean `0.9295` versus `0.9348`,
+  and coverage `0.633` versus `0.632`;
+- top-5 field weights produce non-uniform sample allocations in `25/29`
+  held-out windows.
+
+Interpretation: the support-prior/weighting path has real upper-bound signal.
+The weak learned policies failed because they could not learn the
+generator-response weighting surface, not because support weighting is useless.
+This result is a leakage diagnostic because it uses realized future labels; it
+is not a deployable policy and must not be promoted. The next deployable
+candidate should learn softer generator-response-aware support weights from
+train labels and keep the final output as an auditable historical support
+mixture.
+
+## Query-Relative Kernel Listwise Policy
+
+Status: `candidate_diagnostic_not_promoted`.
+
+Artifacts:
+
+- train-to-heldout policy:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_128train_to_fullheldout/learned_mixture_policy_report.json`
+- best bounded temperature policy:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_temp0p20_128train_to_fullheldout/learned_mixture_policy_report.json`
+- best bounded temperature scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_temp0p20_fullheldout_scenario_eval/scenario_level_eval_report.json`
+- comparison summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_mixture_policy_906d_128train_to_fullheldout/kernel_listwise_policy_comparison.json`
+
+Method:
+
+- train on the existing `128` train-window generator-response label queries
+  (`1280` candidate mixtures);
+- use candidate features available at inference plus within-query standardized
+  versions of those features;
+- store train candidate prototypes and query-standardized response labels;
+- at inference, score held-out candidate mixtures by kernel regression against
+  train prototypes, then marginalize listwise probabilities into auditable
+  support-window weights.
+
+Result:
+
+- probability temperature `1.0` is too diffuse: all `29/29` held-out windows
+  allocate `[2,2,2,2,2]` samples, with only a tiny CRPS gain and slight energy
+  regression versus equal top-5;
+- probability temperature `0.20` is the best bounded candidate: CRPS mean
+  `0.6441` versus equal top-5 `0.6452`, energy mean `0.9316` versus `0.9348`,
+  and coverage `0.636` versus `0.632`;
+- temperature `0.20` creates non-uniform support allocation in `24/29`
+  held-out windows;
+- probability temperature `0.05` over-sharpens and worsens CRPS.
+
+Interpretation: this is the first deployable learned support-weight policy in
+this branch that slightly beats the equal top-5 mixture on CRPS, energy, and
+coverage in the same-seed held-out diagnostic. The gain is modest and still far
+below the oracle soft-support upper bound, so it is not promoted. The result
+does justify continuing the learned support-prior direction, but the next
+method should improve the learned generator-response surface rather than add
+unrelated narrative or readout knobs.
+
+## Scaled Full-Train Kernel/Listwise Diagnostic
+
+Status: `candidate_diagnostic_competitive_not_promoted`.
+
+Artifacts:
+
+- train candidate-mixture labels:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_906e_train_mixture_labels/scenario_eval/scenario_level_eval_report.json`
+- train label summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_rollout_response_full_906e_train_mixture_labels/rollout_response_label_summary.json`
+- test equal top-5 baseline:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_equal_top5_test_s2_seed906/scenario_level_eval_report.json`
+- train-to-test policy:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20/learned_mixture_policy_report.json`
+- learned-policy scenario evaluation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20_scenario_eval/scenario_level_eval_report.json`
+- comparison summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_kernel_listwise_full_906e_278train_to_66test_temp0p20/full_kernel_policy_comparison.json`
+
+Method:
+
+- build candidate-mixture labels for all available train queries in the full
+  OpenAI-labeled manifest: `278` train query windows, top-5 choose-3 support
+  mixtures, `2780` train candidate rows;
+- keep the existing untouched held-out split: `66` test query windows from the
+  same `380` usable-window manifest;
+- train the same query-relative kernel/listwise policy with probability
+  temperature `0.20`;
+- evaluate against same-seed equal top-5 field sampling on the `66` test
+  windows.
+
+Result:
+
+- equal top-5 baseline on the `66` held-out windows: CRPS `0.6690`, energy
+  `0.9722`, coverage `0.608`;
+- learned kernel/listwise policy: CRPS `0.6679`, energy `0.9737`, coverage
+  `0.610`;
+- relative CRPS reduction versus equal top-5 is about `0.16%`;
+- energy regresses by about `0.16%`;
+- support allocation is non-uniform in `46/66` held-out windows.
+
+Interpretation: using all currently available OpenAI-labeled train windows makes
+the learned support-weight policy competitive, but it does not produce a clean
+held-out improvement over the simple equal-weight mixture. The support-weight
+direction remains useful because oracle diagnostics and the small learned CRPS
+gain show generator-response signal. It is not yet a promoted production
+default. The next method should improve the generator-response surface or
+candidate representation, not just add another temperature or ranker knob.
+
+## Generator-Response Weighting Frontier Decision
+
+Status: `upper_bound_found_learned_policy_insufficient`.
+
+Artifacts:
+
+- frontier report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.json`
+- frontier markdown:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.md`
+- frontier plot:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_generator_response_weighting_frontier_918b/generator_response_weighting_frontier.png`
+
+Result:
+
+- oracle soft top-5 upper bound over `29` held-out windows: CRPS delta
+  `-0.0033`, energy delta `-0.0052`, coverage delta `+0.0011` versus equal
+  top-5;
+- learned full-train kernel/listwise policy over `66` held-out windows: CRPS
+  delta `-0.0011`, energy delta `+0.0015`, coverage delta `+0.0024` versus
+  equal top-5;
+- learned support allocation is non-uniform in `46/66` held-out windows, so the
+  policy is active, but the scenario-level energy regression blocks promotion.
+
+Decision: do not promote the current learned support-weight policy. The oracle
+upper bound says support weighting can help, but the deployable policy has not
+learned the generator-response surface cleanly enough. The next candidate must
+improve the response labels or support representation, for example with
+regime/prototype-aware labels or portfolio-risk-aware candidate utilities. If
+the goal is immediate product quality rather than a support-policy research
+branch, prioritize rollout/readout noise and conditionality-aware calibration.

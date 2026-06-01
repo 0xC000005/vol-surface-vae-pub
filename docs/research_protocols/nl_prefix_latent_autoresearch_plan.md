@@ -9,20 +9,224 @@ frozen state-aware normalized-innovation (SNI) conditional scenario generator
 and its native autoregressive rollout.
 
 The current long-term research objective is a novel, publishable
-**support-grounded latent scenario generation** method. The method may use
-richer text embeddings, contrastive alignment, learned support reranking,
-prototype-aware weighting, or bounded residual latent refinement, but it must
-keep the historical support mixture as the production backbone. Novelty should
-come from making the language-conditioned support prior more faithful,
-auditable, and performant, not from removing the support store.
+**support-coherence and component-posterior** method inside support-grounded
+latent scenario generation. The method may use richer text embeddings,
+contrastive alignment, support diagnostics, coherent support-family selection,
+or bounded residual calibration, but it must keep the historical support mixture
+and frozen SNI rollout as the production backbone. Novelty should come from
+learning how the professional narrative forms an auditable, internally coherent
+support posterior, not from removing the support store or repeatedly adding
+support-ranker knobs.
 
 This is now an explicit anti-drift rule: "more sophisticated text-to-latent"
 does not mean a support-free text embedding, a hidden nearest-neighbor system,
-or a growing pile of ranker knobs. It means one clean learned mechanism that
-improves how narrative plus fixed start produces an operational support
-distribution over historical prefixes or prototypes. The support distribution
-must affect the generated scenarios, remain inspectable, and survive
-distributional historical backtesting against the simple mixture floor.
+or a growing pile of ranker knobs. It means one clean mechanism that keeps the
+support-grounded ensemble on manifold while deciding whether the product
+distribution should be broad pooled, sparse component posterior, or coherent
+support-family pooled. The selected distribution must affect generated
+scenarios, remain inspectable, and survive distributional historical backtesting
+against the simple mixture floor.
+
+The immediate objective is now **Public Paper Cleanup and Short Technical Paper
+Refactor**. The selected posterior-ensemble family remains **Nearest similar
+regimes / Main-regime view: top 3 / 90%**, but the manuscript must be revised
+so it reads like a concise public technical paper rather than an internal
+autoresearch report.
+
+Tracked cleanup plan:
+`docs/research_protocols/nl_prefix_latent_public_paper_cleanup_plan.md`.
+
+This work should not change the method, rerun the selector search, or interrupt
+the running Gradio demo. It should document the paper cleanup objective, then
+revise `paper/narrative_grounded_scenarios/main.tex` to:
+
+1. shorten and de-internalize the abstract;
+2. simplify the introduction and contribution list;
+3. tighten related work around LLM numerical limits, stochastic scenario
+   generation, multimodal/text-latent alignment, and provenance;
+4. remove or reframe internal language such as "product-facing candidate",
+   "promotion gate", and unlabeled "diagnostic";
+5. move or soften volatile provider/cost details as implementation notes rather
+   than main scientific claims;
+6. preserve the Safe-haven Gold explanation as a prefix-support versus terminal
+   response example;
+7. rebuild the PDF and run citation, label, stale-language, and LaTeX checks.
+
+The previous fixed-start casebook appendix sync is complete and remains the
+source for the current appendix demo-style tables. Any paper edits should
+preserve those tables unless the referenced artifacts are regenerated.
+
+Current source artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_966a_professional_start22_s384_d400`.
+
+Previous readout update: live top3/90 reports now persist terminal sign shares
+in the terminal summary rows. The demo table separates `Baseline View`,
+`Baseline Path Count`, `Baseline Mean Move`, `Narrative View`,
+`Narrative Path Count`, `Narrative Mean Move`, and `30d Change vs Baseline`.
+The paper appendix should reuse this exact readout format.
+
+Previous grounding audit intake:
+`docs/research_protocols/nl_prefix_latent_grounding_reliability_audit_intake.md`.
+
+In the ideal-user case, a skilled risk manager writes a professional
+narrative that follows the specialist documents: scenario spine, trigger,
+economic mechanism, transmission channel, cross-asset reaction, sequencing,
+portfolio/risk implication, evidence, ambiguity, and a no-forecast caveat. The
+product should then answer a concrete conditional question:
+
+```text
+given the same approved starting market level,
+does a materially different current-market narrative produce a materially
+different, auditable future risk distribution in the risk channels implied by
+that narrative, above repeat/bootstrap/start-only controls?
+```
+
+This creates five gates for every serious conditionality claim:
+
+1. semantic gate: the representation preserves the professional narrative, not
+   just direction labels;
+2. support gate: different narratives select different diverse support mixtures;
+3. prefix gate: those supports become different recent-prefix objects under the
+   same fixed start;
+4. factor-distribution gate: generated factor paths differ beyond
+   same-narrative repeat and within-run bootstrap noise;
+5. portfolio-tail gate: VaR/ES-style tails and contribution views change in the
+   expected risk channels.
+
+The 933a/943a fixed-start component-preserving stress tests establish that the
+current baseline has nonzero narrative conditionality: narrative policies pass
+the fixed-start gates and the start-only null is flat. The 944a attribution
+diagnostic shows that accepted starting level dominates raw-level geometry,
+while narrative becomes more material after start normalization. The 960/961
+support-coherence work then showed the main display/product issue: broad
+all-regime pooling smooths away narrative-specific scenario families. The
+current posterior family keeps nearest-similar support regimes and exposes
+main-regime posterior views so the product distribution remains auditable while
+showing stronger narrative conditionality.
+
+Current support-coherence/component-posterior intake:
+`docs/research_protocols/nl_prefix_latent_support_cohesion_component_posterior_intake.md`.
+
+Current support-coherence and posterior-ensemble evidence:
+
+- Implementation and first smoke are documented in `RESEARCH_LOG.md` entries
+  `2026-05-27: NL support-coherence component-posterior smoke` and
+  `2026-05-27: NL support-coherence guardrail scale-up`.
+- Main fixed-start smoke root:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_smoke_s8_start22`.
+- Component-posterior plot:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/support_cohesion_component_posterior_bakeoff_960a_smoke_s8_start22/component_posterior_factor_fans.png`.
+- Posterior ensemble selection:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_selection_961b_29w/posterior_ensemble_selection_report.json`.
+- Verifier:
+  `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_selection_961b.md`.
+- Earlier low-sample selected candidate: **Nearest similar regimes /
+  Main-regime view: top 3 / 90%**. It ranked first in the 24-window screen and
+  the 29-window comparable run. On that low-sample conditionality report it had
+  CRPS improvement `+0.172`, energy improvement `+0.269`, 80% coverage
+  `0.746`, factor KS `0.524`, and portfolio KS `0.572`.
+- High-sample confirmation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_962c_selection_confirmation/posterior_ensemble_selection_report.json`.
+  With 384 fixed-start presentation samples and 64 held-out backtest samples,
+  top2/80 is the strongest presentation tradeoff: CRPS improvement `+0.189`,
+  energy improvement `+0.281`, coverage `0.778`, factor KS `0.187`, and
+  portfolio KS `0.177`. Top3/90 remains better calibrated but weaker on
+  conditionality: CRPS `+0.207`, energy `+0.295`, coverage `0.807`, factor KS
+  `0.165`, and portfolio KS `0.149`.
+- Three-start high-sample confirmation:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_963c_multistart_confirmation/posterior_ensemble_multistart_confirmation.json`.
+  Across starts `18`, `22`, and `40`, top3/90 ranks first on the current
+  tradeoff score: CRPS improvement `+0.207`, energy improvement `+0.295`,
+  coverage `0.807`, mean factor KS `0.163`, mean portfolio KS `0.134`, mean
+  path energy `10.109`, mean VaR95 range `3.046`, and score `0.800`. Top2/80
+  ranks second with stronger KS but weaker calibration and lower VaR range.
+- Tradeoff: all-regime views remain stronger on pure calibration. Main-regime
+  views improve risk-manager-visible conditionality. The current multistart
+  confirmation promotes top3/90 as the presentation candidate because it is the
+  best calibration-plus-conditionality tradeoff across starts, while top2/80 is
+  the sharper KS-oriented variant.
+- Verifier:
+  `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_multistart_confirmation_963c.md`.
+  Verdict `AGREE`: promote top3/90 as the current paper/demo candidate under
+  the explicit tradeoff framing, not as a production-ready or
+  conditionality-solved claim.
+
+The previous HEAD task order moved from method selection and attribution refresh
+to public paper/demo consistency around the promoted posterior candidate:
+
+1. Ensure the paper presents nearest-similar top3/90 as the current
+   product-facing candidate. Top2/80 and all-regime pooling may appear only as
+   clearly labeled diagnostics, appendix tradeoffs, or calibration references.
+2. Ensure the demo uses the same nearest-similar top3/90 support and ensemble
+   method by default.
+3. Remove or relabel stale all-pooling, broad-mixture, or old
+   weak-conditionality language from public paper/demo surfaces.
+4. Make the demo explain the workflow in plain language: professional
+   narrative, selected starting level, selected historical support regimes,
+   top3/90 ensemble rule, and 30-day scenario fan chart.
+5. Run targeted JSON validation, stale-string greps, and a local demo smoke
+   after the sync pass. Use the independent verifier again only if the paper or
+   demo claim changes beyond the already verified 963c candidate framing.
+
+Immediate HEAD task order now adds the scenario confidence calibration
+workstream:
+
+1. Reproduce the live start-22 fragile-risk-on table from saved report and array
+   artifacts.
+2. Build a confidence diagnostic that reports mean, p10, p90, sign
+   probability, current confidence label, proposed confidence label, and
+   baseline-impact strength by market.
+3. Run the diagnostic on the six professional narrative deck and on held-out
+   historical backtests where realized 30-day futures are known.
+4. Calibrate low/medium/high thresholds so higher-confidence buckets have better
+   realized sign reliability, without overstating broad zero-crossing
+   distributions.
+5. Keep the UI compact: arrows show narrative terminal direction versus the
+   accepted start, while comparison text explains baseline relationship.
+
+Previous HEAD task order for grounding reliability:
+
+1. Create a reproducible grounding audit script and tests that score narrative
+   faithfulness, future-language leakage, historical direction agreement, and
+   support-direction consistency.
+2. Run a small TestFlight on the six professional casebook narratives, a matched
+   sample of known historical-prefix captions, and explicit forward-looking hard
+   cases.
+3. If schema and sanity checks pass, scale to the available professional
+   caption corpus using cached grounding where available and fresh LLM calls
+   only where needed.
+4. Generate a paper-ready table and appendix examples for the grounding layer:
+   claim faithfulness, unsupported-claim rate, future-language detection,
+   leakage into conditioning claims, direction agreement, and support mismatch
+   warning coverage.
+5. Update the demo/paper trust language so grounding is described as a measured
+   auditable interpretation layer, not an oracle and not a scenario generator.
+
+Current grounding audit intake:
+`docs/research_protocols/nl_prefix_latent_grounding_reliability_audit_intake.md`.
+
+Refreshed attribution artifact for this sync pass:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_964a_start_narrative_attribution_top3_90/start_narrative_attribution.json`.
+Nearest-similar top3/90 across starts `18`, `22`, and `40` attributes raw
+terminal-level variation mostly to the accepted start (`83.1%`), with narrative
+and interaction at `16.9%` combined. In start-normalized features, narrative
+and interaction rise to `41.9%` combined while the start-only null remains flat
+across narratives under the same start.
+
+Previous narrative-conditioned ensemble-calibration intake:
+`docs/research_protocols/nl_prefix_latent_narrative_ensemble_calibration_intake.md`.
+This remains useful background but is no longer the immediate HEAD objective.
+
+Previous response-aware support-weighting intake:
+`docs/research_protocols/nl_prefix_latent_response_aware_support_weighting_intake.md`.
+This remains a diagnostic branch and source of mechanism evidence, not the
+current HEAD objective.
+
+The current portfolio-risk response-label TestFlight is tracked in:
+`docs/research_protocols/nl_prefix_latent_portfolio_risk_response_label_intake.md`.
+It is not promoted as a new default, but it defines the next sharper product
+target: scenario conditionality should be judged in portfolio VaR/ES/drawdown
+space as well as in individual factor fans.
 
 Current boss-demo runbook:
 `docs/research_protocols/nl_prefix_latent_boss_demo_runbook.md`.
@@ -33,6 +237,9 @@ Tracked current goal:
 Tracked current-truth index:
 `docs/research_protocols/nl_prefix_latent_current_truth.md`.
 
+Scenario-to-text caption quality gate:
+`experiments/backfill/block_ar/nl_risk_manager_caption_v2.py`.
+
 Current text-to-latent prior research note:
 `docs/research_protocols/nl_prefix_latent_text_to_latent_prior_plan.md`.
 
@@ -41,6 +248,12 @@ Current structured text/start fusion note:
 
 Method intake template for sophisticated candidates:
 `docs/research_protocols/nl_prefix_latent_method_intake_template.md`.
+
+Current portfolio-risk response-label intake:
+`docs/research_protocols/nl_prefix_latent_portfolio_risk_response_label_intake.md`.
+
+Current conditionality stress-test evidence:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_conditionality_stress_test_933a/conditionality_stress_test.json`.
 
 The long-run product contract has one fixed-start requirement with two start
 input routes:
@@ -74,6 +287,42 @@ The system must expose the analogue weights, support diagnostics, and
 post-rollout implication checks so a risk manager can see whether the generated
 distribution is supported, weakly supported, or rejected.
 
+Every scenario-to-text or narrative-generation change must check both
+risk-manager specialist Word documents before it can affect embeddings,
+training data, the demo, or paper-facing captions:
+
+- `research/narrative_specialist/quant generated scenarios story narrative.docx`
+- `research/narrative_specialist/quant generated scenarios story narrative 2.docx`
+
+The caption standard is professional risk-manager prose, not a short market
+label. A valid conditioning caption includes a scenario title, mechanical
+summary, archetype/regime, trigger, transmission, cross-asset reaction,
+sequence, portfolio/risk implication, evidence used, ambiguity, contrastive hard
+negatives, and a no-forecast caveat. It describes the current/recent historical
+prefix only. Realized future outcomes, generated future scenarios, terminal
+targets, VaR/ES, target P&L, and post-horizon facts are leakage. Before a large
+OpenAI relabeling run, use a small structured-output TestFlight and record the
+two document hashes, prompt version, model, token usage, validation errors, and
+output paths.
+
+Default rule for future work: every paper-facing, demo-facing, casebook,
+fixed-start conditionality, caption-to-embedding, or autoresearch narrative must
+pass the two-document professional narrative standard unless the user explicitly
+requests a legacy, smoke, or ablation narrative. Use
+`validate_professional_story` / `assert_professional_story` from
+`experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py` and record
+`allow_unqualified_narratives=True` in command/config/artifacts when deliberately
+opting out. Short demo-style prose is not acceptable for promoted results.
+
+The optional Codex caption route is now a gold-caption/evaluator lane, not a
+silent production default. Use `codex exec -m gpt-5.5 -c
+model_reasoning_effort='xhigh' --output-schema ...` only with the strict
+`RiskManagerCaptionV2` schema, leakage validator, and saved artifacts. The
+current evidence says Codex produces richer professional captions than the
+`gpt-5.4-mini` API TestFlight on a 3-case comparison, but it can also change
+the scenario archetype. Treat that as useful expert reinterpretation only after
+downstream support-selection and scenario-quality tests agree.
+
 The incumbent performance floor is the simple working mixture:
 `soft_topk_narrative_start_checked` / `narrative_generator_topk`. New methods
 must be benchmarked against this incumbent before promotion. A small regression
@@ -99,6 +348,51 @@ Current representative floor:
 
 This evidence makes the mixture a benchmark and backbone, not a disposable
 interpretability layer.
+
+## Reverse-Direction Caption-To-Scenario Gate
+
+The next principal caption experiment is the reverse direction:
+
+```text
+caption text + structured sidecar + fixed start
+-> text representation
+-> projected SNI terminal memory for support ranking
+-> diverse direction-checked historical support mixture
+-> component-preserving frozen SNI rollout
+-> held-out scenario metrics and qualitative conditionality plots
+```
+
+Run this first as a small TestFlight using matched windows with both API and
+Codex captions. The question is not whether the Codex caption reads better; the
+question is whether the richer caption and sidecar select better support,
+separate hard negatives, pass direction audits, and produce more useful
+narrative-conditioned scenario distributions.
+
+Required A/B factors:
+
+- caption provider: incumbent API caption versus Codex gold caption;
+- embedding model: `text-embedding-3-small` versus `text-embedding-3-large`;
+- representation: full training caption alone versus full caption plus
+  structured fields such as archetype, trigger, transmission, portfolio
+  vulnerability, ambiguity flags, and hard negatives;
+- support/posterior policy: incumbent diverse support mixture versus any new
+  support-coherence or component-posterior layer.
+
+Promotion requires downstream evidence. A better-looking caption or a larger
+embedding model is not enough unless it improves at least one of support
+selection quality, hard-negative margin, direction/support audits,
+fixed-start conditionality, or held-out CRPS/energy/coverage without degrading
+the working mixture floor.
+
+The first reverse-direction TestFlight (`916e`) confirms why this gate is
+necessary. Rich `risk_manager_caption_v2` captions beat the old generic demo
+narrative and substantially improve target-memory/support cosine, but exact
+simple fact-token strings remain stronger at scenario-level rollout. The next
+candidate should therefore not be "write prettier captions" alone. It should
+test a fused representation plus support-coherence/posterior policy: full
+risk-manager caption for nuance, structured mechanical fields for professional
+interpretation, explicit fact tokens for directional precision, and a support
+posterior that does not average away the narrative signal.
 
 ## Method Story And Backtest Gate
 
