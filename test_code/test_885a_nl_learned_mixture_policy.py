@@ -8,6 +8,7 @@ from experiments.backfill.block_ar.nl_learned_mixture_policy_testflight import (
     build_support_set_training_table,
     build_mixture_policy_training_table,
     fit_listwise_mixture_policy,
+    fit_kernel_listwise_mixture_policy,
     fit_linear_mixture_policy,
     fit_pairwise_mixture_ranker,
     fit_support_set_item_ranker,
@@ -483,3 +484,105 @@ def test_listwise_mixture_policy_rerank_writes_support_weights() -> None:
     assert row["support_policy"]["policy_kind"] == "listwise_mixture_policy"
     assert all("weight" in item for item in row["top_train_pool"])
     assert sum(item["weight"] for item in row["top_train_pool"]) == 1.0
+
+
+def test_kernel_listwise_policy_learns_query_relative_preferences() -> None:
+    features = np.asarray(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [2.0, 0.0],
+            [0.1, 1.0],
+            [1.1, 1.0],
+            [2.1, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    labels = np.asarray([0.0, 1.0, 0.0, 0.1, 1.1, 0.1], dtype=np.float32)
+    query_ids = ["q0", "q0", "q0", "q1", "q1", "q1"]
+
+    model = fit_kernel_listwise_mixture_policy(
+        features,
+        labels,
+        query_ids=query_ids,
+        feature_names=["position_like", "query_shift"],
+        k_neighbors=3,
+    )
+
+    scores = model.predict(
+        np.asarray(
+            [
+                [0.05, 3.0],
+                [1.05, 3.0],
+                [2.05, 3.0],
+            ],
+            dtype=np.float32,
+        )
+    )
+    assert scores[1] > scores[0]
+    assert scores[1] > scores[2]
+
+
+def test_kernel_listwise_policy_rerank_writes_soft_support_weights() -> None:
+    scenario_report = {
+        "window_scores": [
+            {
+                "query_id": "q0__mixture_001__a-b",
+                "methods": {
+                    "narrative_generator_topk": {"energy_score_z": 1.2},
+                },
+            },
+            {
+                "query_id": "q0__mixture_002__a-c",
+                "methods": {
+                    "narrative_generator_topk": {"energy_score_z": 0.7},
+                },
+            },
+        ]
+    }
+    condition_vectors = np.asarray([[1.0, 0.0]], dtype=np.float32)
+    memory_targets = np.asarray(
+        [[1.0, 0.0], [0.9, 0.1], [0.8, 0.2], [0.0, 1.0]],
+        dtype=np.float32,
+    )
+    history_level = np.zeros((4, 2, 3), dtype=np.float32)
+    table = build_mixture_policy_training_table(
+        candidate_bridge=_candidate_bridge(),
+        scenario_report=scenario_report,
+        condition_vectors=condition_vectors,
+        memory_targets=memory_targets,
+        history_level=history_level,
+    )
+    model = fit_kernel_listwise_mixture_policy(
+        table.features,
+        table.labels,
+        query_ids=[row["window_index"] for row in table.rows],
+        feature_names=table.feature_names,
+        k_neighbors=2,
+    )
+    base_bridge = {
+        "evaluation": {
+            "heldout_examples": [
+                {
+                    "window_index": 0,
+                    "window_id": "q0",
+                    "role": "anchor",
+                    "top_train_pool": [],
+                }
+            ]
+        }
+    }
+
+    reranked = rerank_bridge_report_with_mixture_policy(
+        bridge_report=base_bridge,
+        candidate_bridge=_candidate_bridge(),
+        condition_vectors=condition_vectors,
+        memory_targets=memory_targets,
+        history_level=history_level,
+        model=model,
+    )
+
+    row = reranked["evaluation"]["heldout_examples"][0]
+    assert row["support_policy"]["policy_kind"] == "kernel_listwise_mixture_policy"
+    assert all("weight" in item for item in row["top_train_pool"])
+    assert np.isclose(sum(item["weight"] for item in row["top_train_pool"]), 1.0)

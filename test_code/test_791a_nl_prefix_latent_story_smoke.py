@@ -12,7 +12,9 @@ from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
 from test_code.test_784a_nl_risk_manager_story_smoke import _grounding
 
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
+    _component_response_score,
     _render_markdown,
+    _response_preview_weights,
     annotate_variant_with_memory_prior,
     build_user_start_variant_row,
     build_live_story_variant_rows,
@@ -22,10 +24,13 @@ from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     load_user_start_state,
     narrative_text_for_query,
     query_start_state_for_variant,
+    response_channels_from_grounding,
     resolve_start_window_index,
     select_cached_story_query,
     user_start_support_summary,
     window_metadata_by_bridge_local_index,
+    window_metadata_by_local_index,
+    _load_support_bank,
 )
 
 
@@ -136,6 +141,59 @@ def test_window_metadata_by_bridge_local_index_uses_bridge_local_rows() -> None:
     assert metadata[1]["window_id"] == "joint39_val_0100"
     assert metadata[1]["window_index"] == 100
     assert metadata[1]["source_index"] == 4100
+
+
+def test_window_metadata_by_local_index_uses_support_bank_rows() -> None:
+    metadata = window_metadata_by_local_index(
+        [
+            {
+                "window_id": "joint39_train_0001",
+                "window_index": 1,
+                "source_index": 11,
+                "manifest_split": "support_train",
+                "calendar_end_date": "2010-01-04",
+            }
+        ]
+    )
+
+    assert metadata[0]["window_id"] == "joint39_train_0001"
+    assert metadata[0]["window_index"] == 1
+    assert metadata[0]["source_index"] == 11
+    assert metadata[0]["calendar"]["calendar_end_date"] == "2010-01-04"
+
+
+def test_load_support_bank_requires_and_loads_arrays(tmp_path) -> None:
+    report_path = tmp_path / "support_bank_report.json"
+    arrays_path = tmp_path / "support_bank_arrays.npz"
+    report_path.write_text(
+        json.dumps(
+            {
+                "window_metadata": [
+                    {"window_id": "joint39_train_0000", "window_index": 0}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    np.savez(
+        arrays_path,
+        memory_targets=np.zeros((1, 2), dtype=np.float32),
+        history_level=np.zeros((1, 2, 2), dtype=np.float32),
+        history_norm=np.zeros((1, 2, 2), dtype=np.float32),
+        center=np.zeros((1, 2), dtype=np.float32),
+        scale=np.ones((1, 2), dtype=np.float32),
+        drift_feature=np.zeros((1, 2), dtype=np.float32),
+        history_raw=np.zeros((1, 2, 2), dtype=np.float32),
+        future_raw=np.zeros((1, 2, 2), dtype=np.float32),
+        future_delta=np.zeros((1, 2, 2), dtype=np.float32),
+        train_indices=np.asarray([0], dtype=np.int64),
+        test_indices=np.asarray([0], dtype=np.int64),
+    )
+
+    bank = _load_support_bank(report_path=report_path, arrays_path=arrays_path)
+
+    assert bank["memory_targets"].shape == (1, 2)
+    assert bank["metadata"][0]["window_id"] == "joint39_train_0000"
 
 
 def test_load_user_start_state_accepts_values_by_name(tmp_path) -> None:
@@ -433,6 +491,146 @@ def test_generated_delta_samples_to_states_adds_current_state_per_variant() -> N
     assert states.shape == (2, 3, 4, 5)
     assert np.allclose(states[0, 0, 0], current[0] + 1.0)
     assert np.allclose(states[1, 2, 3], current[1] + 1.0)
+
+
+def test_response_channels_from_grounding_preserves_direction_and_fallbacks() -> None:
+    channels = response_channels_from_grounding(
+        grounding={
+            "condition_only_grounding": {
+                "current_market_state_implications": [
+                    {
+                        "market": "SPX",
+                        "direction": "down",
+                        "confidence": "high",
+                        "magnitude": "medium",
+                    }
+                ]
+            }
+        },
+        spec_names=["factor:spx", "factor:vix"],
+    )
+
+    assert channels[0]["factor"] == "factor:spx"
+    assert channels[0]["sign"] == -1.0
+    assert any(
+        row["factor"] == "factor:vix" and row["direction"] == "activation"
+        for row in channels
+    )
+
+
+def test_response_preview_weights_shifts_toward_higher_response_score() -> None:
+    weights, z = _response_preview_weights(
+        base_weights=np.asarray([0.5, 0.5], dtype=np.float32),
+        response_scores=np.asarray([0.0, 2.0], dtype=np.float32),
+        alpha=1.0,
+        temperature=1.0,
+        blend=1.0,
+    )
+
+    assert weights[1] > weights[0]
+    assert z[1] > z[0]
+    np.testing.assert_allclose(weights.sum(), 1.0)
+
+
+def test_response_preview_weights_can_bound_update_around_base_weights() -> None:
+    full, _ = _response_preview_weights(
+        base_weights=np.asarray([0.8, 0.2], dtype=np.float32),
+        response_scores=np.asarray([0.0, 3.0], dtype=np.float32),
+        alpha=1.0,
+        temperature=1.0,
+        blend=1.0,
+    )
+    bounded, _ = _response_preview_weights(
+        base_weights=np.asarray([0.8, 0.2], dtype=np.float32),
+        response_scores=np.asarray([0.0, 3.0], dtype=np.float32),
+        alpha=1.0,
+        temperature=1.0,
+        blend=0.25,
+    )
+
+    assert bounded[0] > full[0]
+    assert bounded[1] < full[1]
+
+
+def test_component_response_score_rewards_signed_terminal_move() -> None:
+    start = np.asarray([100.0, 20.0], dtype=np.float32)
+    up_states = np.zeros((3, 2, 2), dtype=np.float32)
+    down_states = np.zeros((3, 2, 2), dtype=np.float32)
+    up_states[:, :, 0] = np.asarray([[100.0, 104.0], [100.0, 105.0], [100.0, 106.0]])
+    down_states[:, :, 0] = np.asarray([[100.0, 96.0], [100.0, 95.0], [100.0, 94.0]])
+    channels = [{"index": 0, "sign": 1.0, "weight": 1.0}]
+
+    assert _component_response_score(
+        component_states=up_states,
+        start_raw=start,
+        channels=channels,
+    ) > _component_response_score(
+        component_states=down_states,
+        start_raw=start,
+        channels=channels,
+    )
+
+
+def test_component_response_score_factor_portfolio_rewards_tail_activation() -> None:
+    start = np.asarray([100.0, 20.0], dtype=np.float32)
+    calm_states = np.zeros((3, 2, 2), dtype=np.float32)
+    wide_states = np.zeros((3, 2, 2), dtype=np.float32)
+    calm_states[:, :, 0] = np.asarray(
+        [[100.0, 104.0], [100.0, 104.0], [100.0, 104.0]]
+    )
+    calm_states[:, :, 1] = 20.0
+    wide_states[:, :, 0] = calm_states[:, :, 0]
+    wide_states[:, :, 1] = np.asarray(
+        [[20.0, 12.0], [20.0, 20.0], [20.0, 30.0]]
+    )
+    channels = [{"index": 0, "sign": 1.0, "weight": 1.0}]
+    spec_names = ["factor:spx", "factor:vix"]
+
+    assert _component_response_score(
+        component_states=wide_states,
+        start_raw=start,
+        channels=channels,
+        objective="factor_portfolio",
+        spec_names=spec_names,
+    ) > _component_response_score(
+        component_states=calm_states,
+        start_raw=start,
+        channels=channels,
+        objective="factor_portfolio",
+        spec_names=spec_names,
+    )
+
+
+def test_component_response_score_channel_portfolio_rewards_joint_signed_move() -> None:
+    start = np.asarray([100.0, 20.0], dtype=np.float32)
+    aligned_states = np.zeros((3, 2, 2), dtype=np.float32)
+    mixed_states = np.zeros((3, 2, 2), dtype=np.float32)
+    aligned_states[:, :, 0] = np.asarray(
+        [[100.0, 105.0], [100.0, 106.0], [100.0, 107.0]]
+    )
+    aligned_states[:, :, 1] = np.asarray(
+        [[20.0, 18.0], [20.0, 17.0], [20.0, 16.0]]
+    )
+    mixed_states[:, :, 0] = aligned_states[:, :, 0]
+    mixed_states[:, :, 1] = np.asarray(
+        [[20.0, 22.0], [20.0, 23.0], [20.0, 24.0]]
+    )
+    channels = [
+        {"index": 0, "sign": 1.0, "weight": 1.0},
+        {"index": 1, "sign": -1.0, "weight": 1.0},
+    ]
+
+    assert _component_response_score(
+        component_states=aligned_states,
+        start_raw=start,
+        channels=channels,
+        objective="channel_portfolio",
+    ) > _component_response_score(
+        component_states=mixed_states,
+        start_raw=start,
+        channels=channels,
+        objective="channel_portfolio",
+    )
 
 
 def test_build_live_story_condition_memory_uses_embedder_and_adapter() -> None:

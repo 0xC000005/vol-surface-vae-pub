@@ -9,6 +9,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_start_conditioned_bakeoff im
     oracle_select_best_rows,
     render_markdown,
     row_from_report,
+    run_bakeoff,
     selected_historical_cases,
     selected_variants,
     summarize_oracle_selection,
@@ -79,6 +80,7 @@ def test_selected_variants_supports_direction_check_set() -> None:
 
     assert rows[0]["memory_prior_mode"] == "soft_topk_narrative_start_checked"
     assert rows[0]["generator_temperature"] == 0.5
+    assert rows[0]["rollout_mixture_mode"] == "averaged_prefix"
 
 
 def test_selected_variants_supports_control_sets() -> None:
@@ -93,6 +95,42 @@ def test_selected_variants_supports_control_sets() -> None:
     ]
 
 
+def test_selected_variants_supports_component_sets() -> None:
+    narrative = selected_variants(1, variant_set="component_direction_check")
+    temperature = selected_variants(3, variant_set="component_support_temperature")
+    generator_temperature = selected_variants(
+        3,
+        variant_set="component_generator_temperature",
+    )
+    start_only = selected_variants(1, variant_set="component_start_only_control")
+    start_only_generator_temperature = selected_variants(
+        1,
+        variant_set="component_start_only_generator_temperature",
+    )
+
+    assert narrative[0]["rollout_mixture_mode"] == "component_prefix_mixture"
+    assert narrative[0]["memory_prior_mode"] == "soft_topk_narrative_start_checked"
+    assert [row["temperature"] for row in temperature] == [0.2, 0.1, 0.05]
+    assert {
+        row["rollout_mixture_mode"] for row in temperature
+    } == {"component_prefix_mixture"}
+    assert [row["generator_temperature"] for row in generator_temperature] == [
+        0.25,
+        0.5,
+        0.75,
+    ]
+    assert {
+        row["rollout_mixture_mode"] for row in generator_temperature
+    } == {"component_prefix_mixture"}
+    assert start_only[0]["rollout_mixture_mode"] == "component_prefix_mixture"
+    assert start_only[0]["memory_prior_mode"] == "soft_topk_start_only"
+    assert start_only_generator_temperature[0]["generator_temperature"] == 0.25
+    assert (
+        start_only_generator_temperature[0]["rollout_mixture_mode"]
+        == "component_prefix_mixture"
+    )
+
+
 def test_row_from_report_extracts_operational_metrics() -> None:
     row = row_from_report(
         case={
@@ -104,6 +142,7 @@ def test_row_from_report_extracts_operational_metrics() -> None:
             "variant_name": "decoder_soft_topk_combined",
             "memory_prior_mode": "soft_topk_combined",
             "prefix_prior_mode": "decoder",
+            "rollout_mixture_mode": "averaged_prefix",
             "top_k": 8,
             "temperature": 0.2,
             "generator_temperature": 0.75,
@@ -152,6 +191,7 @@ def test_row_from_report_extracts_operational_metrics() -> None:
     assert row["target_available"] is True
     assert row["run_report"] == "run.json"
     assert row["generator_temperature"] == 0.75
+    assert row["rollout_mixture_mode"] == "averaged_prefix"
     assert row["memory_prior_direction_status"] == "pass"
     assert row["memory_prior_support_weighted_match_rate"] == 0.875
     assert np.isclose(row["scenario_metrics"]["energy_score_z"], 4.0)
@@ -272,6 +312,66 @@ def test_summarize_oracle_selection_reports_upper_bound_metrics() -> None:
     assert summary["chosen_variant_counts"] == {"b": 1}
     assert np.isclose(summary["mean_ensemble_crps_z"], 0.5)
     assert np.isclose(summary["mean_crps_improvement_vs_persistence"], 0.2)
+
+
+def test_run_bakeoff_sets_explicit_seed(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_run_prefix_latent_story_smoke(args):
+        captured["seed"] = args.seed
+        captured["rollout_mixture_mode"] = args.rollout_mixture_mode
+        return {
+            "artifact_paths": {"report": str(tmp_path / "run.json")},
+            "validation_gate": {
+                "operational_status": "pass",
+                "overall_status": "pass",
+            },
+            "variant_rows": [
+                {
+                    "variant": "explicit_start",
+                    "is_operational": True,
+                    "start_window_index": 18,
+                }
+            ],
+            "generation": {"window_scores": []},
+        }
+
+    monkeypatch.setattr(
+        "experiments.backfill.block_ar.nl_prefix_latent_start_conditioned_bakeoff.run_prefix_latent_story_smoke",
+        fake_run_prefix_latent_story_smoke,
+    )
+    case_spec = tmp_path / "cases.json"
+    case_spec.write_text(
+        json.dumps(
+            [
+                {
+                    "case_name": "fragile",
+                    "start_name": "fixed_start_18",
+                    "condition_report": "condition.json",
+                    "candidate_index": 18,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    class Args:
+        output_dir = str(tmp_path / "out")
+        case_count = 1
+        case_set = "default"
+        case_spec_json = str(case_spec)
+        variant_count = 1
+        variant_set = "component_direction_check"
+        samples = 2
+        steps = 1
+        chunk_size = 2
+        device = "cpu"
+        seed = 1234
+
+    run_bakeoff(Args())
+
+    assert captured["seed"] == 1234
+    assert captured["rollout_mixture_mode"] == "component_prefix_mixture"
 
 
 def test_render_markdown_lists_variant_and_case_rows() -> None:

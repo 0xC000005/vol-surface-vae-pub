@@ -4,10 +4,14 @@ from types import SimpleNamespace
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (
+    UnqualifiedNarrativeError,
+    assert_professional_story,
     build_case_command,
     default_casebook_stories,
+    professional_story_standard_metadata,
     select_casebook_stories,
     summarize_case_report,
+    validate_professional_story,
 )
 
 
@@ -18,6 +22,43 @@ def test_default_casebook_stories_are_story_like() -> None:
     assert all("story" in item and "name" in item for item in stories)
     assert any("risk-on" in item["story"] for item in stories)
     assert any(item["name"] == "commodity_inflation_pressure" for item in stories)
+    assert all(not validate_professional_story(item["story"]) for item in stories)
+    assert all("Warning-only forward risk:" in item["story"] for item in stories)
+
+
+def test_casebook_professional_standard_references_both_source_documents() -> None:
+    metadata = professional_story_standard_metadata()
+    docs = metadata["source_documents"]
+
+    assert len(docs) == 2
+    assert any(
+        "quant generated scenarios story narrative.docx" in doc["path"] for doc in docs
+    )
+    assert any(
+        "quant generated scenarios story narrative 2.docx" in doc["path"]
+        for doc in docs
+    )
+    assert all(len(doc["sha256"]) == 64 for doc in docs)
+    assert "mechanical summary" in metadata["rubric_text"].lower()
+
+
+def test_unqualified_story_requires_explicit_opt_out() -> None:
+    bad_story = "This is a short old-style narrative."
+
+    try:
+        assert_professional_story(bad_story, context="unit_test")
+    except UnqualifiedNarrativeError as error:
+        assert "unit_test is not risk-manager qualified" in str(error)
+        assert "Scenario title:" in str(error)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("expected UnqualifiedNarrativeError")
+
+    missing = assert_professional_story(
+        bad_story,
+        context="unit_test",
+        allow_unqualified=True,
+    )
+    assert "Scenario title:" in missing
 
 
 def test_select_casebook_stories_supports_named_testflight() -> None:

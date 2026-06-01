@@ -24,6 +24,16 @@ def test_plot_trace_count_handles_plotly_payload() -> None:
     assert smoke._plot_trace_count(object()) == 0
 
 
+def test_update_value_reads_gradio_update_dict() -> None:
+    assert (
+        smoke._update_value(
+            {"choices": [["Selected", "RANK_2"]], "value": "RANK_2"}, "ALL"
+        )
+        == "RANK_2"
+    )
+    assert smoke._update_value({"choices": [["All", "ALL"]]}, "ALL") == "ALL"
+
+
 def test_resolve_client_auth_defaults_to_none() -> None:
     args = SimpleNamespace()
 
@@ -104,6 +114,15 @@ def test_run_gradio_api_smoke_uses_live_fixed_start_endpoint(
                                 "condition_only_validation": {
                                     "status": "pass",
                                     "forward_warning_count": 1,
+                                }
+                            },
+                            "generation": {
+                                "narrative_ensemble_calibration": {
+                                    "applied": True,
+                                    "mode": "support_gated_directional_delta_calibration",
+                                    "effective_beta": 0.25,
+                                    "support_gate": 1.0,
+                                    "active_direction_count": 1,
                                 }
                             },
                             "artifact_paths": {
@@ -189,6 +208,12 @@ def test_run_gradio_api_smoke_uses_live_fixed_start_endpoint(
     assert summary["fan_trace_count"] == 8
     assert summary["redraw_trace_count"] == 8
     assert summary["prefix_run_record_path"] == "prefix_run_record.json"
+    assert summary["prefix_report_snapshot_path"].endswith(
+        "prefix_report_snapshot.json"
+    )
+    assert summary["prefix_markdown_snapshot_path"].endswith(
+        "prefix_report_snapshot.md"
+    )
     assert summary["support_candidate_count"] == 1
     assert summary["support_top_candidates"][0]["window_id"] == "joint39_val_0036"
     assert summary["market_implications"][0]["market"] == "GOLD"
@@ -199,6 +224,8 @@ def test_run_gradio_api_smoke_uses_live_fixed_start_endpoint(
     )
     assert calls[1] == ("/refresh_fan_chart", ("IV_ATM_3M", "ALL"))
     assert (tmp_path / "gradio_api_smoke_summary.json").exists()
+    assert (tmp_path / "prefix_report_snapshot.json").exists()
+    assert (tmp_path / "prefix_report_snapshot.md").exists()
 
 
 def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None:
@@ -227,6 +254,15 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
                                 "condition_only_validation": {
                                     "status": "pass",
                                     "forward_warning_count": 1,
+                                }
+                            },
+                            "generation": {
+                                "narrative_ensemble_calibration": {
+                                    "applied": True,
+                                    "mode": "support_gated_directional_delta_calibration",
+                                    "effective_beta": 0.25,
+                                    "support_gate": 1.0,
+                                    "active_direction_count": 1,
                                 }
                             },
                             "cached_query": {
@@ -312,5 +348,224 @@ def test_run_gradio_api_smoke_live_condition_only(monkeypatch, tmp_path) -> None
     assert summary["condition_only_forward_warning_count"] == 1
     assert summary["support_candidate_count"] == 1
     assert summary["condition_report_path"] == "condition_report.json"
+    assert (tmp_path / "prefix_report_snapshot.json").exists()
+    assert summary["narrative_calibration_applied"] is True
+    assert summary["narrative_calibration_effective_beta"] == 0.25
     assert summary["forward_warnings"][0]["phrase"] == "forward risk"
     assert summary["status"] == "ok"
+
+
+def test_run_gradio_api_smoke_can_allow_warning_level_selected_start(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class FakeClient:
+        def __init__(self, url: str):
+            self.url = url
+
+        def predict(self, *args, api_name: str):
+            if api_name == "/run_live_openai_prefix_for_app":
+                return (
+                    "report markdown",
+                    "## Scenario Workflow Status\n\n- Story support: `warning`",
+                    _frame(1),
+                    _frame(1),
+                    _frame(2),
+                    _frame(11),
+                    _plot(8),
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "condition_only_case": {
+                                "condition_only_validation": {
+                                    "status": "pass",
+                                    "forward_warning_count": 1,
+                                }
+                            },
+                            "generation": {
+                                "narrative_ensemble_calibration": {
+                                    "applied": True,
+                                    "mode": "support_gated_directional_delta_calibration",
+                                    "effective_beta": 0.25,
+                                    "support_gate": 1.0,
+                                    "active_direction_count": 1,
+                                }
+                            },
+                            "cached_query": {
+                                "condition_source": "external_condition_report",
+                                "embedding_metadata": {
+                                    "embedding_dim": 1536,
+                                    "condition_dim": 128,
+                                },
+                                "grounding": {
+                                    "market_implications": [
+                                        {
+                                            "market": "SPX",
+                                            "direction": "up",
+                                            "target_use": "support_prior",
+                                        }
+                                    ],
+                                    "non_conditioning_forward_language": [
+                                        {"phrase": "forward risk"}
+                                    ],
+                                },
+                                "memory_prior": {
+                                    "mode": "diverse_topk_narrative_start_checked",
+                                    "support_alignment": {"status": "pass"},
+                                    "candidate_details": [
+                                        {
+                                            "rank": 1,
+                                            "window_id": "joint39_val_0033",
+                                            "weight": 1.0,
+                                        }
+                                    ],
+                                },
+                            },
+                            "validation_gate": {
+                                "selected_start_status": "warning",
+                                "diagnostic_baseline_status": "pass",
+                                "overall_status": "warning",
+                            },
+                        }
+                    ),
+                    {"choices": [["Selected", "RANK_1"]], "value": "RANK_1"},
+                    _frame(5),
+                    _frame(2),
+                    _frame(5),
+                    _frame(8),
+                    _frame(8),
+                    _frame(0),
+                    {"choices": [["joint39_val_0033", "17"]]},
+                )
+            if api_name == "/refresh_fan_chart":
+                return _plot(8)
+            raise AssertionError(f"unexpected api_name: {api_name}")
+
+    monkeypatch.setattr(smoke, "_client_class", lambda: FakeClient)
+
+    summary = smoke.run_gradio_api_smoke(
+        SimpleNamespace(
+            url="http://127.0.0.1:7861",
+            output_dir=str(tmp_path),
+            mode="live_condition_only",
+            story="Fragile risk-on story with forward risk.",
+            expected_start_index=0,
+            samples=2,
+            fan_market="SPX",
+            redraw_market="IV_ATM_3M",
+            allow_start_warning=True,
+        )
+    )
+
+    assert summary["status"] == "ok"
+    assert summary["selected_start_status"] == "warning"
+    assert summary["overall_status"] == "warning"
+
+
+def test_run_gradio_api_smoke_can_allow_non_leaking_condition_warning(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class FakeClient:
+        def __init__(self, url: str):
+            self.url = url
+
+        def predict(self, *args, api_name: str):
+            if api_name == "/run_live_openai_prefix_for_app":
+                return (
+                    "report markdown",
+                    "## Scenario Workflow Status\n\n- Story support: `pass`",
+                    _frame(1),
+                    _frame(1),
+                    _frame(2),
+                    _frame(11),
+                    _plot(8),
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "condition_only_case": {
+                                "condition_only_validation": {
+                                    "status": "warning",
+                                    "forward_warning_count": 1,
+                                    "future_target_count": 0,
+                                    "forward_warning_leakage_count": 0,
+                                    "reasons": ["condition_role_errors"],
+                                }
+                            },
+                            "generation": {
+                                "narrative_ensemble_calibration": {
+                                    "applied": True,
+                                    "effective_beta": 0.25,
+                                    "support_gate": 1.0,
+                                    "active_direction_count": 1,
+                                }
+                            },
+                            "cached_query": {
+                                "condition_source": "external_condition_report",
+                                "embedding_metadata": {
+                                    "embedding_dim": 1536,
+                                    "condition_dim": 128,
+                                },
+                                "grounding": {
+                                    "market_implications": [
+                                        {
+                                            "market": "BBB_OAS",
+                                            "direction": "tighter",
+                                            "target_use": "support_prior",
+                                        }
+                                    ],
+                                    "non_conditioning_forward_language": [
+                                        {"phrase": "forward risk"}
+                                    ],
+                                },
+                                "memory_prior": {
+                                    "mode": "diverse_topk_narrative_start_checked",
+                                    "support_alignment": {"status": "pass"},
+                                    "candidate_details": [
+                                        {
+                                            "rank": 1,
+                                            "window_id": "joint39_val_0036",
+                                            "weight": 1.0,
+                                        }
+                                    ],
+                                },
+                            },
+                            "validation_gate": {
+                                "selected_start_status": "pass",
+                                "diagnostic_baseline_status": "pass",
+                                "overall_status": "pass",
+                            },
+                        }
+                    ),
+                    {"choices": [["Selected", "RANK_1"]], "value": "RANK_1"},
+                    _frame(5),
+                    _frame(2),
+                    _frame(5),
+                    _frame(8),
+                    _frame(8),
+                    _frame(0),
+                    {"choices": [["joint39_val_0036", "18"]]},
+                )
+            if api_name == "/refresh_fan_chart":
+                return _plot(8)
+            raise AssertionError(f"unexpected api_name: {api_name}")
+
+    monkeypatch.setattr(smoke, "_client_class", lambda: FakeClient)
+
+    summary = smoke.run_gradio_api_smoke(
+        SimpleNamespace(
+            url="http://127.0.0.1:7861",
+            output_dir=str(tmp_path),
+            mode="live_condition_only",
+            story="Fragile risk-on story with forward risk.",
+            expected_start_index=18,
+            samples=2,
+            fan_market="SPX",
+            redraw_market="IV_ATM_3M",
+            allow_condition_warning=True,
+        )
+    )
+
+    assert summary["status"] == "ok"
+    assert summary["condition_only_validation_status"] == "warning"
+    assert summary["allow_condition_warning"] is True

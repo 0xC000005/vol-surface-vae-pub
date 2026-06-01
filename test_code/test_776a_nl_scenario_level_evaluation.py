@@ -9,6 +9,7 @@ from experiments.backfill.block_ar.nl_scenario_level_evaluation import (
     bridge_local_to_block_indices,
     bridge_report_arrays_path,
     build_support_sampling_plan,
+    common_random_seed_for_query,
     direct_memory_condition_for_query,
     future_delta_paths,
     memory_residual_method_name,
@@ -142,6 +143,24 @@ def test_memory_residual_method_name_is_stable_for_report_keys() -> None:
     assert memory_residual_method_name("narrative_residual_memory", 0.25) == (
         "narrative_residual_memory_a025"
     )
+
+
+def test_common_random_seed_is_shared_by_duplicate_query_candidates() -> None:
+    left = common_random_seed_for_query(
+        {"window_index": 17, "query_id": "candidate_a"},
+        base_seed=8128,
+    )
+    right = common_random_seed_for_query(
+        {"window_index": 17, "query_id": "candidate_b"},
+        base_seed=8128,
+    )
+    other = common_random_seed_for_query(
+        {"window_index": 18, "query_id": "candidate_a"},
+        base_seed=8128,
+    )
+
+    assert left == right
+    assert left != other
 
 
 def test_future_delta_paths_subtracts_last_history_state() -> None:

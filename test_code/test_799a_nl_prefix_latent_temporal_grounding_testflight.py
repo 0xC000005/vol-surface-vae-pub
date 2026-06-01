@@ -13,6 +13,9 @@ from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testfligh
     split_story_for_conditioning,
     validate_condition_only_grounding_result,
 )
+from experiments.backfill.block_ar.nl_prefix_latent_live_casebook import (
+    default_casebook_stories,
+)
 
 
 def _condition_grounding() -> ConditionOnlyGroundingResult:
@@ -117,6 +120,47 @@ def test_split_story_for_conditioning_moves_future_sentence_to_warning_only() ->
     ]
 
 
+def test_split_story_for_conditioning_handles_professional_sections() -> None:
+    story = next(
+        item["story"]
+        for item in default_casebook_stories()
+        if item["name"] == "defensive_risk_off_shock"
+    )
+
+    split = split_story_for_conditioning(story)
+
+    conditioning_text = " ".join(split["conditioning_sentences"])
+    forward_text = " ".join(split["non_conditioning_forward_sentences"])
+    audit_text = " ".join(split["audit_only_sentences"])
+
+    assert "Mechanical summary:" in conditioning_text
+    assert "Cross-asset reaction:" in conditioning_text
+    assert "Warning-only forward risk:" in forward_text
+    assert "Portfolio/risk implication:" in audit_text
+    assert "No-forecast caveat:" in audit_text
+    assert "Scenario title:" in audit_text
+    assert "Portfolio/risk implication:" not in forward_text
+    assert "No-forecast caveat:" not in forward_text
+
+
+def test_split_story_for_conditioning_keeps_modal_current_reaction_section() -> None:
+    story = next(
+        item["story"]
+        for item in default_casebook_stories()
+        if item["name"] == "safe_haven_gold_bid"
+    )
+
+    split = split_story_for_conditioning(story)
+
+    conditioning_text = " ".join(split["conditioning_sentences"])
+    forward_text = " ".join(split["non_conditioning_forward_sentences"])
+
+    assert "Cross-asset reaction:" in conditioning_text
+    assert "DXY is mixed" in conditioning_text
+    assert "Cross-asset reaction:" not in forward_text
+    assert "Warning-only forward risk:" in forward_text
+
+
 def test_validate_condition_only_grounding_result_accepts_conditioning_only() -> None:
     validation = validate_condition_only_grounding_result(_condition_grounding())
 
@@ -170,6 +214,42 @@ def test_validate_condition_only_grounding_result_flags_warning_phrase_reuse() -
     assert (
         validation["forward_warning_leakage"][0]["field"] == "cleaned_conditioning_text"
     )
+
+
+def test_validate_condition_only_grounding_allows_shared_market_context_words() -> None:
+    grounding = _condition_grounding().model_copy(deep=True)
+    grounding.non_conditioning_forward_language[0].phrase = (
+        "a volatility reversal could unwind the rebound"
+    )
+    grounding.cleaned_conditioning_text = (
+        "Current support is a fragile risk-on rebound with equities recovering, "
+        "volatility compressing, and credit spreads stabilizing."
+    )
+
+    validation = validate_condition_only_grounding_result(grounding)
+
+    assert validation["status"] == "pass"
+    assert validation["forward_warning_leakage_count"] == 0
+
+
+def test_validate_condition_only_grounding_allows_shared_macro_context_words() -> None:
+    grounding = _condition_grounding().model_copy(deep=True)
+    grounding.non_conditioning_forward_language[0].phrase = (
+        "persistent inflation concern could keep financial conditions tight"
+    )
+    grounding.recent_regime_summary = (
+        "The recent regime reflects inflation concern and tighter financial "
+        "conditions."
+    )
+    grounding.cleaned_conditioning_text = (
+        "Current support is a commodity inflation pressure state with inflation "
+        "concern tightening financial conditions."
+    )
+
+    validation = validate_condition_only_grounding_result(grounding)
+
+    assert validation["status"] == "pass"
+    assert validation["forward_warning_leakage_count"] == 0
 
 
 def test_condition_query_text_excludes_future_target_section() -> None:

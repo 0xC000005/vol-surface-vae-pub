@@ -4,12 +4,18 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     APP_CSS,
+    DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS,
+    DEFAULT_PREFIX_SUPPORT_BANK_REPORT,
     DEFAULT_STORY,
     DEMO_TABLE_CLASS,
+    apply_live_top3_90_posterior_ensemble,
+    apply_live_support_gated_ensemble_calibration,
     analogues_table,
     analogue_scope_choices,
     boss_demo_live_casebook_table,
@@ -31,8 +37,11 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     prefix_latent_status_markdown,
     prefix_latent_product_status_markdown,
     prefix_trust_interpretation,
+    prefix_visible_warning_lines,
     preview_start_state_json,
     prefix_selected_start_table,
+    recommended_narrative_choices,
+    recommended_narrative_text,
     prefix_shift_factor_table,
     prefix_start_candidates_table,
     prefix_user_start_table,
@@ -46,6 +55,7 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     preview_live_openai_start_for_app,
     run_prefix_latent_for_app,
     run_story_for_app,
+    scenario_summary_html,
     scenario_table,
     status_markdown,
     validation_gate_markdown,
@@ -54,6 +64,9 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
 )
 from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testflight import (
     ConditionOnlyGroundingResult,
+)
+from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
+    _allocate_weighted_sample_counts,
 )
 
 
@@ -203,6 +216,14 @@ def _boss_pack() -> dict:
                 }
             ],
         },
+        "fixed_start_caption_audit_snapshot": {
+            "status": "pass",
+            "professional_minus_start_only": {
+                "factor_terminal_ks": 0.2611,
+                "portfolio_terminal_ks": 0.3750,
+            },
+            "professional_minus_simple": {"path_energy": 4.4262},
+        },
     }
 
 
@@ -240,6 +261,16 @@ def _prefix_report() -> dict:
                 "grounding_warnings": [],
             },
             "memory_prior": {
+                "support_diversity_policy": {
+                    "policy": "direction_checked_latent_temporal_diverse_support",
+                    "requested_top_k": 8,
+                    "selected_count": 4,
+                    "direction_gate": True,
+                    "latent_max_pairwise_cosine": 0.95,
+                    "temporal_min_index_gap": 30,
+                    "temporal_non_overlap_enforced": True,
+                    "padding_with_temporal_overlaps": False,
+                },
                 "candidate_details": [
                     {
                         "rank": 1,
@@ -256,7 +287,7 @@ def _prefix_report() -> dict:
                         "recent_prefix_checked": 5,
                         "combined_score": 0.73,
                     }
-                ]
+                ],
             },
         },
         "variant_rows": [
@@ -358,6 +389,7 @@ def _prefix_report() -> dict:
             "generated_state_shape": [2, 16, 30, 39],
             "finite_rate": 1.0,
             "rollout_temperature": 0.5,
+            "rollout_fan_scale": 3.5,
             "sample_count": 16,
             "window_scores": [
                 {
@@ -393,6 +425,17 @@ def _prefix_report() -> dict:
                     "p50": [0.3, 0.5],
                     "p90": [0.8, 1.1],
                     "mean": [0.4, 0.6],
+                },
+                {
+                    "market": "SPX",
+                    "display_name": "SPX",
+                    "analogue_key": "RANK_2",
+                    "analogue_label": "Selected start: joint39_val_0269",
+                    "days": [1, 2],
+                    "p10": [-0.5, -0.6],
+                    "p50": [0.4, 0.7],
+                    "p90": [1.2, 1.5],
+                    "mean": [0.5, 0.8],
                 },
             ],
             "terminal_delta_summary": [
@@ -492,6 +535,12 @@ def test_demo_places_product_workflow_before_diagnostics() -> None:
     assert "All retrieved analogues" not in source
     assert "Scenario samples" not in source
     assert "Validate Starting Level" not in source
+    assert "Recommended narrative examples" in source
+    assert "Reliability-checked demo starts" not in source
+    assert "Grounded current/recent market claims" in source
+    assert "Selected support regimes" in source
+    assert "top3/90" in source
+    assert "support ensemble" in source
     assert "prefix_preview_button" not in source
     assert "preview_live_openai_start_for_app" not in source
     assert "validate it, then generate" not in source
@@ -501,16 +550,171 @@ def test_demo_places_product_workflow_before_diagnostics() -> None:
     assert "## Main Workflow" in source
 
 
+def test_recommended_narrative_examples_fill_story_without_cached_casebook() -> None:
+    choices = recommended_narrative_choices()
+    labels = [label for label, _value in choices]
+
+    assert labels[0] == "Type my own narrative"
+    assert "Defensive risk-off shock" in labels
+    assert "Safe-haven gold bid" in labels
+    assert recommended_narrative_text("", "my custom story") == "my custom story"
+    selected = recommended_narrative_text("dollar_liquidity_squeeze", "")
+    assert "Dollar liquidity squeeze" in selected
+    assert "Mechanical summary:" in selected
+    assert "No-forecast caveat:" in selected
+    assert "will" not in selected.lower()
+
+
 def test_table_formatters_expose_demo_evidence() -> None:
     report = _report()
+    prefix_report = _prefix_report()
+    prefix_report["generation"]["start_only_baseline"] = {
+        "terminal_delta_summary": [
+            {
+                "market": "SPX",
+                "mean_terminal_delta": 10.0,
+                "p10": -5.0,
+                "p90": 25.0,
+            }
+        ]
+    }
 
     assert implications_table(report).iloc[0]["Market"] == "SPX"
     assert warnings_table(report).iloc[0]["Code"] == "interpretive_phrase"
     assert analogues_table(report).iloc[0]["Implication Match"] == "0.670"
     assert scenario_table(report).iloc[0]["Market"] == "SPX"
-    assert "Starting Level" in scenario_table(_prefix_report()).columns
-    assert scenario_table(_prefix_report()).iloc[0]["Starting Level"] == "joint39_val_0269"
-    assert scenario_table(_prefix_report()).iloc[0]["Start Value"] == "4200.000"
+    prefix_scenario = scenario_table(prefix_report)
+    assert list(prefix_scenario.columns) == [
+        "Market",
+        "Baseline View",
+        "Baseline Path Count",
+        "Baseline Mean Move",
+        "Narrative View",
+        "Narrative Path Count",
+        "Narrative Mean Move",
+        "30d Change vs Baseline",
+    ]
+    assert prefix_scenario.iloc[0]["Market"] == "SPX"
+    assert prefix_scenario.iloc[0]["Baseline View"] == "Up"
+    assert prefix_scenario.iloc[0]["Baseline Path Count"] == "n/a"
+    assert prefix_scenario.iloc[0]["Baseline Mean Move"] == "+10 pts / +0.9σ"
+    assert prefix_scenario.iloc[0]["Narrative View"] == "Down"
+    assert prefix_scenario.iloc[0]["Narrative Path Count"] == "n/a"
+    assert prefix_scenario.iloc[0]["Narrative Mean Move"] == "-52 pts / -1.1σ"
+    assert prefix_scenario.iloc[0]["30d Change vs Baseline"] == "More down than baseline"
+    summary_html = scenario_summary_html(prefix_report)
+    assert 'class="demo-dir demo-dir-down"' in summary_html
+    assert '<span class="demo-dir-arrow">↓</span> Down' in summary_html
+    flat_report = {
+        "generation": {
+            "terminal_delta_summary": [
+                {
+                    "market": "VIX",
+                    "mean_terminal_delta": 0.0,
+                    "p10": -1.0,
+                    "p90": 1.0,
+                }
+            ],
+            "start_only_baseline": {
+                "terminal_delta_summary": [
+                    {
+                        "market": "VIX",
+                        "mean_terminal_delta": 0.0,
+                        "p10": -1.0,
+                        "p90": 1.0,
+                    }
+                ]
+            },
+        }
+    }
+    assert scenario_table(flat_report).iloc[0]["Narrative View"] == "-"
+    assert '<span class="demo-dir-arrow">-</span></span>' in scenario_summary_html(
+        flat_report
+    )
+    less_down_report = {
+        "generation": {
+            "terminal_delta_summary": [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": -5.0,
+                    "p10": -20.0,
+                    "p90": 10.0,
+                }
+            ],
+            "start_only_baseline": {
+                "terminal_delta_summary": [
+                    {
+                        "market": "SPX",
+                        "mean_terminal_delta": -12.0,
+                        "p10": -27.0,
+                        "p90": 3.0,
+                    }
+                ]
+            },
+        }
+    }
+    less_down = scenario_table(less_down_report)
+    assert less_down.iloc[0]["Baseline View"] == "Down"
+    assert less_down.iloc[0]["Narrative View"] == "Down"
+    assert less_down.iloc[0]["Narrative Path Count"] == "n/a"
+    assert less_down.iloc[0]["Narrative Mean Move"] == "-5 pts / -0.4σ"
+    assert less_down.iloc[0]["30d Change vs Baseline"] == "Less down than baseline"
+    less_down_html = scenario_summary_html(less_down_report)
+    assert 'class="demo-dir demo-dir-moderate"' in less_down_html
+    assert '<span class="demo-dir-arrow">↓</span> Less down than baseline' in less_down_html
+    assert "Less down than baseline" in less_down_html
+    probability_report = {
+        "generation": {
+            "terminal_delta_summary": [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": 1.0,
+                    "p10": -1.0,
+                    "p90": 5.0,
+                    "terminal_probability_up": 0.82,
+                    "terminal_probability_down": 0.18,
+                }
+            ],
+            "start_only_baseline": {
+                "terminal_delta_summary": [
+                    {
+                        "market": "SPX",
+                        "mean_terminal_delta": -2.0,
+                        "p10": -7.0,
+                        "p90": 2.0,
+                        "terminal_probability_up": 0.30,
+                        "terminal_probability_down": 0.70,
+                    }
+                ]
+            },
+        }
+    }
+    probability_table = scenario_table(probability_report)
+    assert probability_table.iloc[0]["Baseline View"] == "Down"
+    assert probability_table.iloc[0]["Baseline Path Count"] == "70% down"
+    assert probability_table.iloc[0]["Baseline Mean Move"] == "-2 pts / -0.6σ"
+    assert probability_table.iloc[0]["Narrative View"] == "Up"
+    assert probability_table.iloc[0]["Narrative Path Count"] == "82% up"
+    assert probability_table.iloc[0]["Narrative Mean Move"] == "+1 pts / +0.4σ"
+    skewed_report = {
+        "generation": {
+            "terminal_delta_summary": [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": 3.0,
+                    "p10": -1.0,
+                    "p90": 8.0,
+                    "terminal_probability_up": 0.45,
+                    "terminal_probability_down": 0.55,
+                }
+            ],
+            "start_only_baseline": {"terminal_delta_summary": []},
+        }
+    }
+    skewed_table = scenario_table(skewed_report)
+    assert skewed_table.iloc[0]["Narrative View"] == "-"
+    assert skewed_table.iloc[0]["Narrative Path Count"] == "55% down"
+    assert skewed_table.iloc[0]["Narrative Mean Move"] == "+3 pts / +0.9σ"
     assert "Narrative" in analogues_table(report).columns
 
 
@@ -523,6 +727,8 @@ def test_boss_demo_pack_formatters_surface_live_readiness() -> None:
     assert "details below" in strip
     assert "Demo readiness evidence" in markdown
     assert "Live API casebook: `3/3` pass" in markdown
+    assert "Fixed-start caption audit: `pass`" in markdown
+    assert "Professional vs start-only portfolio KS delta `0.375`" in markdown
     assert "OpenAI tokens `5609`" in markdown
     assert "Forward-risk language is warning-only" in markdown
     assert table.iloc[0]["Case"] == "safe_haven_gold_bid_18"
@@ -592,21 +798,25 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert "Research overall: `pass`" in markdown
     assert "Rollout temperature: `0.500`" in markdown
     assert "Scenario CRPS vs persistence: `+14.5%`" in markdown
-    assert "Operational interpretation: `supported calibrated scenario`" in markdown
+    assert "Operational interpretation: `supported narrative scenario`" in markdown
     assert "Run record: `n/a`" in markdown
     assert "joint39_val_0370" in markdown
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
     assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
     assert selected.iloc[0]["Starting Level"] == "joint39_val_0269"
-    assert selected.iloc[0]["Reliability"] == "pass"
-    assert selected.iloc[0]["Compatibility"] == "0.887"
+    assert "Reliability" not in selected.columns
+    assert selected.iloc[0]["Support Match"] == "0.887"
     assert "Product decision:" not in product_markdown
-    assert "Warning:" not in product_markdown
     assert "Starting level:" not in product_markdown
-    assert "Story support:" in product_markdown
-    assert "Start reliability: `pass`" in product_markdown
-    assert "Result note:" in product_markdown
+    assert "Scenario ready" in product_markdown
+    assert "Review the fan chart and baseline-vs-narrative summary" in product_markdown
+    assert "Narrative support:" not in product_markdown
+    assert "Support rule:" not in product_markdown
+    assert "Warning:" not in product_markdown
+    assert "Forward-looking language excluded from conditioning" not in product_markdown
+    assert "Start reliability:" not in product_markdown
+    assert "Result note:" not in product_markdown
     assert diagnostic.iloc[0]["Start Window"] == "joint39_val_0370"
     assert validation.iloc[0]["Memory Cosine"] == "0.899"
     assert "warn_and_continue_for_narrative_only" in markdown
@@ -623,11 +833,239 @@ def test_prefix_trust_interpretation_separates_warning_from_metric_failure() -> 
     )
 
 
+def test_live_support_gated_calibration_updates_operational_scenario(
+    tmp_path: Path,
+) -> None:
+    arrays_path = tmp_path / "prefix_arrays.npz"
+    markdown_path = tmp_path / "prefix_report.md"
+    markdown_path.write_text("# Prefix report\n", encoding="utf-8")
+    states = np.zeros((1, 4, 2, 39), dtype=np.float32)
+    requested_raw = np.zeros((1, 39), dtype=np.float32)
+    delta_scale = np.ones((2, 39), dtype=np.float32)
+    np.savez(
+        arrays_path,
+        generated_states=states,
+        requested_raw=requested_raw,
+        delta_scale=delta_scale,
+    )
+    report = {
+        "artifact_paths": {"arrays": str(arrays_path), "markdown": str(markdown_path)},
+        "cached_query": {
+            "operational_memory_prior_variant_index": 0,
+            "grounding": {
+                "market_implications": [
+                    {"market": "SPX", "direction": "up"},
+                    {"market": "VIX", "direction": "down"},
+                ]
+            },
+            "memory_prior": {
+                "mode": "diverse_topk_narrative_start_checked",
+                "direction_check": {"status": "pass"},
+            },
+        },
+        "selected_start_state": {"variant_index": 0},
+        "variant_rows": [
+            {"is_operational": True, "start_window_id": "joint39_val_0040"}
+        ],
+        "generation": {
+            "path_quantiles": [
+                {
+                    "market": "SPX",
+                    "analogue_key": "RANK_1",
+                    "analogue_label": "Selected start: joint39_val_0040",
+                    "days": [1, 2],
+                    "p10": [0.0, 0.0],
+                    "p50": [0.0, 0.0],
+                    "p90": [0.0, 0.0],
+                    "mean": [0.0, 0.0],
+                    "sample_paths": [
+                        {"label": "Generated path 1", "values": [0.0, 0.0]}
+                    ],
+                }
+            ],
+            "terminal_delta_summary": [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": 0.0,
+                    "p10": 0.0,
+                    "p90": 0.0,
+                }
+            ],
+        },
+    }
+
+    calibrated = apply_live_support_gated_ensemble_calibration(report, beta=0.25)
+
+    metadata = calibrated["generation"]["narrative_ensemble_calibration"]
+    assert metadata["applied"] is True
+    assert metadata["support_gate"] == 1.0
+    assert metadata["active_direction_count"] == 2
+    spx_summary = next(
+        row
+        for row in calibrated["generation"]["terminal_delta_summary"]
+        if row["market"] == "SPX"
+    )
+    vix_summary = next(
+        row
+        for row in calibrated["generation"]["terminal_delta_summary"]
+        if row["market"] == "VIX"
+    )
+    assert spx_summary["mean_terminal_delta"] == 0.25
+    assert vix_summary["mean_terminal_delta"] == -0.25
+    spx_path = calibrated["generation"]["path_quantiles"][0]
+    assert spx_path["p50"][-1] == 0.25
+    assert spx_path["sample_paths"][0]["values"][-1] == 0.25
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "## Live Demo Narrative Calibration" in markdown
+    assert "retained for audit/replay only" in markdown
+    assert "nearest-similar top3/90 posterior ensemble" in markdown
+
+
+def test_live_top3_90_posterior_ensemble_selects_dominant_components(
+    tmp_path: Path,
+) -> None:
+    arrays_path = tmp_path / "prefix_arrays.npz"
+    markdown_path = tmp_path / "prefix_report.md"
+    markdown_path.write_text("# Prefix report\n", encoding="utf-8")
+    states = np.zeros((1, 6, 2, 39), dtype=np.float32)
+    requested_raw = np.zeros((1, 39), dtype=np.float32)
+    requested_raw[0, 25] = 100.0
+    terminal_spx = np.array([101.0, 101.0, 102.0, 102.0, 103.0, 140.0])
+    states[0, :, 0, 25] = requested_raw[0, 25]
+    states[0, :, 1, 25] = terminal_spx
+    np.savez(
+        arrays_path,
+        generated_states=states,
+        requested_raw=requested_raw,
+        rollout_component_variant_index=np.array([0, 0, 0, 0], dtype=np.int64),
+        rollout_component_window_index=np.array([10, 20, 30, 40], dtype=np.int64),
+        rollout_component_weight=np.array([0.50, 0.25, 0.15, 0.10], dtype=np.float64),
+        rollout_component_sample_count=np.array([2, 2, 1, 1], dtype=np.int64),
+    )
+    report = {
+        "artifact_paths": {"arrays": str(arrays_path), "markdown": str(markdown_path)},
+        "cached_query": {
+            "operational_memory_prior_variant_index": 0,
+            "memory_prior": {
+                "candidate_details": [
+                    {
+                        "window_index": 10,
+                        "bridge_local_index": 10,
+                        "window_id": "joint39_train_0010",
+                        "memory_support_cosine": 0.90,
+                        "history_end_date": "2016-02-10",
+                        "manifest_split": "train",
+                    },
+                    {
+                        "window_index": 20,
+                        "bridge_local_index": 20,
+                        "window_id": "joint39_train_0020",
+                        "memory_support_cosine": 0.85,
+                        "history_end_date": "2016-03-01",
+                        "manifest_split": "train",
+                    },
+                    {
+                        "window_index": 30,
+                        "bridge_local_index": 30,
+                        "window_id": "joint39_train_0030",
+                        "memory_support_cosine": 0.80,
+                        "history_end_date": "2016-03-21",
+                        "manifest_split": "train",
+                    },
+                    {
+                        "window_index": 40,
+                        "bridge_local_index": 40,
+                        "window_id": "joint39_train_0040",
+                        "memory_support_cosine": 0.75,
+                        "history_end_date": "2016-04-10",
+                        "manifest_split": "train",
+                    },
+                ]
+            },
+        },
+        "selected_start_state": {"variant_index": 0},
+        "variant_rows": [
+            {"is_operational": True, "start_window_id": "joint39_train_0001"}
+        ],
+        "generation": {"path_quantiles": [], "terminal_delta_summary": []},
+    }
+
+    updated = apply_live_top3_90_posterior_ensemble(report)
+
+    posterior = updated["generation"]["posterior_ensemble"]
+    assert posterior["applied"] is True
+    assert posterior["default_analogue_key"] == "TOP3_90"
+    assert posterior["selected_component_count"] == 3
+    assert posterior["posterior_sample_count"] == 5
+    assert np.isclose(posterior["base_weight_mass"], 0.90)
+    assert [row["window_index"] for row in posterior["selected_support"]] == [
+        10,
+        20,
+        30,
+    ]
+    spx_summary = next(
+        row
+        for row in updated["generation"]["terminal_delta_summary"]
+        if row["market"] == "SPX"
+    )
+    assert np.isclose(spx_summary["mean_terminal_delta"], 1.8)
+    assert np.isclose(spx_summary["terminal_probability_up"], 1.0)
+    assert np.isclose(spx_summary["terminal_probability_down"], 0.0)
+    assert spx_summary["terminal_sample_count"] == 5
+    assert all(
+        row["analogue_key"] == "TOP3_90"
+        for row in updated["generation"]["path_quantiles"]
+    )
+    table = prefix_start_candidates_table(updated)
+    assert set(table["Used For"]) == {"Narrative scenario"}
+    assert list(table["Regime"]) == [
+        "joint39_train_0010",
+        "joint39_train_0020",
+        "joint39_train_0030",
+    ]
+    assert "joint39_train_0040" not in table["Regime"].tolist()
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "## Live Demo Top3/90 Ensemble" in markdown
+    assert "current paper candidate" in markdown
+
+
+def test_live_support_gated_calibration_blocks_start_only_support(
+    tmp_path: Path,
+) -> None:
+    arrays_path = tmp_path / "prefix_arrays.npz"
+    np.savez(
+        arrays_path,
+        generated_states=np.zeros((1, 2, 2, 39), dtype=np.float32),
+        requested_raw=np.zeros((1, 39), dtype=np.float32),
+        delta_scale=np.ones((2, 39), dtype=np.float32),
+    )
+    report = {
+        "artifact_paths": {"arrays": str(arrays_path)},
+        "cached_query": {
+            "operational_memory_prior_variant_index": 0,
+            "grounding": {
+                "market_implications": [{"market": "SPX", "direction": "up"}]
+            },
+            "memory_prior": {"mode": "soft_topk_start_only"},
+        },
+        "selected_start_state": {"variant_index": 0},
+        "generation": {"terminal_delta_summary": []},
+    }
+
+    calibrated = apply_live_support_gated_ensemble_calibration(report, beta=0.25)
+
+    metadata = calibrated["generation"]["narrative_ensemble_calibration"]
+    assert metadata["applied"] is False
+    assert metadata["support_gate"] == 0.0
+    assert metadata["skip_reason"] == "support_gate_blocked"
+
+
 def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     report = _prefix_report()
 
     implications = prefix_condition_implications_table(report)
     warnings = prefix_condition_warnings_table(report)
+    visible_warnings = prefix_visible_warning_lines(report)
     components = prefix_warning_component_table(report)
     factors = prefix_shift_factor_table(report)
     candidates = prefix_start_candidates_table(report)
@@ -636,14 +1074,41 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
     assert implications.iloc[0]["Horizon"] == "current_state"
     assert warnings.iloc[0]["Code"] == "non_conditioning_forward_language"
     assert "volatility could reverse" in warnings.iloc[0]["Message"]
+    assert "Forward-looking language excluded from conditioning" in visible_warnings[0]
+    assert "volatility could reverse" in visible_warnings[0]
     assert (
-        components[components["Component"] == "rollout_shift"].iloc[0]["Status"]
+        components[components["Check"] == "rollout_shift"].iloc[0]["Status"]
         == "warning"
     )
     assert factors.iloc[0]["Factor"] == "SPX"
-    assert candidates.iloc[0]["Window"] == "joint39_val_0269"
+    assert candidates.iloc[0]["Regime"] == "joint39_val_0269"
+    assert candidates.iloc[0]["Used For"] == "Narrative scenario"
     assert candidates.iloc[0]["Weight"] == "0.420"
-    assert candidates.iloc[0]["Alignment"] == "0.800 (1/5 mismatches)"
+    assert candidates.iloc[0]["Story Match"] == "0.887"
+    assert candidates.iloc[0]["Required Claims"] == "warning: 1/5 mismatches"
+
+
+def test_prefix_start_candidates_table_includes_start_only_baseline_support() -> None:
+    report = _prefix_report()
+    report["generation"]["start_only_baseline"] = {
+        "support_candidates": [
+            {
+                "rank": 1,
+                "window_id": "joint39_train_3942",
+                "history_end_date": "2015-10-19",
+                "weight": 0.689,
+                "memory_support_cosine": 0.798,
+                "start_distance_z": 0.868,
+            }
+        ]
+    }
+
+    table = prefix_start_candidates_table(report)
+
+    assert table.iloc[0]["Used For"] == "Narrative scenario"
+    assert table.iloc[-1]["Used For"] == "Start-only baseline"
+    assert table.iloc[-1]["Regime"] == "joint39_train_3942"
+    assert table.iloc[-1]["Start Gap"] == "0.868"
 
 
 def test_prefix_user_start_table_shows_supplied_start_diagnostics() -> None:
@@ -771,8 +1236,7 @@ def test_analogue_scope_choices_falls_back_to_path_quantile_scopes() -> None:
     choices = analogue_scope_choices(_prefix_report())
 
     assert choices == [
-        ("All retrieved analogues", "ALL"),
-        ("Diagnostic baseline: joint39_val_0370", "RANK_1"),
+        ("Operational selected start", "RANK_2"),
     ]
 
 
@@ -787,9 +1251,23 @@ def test_build_prefix_latent_run_args_sets_cached_smoke_controls() -> None:
     assert args.samples == 12
     assert args.output_dir == "tmp/prefix"
     assert args.device == "cuda"
-    assert args.memory_prior_mode == "soft_topk_narrative_start_checked"
+    assert args.memory_prior_mode == "cohesive_topk_narrative_start_checked"
     assert args.memory_prior_top_k == 8
+    assert args.memory_prior_diverse_max_pairwise_cosine == 0.95
+    assert args.memory_prior_diverse_min_index_gap == 30
+    assert args.support_bank_report == (
+        DEFAULT_PREFIX_SUPPORT_BANK_REPORT
+        if Path(DEFAULT_PREFIX_SUPPORT_BANK_REPORT).exists()
+        else None
+    )
+    assert args.support_bank_arrays == (
+        DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS
+        if Path(DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS).exists()
+        else None
+    )
+    assert args.rollout_mixture_mode == "component_prefix_mixture"
     assert args.temperature == 0.5
+    assert args.rollout_fan_scale == 3.5
 
     default_args = build_prefix_latent_run_args(
         start_mode="nearest_train_start",
@@ -840,7 +1318,7 @@ def test_build_run_args_sets_generator_controls() -> None:
 def test_fan_chart_figure_uses_path_quantiles() -> None:
     figure = fan_chart_figure(_report(), "SPX")
 
-    assert figure.layout.title.text == "SPX 30-day scenario fan"
+    assert figure.layout.title.text == "SPX 30-day scenario fan (raw level)"
     assert len(figure.data) == 4
     assert list(figure.data[1].y) == [0.1, 0.2]
 
@@ -848,7 +1326,7 @@ def test_fan_chart_figure_uses_path_quantiles() -> None:
 def test_fan_chart_figure_can_filter_to_one_analogue() -> None:
     figure = fan_chart_figure(_report(), "SPX", "RANK_1")
 
-    assert figure.layout.title.text == "SPX 30-day scenario fan"
+    assert figure.layout.title.text == "SPX 30-day scenario fan (raw level)"
     assert "Analogue 1: joint39_val_0031" in figure.layout.annotations[0].text
     assert list(figure.data[1].y) == [1.1, 2.2]
     assert [trace.name for trace in figure.data][-3:] == [
@@ -862,7 +1340,9 @@ def test_fan_chart_figure_can_filter_to_one_analogue() -> None:
 def test_fan_chart_figure_supports_selected_iv_cells() -> None:
     figure = fan_chart_figure(_report(), "IV_ATM_3M")
 
-    assert figure.layout.title.text == "IV ATM 3M (K=1.00) 30-day scenario fan"
+    assert (
+        figure.layout.title.text == "IV ATM 3M (K=1.00) 30-day scenario fan (raw level)"
+    )
     assert "3M / K=1.00" in figure.layout.annotations[0].text
     assert list(figure.data[1].y) == [0.01, 0.02]
 
@@ -899,7 +1379,7 @@ def test_run_story_for_app_can_use_injected_runner() -> None:
     assert outputs[1].iloc[0]["Market"] == "SPX"
     assert outputs[3].iloc[0]["Window"] == "joint39_val_0031"
     assert outputs[5].iloc[0]["Market"] == "SPX"
-    assert outputs[6].layout.title.text == "SPX 30-day scenario fan"
+    assert outputs[6].layout.title.text == "SPX 30-day scenario fan (raw level)"
     assert outputs[8] == _report()
 
 
@@ -950,15 +1430,66 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert "Run started" in first[1]
     assert "30-day scenario generation" in first[1]
     assert calls == [("nearest_train_start", 8)]
-    assert "Completed in" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Completed in" not in final[1]
     assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
     assert final[3].iloc[0]["Variant"] == "original"
     assert final[4].iloc[0]["Status"] == "pass"
-    assert final[6].layout.title.text == "SPX 30-day scenario fan"
-    assert final[14].iloc[0]["Window"] == "joint39_val_0269"
+    assert final[6].layout.title.text == "SPX 30-day scenario fan (raw level)"
+    assert final[14].iloc[0]["Regime"] == "joint39_val_0269"
     assert final[16]["choices"] == [
         ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
     ]
+
+
+def test_run_prefix_latent_for_app_attaches_start_only_baseline_summary() -> None:
+    calls = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(args.memory_prior_mode)
+        report = _prefix_report()
+        if args.memory_prior_mode == "soft_topk_start_only":
+            report["generation"]["terminal_delta_summary"] = [
+                {
+                    "market": "SPX",
+                    "mean_terminal_delta": 10.0,
+                    "p10": -5.0,
+                    "p90": 25.0,
+                }
+            ]
+        return report
+
+    stream = run_prefix_latent_for_app(
+        start_mode="explicit_start_window",
+        samples=4,
+        fan_market="SPX",
+        analogue_scope="ALL",
+        live_story=False,
+        use_explicit_start=True,
+        explicit_start_window_index=22,
+        include_start_only_baseline=True,
+        runner=fake_runner,
+    )
+
+    next(stream)
+    final = list(stream)[-1]
+
+    assert calls == [
+        "cohesive_topk_narrative_start_checked",
+        "soft_topk_start_only",
+    ]
+    baseline = final[8]["generation"]["start_only_baseline"]
+    assert baseline["memory_prior_mode"] == "soft_topk_start_only"
+    assert baseline["terminal_delta_summary"][0]["mean_terminal_delta"] == 10.0
+    assert "Baseline View" in final[5]
+    assert "Baseline Path Count" in final[5]
+    assert "Baseline Mean Move" in final[5]
+    assert "Narrative View" in final[5]
+    assert "Narrative Path Count" in final[5]
+    assert "Narrative Mean Move" in final[5]
+    assert 'class="demo-dir demo-dir-down"' in final[5]
+    assert '<span class="demo-dir-arrow">↓</span> Down' in final[5]
+    assert "More down than baseline" in final[5]
 
 
 def test_run_prefix_latent_for_app_does_not_require_start_approval_gate() -> None:
@@ -982,7 +1513,8 @@ def test_run_prefix_latent_for_app_does_not_require_start_approval_gate() -> Non
 
     assert "Starting level approval required" not in first[1]
     assert calls
-    assert "Completed in" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Completed in" not in final[1]
 
 
 def test_run_prefix_latent_for_app_can_preview_start_without_rollout() -> None:
@@ -1007,7 +1539,8 @@ def test_run_prefix_latent_for_app_can_preview_start_without_rollout() -> None:
 
     assert "scenario rollout skipped" in first[1]
     assert calls == [(True, 8)]
-    assert "Completed in" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Completed in" not in final[1]
     assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
 
 
@@ -1146,10 +1679,14 @@ def test_run_prefix_latent_for_app_can_pass_live_story_testflight() -> None:
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "OpenAI grounding and embedding" in first[1]
+    assert "OpenAI story check and embedding" in first[1]
     assert calls == [(True, "A live risk-manager story.")]
-    assert "Scenario generation complete" in final[1]
-    assert "Review the fan chart" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Review the fan chart and baseline-vs-narrative summary" in final[1]
+    assert "Narrative support:" not in final[1]
+    assert "Support rule:" not in final[1]
+    assert "Warning:" not in final[1]
+    assert "Completed in" not in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
@@ -1175,7 +1712,8 @@ def test_run_prefix_latent_for_app_can_use_explicit_historical_start() -> None:
     assert "user-selected historical start" in first[1]
     assert "user-selected historical start validation" not in first[1]
     assert calls == [("explicit_start_window", 22)]
-    assert "Completed in" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Completed in" not in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_user_start_json() -> None:
@@ -1237,9 +1775,10 @@ def test_run_prefix_latent_for_app_can_use_cached_condition_report(tmp_path) -> 
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "cached grounding-sidecar report" in first[1]
+    assert "cached story report" in first[1]
     assert calls == [(str(report_path), False, "explicit_start_window", 77)], final[7]
-    assert "Completed in" in final[1]
+    assert "Scenario ready" in final[1]
+    assert "Completed in" not in final[1]
 
 
 def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> None:
@@ -1317,9 +1856,18 @@ def test_run_prefix_latent_for_app_can_use_condition_only_contract(tmp_path) -> 
     first = next(stream)
     final = list(stream)[-1]
 
-    assert "OpenAI grounding sidecar" in first[1]
+    assert "OpenAI story check" in first[1]
     assert calls == [(str(tmp_path / "condition_only_report.json"), False)], final[7]
     assert "OpenAI was called" in final[8]["scope_note"]
-    assert final[8]["live_app_openai_conditioning"]["status"] == "fresh_condition_report"
+    assert (
+        final[8]["live_app_openai_conditioning"]["status"] == "fresh_condition_report"
+    )
     assert final[8]["live_app_openai_conditioning"]["grounding_model"] == "fixture"
     assert final[10].iloc[0]["Market"] == "SPX"
+
+
+def test_allocate_weighted_sample_counts_preserves_total_and_weights() -> None:
+    counts = _allocate_weighted_sample_counts([0.5, 0.3, 0.2], 11)
+
+    assert counts.tolist() == [6, 3, 2]
+    assert int(counts.sum()) == 11
