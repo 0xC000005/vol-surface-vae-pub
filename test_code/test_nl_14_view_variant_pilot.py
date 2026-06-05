@@ -508,8 +508,12 @@ def test_run_pilot_from_prepared_payload_dry_run_writes_prompt(tmp_path) -> None
     assert report["status"] == "fail"
     assert report["dry_run"] is True
     assert report["target"]["window_id"] == "uploaded_factor_table"
+    assert [error["code"] for error in report["errors"]] == ["dry_run"]
+    assert [error["code"] for error in report["validation"]["errors"]] == ["dry_run"]
+    assert report["artifact_paths"]["report"] == str(tmp_path / "fourteen_view_report.json")
     assert (tmp_path / "fourteen_view_prompt.txt").exists()
     assert (tmp_path / "fourteen_view_schema.json").exists()
+    assert (tmp_path / "fourteen_view_report.json").exists()
 
 
 def test_run_pilot_from_prepared_payload_accepts_positional_args(tmp_path) -> None:
@@ -621,3 +625,46 @@ def test_codex_loop_success_path_does_not_require_args_support_cards_jsonl(
 
     assert report["status"] == "pass"
     assert (tmp_path / "fourteen_view_review.md").exists()
+
+
+def test_codex_loop_exec_failure_reports_error_once(tmp_path, monkeypatch) -> None:
+    target = {
+        "window_id": "uploaded_factor_table",
+        "scenario_title": "uploaded factor table",
+        "archetype": "mixed_ambiguous",
+        "mechanical_summary": "Mechanical baseline: SPX up small; DXY down medium.",
+        "evidence_used": ["SPX start=100 end=110", "DXY start=90 end=85"],
+    }
+    args = SimpleNamespace(
+        dry_run=False,
+        model="gpt-test",
+        reasoning_effort="low",
+        timeout_seconds=10,
+        validation_retries=0,
+    )
+
+    monkeypatch.setattr(
+        pilot.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=17,
+            stdout='{"event":"failed"}\n',
+            stderr="codex failed",
+        ),
+    )
+
+    report = pilot._run_pilot_codex_loop(
+        args=args,
+        output_dir=tmp_path,
+        target=target,
+        negative_candidates=[],
+        assigned_negative_candidates=[],
+        prompt="prompt",
+        source_paths={"cards_jsonl": "sidecar"},
+    )
+
+    assert report["status"] == "fail"
+    assert [error["code"] for error in report["errors"]] == ["codex_exec_failed"]
+    assert [error["code"] for error in report["validation"]["errors"]] == [
+        "codex_exec_failed"
+    ]

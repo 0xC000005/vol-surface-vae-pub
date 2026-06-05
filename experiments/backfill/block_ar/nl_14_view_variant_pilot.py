@@ -1054,15 +1054,21 @@ def _run_pilot_codex_loop(
             )
 
     if batch is None:
-        validation = {"status": "fail", "error_count": len(errors), "errors": errors, "validation": []}
-    elif validation is None:
-        validation = validate_batch(
-            batch=batch,
-            target=target,
-            negative_candidates=negative_candidates,
-            assigned_negative_candidates=assigned_negative_candidates,
-        )
-    errors.extend(validation["errors"])
+        validation = {
+            "status": "fail",
+            "error_count": len(errors),
+            "errors": list(errors),
+            "validation": [],
+        }
+    else:
+        if validation is None:
+            validation = validate_batch(
+                batch=batch,
+                target=target,
+                negative_candidates=negative_candidates,
+                assigned_negative_candidates=assigned_negative_candidates,
+            )
+        errors.extend(validation["errors"])
     review_source_paths = {
         "cards_jsonl": source_paths.get("cards_jsonl", ""),
         "support_cards_jsonl": source_paths.get("support_cards_jsonl", ""),
