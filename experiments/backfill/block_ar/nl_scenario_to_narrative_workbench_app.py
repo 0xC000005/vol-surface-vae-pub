@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (  # noqa: E402
     ScenarioSidecarV1,
+    normalize_factor_table_csv_text,
 )
 
 
@@ -101,3 +104,107 @@ def factor_move_plot(sidecar: ScenarioSidecarV1 | None) -> go.Figure:
         height=360,
     )
     return fig
+
+
+def _app_warnings_for_sidecar(sidecar: ScenarioSidecarV1) -> list[str | dict[str, str]]:
+    warnings = list(sidecar.normalization_warnings)
+    if sidecar.scenario_type == "factor_table_partial" and not any(
+        isinstance(warning, dict) and warning.get("code") == "partial_factor_coverage"
+        for warning in warnings
+    ):
+        warnings.append(
+            {
+                "code": "partial_factor_coverage",
+                "message": "Uploaded table does not contain the full Joint39 factor set.",
+            }
+        )
+    return warnings
+
+
+def _normalize_factor_table_sidecar_for_app(csv_text: str) -> ScenarioSidecarV1:
+    sidecar = normalize_factor_table_csv_text(
+        csv_text,
+        scenario_id="uploaded_factor_table",
+    )
+    return sidecar.model_copy(
+        update={"normalization_warnings": _app_warnings_for_sidecar(sidecar)}
+    )
+
+
+def normalize_factor_table_for_app(csv_text: str) -> tuple[str, pd.DataFrame, str, str]:
+    sidecar = _normalize_factor_table_sidecar_for_app(csv_text)
+    return (
+        status_cards_markdown(sidecar, validation_status="normalized"),
+        factor_rows_dataframe(sidecar),
+        json.dumps(sidecar.normalization_warnings, indent=2, sort_keys=True),
+        sidecar.model_dump_json(indent=2),
+    )
+
+
+def build_demo() -> Any:
+    import gradio as gr
+
+    with gr.Blocks(title="Scenario-to-Narrative Workbench") as demo:
+        gr.Markdown("# Scenario-to-Narrative Analyst Workbench")
+        with gr.Row():
+            with gr.Column(scale=1, min_width=320):
+                factor_csv = gr.Textbox(
+                    label="Factor table CSV",
+                    lines=10,
+                    value=(
+                        "factor,start,end,confidence\n"
+                        "SPX,1294.0,1311.0,medium\n"
+                        "DXY,90.3,87.2,high\n"
+                        "CRUDE_OIL,62.1,70.5,medium\n"
+                        "GOLD,548.0,622.5,medium\n"
+                    ),
+                )
+                normalize_button = gr.Button(
+                    "Normalize and Visualize",
+                    variant="primary",
+                )
+            with gr.Column(scale=2):
+                status = gr.Markdown(
+                    status_cards_markdown(None, validation_status="waiting")
+                )
+                factor_frame = gr.Dataframe(
+                    headers=FACTOR_ROW_COLUMNS,
+                    label="Factor moves",
+                    interactive=False,
+                )
+                factor_plot = gr.Plot(label="Factor terminal move")
+                warnings_json = gr.Code(language="json", label="Warnings")
+                sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
+
+        normalize_button.click(
+            fn=normalize_factor_table_for_app,
+            inputs=[factor_csv],
+            outputs=[status, factor_frame, warnings_json, sidecar_json],
+            show_progress="full",
+        ).then(
+            fn=lambda text: factor_move_plot(
+                _normalize_factor_table_sidecar_for_app(text)
+            ),
+            inputs=[factor_csv],
+            outputs=[factor_plot],
+            show_progress="hidden",
+        )
+    return demo
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--server-name", default="127.0.0.1")
+    parser.add_argument("--server-port", type=int, default=7861)
+    parser.add_argument("--share", action="store_true")
+    args = parser.parse_args()
+    demo = build_demo()
+    demo.queue(default_concurrency_limit=1).launch(
+        server_name=args.server_name,
+        server_port=int(args.server_port),
+        share=bool(args.share),
+    )
+
+
+if __name__ == "__main__":
+    main()

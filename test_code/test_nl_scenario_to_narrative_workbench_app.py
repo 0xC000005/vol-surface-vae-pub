@@ -13,6 +13,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench_app import
     PACKET_COLUMNS,
     factor_move_plot,
     factor_rows_dataframe,
+    normalize_factor_table_for_app,
     packet_preview_rows,
     status_cards_markdown,
 )
@@ -101,3 +102,16 @@ def test_factor_move_plot_handles_missing_and_empty_sidecar() -> None:
     assert missing_figure.layout.title.text == "No scenario loaded"
     assert len(empty_figure.data) == 0
     assert empty_figure.layout.title.text == "No scenario loaded"
+
+
+def test_normalize_factor_table_for_app_returns_visual_outputs() -> None:
+    csv_text = "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,high\n"
+
+    status, frame, warnings_json, sidecar_json = normalize_factor_table_for_app(
+        csv_text
+    )
+
+    assert "ScenarioSidecarV1" in status
+    assert frame.iloc[0]["Factor"] == "SPX"
+    assert "partial_factor_coverage" in warnings_json
+    assert '"scenario_id": "uploaded_factor_table"' in sidecar_json
