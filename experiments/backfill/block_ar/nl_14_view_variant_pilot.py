@@ -870,8 +870,17 @@ def build_review_markdown(
     return "\n".join(lines)
 
 
+def _date_lookup_from_source_paths(source_paths: dict[str, str]) -> dict[str, str]:
+    support_cards_jsonl = source_paths.get("support_cards_jsonl", "")
+    if not support_cards_jsonl:
+        return {}
+    path = _resolve(Path(support_cards_jsonl))
+    if not path.is_file():
+        return {}
+    return _support_date_lookup(Path(support_cards_jsonl))
+
+
 def run_pilot_from_prepared_payload(
-    *,
     args: argparse.Namespace,
     target: dict[str, Any],
     negative_candidates: list[dict[str, Any]],
@@ -1054,14 +1063,18 @@ def _run_pilot_codex_loop(
             assigned_negative_candidates=assigned_negative_candidates,
         )
     errors.extend(validation["errors"])
-    review_source_paths = dict(source_paths)
+    review_source_paths = {
+        "cards_jsonl": source_paths.get("cards_jsonl", ""),
+        "support_cards_jsonl": source_paths.get("support_cards_jsonl", ""),
+        **source_paths,
+    }
     review_source_paths["codex_output"] = str(codex_output_path)
     if batch is not None:
         review = build_review_markdown(
             batch=batch,
             target=target,
             negative_candidates=negative_candidates,
-            date_lookup=_support_date_lookup(Path(args.support_cards_jsonl)),
+            date_lookup=_date_lookup_from_source_paths(source_paths),
             validation=validation,
             source_paths=review_source_paths,
             assigned_negative_candidates=assigned_negative_candidates,

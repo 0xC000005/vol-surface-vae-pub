@@ -1,6 +1,7 @@
+import json
 import sys
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -509,3 +510,114 @@ def test_run_pilot_from_prepared_payload_dry_run_writes_prompt(tmp_path) -> None
     assert report["target"]["window_id"] == "uploaded_factor_table"
     assert (tmp_path / "fourteen_view_prompt.txt").exists()
     assert (tmp_path / "fourteen_view_schema.json").exists()
+
+
+def test_run_pilot_from_prepared_payload_accepts_positional_args(tmp_path) -> None:
+    target = {
+        "window_id": "uploaded_factor_table",
+        "scenario_title": "uploaded factor table",
+        "archetype": "mixed_ambiguous",
+        "mechanical_summary": "Mechanical baseline: SPX up small; DXY down medium.",
+        "evidence_used": ["SPX start=100 end=110", "DXY start=90 end=85"],
+    }
+    negative_candidates = [
+        {
+            "window_id": f"joint39_train_{idx:04d}",
+            "scenario_title": f"candidate {idx}",
+            "archetype": "mixed_ambiguous",
+            "mechanical_summary": "Mechanical baseline: SPX lower; DXY higher.",
+            "evidence_used": ["SPX lower", "DXY higher"],
+            "contradiction_channels": ["SPX", "DXY", "GOLD"],
+            "contradiction_count": 3,
+            "agreement_count": 1,
+        }
+        for idx in range(100, 140)
+    ]
+    args = SimpleNamespace(
+        output_dir=tmp_path,
+        support_cards_jsonl="support.jsonl",
+        dry_run=True,
+        model="gpt-test",
+        reasoning_effort="low",
+        timeout_seconds=10,
+        validation_retries=0,
+    )
+
+    report = pilot.run_pilot_from_prepared_payload(
+        args,
+        target,
+        negative_candidates,
+        {"cards_jsonl": "sidecar", "support_cards_jsonl": "support.jsonl"},
+    )
+
+    assert report["status"] == "fail"
+    assert report["dry_run"] is True
+    assert report["target"]["window_id"] == "uploaded_factor_table"
+    assert (tmp_path / "fourteen_view_prompt.txt").exists()
+    assert (tmp_path / "fourteen_view_schema.json").exists()
+
+
+def test_codex_loop_success_path_does_not_require_args_support_cards_jsonl(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    target = {
+        "window_id": "uploaded_factor_table",
+        "scenario_title": "uploaded factor table",
+        "archetype": "mixed_ambiguous",
+        "mechanical_summary": "Mechanical baseline: SPX up small; DXY down medium.",
+        "evidence_used": ["SPX start=100 end=110", "DXY start=90 end=85"],
+    }
+    negative_candidates = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "candidate 100",
+            "archetype": "mixed_ambiguous",
+            "mechanical_summary": "Mechanical baseline: SPX lower; DXY higher.",
+            "evidence_used": ["SPX lower", "DXY higher"],
+            "contradiction_channels": ["SPX", "DXY", "GOLD"],
+            "contradiction_count": 3,
+            "agreement_count": 1,
+        }
+    ]
+    args = SimpleNamespace(
+        dry_run=False,
+        model="gpt-test",
+        reasoning_effort="low",
+        timeout_seconds=10,
+        validation_retries=0,
+    )
+
+    def fake_run(cmd, **_kwargs):
+        output_path = Path(cmd[cmd.index("-o") + 1])
+        output_path.write_text(
+            json.dumps(
+                {
+                    "target_window_id": target["window_id"],
+                    "target_title": target["scenario_title"],
+                    "pairs": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pilot.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        pilot,
+        "validate_batch",
+        lambda **_kwargs: {"status": "pass", "error_count": 0, "errors": [], "validation": []},
+    )
+
+    report = pilot._run_pilot_codex_loop(
+        args=args,
+        output_dir=tmp_path,
+        target=target,
+        negative_candidates=negative_candidates,
+        assigned_negative_candidates=[],
+        prompt="prompt",
+        source_paths={"cards_jsonl": "sidecar"},
+    )
+
+    assert report["status"] == "pass"
+    assert (tmp_path / "fourteen_view_review.md").exists()
