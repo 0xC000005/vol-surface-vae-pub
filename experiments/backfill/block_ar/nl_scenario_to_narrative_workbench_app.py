@@ -169,7 +169,6 @@ def _normalize_historical_sidecar_for_app(
 
 def normalize_historical_for_app(
     target_window_id: str,
-    *,
     cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
 ) -> tuple[str, pd.DataFrame, str, str]:
     sidecar = _normalize_historical_sidecar_for_app(
@@ -206,12 +205,16 @@ def build_demo() -> Any:
                     label="Historical Joint39 window id",
                     value="joint39_train_1553",
                 )
+                historical_cards_jsonl = gr.Textbox(
+                    label="Historical cards JSONL",
+                    value=str(DEFAULT_CARDS_JSONL),
+                )
                 historical_button = gr.Button("Load Historical Joint39")
                 deck_report_path = gr.Textbox(
                     label="Generated deck report JSON",
                     placeholder=(
                         "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-                        ".../fixed_start_live_story_deck_analysis.json"
+                        ".../prefix_report_snapshot.json"
                     ),
                 )
                 deck_button = gr.Button("Load Generated Deck")
@@ -245,14 +248,17 @@ def build_demo() -> Any:
 
         historical_button.click(
             fn=normalize_historical_for_app,
-            inputs=[historical_window_id],
+            inputs=[historical_window_id, historical_cards_jsonl],
             outputs=[status, factor_frame, warnings_json, sidecar_json],
             show_progress="full",
         ).then(
-            fn=lambda target_window_id: factor_move_plot(
-                _normalize_historical_sidecar_for_app(target_window_id)
+            fn=lambda target_window_id, cards_jsonl: factor_move_plot(
+                _normalize_historical_sidecar_for_app(
+                    target_window_id,
+                    cards_jsonl=cards_jsonl,
+                )
             ),
-            inputs=[historical_window_id],
+            inputs=[historical_window_id, historical_cards_jsonl],
             outputs=[factor_plot],
             show_progress="hidden",
         )

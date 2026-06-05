@@ -516,6 +516,39 @@ def test_load_generated_deck_sidecar_from_report_resolves_repo_relative_paths(
     assert sidecar.source_artifacts["report"] == str(report_path)
 
 
+def test_load_generated_deck_sidecar_from_report_filters_unsupported_markets(
+    tmp_path,
+) -> None:
+    report_path = tmp_path / "mapped_deck.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "generation": {
+                    "forecast_steps": 30,
+                    "sample_count": 8,
+                    "terminal_delta_summary": [
+                        {"market": "SPX", "mean_terminal_delta": 10.0},
+                        {"market": "CRUDE_OIL", "mean_terminal_delta": 3.0},
+                        {"market": "GOLD", "mean_terminal_delta": 5.0},
+                        {"market": "US2Y", "mean_terminal_delta": 0.2},
+                        {"market": "AAA_OAS", "mean_terminal_delta": -0.1},
+                        {"market": "USDJPY", "mean_terminal_delta": 4.0},
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    sidecar = load_generated_deck_sidecar_from_report(report_path)
+
+    factors = [row.factor for row in sidecar.factor_rows]
+    assert factors == ["SPX", "CRUDE", "GOLD"]
+    assert "US2Y" not in factors
+    assert "AAA_OAS" not in factors
+    assert "USDJPY" not in factors
+
+
 def test_generated_deck_summary_rejects_rows_missing_mean_terminal_delta() -> None:
     deck_summary = {
         "factor_rows": [

@@ -20,6 +20,19 @@ SPREAD_FACTORS = {
     "IG_OAS",
 }
 FULL_JOINT39_FACTOR_COUNT = 39
+GENERATED_REPORT_MARKET_TO_FACTOR = {
+    "SPX": "SPX",
+    "VIX": "VIX",
+    "DXY": "DXY",
+    "CRUDE_OIL": "Crude",
+    "Crude": "Crude",
+    "US10Y": "US10Y",
+    "BBB_OAS": "BBB_OAS",
+    "GOLD": "Gold",
+    "Gold": "Gold",
+    "IV_ATM_1Y": "IV_ATM_1Y",
+    "IV_SURFACE": "IV_SURFACE",
+}
 ScenarioTypeV1 = Literal[
     "historical_joint39",
     "generated_deck",
@@ -581,12 +594,12 @@ def load_generated_deck_sidecar_from_report(report_path: str | Path) -> Scenario
     for row in terminal_rows:
         if not isinstance(row, dict):
             continue
-        market = _compact(row.get("market")).upper()
-        if not market or row.get("mean_terminal_delta") is None:
+        factor = GENERATED_REPORT_MARKET_TO_FACTOR.get(_compact(row.get("market")))
+        if not factor or row.get("mean_terminal_delta") is None:
             continue
         factor_rows.append(
             {
-                "factor": market,
+                "factor": factor,
                 "terminal_mean_delta": row.get("mean_terminal_delta"),
                 "terminal_p10_delta": row.get("p10"),
                 "terminal_p50_delta": row.get("p50"),

@@ -10,8 +10,10 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     normalize_factor_table_csv_text,
 )
 from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench_app import (
+    DEFAULT_CARDS_JSONL,
     FACTOR_ROW_COLUMNS,
     PACKET_COLUMNS,
+    build_demo,
     factor_move_plot,
     factor_rows_dataframe,
     normalize_generated_deck_for_app,
@@ -184,3 +186,35 @@ def test_normalize_historical_for_app_uses_injected_cards_jsonl(tmp_path) -> Non
     assert json.loads(warnings_json) == []
     assert '"scenario_id": "joint39_train_0010"' in sidecar_json
     assert "DXY higher medium" in sidecar_json
+
+
+def _component_by_label(demo, label: str) -> dict:
+    for component in demo.config.get("components", []):
+        if component.get("props", {}).get("label") == label:
+            return component
+    raise AssertionError(f"component not found: {label}")
+
+
+def test_build_demo_exposes_historical_cards_jsonl_and_wires_callbacks() -> None:
+    demo = build_demo()
+    window_id = _component_by_label(demo, "Historical Joint39 window id")
+    cards_jsonl = _component_by_label(demo, "Historical cards JSONL")
+
+    assert cards_jsonl["props"]["value"] == str(DEFAULT_CARDS_JSONL)
+
+    expected_inputs = [window_id["id"], cards_jsonl["id"]]
+    matching_dependencies = [
+        dependency
+        for dependency in demo.config.get("dependencies", [])
+        if dependency.get("inputs") == expected_inputs
+    ]
+    assert len(matching_dependencies) == 2
+
+
+def test_build_demo_generated_deck_placeholder_targets_report_snapshot() -> None:
+    demo = build_demo()
+    deck_report_path = _component_by_label(demo, "Generated deck report JSON")
+
+    placeholder = deck_report_path["props"]["placeholder"]
+    assert "prefix_report_snapshot.json" in placeholder
+    assert "fixed_start_live_story_deck_analysis.json" not in placeholder
