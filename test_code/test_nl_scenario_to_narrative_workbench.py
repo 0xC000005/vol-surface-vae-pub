@@ -32,6 +32,7 @@ def test_workbench_core_does_not_import_private_helper_scripts() -> None:
 
     assert "nl_hard_negative_bank_regenerate" not in source
     assert "nl_sparse_variant_pilot" not in source
+    assert "nl_reverse_caption_scenario_deck" not in source
 
 
 def test_workbench_core_import_does_not_load_runner_stack() -> None:
@@ -469,6 +470,50 @@ def test_load_generated_deck_sidecar_from_report_uses_terminal_summary(
     assert sidecar.scenario_type == "generated_deck"
     assert sidecar.factor_rows[0].factor == "SPX"
     assert sidecar.factor_rows[0].p90_delta == 30.0
+
+
+def test_load_generated_deck_sidecar_from_report_resolves_repo_relative_paths(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    report_path = reports_dir / "relative_deck.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "generation": {
+                    "forecast_steps": 20,
+                    "sample_count": 4,
+                    "generated_state_shape": [1, 4, 20, 39],
+                    "terminal_delta_summary": [
+                        {
+                            "market": "DXY",
+                            "mean_terminal_delta": -1.25,
+                            "p10": -2.0,
+                            "p50": -1.0,
+                            "p90": 0.25,
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    unrelated_cwd = tmp_path / "cwd"
+    unrelated_cwd.mkdir()
+    monkeypatch.setattr(workbench_module, "ROOT", tmp_path)
+    monkeypatch.chdir(unrelated_cwd)
+
+    sidecar = load_generated_deck_sidecar_from_report("reports/relative_deck.json")
+
+    assert sidecar.scenario_id == "relative_deck"
+    assert sidecar.horizon_days == 20
+    assert sidecar.sample_count == 4
+    assert sidecar.factor_rows[0].factor == "DXY"
+    assert sidecar.factor_rows[0].delta == pytest.approx(-1.25)
+    assert sidecar.factor_rows[0].p10_delta == pytest.approx(-2.0)
+    assert sidecar.source_artifacts["report"] == str(report_path)
 
 
 def test_generated_deck_summary_rejects_rows_missing_mean_terminal_delta() -> None:

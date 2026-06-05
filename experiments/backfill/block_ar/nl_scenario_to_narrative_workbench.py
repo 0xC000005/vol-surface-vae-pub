@@ -567,18 +567,43 @@ def normalize_generated_deck_summary(
 
 
 def load_generated_deck_sidecar_from_report(report_path: str | Path) -> ScenarioSidecarV1:
-    path = Path(report_path)
+    path = _resolve_repo_path(report_path)
     report = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(report, dict):
         raise ValueError(f"{path}: expected JSON object")
 
-    from experiments.backfill.block_ar.nl_reverse_caption_scenario_deck import (
-        summarize_report_terminal_delta,
-    )
-
-    summary = summarize_report_terminal_delta(report)
-    if summary is None:
+    generation = report.get("generation")
+    generation = generation if isinstance(generation, dict) else {}
+    terminal_rows = generation.get("terminal_delta_summary")
+    if not isinstance(terminal_rows, list) or not terminal_rows:
         raise ValueError("generated deck report has no terminal_delta_summary")
+    factor_rows: list[dict[str, Any]] = []
+    for row in terminal_rows:
+        if not isinstance(row, dict):
+            continue
+        market = _compact(row.get("market")).upper()
+        if not market or row.get("mean_terminal_delta") is None:
+            continue
+        factor_rows.append(
+            {
+                "factor": market,
+                "terminal_mean_delta": row.get("mean_terminal_delta"),
+                "terminal_p10_delta": row.get("p10"),
+                "terminal_p50_delta": row.get("p50"),
+                "terminal_p90_delta": row.get("p90"),
+            }
+        )
+    summary = {
+        "summary_source": "report_terminal_delta_summary",
+        "state_shape": (
+            generation.get("generated_state_shape")
+            if isinstance(generation.get("generated_state_shape"), list)
+            else []
+        ),
+        "sample_count": int(generation.get("sample_count", 0) or 0),
+        "future_len": int(generation.get("forecast_steps", 0) or 0),
+        "factor_rows": factor_rows,
+    }
     return normalize_generated_deck_summary(
         summary,
         scenario_id=path.stem,
