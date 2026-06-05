@@ -150,6 +150,11 @@ def factor_row_from_start_end(
     )
 
 
+def build_mechanical_summary(rows: list[ScenarioFactorRowV1]) -> str:
+    pieces = [f"{row.factor} {row.direction} {row.magnitude}" for row in rows]
+    return "Mechanical baseline: " + "; ".join(pieces)
+
+
 def _historical_caption_fields(card: dict[str, Any]) -> dict[str, Any]:
     fields = card.get("caption_fields")
     return fields if isinstance(fields, dict) else {}
@@ -167,7 +172,9 @@ def _historical_mechanical_summary(card: dict[str, Any]) -> str:
     if top_level_summary:
         return top_level_summary
 
-    caption_summary = _compact(_historical_caption_fields(card).get("mechanical_summary"))
+    caption_summary = _compact(
+        _historical_caption_fields(card).get("mechanical_summary")
+    )
     if caption_summary:
         return caption_summary
 
@@ -230,15 +237,89 @@ def normalize_factor_table_csv_text(
     else:
         scenario_type = "factor_table_partial"
 
-    pieces = [f"{row.factor} {row.direction} {row.magnitude}" for row in factor_rows]
-    mechanical_summary = "Mechanical baseline: " + "; ".join(pieces)
     return ScenarioSidecarV1(
         scenario_id=scenario_id,
         scenario_type=scenario_type,
         horizon_days=horizon_days,
         factor_rows=factor_rows,
-        mechanical_summary=mechanical_summary,
+        mechanical_summary=build_mechanical_summary(factor_rows),
         source_artifacts={"input": "uploaded_csv"},
+    )
+
+
+def _optional_terminal_delta(
+    item: dict[str, Any],
+    column: str,
+    *,
+    row_number: int,
+) -> float | None:
+    if item.get(column) is None:
+        return None
+    return _parse_finite_float(item[column], column=column, row_number=row_number)
+
+
+def normalize_generated_deck_summary(
+    deck_summary: dict[str, Any],
+    *,
+    scenario_id: str,
+    report_path: str | Path,
+    arrays_path: str | Path = "",
+) -> ScenarioSidecarV1:
+    rows: list[ScenarioFactorRowV1] = []
+    for row_number, item in enumerate(deck_summary.get("factor_rows", []), start=1):
+        if not isinstance(item, dict):
+            continue
+        factor = _compact(item.get("factor")).upper()
+        if not factor:
+            continue
+        mean_delta = _parse_finite_float(
+            item.get("terminal_mean_delta", 0.0),
+            column="terminal_mean_delta",
+            row_number=row_number,
+        )
+        direction = _compact(item.get("direction")) or direction_for_delta(
+            factor, mean_delta
+        )
+        magnitude = _compact(item.get("magnitude")) or magnitude_for_delta(mean_delta)
+        rows.append(
+            ScenarioFactorRowV1(
+                factor=factor,
+                start=0.0,
+                end=mean_delta,
+                delta=mean_delta,
+                direction=direction,
+                magnitude=magnitude,
+                confidence="distribution_mean",
+                evidence=f"mean_terminal_delta={_format_number(mean_delta)}",
+                p10_delta=_optional_terminal_delta(
+                    item, "terminal_p10_delta", row_number=row_number
+                ),
+                p50_delta=_optional_terminal_delta(
+                    item, "terminal_p50_delta", row_number=row_number
+                ),
+                p90_delta=_optional_terminal_delta(
+                    item, "terminal_p90_delta", row_number=row_number
+                ),
+            )
+        )
+    if not rows:
+        raise ValueError("generated deck summary contains no factor rows")
+
+    artifacts = {"report": str(report_path)}
+    if arrays_path:
+        artifacts["arrays"] = str(arrays_path)
+    return ScenarioSidecarV1(
+        scenario_id=_compact(scenario_id),
+        scenario_type="generated_deck",
+        horizon_days=int(deck_summary.get("future_len", 30) or 30),
+        scenario_title=_compact(scenario_id),
+        archetype="mixed_ambiguous",
+        mechanical_summary=build_mechanical_summary(rows),
+        factor_rows=rows,
+        source_artifacts=artifacts,
+        normalization_warnings=[],
+        summary_source=_compact(deck_summary.get("summary_source")) or "generated_deck",
+        sample_count=int(deck_summary.get("sample_count", 0) or 0),
     )
 
 

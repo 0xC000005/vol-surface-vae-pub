@@ -17,6 +17,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     load_historical_joint39_sidecar,
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
+    normalize_generated_deck_summary,
 )
 
 
@@ -62,11 +63,7 @@ def test_factor_table_rejects_header_only_csv() -> None:
 
 
 def test_factor_table_rejects_duplicate_normalized_factors() -> None:
-    csv_text = (
-        "factor,start,end\n"
-        " SpX ,1294,1311\n"
-        "spx,1290,1300\n"
-    )
+    csv_text = "factor,start,end\n" " SpX ,1294,1311\n" "spx,1290,1300\n"
 
     with pytest.raises(ValueError, match="duplicate factor"):
         normalize_factor_table_csv_text(csv_text, scenario_id="duplicates")
@@ -140,6 +137,49 @@ def test_factor_row_accepts_quantile_deltas() -> None:
     assert row.p10_delta == pytest.approx(9.0)
     assert row.p50_delta == pytest.approx(17.0)
     assert row.p90_delta == pytest.approx(25.0)
+
+
+def test_generated_deck_summary_converts_terminal_rows() -> None:
+    deck_summary = {
+        "summary_source": "report_terminal_delta_summary",
+        "sample_count": 16,
+        "future_len": 30,
+        "factor_rows": [
+            {
+                "factor": "SPX",
+                "direction": "up",
+                "magnitude": "large",
+                "terminal_mean_delta": 48.0,
+                "terminal_p10_delta": -74.0,
+                "terminal_p50_delta": 52.0,
+                "terminal_p90_delta": 110.0,
+            },
+            {
+                "factor": "BBB_OAS",
+                "direction": "tighter",
+                "magnitude": "small",
+                "terminal_mean_delta": -0.08,
+                "terminal_p10_delta": -0.20,
+                "terminal_p50_delta": -0.06,
+                "terminal_p90_delta": 0.09,
+            },
+        ],
+    }
+
+    sidecar = normalize_generated_deck_summary(
+        deck_summary,
+        scenario_id="fragile_risk_on_rebound_0",
+        report_path="/tmp/report.json",
+        arrays_path="/tmp/arrays.npz",
+    )
+
+    assert sidecar.scenario_type == "generated_deck"
+    assert sidecar.sample_count == 16
+    assert sidecar.factor_rows[0].factor == "SPX"
+    assert sidecar.factor_rows[0].start == 0.0
+    assert sidecar.factor_rows[0].end == 48.0
+    assert sidecar.factor_rows[1].direction == "tighter"
+    assert sidecar.source_artifacts["report"] == "/tmp/report.json"
 
 
 def test_narrative_packet_accepts_planned_shape() -> None:
