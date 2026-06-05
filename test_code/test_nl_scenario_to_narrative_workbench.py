@@ -12,6 +12,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     ScenarioFactorRowV1,
     ScenarioNarrativePacketV1,
     ScenarioSidecarV1,
+    load_historical_joint39_sidecar,
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
 )
@@ -177,3 +178,45 @@ def test_historical_joint39_card_normalizes_caption_fields(tmp_path) -> None:
     assert sidecar.archetype == "liquidity_withdrawal"
     assert sidecar.source_artifacts["cards_jsonl"] == str(cards_path)
     assert sidecar.normalization_warnings == []
+
+
+def test_historical_joint39_card_requires_window_id() -> None:
+    with pytest.raises(ValueError, match="historical card is missing window_id"):
+        normalize_historical_joint39_card({}, source_path="cards.jsonl")
+
+
+def test_historical_joint39_card_defaults_missing_archetype() -> None:
+    card = {
+        "window_id": "joint39_train_0006",
+        "scenario_title": "rates pressure",
+        "caption_fields": {
+            "evidence_used": ["US10Y higher medium"],
+        },
+        "views": {},
+    }
+
+    sidecar = normalize_historical_joint39_card(card, source_path="cards.jsonl")
+
+    assert sidecar.archetype == "mixed_ambiguous"
+
+
+def test_load_historical_joint39_sidecar_accepts_positional_args(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0007",
+        "scenario_title": "credit pressure",
+        "archetype": "credit_stress",
+        "caption_fields": {
+            "evidence_used": ["BBB_OAS wider medium"],
+        },
+        "views": {},
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+
+    sidecar, raw_card = load_historical_joint39_sidecar(
+        cards_path, "joint39_train_0007"
+    )
+
+    assert sidecar.scenario_id == "joint39_train_0007"
+    assert sidecar.source_artifacts["cards_jsonl"] == str(cards_path)
+    assert raw_card == card

@@ -80,6 +80,8 @@ class ScenarioNarrativePacketV1(BaseModel):
 
 
 def _compact(text: object) -> str:
+    if text is None:
+        return ""
     return " ".join(str(text).strip().split())
 
 
@@ -253,7 +255,6 @@ def normalize_historical_joint39_card(
 
 
 def load_historical_joint39_sidecar(
-    *,
     cards_jsonl: str | Path,
     target_window_id: str,
 ) -> tuple[ScenarioSidecarV1, dict[str, Any]]:
@@ -263,7 +264,7 @@ def load_historical_joint39_sidecar(
         for line in handle:
             if line.strip():
                 row = json.loads(line)
-                by_id[str(row.get("window_id", ""))] = row
+                by_id[_compact(row.get("window_id"))] = row
     if target_window_id not in by_id:
         raise ValueError(f"target window not found: {target_window_id}")
     card = by_id[target_window_id]
