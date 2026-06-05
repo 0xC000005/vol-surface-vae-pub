@@ -11,13 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from experiments.backfill.block_ar import nl_14_view_variant_pilot as pilot
-from experiments.backfill.block_ar.nl_codex_caption_batch import (
-    DEFAULT_CODEX_MODEL,
-    DEFAULT_REASONING_EFFORT,
-)
 
-
+ROOT = Path(__file__).resolve().parents[3]
 SPREAD_FACTORS = {
     "AAA_OAS",
     "BBB_OAS",
@@ -116,6 +111,13 @@ def _format_number(value: float) -> str:
     return f"{value:.12g}"
 
 
+def _resolve_repo_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (ROOT / candidate).resolve()
+
+
 def _parse_finite_float(value: object, *, column: str, row_number: int) -> float:
     text = _compact(value)
     if not text:
@@ -163,6 +165,15 @@ def build_mechanical_summary(rows: list[ScenarioFactorRowV1]) -> str:
     return "Mechanical baseline: " + "; ".join(pieces)
 
 
+def _target_evidence_from_factor_row(row: ScenarioFactorRowV1) -> str:
+    return (
+        f"{row.factor}: "
+        f"start={_format_number(row.start)}; "
+        f"end={_format_number(row.end)}; "
+        f"delta={_format_number(row.delta)}"
+    )
+
+
 def build_target_payload_from_sidecar(sidecar: ScenarioSidecarV1) -> dict[str, Any]:
     return {
         "window_id": sidecar.scenario_id,
@@ -171,7 +182,7 @@ def build_target_payload_from_sidecar(sidecar: ScenarioSidecarV1) -> dict[str, A
         "mechanical_summary": sidecar.mechanical_summary
         or build_mechanical_summary(sidecar.factor_rows),
         "evidence_used": [
-            f"{row.factor}: {row.evidence}" for row in sidecar.factor_rows
+            _target_evidence_from_factor_row(row) for row in sidecar.factor_rows
         ][:12],
     }
 
@@ -212,15 +223,26 @@ def run_workbench_packet(
     dry_run: bool,
     timeout_seconds: int = 1200,
     validation_retries: int = 2,
-    model: str = DEFAULT_CODEX_MODEL,
-    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> ScenarioNarrativePacketV1:
+    from experiments.backfill.block_ar import nl_14_view_variant_pilot as pilot
+    from experiments.backfill.block_ar.nl_codex_caption_batch import (
+        DEFAULT_CODEX_MODEL,
+        DEFAULT_REASONING_EFFORT,
+    )
+
+    resolved_output_dir = _resolve_repo_path(output_dir)
     args = argparse.Namespace(
-        output_dir=Path(output_dir),
+        output_dir=resolved_output_dir,
         support_cards_jsonl="",
         dry_run=bool(dry_run),
-        model=str(model),
-        reasoning_effort=str(reasoning_effort),
+        model=str(model if model is not None else DEFAULT_CODEX_MODEL),
+        reasoning_effort=str(
+            reasoning_effort
+            if reasoning_effort is not None
+            else DEFAULT_REASONING_EFFORT
+        ),
         timeout_seconds=int(timeout_seconds),
         validation_retries=int(validation_retries),
     )
@@ -237,10 +259,11 @@ def run_workbench_packet(
         },
     )
     packet = _packet_from_report(sidecar=sidecar, report=report)
-    packet_path = Path(output_dir) / "scenario_narrative_packet.json"
+    packet_path = resolved_output_dir / "scenario_narrative_packet.json"
     artifact_paths = dict(packet.artifact_paths)
     artifact_paths["packet"] = str(packet_path)
     packet = packet.model_copy(update={"artifact_paths": artifact_paths})
+    packet_path.parent.mkdir(parents=True, exist_ok=True)
     packet_path.write_text(packet.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return packet
 

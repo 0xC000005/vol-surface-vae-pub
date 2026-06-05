@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,6 +31,35 @@ def test_workbench_core_does_not_import_private_helper_scripts() -> None:
 
     assert "nl_hard_negative_bank_regenerate" not in source
     assert "nl_sparse_variant_pilot" not in source
+
+
+def test_workbench_core_import_does_not_load_runner_stack() -> None:
+    root = Path(__file__).resolve().parents[1]
+    script = """
+import sys
+
+sys.path.insert(0, ".")
+import experiments.backfill.block_ar.nl_scenario_to_narrative_workbench  # noqa: F401
+
+for module_name in [
+    "experiments.backfill.block_ar.nl_14_view_variant_pilot",
+    "experiments.backfill.block_ar.nl_codex_caption_batch",
+    "experiments.backfill.block_ar.nl_sparse_variant_pilot",
+    "experiments.backfill.block_ar.nl_hard_negative_bank_regenerate",
+]:
+    if module_name in sys.modules:
+        raise SystemExit(f"imported {module_name}")
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
 def test_factor_table_requires_numeric_start_and_end() -> None:
@@ -515,12 +546,39 @@ def test_build_target_payload_from_sidecar() -> None:
     assert "SPX: start=100; end=110; delta=10" in target["evidence_used"]
 
 
-def test_run_workbench_packet_dry_run(tmp_path) -> None:
-    sidecar = normalize_factor_table_csv_text(
-        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,high\n",
-        scenario_id="demo_upload",
+def test_build_target_payload_from_generated_deck_uses_start_end_delta() -> None:
+    sidecar = normalize_generated_deck_summary(
+        {
+            "summary_source": "report_terminal_delta_summary",
+            "sample_count": 16,
+            "future_len": 30,
+            "factor_rows": [
+                {
+                    "factor": "SPX",
+                    "terminal_mean_delta": 48.0,
+                    "terminal_p10_delta": -74.0,
+                    "terminal_p50_delta": 52.0,
+                    "terminal_p90_delta": 110.0,
+                },
+                {
+                    "factor": "DXY",
+                    "terminal_mean_delta": -1.5,
+                },
+            ],
+        },
+        scenario_id="generated_demo",
+        report_path="/tmp/report.json",
     )
-    candidates = [
+
+    target = build_target_payload_from_sidecar(sidecar)
+
+    assert "SPX: start=0; end=48; delta=48" in target["evidence_used"]
+    assert "DXY: start=0; end=-1.5; delta=-1.5" in target["evidence_used"]
+    assert all("mean_terminal_delta" not in row for row in target["evidence_used"])
+
+
+def _packet_test_candidates() -> list[dict[str, object]]:
+    return [
         {
             "window_id": f"joint39_train_{idx:04d}",
             "scenario_title": f"candidate {idx}",
@@ -534,16 +592,92 @@ def test_run_workbench_packet_dry_run(tmp_path) -> None:
         for idx in range(100, 140)
     ]
 
+
+def test_packet_from_report_preserves_structured_pair_rows() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="demo_upload",
+    )
+    pairs = [
+        {
+            "view_name": "desk_note",
+            "positive_text": "SPX is bid while the dollar softens.",
+            "negative_window_id": "joint39_train_0100",
+            "negative_text": "SPX is offered while the dollar firms.",
+            "quality_notes": ["representative"],
+        }
+    ]
+
+    packet = workbench_module._packet_from_report(
+        sidecar=sidecar,
+        report={
+            "pairs": pairs,
+            "validation": {"status": "pass"},
+            "artifact_paths": {
+                "report": "/tmp/fourteen_view_report.json",
+                "review": "/tmp/fourteen_view_review.md",
+            },
+        },
+    )
+
+    assert packet.positive_narratives == [
+        {"view_name": "desk_note", "text": "SPX is bid while the dollar softens."}
+    ]
+    assert packet.hard_negative_narratives == [
+        {
+            "view_name": "desk_note",
+            "negative_window_id": "joint39_train_0100",
+            "text": "SPX is offered while the dollar firms.",
+        }
+    ]
+    assert packet.paired_review == pairs
+    assert packet.artifact_paths["report"] == "/tmp/fourteen_view_report.json"
+    assert packet.artifact_paths["review"] == "/tmp/fourteen_view_review.md"
+
+
+def test_run_workbench_packet_dry_run_writes_normalized_packet_json(
+    tmp_path, monkeypatch
+) -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,high\n",
+        scenario_id="demo_upload",
+    )
+    root = Path(__file__).resolve().parents[1]
+    relative_output_dir = Path(
+        os.path.relpath(tmp_path / "runner_output", start=root)
+    )
+    unrelated_cwd = tmp_path / "cwd"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
     packet = run_workbench_packet(
         sidecar=sidecar,
-        negative_candidates=candidates,
-        output_dir=tmp_path,
+        negative_candidates=_packet_test_candidates(),
+        output_dir=relative_output_dir,
         dry_run=True,
     )
 
+    expected_output_dir = (root / relative_output_dir).resolve()
+    expected_packet_path = expected_output_dir / "scenario_narrative_packet.json"
     assert packet.scenario_sidecar.scenario_id == "demo_upload"
     assert packet.validation["status"] == "fail"
-    assert "report" in packet.artifact_paths
+    assert packet.artifact_paths["packet"] == str(expected_packet_path)
+    assert packet.artifact_paths["report"] == str(
+        expected_output_dir / "fourteen_view_report.json"
+    )
+    assert packet.artifact_paths["review"] == str(
+        expected_output_dir / "fourteen_view_review.md"
+    )
+
+    written_packet = json.loads(expected_packet_path.read_text(encoding="utf-8"))
+    assert written_packet["scenario_sidecar"]["scenario_id"] == "demo_upload"
+    assert written_packet["artifact_paths"]["packet"] == str(expected_packet_path)
+    assert written_packet["artifact_paths"]["report"] == str(
+        expected_output_dir / "fourteen_view_report.json"
+    )
+    assert written_packet["artifact_paths"]["review"] == str(
+        expected_output_dir / "fourteen_view_review.md"
+    )
 
 
 def test_narrative_packet_accepts_planned_shape() -> None:
