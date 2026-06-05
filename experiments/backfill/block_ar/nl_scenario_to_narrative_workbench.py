@@ -254,14 +254,10 @@ def _card_direction_from_text(card: dict[str, Any], factor: str) -> int:
             sign = _direction_from_factor_clause(clause, factor)
             if sign:
                 return sign
-        sign = _direction_from_factor_clause(text, factor)
-        if sign:
-            return sign
     return 0
 
 
 def select_sidecar_negative_candidates(
-    *,
     sidecar: ScenarioSidecarV1,
     cards: list[dict[str, Any]],
     count: int,
@@ -273,8 +269,11 @@ def select_sidecar_negative_candidates(
     target_signs = {
         row.factor: _direction_sign(row.direction) for row in sidecar.factor_rows
     }
-    scored: list[tuple[float, dict[str, Any]]] = []
+    scored: list[tuple[float, str, dict[str, Any]]] = []
     for card in cards:
+        window_id = _compact(card.get("window_id"))
+        if not window_id:
+            continue
         channels: list[str] = []
         agreements = 0
         for factor, target_sign in target_signs.items():
@@ -293,24 +292,24 @@ def select_sidecar_negative_candidates(
         caption_fields = card.get("caption_fields")
         caption = caption_fields if isinstance(caption_fields, dict) else {}
         candidate = {
-            "window_id": _compact(card.get("window_id")),
+            "window_id": window_id,
             "scenario_title": _compact(card.get("scenario_title")),
             "archetype": _compact(card.get("archetype")) or "mixed_ambiguous",
             "mechanical_summary": _compact(
-                card.get("mechanical_summary")
-                or caption.get("mechanical_summary")
-                or card.get("scenario_title")
+                card.get("mechanical_summary") or caption.get("mechanical_summary")
             ),
-            "evidence_used": [],
+            "evidence_used": _historical_evidence_used(card),
             "contradiction_channels": channels,
             "contradiction_count": len(channels),
             "agreement_count": agreements,
         }
+        if not candidate["mechanical_summary"]:
+            candidate["mechanical_summary"] = _historical_mechanical_summary(card)
         score = 100.0 * len(channels) + agreements
-        scored.append((score, candidate))
+        scored.append((score, window_id, candidate))
 
-    scored.sort(key=lambda item: item[0], reverse=True)
-    selected = [candidate for _, candidate in scored[:requested_count]]
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    selected = [candidate for _, _, candidate in scored[:requested_count]]
     if len(selected) < requested_count:
         raise ValueError(
             f"only found {len(selected)} sidecar negative candidates, "

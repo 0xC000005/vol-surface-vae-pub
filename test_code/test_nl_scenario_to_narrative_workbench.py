@@ -131,6 +131,169 @@ def test_sidecar_negative_candidates_use_real_card_windows() -> None:
     assert "DXY" in candidates[0]["contradiction_channels"]
 
 
+def test_sidecar_negative_candidates_preserve_caption_evidence_rows() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "near miss risk pressure",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {
+                "mechanical_summary": "SPX lower; DXY higher",
+                "evidence_used": ["SPX lower medium", "DXY higher small"],
+            },
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(
+        sidecar=sidecar,
+        cards=cards,
+        count=1,
+    )
+
+    assert candidates[0]["evidence_used"] == [
+        "SPX lower medium",
+        "DXY higher small",
+    ]
+
+
+def test_sidecar_negative_candidates_do_not_cross_talk_between_factors() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "ambiguous clauses",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX; DXY lower"},
+        },
+    ]
+
+    with pytest.raises(
+        ValueError, match="only found 0 sidecar negative candidates, requested 1"
+    ):
+        select_sidecar_negative_candidates(
+            sidecar=sidecar,
+            cards=cards,
+            count=1,
+        )
+
+
+def test_sidecar_negative_candidates_accept_positional_args() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "near miss equity pressure",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower"},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(sidecar, cards, 1)
+
+    assert candidates[0]["window_id"] == "joint39_train_0100"
+
+
+def test_sidecar_negative_candidates_skip_blank_window_ids() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": " ",
+            "scenario_title": "blank id",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower"},
+        },
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "valid id",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower"},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(sidecar, cards, 1)
+
+    assert candidates[0]["window_id"] == "joint39_train_0100"
+
+
+def test_sidecar_negative_candidates_use_evidence_only_mechanical_summary() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"evidence_used": ["SPX lower medium"]},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(sidecar, cards, 1)
+
+    assert candidates[0]["evidence_used"] == ["SPX lower medium"]
+    assert candidates[0]["mechanical_summary"] == (
+        "Mechanical baseline: SPX lower medium."
+    )
+
+
+def test_sidecar_negative_candidates_do_not_cross_talk_between_spreads() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nBBB_OAS,1.0,1.2,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "spread ambiguity",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "BBB_OAS flat; AAA_OAS tighter"},
+        },
+    ]
+
+    with pytest.raises(
+        ValueError, match="only found 0 sidecar negative candidates, requested 1"
+    ):
+        select_sidecar_negative_candidates(sidecar, cards, 1)
+
+
+def test_sidecar_negative_candidates_tie_break_by_window_id() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0200",
+            "scenario_title": "later id",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower"},
+        },
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "earlier id",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower"},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(sidecar, cards, 1)
+
+    assert candidates[0]["window_id"] == "joint39_train_0100"
+
+
 def test_sidecar_accepts_planned_non_factor_table_types() -> None:
     for scenario_type in ("historical_joint39", "generated_deck"):
         sidecar = ScenarioSidecarV1(
