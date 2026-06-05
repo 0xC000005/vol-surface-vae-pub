@@ -14,10 +14,12 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     ScenarioFactorRowV1,
     ScenarioNarrativePacketV1,
     ScenarioSidecarV1,
+    build_target_payload_from_sidecar,
     load_historical_joint39_sidecar,
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
     normalize_generated_deck_summary,
+    run_workbench_packet,
     select_sidecar_negative_candidates,
 )
 
@@ -498,6 +500,52 @@ def test_generated_deck_summary_rejects_nonfinite_mean_terminal_delta(
         )
 
 
+def test_build_target_payload_from_sidecar() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,high\n",
+        scenario_id="demo_upload",
+    )
+
+    target = build_target_payload_from_sidecar(sidecar)
+
+    assert target["window_id"] == "demo_upload"
+    assert target["scenario_title"] == "demo_upload"
+    assert target["archetype"] == "mixed_ambiguous"
+    assert "SPX up large" in target["mechanical_summary"]
+    assert "SPX: start=100; end=110; delta=10" in target["evidence_used"]
+
+
+def test_run_workbench_packet_dry_run(tmp_path) -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,high\n",
+        scenario_id="demo_upload",
+    )
+    candidates = [
+        {
+            "window_id": f"joint39_train_{idx:04d}",
+            "scenario_title": f"candidate {idx}",
+            "archetype": "mixed_ambiguous",
+            "mechanical_summary": "Mechanical baseline: SPX lower; DXY higher.",
+            "evidence_used": ["SPX lower", "DXY higher"],
+            "contradiction_channels": ["SPX", "DXY", "GOLD"],
+            "contradiction_count": 3,
+            "agreement_count": 1,
+        }
+        for idx in range(100, 140)
+    ]
+
+    packet = run_workbench_packet(
+        sidecar=sidecar,
+        negative_candidates=candidates,
+        output_dir=tmp_path,
+        dry_run=True,
+    )
+
+    assert packet.scenario_sidecar.scenario_id == "demo_upload"
+    assert packet.validation["status"] == "fail"
+    assert "report" in packet.artifact_paths
+
+
 def test_narrative_packet_accepts_planned_shape() -> None:
     sidecar = ScenarioSidecarV1(
         scenario_id="demo_upload",
@@ -507,17 +555,47 @@ def test_narrative_packet_accepts_planned_shape() -> None:
 
     packet = ScenarioNarrativePacketV1(
         scenario_sidecar=sidecar,
-        positive_narratives=["SPX rises while spreads widen."],
-        hard_negative_narratives=["SPX falls while spreads tighten."],
-        paired_review={"status": "unreviewed"},
+        positive_narratives=[
+            {"view_name": "desk_note", "text": "SPX rises while spreads widen."}
+        ],
+        hard_negative_narratives=[
+            {
+                "view_name": "desk_note",
+                "negative_window_id": "joint39_train_0100",
+                "text": "SPX falls while spreads tighten.",
+            }
+        ],
+        paired_review=[
+            {
+                "view_name": "desk_note",
+                "positive_text": "SPX rises while spreads widen.",
+                "negative_window_id": "joint39_train_0100",
+                "negative_text": "SPX falls while spreads tighten.",
+            }
+        ],
         validation={"status": "pending"},
         artifact_paths={"sidecar": "sidecar.json"},
     )
 
     assert packet.scenario_sidecar == sidecar
-    assert packet.positive_narratives == ["SPX rises while spreads widen."]
-    assert packet.hard_negative_narratives == ["SPX falls while spreads tighten."]
-    assert packet.paired_review == {"status": "unreviewed"}
+    assert packet.positive_narratives == [
+        {"view_name": "desk_note", "text": "SPX rises while spreads widen."}
+    ]
+    assert packet.hard_negative_narratives == [
+        {
+            "view_name": "desk_note",
+            "negative_window_id": "joint39_train_0100",
+            "text": "SPX falls while spreads tighten.",
+        }
+    ]
+    assert packet.paired_review == [
+        {
+            "view_name": "desk_note",
+            "positive_text": "SPX rises while spreads widen.",
+            "negative_window_id": "joint39_train_0100",
+            "negative_text": "SPX falls while spreads tighten.",
+        }
+    ]
     assert packet.validation == {"status": "pending"}
     assert packet.artifact_paths == {"sidecar": "sidecar.json"}
 

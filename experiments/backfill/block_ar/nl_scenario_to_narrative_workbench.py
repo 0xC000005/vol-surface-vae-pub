@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -9,6 +10,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from experiments.backfill.block_ar import nl_14_view_variant_pilot as pilot
+from experiments.backfill.block_ar.nl_codex_caption_batch import (
+    DEFAULT_CODEX_MODEL,
+    DEFAULT_REASONING_EFFORT,
+)
 
 
 SPREAD_FACTORS = {
@@ -68,9 +75,9 @@ class ScenarioNarrativePacketV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_sidecar: ScenarioSidecarV1
-    positive_narratives: list[str] = Field(default_factory=list)
-    hard_negative_narratives: list[str] = Field(default_factory=list)
-    paired_review: dict[str, Any] = Field(default_factory=dict)
+    positive_narratives: list[dict[str, Any]] = Field(default_factory=list)
+    hard_negative_narratives: list[dict[str, Any]] = Field(default_factory=list)
+    paired_review: list[dict[str, Any]] = Field(default_factory=list)
     validation: dict[str, Any] = Field(default_factory=dict)
     artifact_paths: dict[str, str] = Field(default_factory=dict)
 
@@ -154,6 +161,88 @@ def factor_row_from_start_end(
 def build_mechanical_summary(rows: list[ScenarioFactorRowV1]) -> str:
     pieces = [f"{row.factor} {row.direction} {row.magnitude}" for row in rows]
     return "Mechanical baseline: " + "; ".join(pieces)
+
+
+def build_target_payload_from_sidecar(sidecar: ScenarioSidecarV1) -> dict[str, Any]:
+    return {
+        "window_id": sidecar.scenario_id,
+        "scenario_title": sidecar.scenario_title or sidecar.scenario_id,
+        "archetype": sidecar.archetype or "mixed_ambiguous",
+        "mechanical_summary": sidecar.mechanical_summary
+        or build_mechanical_summary(sidecar.factor_rows),
+        "evidence_used": [
+            f"{row.factor}: {row.evidence}" for row in sidecar.factor_rows
+        ][:12],
+    }
+
+
+def _packet_from_report(
+    *,
+    sidecar: ScenarioSidecarV1,
+    report: dict[str, Any],
+) -> ScenarioNarrativePacketV1:
+    pairs = report.get("pairs", [])
+    positives = [
+        {"view_name": row.get("view_name"), "text": row.get("positive_text")}
+        for row in pairs
+    ]
+    negatives = [
+        {
+            "view_name": row.get("view_name"),
+            "negative_window_id": row.get("negative_window_id"),
+            "text": row.get("negative_text"),
+        }
+        for row in pairs
+    ]
+    return ScenarioNarrativePacketV1(
+        scenario_sidecar=sidecar,
+        positive_narratives=positives,
+        hard_negative_narratives=negatives,
+        paired_review=pairs,
+        validation=report.get("validation", {}),
+        artifact_paths=report.get("artifact_paths", {}),
+    )
+
+
+def run_workbench_packet(
+    *,
+    sidecar: ScenarioSidecarV1,
+    negative_candidates: list[dict[str, Any]],
+    output_dir: str | Path,
+    dry_run: bool,
+    timeout_seconds: int = 1200,
+    validation_retries: int = 2,
+    model: str = DEFAULT_CODEX_MODEL,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+) -> ScenarioNarrativePacketV1:
+    args = argparse.Namespace(
+        output_dir=Path(output_dir),
+        support_cards_jsonl="",
+        dry_run=bool(dry_run),
+        model=str(model),
+        reasoning_effort=str(reasoning_effort),
+        timeout_seconds=int(timeout_seconds),
+        validation_retries=int(validation_retries),
+    )
+    report = pilot.run_pilot_from_prepared_payload(
+        args=args,
+        target=build_target_payload_from_sidecar(sidecar),
+        negative_candidates=negative_candidates,
+        source_paths={
+            "cards_jsonl": sidecar.source_artifacts.get(
+                "cards_jsonl", sidecar.summary_source
+            ),
+            "support_cards_jsonl": "",
+            "sidecar": sidecar.model_dump_json(),
+        },
+    )
+    packet = _packet_from_report(sidecar=sidecar, report=report)
+    packet_path = Path(output_dir) / "scenario_narrative_packet.json"
+    artifact_paths = dict(packet.artifact_paths)
+    artifact_paths["packet"] = str(packet_path)
+    packet = packet.model_copy(update={"artifact_paths": artifact_paths})
+    packet_path.write_text(packet.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return packet
 
 
 def _historical_caption_fields(card: dict[str, Any]) -> dict[str, Any]:
