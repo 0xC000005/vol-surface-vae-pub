@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, ".")
 
@@ -43,6 +44,40 @@ def test_factor_table_normalizes_numeric_rows() -> None:
     assert rows["SPX"].evidence == "start=1294; end=1311; delta=17"
 
 
+def test_factor_table_rejects_header_only_csv() -> None:
+    with pytest.raises(ValueError, match="factor table contains no factor rows"):
+        normalize_factor_table_csv_text("factor,start,end\n", scenario_id="empty")
+
+
+def test_factor_table_rejects_duplicate_normalized_factors() -> None:
+    csv_text = (
+        "factor,start,end\n"
+        " SpX ,1294,1311\n"
+        "spx,1290,1300\n"
+    )
+
+    with pytest.raises(ValueError, match="duplicate factor"):
+        normalize_factor_table_csv_text(csv_text, scenario_id="duplicates")
+
+
+@pytest.mark.parametrize(
+    ("csv_text", "message"),
+    [
+        ("factor,start,end\nSPX,bad,1311\n", "start must be numeric"),
+        ("factor,start,end\nSPX,1294,bad\n", "end must be numeric"),
+        ("factor,start,end\nSPX,nan,1311\n", "start must be finite"),
+        ("factor,start,end\nSPX,1294,nan\n", "end must be finite"),
+        ("factor,start,end\nSPX,inf,1311\n", "start must be finite"),
+        ("factor,start,end\nSPX,1294,inf\n", "end must be finite"),
+    ],
+)
+def test_factor_table_rejects_invalid_numeric_values(
+    csv_text: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        normalize_factor_table_csv_text(csv_text, scenario_id="invalid_numeric")
+
+
 def test_parsed_factor_table_sidecar_has_planned_defaults() -> None:
     csv_text = "factor,start,end\nSPX,1294,1311\n"
 
@@ -64,6 +99,16 @@ def test_sidecar_accepts_planned_non_factor_table_types() -> None:
         )
 
         assert sidecar.scenario_type == scenario_type
+
+
+def test_sidecar_rejects_nonpositive_horizon_days() -> None:
+    with pytest.raises(ValidationError):
+        ScenarioSidecarV1(
+            scenario_id="zero_horizon",
+            scenario_type="factor_table_partial",
+            horizon_days=0,
+            mechanical_summary="Mechanical baseline:",
+        )
 
 
 def test_factor_row_accepts_quantile_deltas() -> None:

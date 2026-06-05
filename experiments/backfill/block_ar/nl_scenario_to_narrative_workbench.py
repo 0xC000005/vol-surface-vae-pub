@@ -50,7 +50,7 @@ class ScenarioSidecarV1(BaseModel):
     scenario_type: ScenarioTypeV1
     scenario_title: str = ""
     archetype: str = "mixed_ambiguous"
-    horizon_days: int = 30
+    horizon_days: int = Field(default=30, gt=0)
     factor_rows: list[ScenarioFactorRowV1] = Field(default_factory=list)
     mechanical_summary: str = Field(min_length=1)
     normalization_warnings: list[str] = Field(default_factory=list)
@@ -164,10 +164,15 @@ def normalize_factor_table_csv_text(
         raise ValueError(f"missing required column(s): {missing}")
 
     factor_rows: list[ScenarioFactorRowV1] = []
+    seen_factors: set[str] = set()
     for row_number, row in enumerate(reader, start=2):
         factor = _compact(row.get(field_lookup["factor"], ""))
         if not factor:
             raise ValueError(f"row {row_number}: factor must be non-empty")
+        factor_name = factor.upper()
+        if factor_name in seen_factors:
+            raise ValueError(f"row {row_number}: duplicate factor: {factor_name}")
+        seen_factors.add(factor_name)
         start = _parse_finite_float(
             row.get(field_lookup["start"], ""), column="start", row_number=row_number
         )
@@ -184,6 +189,8 @@ def normalize_factor_table_csv_text(
                 confidence=confidence or "medium",
             )
         )
+    if not factor_rows:
+        raise ValueError("factor table contains no factor rows")
 
     scenario_type: ScenarioTypeV1
     if len(factor_rows) >= FULL_JOINT39_FACTOR_COUNT:
