@@ -19,10 +19,17 @@ if str(ROOT) not in sys.path:
 
 from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (  # noqa: E402
     ScenarioSidecarV1,
+    load_generated_deck_sidecar_from_report,
+    load_historical_joint39_sidecar,
     normalize_factor_table_csv_text,
 )
 
 
+DEFAULT_CARDS_JSONL = Path(
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "episode_card_v3_full_codex_multiformat_982g_sharded/final/"
+    "multiformat_episode_cards.jsonl"
+)
 DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "scenario_to_narrative_workbench"
@@ -131,14 +138,56 @@ def _normalize_factor_table_sidecar_for_app(csv_text: str) -> ScenarioSidecarV1:
     )
 
 
-def normalize_factor_table_for_app(csv_text: str) -> tuple[str, pd.DataFrame, str, str]:
-    sidecar = _normalize_factor_table_sidecar_for_app(csv_text)
+def _sidecar_outputs(sidecar: ScenarioSidecarV1) -> tuple[str, pd.DataFrame, str, str]:
     return (
         status_cards_markdown(sidecar, validation_status="normalized"),
         factor_rows_dataframe(sidecar),
         json.dumps(sidecar.normalization_warnings, indent=2, sort_keys=True),
         sidecar.model_dump_json(indent=2),
     )
+
+
+def normalize_factor_table_for_app(csv_text: str) -> tuple[str, pd.DataFrame, str, str]:
+    sidecar = _normalize_factor_table_sidecar_for_app(csv_text)
+    return _sidecar_outputs(sidecar)
+
+
+def _normalize_historical_sidecar_for_app(
+    target_window_id: str,
+    *,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+) -> ScenarioSidecarV1:
+    cards_path = Path(cards_jsonl)
+    if not cards_path.is_absolute():
+        cards_path = ROOT / cards_path
+    sidecar, _card = load_historical_joint39_sidecar(
+        cards_jsonl=cards_path,
+        target_window_id=target_window_id.strip(),
+    )
+    return sidecar
+
+
+def normalize_historical_for_app(
+    target_window_id: str,
+    *,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+) -> tuple[str, pd.DataFrame, str, str]:
+    sidecar = _normalize_historical_sidecar_for_app(
+        target_window_id,
+        cards_jsonl=cards_jsonl,
+    )
+    return _sidecar_outputs(sidecar)
+
+
+def _normalize_generated_deck_sidecar_for_app(report_path: str) -> ScenarioSidecarV1:
+    return load_generated_deck_sidecar_from_report(report_path.strip())
+
+
+def normalize_generated_deck_for_app(
+    report_path: str,
+) -> tuple[str, pd.DataFrame, str, str]:
+    sidecar = _normalize_generated_deck_sidecar_for_app(report_path)
+    return _sidecar_outputs(sidecar)
 
 
 def build_demo() -> Any:
@@ -148,6 +197,24 @@ def build_demo() -> Any:
         gr.Markdown("# Scenario-to-Narrative Analyst Workbench")
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
+                source_mode = gr.Radio(
+                    choices=["Historical Joint39", "Generated Deck", "Factor Table"],
+                    value="Factor Table",
+                    label="Input mode",
+                )
+                historical_window_id = gr.Textbox(
+                    label="Historical Joint39 window id",
+                    value="joint39_train_1553",
+                )
+                historical_button = gr.Button("Load Historical Joint39")
+                deck_report_path = gr.Textbox(
+                    label="Generated deck report JSON",
+                    placeholder=(
+                        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+                        ".../fixed_start_live_story_deck_analysis.json"
+                    ),
+                )
+                deck_button = gr.Button("Load Generated Deck")
                 factor_csv = gr.Textbox(
                     label="Factor table CSV",
                     lines=10,
@@ -160,7 +227,7 @@ def build_demo() -> Any:
                     ),
                 )
                 normalize_button = gr.Button(
-                    "Normalize and Visualize",
+                    "Normalize Factor Table",
                     variant="primary",
                 )
             with gr.Column(scale=2):
@@ -176,6 +243,32 @@ def build_demo() -> Any:
                 warnings_json = gr.Code(language="json", label="Warnings")
                 sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
 
+        historical_button.click(
+            fn=normalize_historical_for_app,
+            inputs=[historical_window_id],
+            outputs=[status, factor_frame, warnings_json, sidecar_json],
+            show_progress="full",
+        ).then(
+            fn=lambda target_window_id: factor_move_plot(
+                _normalize_historical_sidecar_for_app(target_window_id)
+            ),
+            inputs=[historical_window_id],
+            outputs=[factor_plot],
+            show_progress="hidden",
+        )
+        deck_button.click(
+            fn=normalize_generated_deck_for_app,
+            inputs=[deck_report_path],
+            outputs=[status, factor_frame, warnings_json, sidecar_json],
+            show_progress="full",
+        ).then(
+            fn=lambda report_path: factor_move_plot(
+                _normalize_generated_deck_sidecar_for_app(report_path)
+            ),
+            inputs=[deck_report_path],
+            outputs=[factor_plot],
+            show_progress="hidden",
+        )
         normalize_button.click(
             fn=normalize_factor_table_for_app,
             inputs=[factor_csv],

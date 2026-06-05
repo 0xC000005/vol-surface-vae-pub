@@ -17,6 +17,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     ScenarioNarrativePacketV1,
     ScenarioSidecarV1,
     build_target_payload_from_sidecar,
+    load_generated_deck_sidecar_from_report,
     load_historical_joint39_sidecar,
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
@@ -434,6 +435,40 @@ def test_generated_deck_summary_converts_terminal_rows() -> None:
         == "Mechanical baseline: SPX up large; BBB_OAS tighter small"
     )
     assert sidecar.source_artifacts["report"] == "/tmp/report.json"
+
+
+def test_load_generated_deck_sidecar_from_report_uses_terminal_summary(
+    tmp_path,
+) -> None:
+    report_path = tmp_path / "deck_report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "generation": {
+                    "forecast_steps": 30,
+                    "sample_count": 16,
+                    "generated_state_shape": [1, 16, 30, 39],
+                    "terminal_delta_summary": [
+                        {
+                            "market": "SPX",
+                            "mean_terminal_delta": 12.5,
+                            "p10": -5.0,
+                            "p50": 11.0,
+                            "p90": 30.0,
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    sidecar = load_generated_deck_sidecar_from_report(report_path)
+
+    assert sidecar.scenario_id == "deck_report"
+    assert sidecar.scenario_type == "generated_deck"
+    assert sidecar.factor_rows[0].factor == "SPX"
+    assert sidecar.factor_rows[0].p90_delta == 30.0
 
 
 def test_generated_deck_summary_rejects_rows_missing_mean_terminal_delta() -> None:

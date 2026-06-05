@@ -566,6 +566,27 @@ def normalize_generated_deck_summary(
     )
 
 
+def load_generated_deck_sidecar_from_report(report_path: str | Path) -> ScenarioSidecarV1:
+    path = Path(report_path)
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise ValueError(f"{path}: expected JSON object")
+
+    from experiments.backfill.block_ar.nl_reverse_caption_scenario_deck import (
+        summarize_report_terminal_delta,
+    )
+
+    summary = summarize_report_terminal_delta(report)
+    if summary is None:
+        raise ValueError("generated deck report has no terminal_delta_summary")
+    return normalize_generated_deck_summary(
+        summary,
+        scenario_id=path.stem,
+        report_path=path,
+        arrays_path="",
+    )
+
+
 def normalize_historical_joint39_card(
     card: dict[str, Any],
     *,

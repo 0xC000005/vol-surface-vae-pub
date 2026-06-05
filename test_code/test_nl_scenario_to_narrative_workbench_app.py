@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 
 sys.path.insert(0, ".")
@@ -13,7 +14,9 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench_app import
     PACKET_COLUMNS,
     factor_move_plot,
     factor_rows_dataframe,
+    normalize_generated_deck_for_app,
     normalize_factor_table_for_app,
+    normalize_historical_for_app,
     packet_preview_rows,
     status_cards_markdown,
 )
@@ -115,3 +118,69 @@ def test_normalize_factor_table_for_app_returns_visual_outputs() -> None:
     assert frame.iloc[0]["Factor"] == "SPX"
     assert "partial_factor_coverage" in warnings_json
     assert '"scenario_id": "uploaded_factor_table"' in sidecar_json
+
+
+def test_normalize_generated_deck_for_app_returns_visual_outputs(tmp_path) -> None:
+    report_path = tmp_path / "generated_case.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "generation": {
+                    "forecast_steps": 30,
+                    "sample_count": 8,
+                    "generated_state_shape": [1, 8, 30, 39],
+                    "terminal_delta_summary": [
+                        {
+                            "market": "GOLD",
+                            "mean_terminal_delta": 21.5,
+                            "p10": 5.0,
+                            "p50": 20.0,
+                            "p90": 40.0,
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status, frame, warnings_json, sidecar_json = normalize_generated_deck_for_app(
+        str(report_path)
+    )
+
+    assert "ScenarioSidecarV1" in status
+    assert "`generated_deck`" in status
+    assert frame.iloc[0]["Factor"] == "GOLD"
+    assert json.loads(warnings_json) == []
+    assert '"scenario_id": "generated_case"' in sidecar_json
+    assert '"p90_delta": 40.0' in sidecar_json
+
+
+def test_normalize_historical_for_app_uses_injected_cards_jsonl(tmp_path) -> None:
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(
+        json.dumps(
+            {
+                "window_id": "joint39_train_0010",
+                "scenario_title": "defensive dollar bid",
+                "archetype": "liquidity_withdrawal",
+                "caption_fields": {
+                    "evidence_used": ["DXY higher medium", "SPX lower small"],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status, frame, warnings_json, sidecar_json = normalize_historical_for_app(
+        " joint39_train_0010 ",
+        cards_jsonl=cards_path,
+    )
+
+    assert "ScenarioSidecarV1" in status
+    assert "`historical_joint39`" in status
+    assert frame.empty
+    assert json.loads(warnings_json) == []
+    assert '"scenario_id": "joint39_train_0010"' in sidecar_json
+    assert "DXY higher medium" in sidecar_json
