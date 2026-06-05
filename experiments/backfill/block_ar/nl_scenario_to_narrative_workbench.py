@@ -9,11 +9,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from experiments.backfill.block_ar.nl_hard_negative_bank_regenerate import (
-    _mechanical_summary,
-)
-from experiments.backfill.block_ar.nl_sparse_variant_pilot import _evidence_used
-
 
 SPREAD_FACTORS = {
     "AAA_OAS",
@@ -155,6 +150,34 @@ def factor_row_from_start_end(
     )
 
 
+def _historical_caption_fields(card: dict[str, Any]) -> dict[str, Any]:
+    fields = card.get("caption_fields")
+    return fields if isinstance(fields, dict) else {}
+
+
+def _historical_evidence_used(card: dict[str, Any]) -> list[str]:
+    evidence = _historical_caption_fields(card).get("evidence_used")
+    if isinstance(evidence, list):
+        return [_compact(item) for item in evidence if _compact(item)]
+    return []
+
+
+def _historical_mechanical_summary(card: dict[str, Any]) -> str:
+    top_level_summary = _compact(card.get("mechanical_summary"))
+    if top_level_summary:
+        return top_level_summary
+
+    caption_summary = _compact(_historical_caption_fields(card).get("mechanical_summary"))
+    if caption_summary:
+        return caption_summary
+
+    evidence_rows = _historical_evidence_used(card)
+    if evidence_rows:
+        return "Mechanical baseline: " + "; ".join(evidence_rows) + "."
+
+    return "Mechanical summary unavailable from historical episode card."
+
+
 def normalize_factor_table_csv_text(
     csv_text: str,
     *,
@@ -227,11 +250,8 @@ def normalize_historical_joint39_card(
     window_id = _compact(card.get("window_id"))
     if not window_id:
         raise ValueError("historical card is missing window_id")
-    mechanical = (
-        _mechanical_summary(card)
-        or "Mechanical summary unavailable from historical episode card."
-    )
-    evidence_rows = _evidence_used(card)
+    mechanical = _historical_mechanical_summary(card)
+    evidence_rows = _historical_evidence_used(card)
     warnings: list[dict[str, str]] = []
     if not evidence_rows:
         warnings.append(
@@ -265,7 +285,8 @@ def load_historical_joint39_sidecar(
             if line.strip():
                 row = json.loads(line)
                 by_id[_compact(row.get("window_id"))] = row
-    if target_window_id not in by_id:
+    target_id = _compact(target_window_id)
+    if target_id not in by_id:
         raise ValueError(f"target window not found: {target_window_id}")
-    card = by_id[target_window_id]
+    card = by_id[target_id]
     return normalize_historical_joint39_card(card, source_path=path), card

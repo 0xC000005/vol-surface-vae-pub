@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 sys.path.insert(0, ".")
 
+import experiments.backfill.block_ar.nl_scenario_to_narrative_workbench as workbench_module
 from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     ScenarioFactorRowV1,
     ScenarioNarrativePacketV1,
@@ -16,6 +18,13 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
 )
+
+
+def test_workbench_core_does_not_import_private_helper_scripts() -> None:
+    source = Path(workbench_module.__file__).read_text(encoding="utf-8")
+
+    assert "nl_hard_negative_bank_regenerate" not in source
+    assert "nl_sparse_variant_pilot" not in source
 
 
 def test_factor_table_requires_numeric_start_and_end() -> None:
@@ -178,6 +187,28 @@ def test_historical_joint39_card_normalizes_caption_fields(tmp_path) -> None:
     assert sidecar.archetype == "liquidity_withdrawal"
     assert sidecar.source_artifacts["cards_jsonl"] == str(cards_path)
     assert sidecar.normalization_warnings == []
+    assert (
+        sidecar.mechanical_summary
+        == "Mechanical baseline: SPX lower medium; VIX higher small."
+    )
+
+
+def test_historical_joint39_card_warns_when_caption_evidence_missing() -> None:
+    sidecar = normalize_historical_joint39_card(
+        {
+            "window_id": "joint39_train_0008",
+            "scenario_title": "missing evidence",
+            "caption_fields": {},
+        },
+        source_path="cards.jsonl",
+    )
+
+    assert sidecar.normalization_warnings == [
+        {
+            "code": "missing_caption_evidence",
+            "message": "Historical card has no caption_fields.evidence_used rows.",
+        }
+    ]
 
 
 def test_historical_joint39_card_requires_window_id() -> None:
@@ -219,4 +250,23 @@ def test_load_historical_joint39_sidecar_accepts_positional_args(tmp_path) -> No
 
     assert sidecar.scenario_id == "joint39_train_0007"
     assert sidecar.source_artifacts["cards_jsonl"] == str(cards_path)
+    assert raw_card == card
+
+
+def test_load_historical_joint39_sidecar_compacts_target_window_id(tmp_path) -> None:
+    card = {
+        "window_id": " joint39_train_0009 ",
+        "scenario_title": "target id whitespace",
+        "caption_fields": {
+            "evidence_used": ["SPX higher small"],
+        },
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+
+    sidecar, raw_card = load_historical_joint39_sidecar(
+        cards_path, "\n joint39_train_0009  "
+    )
+
+    assert sidecar.scenario_id == "joint39_train_0009"
     assert raw_card == card
