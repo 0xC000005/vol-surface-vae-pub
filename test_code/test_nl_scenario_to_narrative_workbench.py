@@ -131,6 +131,25 @@ def test_sidecar_negative_candidates_use_real_card_windows() -> None:
     assert "DXY" in candidates[0]["contradiction_channels"]
 
 
+def test_sidecar_negative_candidates_parse_comma_separated_factor_clauses() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "comma separated pressure",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower, DXY higher"},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(sidecar, cards, 1)
+
+    assert candidates[0]["contradiction_channels"] == ["SPX", "DXY"]
+
+
 def test_sidecar_negative_candidates_preserve_caption_evidence_rows() -> None:
     sidecar = normalize_factor_table_csv_text(
         "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,medium\n",

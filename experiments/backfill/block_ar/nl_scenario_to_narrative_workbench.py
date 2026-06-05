@@ -250,7 +250,7 @@ def _card_direction_from_text(card: dict[str, Any], factor: str) -> int:
         text = text_field.lower()
         if not _contains_token(text, factor):
             continue
-        for clause in re.split(r"[;\n|]+", text):
+        for clause in re.split(r"[;,\n|.]+", text):
             sign = _direction_from_factor_clause(clause, factor)
             if sign:
                 return sign
