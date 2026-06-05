@@ -272,23 +272,21 @@ def normalize_generated_deck_summary(
         factor = _compact(item.get("factor")).upper()
         if not factor:
             continue
+        if item.get("terminal_mean_delta") is None:
+            continue
         mean_delta = _parse_finite_float(
-            item.get("terminal_mean_delta", 0.0),
+            item["terminal_mean_delta"],
             column="terminal_mean_delta",
             row_number=row_number,
         )
-        direction = _compact(item.get("direction")) or direction_for_delta(
-            factor, mean_delta
-        )
-        magnitude = _compact(item.get("magnitude")) or magnitude_for_delta(mean_delta)
         rows.append(
             ScenarioFactorRowV1(
                 factor=factor,
                 start=0.0,
                 end=mean_delta,
                 delta=mean_delta,
-                direction=direction,
-                magnitude=magnitude,
+                direction=direction_for_delta(factor, mean_delta),
+                magnitude=magnitude_for_delta(mean_delta),
                 confidence="distribution_mean",
                 evidence=f"mean_terminal_delta={_format_number(mean_delta)}",
                 p10_delta=_optional_terminal_delta(

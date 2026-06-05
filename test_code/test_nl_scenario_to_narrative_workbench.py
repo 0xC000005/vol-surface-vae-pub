@@ -178,8 +178,110 @@ def test_generated_deck_summary_converts_terminal_rows() -> None:
     assert sidecar.factor_rows[0].factor == "SPX"
     assert sidecar.factor_rows[0].start == 0.0
     assert sidecar.factor_rows[0].end == 48.0
+    assert sidecar.factor_rows[0].p10_delta == pytest.approx(-74.0)
+    assert sidecar.factor_rows[0].p50_delta == pytest.approx(52.0)
+    assert sidecar.factor_rows[0].p90_delta == pytest.approx(110.0)
     assert sidecar.factor_rows[1].direction == "tighter"
+    assert (
+        sidecar.mechanical_summary
+        == "Mechanical baseline: SPX up large; BBB_OAS tighter small"
+    )
     assert sidecar.source_artifacts["report"] == "/tmp/report.json"
+
+
+def test_generated_deck_summary_rejects_rows_missing_mean_terminal_delta() -> None:
+    deck_summary = {
+        "factor_rows": [
+            {
+                "factor": "SPX",
+                "direction": "up",
+                "magnitude": "large",
+            },
+            {
+                "factor": "BBB_OAS",
+                "direction": "tighter",
+                "magnitude": "small",
+            },
+        ],
+    }
+
+    with pytest.raises(
+        ValueError, match="generated deck summary contains no factor rows"
+    ):
+        normalize_generated_deck_summary(
+            deck_summary,
+            scenario_id="missing_mean",
+            report_path="/tmp/report.json",
+        )
+
+
+def test_generated_deck_summary_skips_rows_missing_mean_terminal_delta() -> None:
+    deck_summary = {
+        "factor_rows": [
+            {
+                "factor": "SPX",
+                "direction": "up",
+                "magnitude": "large",
+            },
+            {
+                "factor": "DXY",
+                "terminal_mean_delta": -1.5,
+            },
+        ],
+    }
+
+    sidecar = normalize_generated_deck_summary(
+        deck_summary,
+        scenario_id="mixed_validity",
+        report_path="/tmp/report.json",
+    )
+
+    assert len(sidecar.factor_rows) == 1
+    assert sidecar.factor_rows[0].factor == "DXY"
+    assert sidecar.factor_rows[0].delta == pytest.approx(-1.5)
+
+
+def test_generated_deck_summary_derives_labels_from_mean_terminal_delta() -> None:
+    deck_summary = {
+        "factor_rows": [
+            {
+                "factor": "SPX",
+                "direction": "up",
+                "magnitude": "large",
+                "terminal_mean_delta": -5.0,
+            },
+        ],
+    }
+
+    sidecar = normalize_generated_deck_summary(
+        deck_summary,
+        scenario_id="contradictory_labels",
+        report_path="/tmp/report.json",
+    )
+
+    assert sidecar.factor_rows[0].direction == "down"
+    assert sidecar.factor_rows[0].magnitude == "medium"
+
+
+@pytest.mark.parametrize("bad_delta", ["nan", "inf"])
+def test_generated_deck_summary_rejects_nonfinite_mean_terminal_delta(
+    bad_delta: str,
+) -> None:
+    deck_summary = {
+        "factor_rows": [
+            {
+                "factor": "SPX",
+                "terminal_mean_delta": bad_delta,
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="terminal_mean_delta must be finite"):
+        normalize_generated_deck_summary(
+            deck_summary,
+            scenario_id="nonfinite_mean",
+            report_path="/tmp/report.json",
+        )
 
 
 def test_narrative_packet_accepts_planned_shape() -> None:
