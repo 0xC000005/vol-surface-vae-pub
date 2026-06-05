@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 
 import pytest
@@ -11,6 +12,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     ScenarioFactorRowV1,
     ScenarioNarrativePacketV1,
     ScenarioSidecarV1,
+    normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
 )
 
@@ -152,3 +154,26 @@ def test_narrative_packet_accepts_planned_shape() -> None:
     assert packet.paired_review == {"status": "unreviewed"}
     assert packet.validation == {"status": "pending"}
     assert packet.artifact_paths == {"sidecar": "sidecar.json"}
+
+
+def test_historical_joint39_card_normalizes_caption_fields(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0005",
+        "scenario_title": "equity defensive pressure",
+        "archetype": "liquidity_withdrawal",
+        "caption_fields": {
+            "evidence_used": ["SPX lower medium", "VIX higher small"],
+        },
+        "views": {},
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+
+    sidecar = normalize_historical_joint39_card(card, source_path=cards_path)
+
+    assert sidecar.scenario_id == "joint39_train_0005"
+    assert sidecar.scenario_type == "historical_joint39"
+    assert sidecar.scenario_title == "equity defensive pressure"
+    assert sidecar.archetype == "liquidity_withdrawal"
+    assert sidecar.source_artifacts["cards_jsonl"] == str(cards_path)
+    assert sidecar.normalization_warnings == []

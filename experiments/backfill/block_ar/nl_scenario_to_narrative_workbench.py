@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 from io import StringIO
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from experiments.backfill.block_ar.nl_hard_negative_bank_regenerate import (
+    _mechanical_summary,
+)
+from experiments.backfill.block_ar.nl_sparse_variant_pilot import _evidence_used
 
 
 SPREAD_FACTORS = {
@@ -53,7 +60,7 @@ class ScenarioSidecarV1(BaseModel):
     horizon_days: int = Field(default=30, gt=0)
     factor_rows: list[ScenarioFactorRowV1] = Field(default_factory=list)
     mechanical_summary: str = Field(min_length=1)
-    normalization_warnings: list[str] = Field(default_factory=list)
+    normalization_warnings: list[str | dict[str, str]] = Field(default_factory=list)
     summary_source: str = "uploaded_csv"
     sample_count: int | None = None
     source_artifacts: dict[str, str] = Field(default_factory=dict)
@@ -208,3 +215,56 @@ def normalize_factor_table_csv_text(
         mechanical_summary=mechanical_summary,
         source_artifacts={"input": "uploaded_csv"},
     )
+
+
+def normalize_historical_joint39_card(
+    card: dict[str, Any],
+    *,
+    source_path: str | Path,
+) -> ScenarioSidecarV1:
+    window_id = _compact(card.get("window_id"))
+    if not window_id:
+        raise ValueError("historical card is missing window_id")
+    mechanical = (
+        _mechanical_summary(card)
+        or "Mechanical summary unavailable from historical episode card."
+    )
+    evidence_rows = _evidence_used(card)
+    warnings: list[dict[str, str]] = []
+    if not evidence_rows:
+        warnings.append(
+            {
+                "code": "missing_caption_evidence",
+                "message": "Historical card has no caption_fields.evidence_used rows.",
+            }
+        )
+    return ScenarioSidecarV1(
+        scenario_id=window_id,
+        scenario_type="historical_joint39",
+        horizon_days=30,
+        scenario_title=_compact(card.get("scenario_title")),
+        archetype=_compact(card.get("archetype")) or "mixed_ambiguous",
+        mechanical_summary=mechanical,
+        factor_rows=[],
+        source_artifacts={"cards_jsonl": str(source_path)},
+        normalization_warnings=warnings,
+        summary_source="historical_episode_card",
+    )
+
+
+def load_historical_joint39_sidecar(
+    *,
+    cards_jsonl: str | Path,
+    target_window_id: str,
+) -> tuple[ScenarioSidecarV1, dict[str, Any]]:
+    path = Path(cards_jsonl)
+    by_id: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                row = json.loads(line)
+                by_id[str(row.get("window_id", ""))] = row
+    if target_window_id not in by_id:
+        raise ValueError(f"target window not found: {target_window_id}")
+    card = by_id[target_window_id]
+    return normalize_historical_joint39_card(card, source_path=path), card
