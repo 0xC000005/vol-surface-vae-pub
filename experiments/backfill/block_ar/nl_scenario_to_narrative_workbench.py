@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import math
 from io import StringIO
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +15,12 @@ SPREAD_FACTORS = {
     "IG_OAS",
 }
 FULL_JOINT39_FACTOR_COUNT = 39
+ScenarioTypeV1 = Literal[
+    "historical_joint39",
+    "generated_deck",
+    "factor_table_full",
+    "factor_table_partial",
+]
 
 
 class ScenarioFactorRowV1(BaseModel):
@@ -26,6 +32,9 @@ class ScenarioFactorRowV1(BaseModel):
     start: float
     end: float
     delta: float
+    p10_delta: float | None = None
+    p50_delta: float | None = None
+    p90_delta: float | None = None
     direction: Literal["up", "down", "flat", "wider", "tighter"]
     magnitude: Literal["flat", "small", "medium", "large"]
     confidence: str = "medium"
@@ -38,10 +47,15 @@ class ScenarioSidecarV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_id: str = Field(min_length=1)
-    scenario_type: Literal["factor_table_full", "factor_table_partial"]
+    scenario_type: ScenarioTypeV1
+    scenario_title: str = ""
+    archetype: str = "mixed_ambiguous"
     horizon_days: int = 30
     factor_rows: list[ScenarioFactorRowV1] = Field(default_factory=list)
     mechanical_summary: str = Field(min_length=1)
+    normalization_warnings: list[str] = Field(default_factory=list)
+    summary_source: str = "uploaded_csv"
+    sample_count: int | None = None
     source_artifacts: dict[str, str] = Field(default_factory=dict)
 
 
@@ -50,10 +64,12 @@ class ScenarioNarrativePacketV1(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scenario_id: str = Field(min_length=1)
-    sidecar: ScenarioSidecarV1
-    mechanical_summary: str = Field(min_length=1)
-    narrative: str = ""
+    scenario_sidecar: ScenarioSidecarV1
+    positive_narratives: list[str] = Field(default_factory=list)
+    hard_negative_narratives: list[str] = Field(default_factory=list)
+    paired_review: dict[str, Any] = Field(default_factory=dict)
+    validation: dict[str, Any] = Field(default_factory=dict)
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
 
 
 def _compact(text: object) -> str:
@@ -169,7 +185,7 @@ def normalize_factor_table_csv_text(
             )
         )
 
-    scenario_type: Literal["factor_table_full", "factor_table_partial"]
+    scenario_type: ScenarioTypeV1
     if len(factor_rows) >= FULL_JOINT39_FACTOR_COUNT:
         scenario_type = "factor_table_full"
     else:
