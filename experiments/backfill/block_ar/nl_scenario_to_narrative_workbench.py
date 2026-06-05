@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 from io import StringIO
 from pathlib import Path
 from typing import Any, Literal
@@ -183,6 +184,139 @@ def _historical_mechanical_summary(card: dict[str, Any]) -> str:
         return "Mechanical baseline: " + "; ".join(evidence_rows) + "."
 
     return "Mechanical summary unavailable from historical episode card."
+
+
+def _direction_sign(direction: str) -> int:
+    value = str(direction).lower()
+    if value in {"up", "wider"}:
+        return 1
+    if value in {"down", "tighter"}:
+        return -1
+    return 0
+
+
+def _direction_words_for_factor(factor: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    factor_is_spread = factor.upper().endswith("_OAS")
+    if factor_is_spread:
+        return ("wider", "higher", "up"), ("tighter", "lower", "down")
+    return ("higher", "up", "bid", "firmer"), (
+        "lower",
+        "down",
+        "offered",
+        "softer",
+    )
+
+
+def _token_pattern(token: str) -> str:
+    return rf"(?<![a-z0-9_]){re.escape(token.lower())}(?![a-z0-9_])"
+
+
+def _contains_token(text: str, token: str) -> bool:
+    return bool(re.search(_token_pattern(token), text))
+
+
+def _card_text_fields(card: dict[str, Any]) -> list[str]:
+    caption_fields = card.get("caption_fields")
+    caption = caption_fields if isinstance(caption_fields, dict) else {}
+    evidence = caption.get("evidence_used")
+    evidence_rows = evidence if isinstance(evidence, list) else []
+    return [
+        _compact(value)
+        for value in [
+            card.get("scenario_title"),
+            card.get("archetype"),
+            card.get("mechanical_summary"),
+            caption.get("mechanical_summary"),
+            *evidence_rows,
+        ]
+        if _compact(value)
+    ]
+
+
+def _direction_from_factor_clause(clause: str, factor: str) -> int:
+    if not _contains_token(clause, factor):
+        return 0
+
+    positive_words, negative_words = _direction_words_for_factor(factor)
+    positive_match = any(_contains_token(clause, word) for word in positive_words)
+    negative_match = any(_contains_token(clause, word) for word in negative_words)
+    if positive_match == negative_match:
+        return 0
+    return 1 if positive_match else -1
+
+
+def _card_direction_from_text(card: dict[str, Any], factor: str) -> int:
+    for text_field in _card_text_fields(card):
+        text = text_field.lower()
+        if not _contains_token(text, factor):
+            continue
+        for clause in re.split(r"[;\n|]+", text):
+            sign = _direction_from_factor_clause(clause, factor)
+            if sign:
+                return sign
+        sign = _direction_from_factor_clause(text, factor)
+        if sign:
+            return sign
+    return 0
+
+
+def select_sidecar_negative_candidates(
+    *,
+    sidecar: ScenarioSidecarV1,
+    cards: list[dict[str, Any]],
+    count: int,
+) -> list[dict[str, Any]]:
+    requested_count = int(count)
+    if requested_count <= 0:
+        return []
+
+    target_signs = {
+        row.factor: _direction_sign(row.direction) for row in sidecar.factor_rows
+    }
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for card in cards:
+        channels: list[str] = []
+        agreements = 0
+        for factor, target_sign in target_signs.items():
+            if target_sign == 0:
+                continue
+            candidate_sign = _card_direction_from_text(card, factor)
+            if candidate_sign == 0:
+                continue
+            if candidate_sign * target_sign < 0:
+                channels.append(factor)
+            elif candidate_sign * target_sign > 0:
+                agreements += 1
+        if not channels:
+            continue
+
+        caption_fields = card.get("caption_fields")
+        caption = caption_fields if isinstance(caption_fields, dict) else {}
+        candidate = {
+            "window_id": _compact(card.get("window_id")),
+            "scenario_title": _compact(card.get("scenario_title")),
+            "archetype": _compact(card.get("archetype")) or "mixed_ambiguous",
+            "mechanical_summary": _compact(
+                card.get("mechanical_summary")
+                or caption.get("mechanical_summary")
+                or card.get("scenario_title")
+            ),
+            "evidence_used": [],
+            "contradiction_channels": channels,
+            "contradiction_count": len(channels),
+            "agreement_count": agreements,
+        }
+        score = 100.0 * len(channels) + agreements
+        scored.append((score, candidate))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    selected = [candidate for _, candidate in scored[:requested_count]]
+    if len(selected) < requested_count:
+        raise ValueError(
+            f"only found {len(selected)} sidecar negative candidates, "
+            f"requested {requested_count}"
+        )
+    return selected
 
 
 def normalize_factor_table_csv_text(

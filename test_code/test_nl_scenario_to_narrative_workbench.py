@@ -18,6 +18,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (
     normalize_historical_joint39_card,
     normalize_factor_table_csv_text,
     normalize_generated_deck_summary,
+    select_sidecar_negative_candidates,
 )
 
 
@@ -97,6 +98,37 @@ def test_parsed_factor_table_sidecar_has_planned_defaults() -> None:
     assert sidecar.normalization_warnings == []
     assert sidecar.summary_source == "uploaded_csv"
     assert sidecar.sample_count is None
+
+
+def test_sidecar_negative_candidates_use_real_card_windows() -> None:
+    sidecar = normalize_factor_table_csv_text(
+        "factor,start,end,confidence\nSPX,100,110,medium\nDXY,90,85,medium\n",
+        scenario_id="upload",
+    )
+    cards = [
+        {
+            "window_id": "joint39_train_0100",
+            "scenario_title": "near miss risk pressure",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX lower; DXY higher"},
+        },
+        {
+            "window_id": "joint39_train_0200",
+            "scenario_title": "same direction",
+            "archetype": "mixed_ambiguous",
+            "caption_fields": {"mechanical_summary": "SPX higher; DXY lower"},
+        },
+    ]
+
+    candidates = select_sidecar_negative_candidates(
+        sidecar=sidecar,
+        cards=cards,
+        count=1,
+    )
+
+    assert candidates[0]["window_id"] == "joint39_train_0100"
+    assert "SPX" in candidates[0]["contradiction_channels"]
+    assert "DXY" in candidates[0]["contradiction_channels"]
 
 
 def test_sidecar_accepts_planned_non_factor_table_types() -> None:
