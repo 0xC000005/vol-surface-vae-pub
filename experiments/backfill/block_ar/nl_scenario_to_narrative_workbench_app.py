@@ -22,6 +22,8 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (  
     load_generated_deck_sidecar_from_report,
     load_historical_joint39_sidecar,
     normalize_factor_table_csv_text,
+    run_workbench_packet,
+    select_sidecar_negative_candidates,
 )
 
 
@@ -34,6 +36,7 @@ DEFAULT_OUTPUT_DIR = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "scenario_to_narrative_workbench"
 )
+GENERATION_CANDIDATE_COUNT = 40
 FACTOR_ROW_COLUMNS = [
     "Factor",
     "Start",
@@ -44,7 +47,7 @@ FACTOR_ROW_COLUMNS = [
     "Confidence",
 ]
 PACKET_COLUMNS = ["View", "Positive", "Negative Window", "Hard Negative"]
-SOURCE_MODE_CHOICES = ["Historical Joint39", "Generated Deck", "Factor Table"]
+SOURCE_MODE_CHOICES = ["Historical Case", "Uploaded Numerical Scenario"]
 
 
 def factor_rows_dataframe(sidecar: ScenarioSidecarV1) -> pd.DataFrame:
@@ -139,18 +142,30 @@ def _normalize_factor_table_sidecar_for_app(csv_text: str) -> ScenarioSidecarV1:
     )
 
 
-def _sidecar_outputs(sidecar: ScenarioSidecarV1) -> tuple[str, pd.DataFrame, str, str]:
+def _sidecar_outputs(
+    sidecar: ScenarioSidecarV1,
+) -> tuple[str, pd.DataFrame, str, str, str]:
+    sidecar_json = sidecar.model_dump_json(indent=2)
     return (
         status_cards_markdown(sidecar, validation_status="normalized"),
         factor_rows_dataframe(sidecar),
         json.dumps(sidecar.normalization_warnings, indent=2, sort_keys=True),
-        sidecar.model_dump_json(indent=2),
+        sidecar_json,
+        sidecar_json,
     )
 
 
-def normalize_factor_table_for_app(csv_text: str) -> tuple[str, pd.DataFrame, str, str]:
+def normalize_factor_table_for_app(
+    csv_text: str,
+) -> tuple[str, pd.DataFrame, str, str, str]:
     sidecar = _normalize_factor_table_sidecar_for_app(csv_text)
     return _sidecar_outputs(sidecar)
+
+
+def normalize_uploaded_scenario_for_app(
+    csv_text: str,
+) -> tuple[str, pd.DataFrame, str, str, str]:
+    return normalize_factor_table_for_app(csv_text)
 
 
 def _normalize_historical_sidecar_for_app(
@@ -171,7 +186,7 @@ def _normalize_historical_sidecar_for_app(
 def normalize_historical_for_app(
     target_window_id: str,
     cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
-) -> tuple[str, pd.DataFrame, str, str]:
+) -> tuple[str, pd.DataFrame, str, str, str]:
     sidecar = _normalize_historical_sidecar_for_app(
         target_window_id,
         cards_jsonl=cards_jsonl,
@@ -185,26 +200,98 @@ def _normalize_generated_deck_sidecar_for_app(report_path: str) -> ScenarioSidec
 
 def normalize_generated_deck_for_app(
     report_path: str,
-) -> tuple[str, pd.DataFrame, str, str]:
+) -> tuple[str, pd.DataFrame, str, str, str]:
     sidecar = _normalize_generated_deck_sidecar_for_app(report_path)
     return _sidecar_outputs(sidecar)
 
 
-def mode_visibility_flags(source_mode: str) -> tuple[bool, bool, bool]:
+def mode_visibility_flags(source_mode: str) -> tuple[bool, bool]:
     selected = str(source_mode or "").strip()
     if selected not in SOURCE_MODE_CHOICES:
-        selected = "Factor Table"
+        selected = "Uploaded Numerical Scenario"
     return (
-        selected == "Historical Joint39",
-        selected == "Generated Deck",
-        selected == "Factor Table",
+        selected == "Historical Case",
+        selected == "Uploaded Numerical Scenario",
+    )
+
+
+def _resolve_app_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return ROOT / candidate
+
+
+def _read_jsonl_cards(path: str | Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with _resolve_app_path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    rows.append(payload)
+    return rows
+
+
+def _scenario_slug(value: str) -> str:
+    slug = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in value)
+    return slug.strip("_") or "scenario"
+
+
+def generation_status_markdown(
+    packet_path: str,
+    validation_status: str,
+    error_count: int,
+) -> str:
+    return (
+        "## Generation Status\n\n"
+        f"- Validation: `{validation_status}`\n"
+        f"- Errors: `{error_count}`\n"
+        f"- Packet JSON: `{packet_path}`"
+    )
+
+
+def generate_narrative_packet_for_app(
+    sidecar_json: str,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    *,
+    dry_run: bool = False,
+) -> str:
+    if not str(sidecar_json or "").strip():
+        return (
+            "## Generation Status\n\n"
+            "- Validation: `waiting`\n"
+            "- Packet JSON: `load a scenario first`"
+        )
+    sidecar = ScenarioSidecarV1.model_validate_json(sidecar_json)
+    cards = _read_jsonl_cards(cards_jsonl)
+    candidates = select_sidecar_negative_candidates(
+        sidecar=sidecar,
+        cards=cards,
+        count=GENERATION_CANDIDATE_COUNT,
+    )
+    scenario_output_dir = _resolve_app_path(output_dir) / _scenario_slug(
+        sidecar.scenario_id
+    )
+    packet = run_workbench_packet(
+        sidecar=sidecar,
+        negative_candidates=candidates,
+        output_dir=scenario_output_dir,
+        dry_run=bool(dry_run),
+    )
+    validation = packet.validation
+    return generation_status_markdown(
+        packet.artifact_paths.get("packet", ""),
+        str(validation.get("status", "unknown")),
+        int(validation.get("error_count", 0) or 0),
     )
 
 
 def build_demo() -> Any:
     import gradio as gr
 
-    def mode_visibility_updates(source_mode: str) -> tuple[Any, Any, Any]:
+    def mode_visibility_updates(source_mode: str) -> tuple[Any, Any]:
         return tuple(
             gr.update(visible=visible)
             for visible in mode_visibility_flags(source_mode)
@@ -216,31 +303,18 @@ def build_demo() -> Any:
             with gr.Column(scale=1, min_width=320):
                 source_mode = gr.Radio(
                     choices=SOURCE_MODE_CHOICES,
-                    value="Factor Table",
+                    value="Uploaded Numerical Scenario",
                     label="Input mode",
                 )
                 with gr.Column(visible=False) as historical_group:
                     historical_window_id = gr.Textbox(
-                        label="Historical Joint39 window id",
+                        label="Historical window id",
                         value="joint39_train_1553",
                     )
-                    historical_cards_jsonl = gr.Textbox(
-                        label="Historical cards JSONL",
-                        value=str(DEFAULT_CARDS_JSONL),
-                    )
-                    historical_button = gr.Button("Load Historical Joint39")
-                with gr.Column(visible=False) as deck_group:
-                    deck_report_path = gr.Textbox(
-                        label="Generated deck report JSON",
-                        placeholder=(
-                            "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-                            ".../prefix_report_snapshot.json"
-                        ),
-                    )
-                    deck_button = gr.Button("Load Generated Deck")
-                with gr.Column(visible=True) as factor_table_group:
+                    historical_button = gr.Button("Visualize Historical Scenario")
+                with gr.Column(visible=True) as uploaded_group:
                     factor_csv = gr.Textbox(
-                        label="Factor table CSV",
+                        label="Numerical scenario CSV",
                         lines=10,
                         value=(
                             "factor,start,end,confidence\n"
@@ -251,32 +325,53 @@ def build_demo() -> Any:
                         ),
                     )
                     normalize_button = gr.Button(
-                        "Normalize Factor Table",
+                        "Visualize Uploaded Scenario",
                         variant="primary",
+                    )
+                with gr.Accordion("Technical paths", open=False):
+                    reference_cards_jsonl = gr.Textbox(
+                        label="Reference cards JSONL",
+                        value=str(DEFAULT_CARDS_JSONL),
+                    )
+                    output_dir = gr.Textbox(
+                        label="Packet output directory",
+                        value=DEFAULT_OUTPUT_DIR,
                     )
             with gr.Column(scale=2):
                 status = gr.Markdown(
                     status_cards_markdown(None, validation_status="waiting")
                 )
+                sidecar_state = gr.State("")
                 factor_frame = gr.Dataframe(
                     headers=FACTOR_ROW_COLUMNS,
-                    label="Factor moves",
+                    label="Numerical scenario",
                     interactive=False,
                 )
-                factor_plot = gr.Plot(label="Factor terminal move")
-                warnings_json = gr.Code(language="json", label="Warnings")
-                sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
+                factor_plot = gr.Plot(label="Scenario move")
+                generate_button = gr.Button("Generate + Verify Narrative Packet")
+                generation_status = gr.Markdown(
+                    "## Generation Status\n\n- Validation: `waiting`"
+                )
+                with gr.Accordion("Technical details", open=False):
+                    warnings_json = gr.Code(language="json", label="Warnings")
+                    sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
 
         source_mode.change(
             fn=mode_visibility_updates,
             inputs=[source_mode],
-            outputs=[historical_group, deck_group, factor_table_group],
+            outputs=[historical_group, uploaded_group],
             show_progress="hidden",
         )
         historical_button.click(
             fn=normalize_historical_for_app,
-            inputs=[historical_window_id, historical_cards_jsonl],
-            outputs=[status, factor_frame, warnings_json, sidecar_json],
+            inputs=[historical_window_id, reference_cards_jsonl],
+            outputs=[
+                status,
+                factor_frame,
+                warnings_json,
+                sidecar_json,
+                sidecar_state,
+            ],
             show_progress="full",
         ).then(
             fn=lambda target_window_id, cards_jsonl: factor_move_plot(
@@ -285,27 +380,20 @@ def build_demo() -> Any:
                     cards_jsonl=cards_jsonl,
                 )
             ),
-            inputs=[historical_window_id, historical_cards_jsonl],
-            outputs=[factor_plot],
-            show_progress="hidden",
-        )
-        deck_button.click(
-            fn=normalize_generated_deck_for_app,
-            inputs=[deck_report_path],
-            outputs=[status, factor_frame, warnings_json, sidecar_json],
-            show_progress="full",
-        ).then(
-            fn=lambda report_path: factor_move_plot(
-                _normalize_generated_deck_sidecar_for_app(report_path)
-            ),
-            inputs=[deck_report_path],
+            inputs=[historical_window_id, reference_cards_jsonl],
             outputs=[factor_plot],
             show_progress="hidden",
         )
         normalize_button.click(
-            fn=normalize_factor_table_for_app,
+            fn=normalize_uploaded_scenario_for_app,
             inputs=[factor_csv],
-            outputs=[status, factor_frame, warnings_json, sidecar_json],
+            outputs=[
+                status,
+                factor_frame,
+                warnings_json,
+                sidecar_json,
+                sidecar_state,
+            ],
             show_progress="full",
         ).then(
             fn=lambda text: factor_move_plot(
@@ -314,6 +402,12 @@ def build_demo() -> Any:
             inputs=[factor_csv],
             outputs=[factor_plot],
             show_progress="hidden",
+        )
+        generate_button.click(
+            fn=generate_narrative_packet_for_app,
+            inputs=[sidecar_state, reference_cards_jsonl, output_dir],
+            outputs=[generation_status],
+            show_progress="full",
         )
     return demo
 

@@ -311,6 +311,83 @@ def _historical_mechanical_summary(card: dict[str, Any]) -> str:
     return "Mechanical summary unavailable from historical episode card."
 
 
+def _historical_factor_rows_from_support_metadata(
+    card: dict[str, Any],
+) -> list[ScenarioFactorRowV1]:
+    support_metadata = card.get("support_metadata")
+    if not isinstance(support_metadata, dict):
+        return []
+    move_rows = support_metadata.get("support_move_rows")
+    if not isinstance(move_rows, list):
+        return []
+
+    rows: list[ScenarioFactorRowV1] = []
+    seen: set[str] = set()
+    for index, item in enumerate(move_rows, start=1):
+        if not isinstance(item, dict):
+            continue
+        factor = _compact(item.get("market"))
+        if not factor or item.get("raw_change") is None:
+            continue
+        try:
+            delta = float(item["raw_change"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(delta):
+            continue
+        row = factor_row_from_start_end(
+            factor,
+            0.0,
+            delta,
+            confidence=_compact(item.get("magnitude")) or f"support_row_{index}",
+        )
+        if row.factor in seen:
+            continue
+        seen.add(row.factor)
+        rows.append(row)
+    return rows
+
+
+def _historical_factor_rows_from_evidence(
+    card: dict[str, Any],
+) -> list[ScenarioFactorRowV1]:
+    rows: list[ScenarioFactorRowV1] = []
+    seen: set[str] = set()
+    direct_pattern = re.compile(
+        r"(?P<factor>[A-Z][A-Z0-9_]+)\s+(?P<delta>[+-]\d+(?:\.\d+)?)"
+    )
+    colon_pattern = re.compile(
+        r"(?P<factor>[A-Z][A-Z0-9_]+).*?:\s*(?P<delta>[+-]\d+(?:\.\d+)?)"
+    )
+    for evidence_row in _historical_evidence_used(card):
+        matches = list(direct_pattern.finditer(evidence_row))
+        if not matches:
+            matches = list(colon_pattern.finditer(evidence_row))
+        for match in matches:
+            try:
+                delta = float(match.group("delta"))
+            except ValueError:
+                continue
+            row = factor_row_from_start_end(
+                match.group("factor"),
+                0.0,
+                delta,
+                confidence="historical_evidence",
+            )
+            if row.factor in seen:
+                continue
+            seen.add(row.factor)
+            rows.append(row)
+    return rows
+
+
+def _historical_factor_rows(card: dict[str, Any]) -> list[ScenarioFactorRowV1]:
+    return (
+        _historical_factor_rows_from_support_metadata(card)
+        or _historical_factor_rows_from_evidence(card)
+    )
+
+
 def _direction_sign(direction: str) -> int:
     value = str(direction).lower()
     if value in {"up", "wider"}:
@@ -650,7 +727,7 @@ def normalize_historical_joint39_card(
         scenario_title=_compact(card.get("scenario_title")),
         archetype=_compact(card.get("archetype")) or "mixed_ambiguous",
         mechanical_summary=mechanical,
-        factor_rows=[],
+        factor_rows=_historical_factor_rows(card),
         source_artifacts={"cards_jsonl": str(source_path)},
         normalization_warnings=warnings,
         summary_source="historical_episode_card",

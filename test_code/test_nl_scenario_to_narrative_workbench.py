@@ -874,6 +874,62 @@ def test_historical_joint39_card_normalizes_caption_fields(tmp_path) -> None:
     )
 
 
+def test_historical_joint39_card_extracts_support_metadata_factor_rows(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0011",
+        "scenario_title": "numeric support rows",
+        "caption_fields": {
+            "evidence_used": ["SPX higher small"],
+        },
+        "support_metadata": {
+            "support_move_rows": [
+                {
+                    "market": "SPX",
+                    "raw_change": 12.5,
+                    "magnitude": "small",
+                },
+                {
+                    "market": "BBB_OAS",
+                    "raw_change": -0.2,
+                    "magnitude": "small",
+                },
+            ],
+        },
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+
+    sidecar = normalize_historical_joint39_card(card, source_path=cards_path)
+
+    rows = {row.factor: row for row in sidecar.factor_rows}
+    assert rows["SPX"].delta == pytest.approx(12.5)
+    assert rows["SPX"].direction == "up"
+    assert rows["BBB_OAS"].delta == pytest.approx(-0.2)
+    assert rows["BBB_OAS"].direction == "tighter"
+
+
+def test_historical_joint39_card_extracts_raw_deltas_from_evidence(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0012",
+        "scenario_title": "numeric evidence rows",
+        "caption_fields": {
+            "evidence_used": [
+                "DXY -3.09, z=-1.176326; USDJPY +0.962, z=3.618730.",
+                "AAA_OAS widened small/medium: +552.89, z=0.570700.",
+            ],
+        },
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+
+    sidecar = normalize_historical_joint39_card(card, source_path=cards_path)
+
+    rows = {row.factor: row for row in sidecar.factor_rows}
+    assert rows["DXY"].delta == pytest.approx(-3.09)
+    assert rows["USDJPY"].delta == pytest.approx(0.962)
+    assert rows["AAA_OAS"].delta == pytest.approx(552.89)
+
+
 def test_historical_joint39_card_warns_when_caption_evidence_missing() -> None:
     sidecar = normalize_historical_joint39_card(
         {

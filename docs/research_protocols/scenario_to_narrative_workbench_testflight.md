@@ -5,22 +5,24 @@ Date: 2026-06-05
 ## Scope
 
 This TestFlight validates the reverse analyst workbench before demo use. The
-workbench normalizes numerical scenario evidence, visualizes factor moves, and
+workbench normalizes numerical scenario evidence, visualizes scenario moves, and
 builds strict sidecar and packet artifacts for 14-positive / 14-hard-negative
 narrative generation.
 
 ## Input Modes
 
-- Historical Joint39 case: selected by `joint39_*` window id plus a cards JSONL path.
-- Generated deck artifact: selected by a per-case `prefix_report_snapshot.json` or equivalent report JSON with `generation.terminal_delta_summary`.
-- Uploaded factor table: CSV with required `factor,start,end` columns and optional `confidence`.
+- Historical case: selected by `joint39_*` window id, then visualized as numerical scenario evidence.
+- Uploaded numerical scenario: CSV with required `factor,start,end` columns and optional `confidence`.
+
+Generated-deck report loading remains available as a backend helper for research
+artifacts, but it is not exposed as a website input mode.
 
 ## Guardrails
 
-- Numeric start/end levels are required for uploaded factor tables.
+- Numeric start/end levels are required for uploaded numerical scenarios.
 - Direction-only uploaded tables are rejected for MVP generation.
-- Local code computes facts, visualizations, and validation only; narrative prose must be Codex/GPT-authored.
-- Partial factor tables are labeled `factor_table_partial`.
+- Local code computes facts, visualizations, and validation only; narrative prose must be Codex/GPT-authored and is not displayed as a website narrative table.
+- Partial uploaded scenarios are labeled `factor_table_partial` internally.
 - Dry-run packets are diagnostic artifacts and are not valid narrative banks.
 - The workbench has no launch auth by default; use `--server-name 0.0.0.0` for remote SSH visibility.
 
@@ -35,7 +37,7 @@ uv run --no-sync pytest \
   -q
 ```
 
-Observed on 2026-06-05: `82 passed in 1.74s`.
+Observed on 2026-06-06: `88 passed in 1.84s`.
 
 ```bash
 uv run --no-sync python - <<'PY'
