@@ -16,6 +16,7 @@ from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench_app import
     build_demo,
     factor_move_plot,
     factor_rows_dataframe,
+    mode_visibility_flags,
     normalize_generated_deck_for_app,
     normalize_factor_table_for_app,
     normalize_historical_for_app,
@@ -209,6 +210,51 @@ def test_build_demo_exposes_historical_cards_jsonl_and_wires_callbacks() -> None
         if dependency.get("inputs") == expected_inputs
     ]
     assert len(matching_dependencies) == 2
+
+
+def _components_by_id(demo) -> dict[int, dict]:
+    return {
+        int(component["id"]): component
+        for component in demo.config.get("components", [])
+    }
+
+
+def test_mode_visibility_flags_select_only_active_input_group() -> None:
+    assert mode_visibility_flags("Historical Joint39") == (True, False, False)
+    assert mode_visibility_flags("Generated Deck") == (False, True, False)
+    assert mode_visibility_flags("Factor Table") == (False, False, True)
+    assert mode_visibility_flags("unknown") == (False, False, True)
+
+
+def test_build_demo_wires_input_mode_change_to_visibility_groups() -> None:
+    demo = build_demo()
+    source_mode = _component_by_label(demo, "Input mode")
+
+    matching_dependencies = [
+        dependency
+        for dependency in demo.config.get("dependencies", [])
+        if dependency.get("inputs") == [source_mode["id"]]
+    ]
+
+    assert len(matching_dependencies) == 1
+    mode_dependency = matching_dependencies[0]
+    assert mode_dependency["outputs"]
+    assert len(mode_dependency["outputs"]) == 3
+
+    components = _components_by_id(demo)
+    output_components = [
+        components[int(component_id)] for component_id in mode_dependency["outputs"]
+    ]
+    assert [component["type"] for component in output_components] == [
+        "column",
+        "column",
+        "column",
+    ]
+    assert [component["props"]["visible"] for component in output_components] == [
+        False,
+        False,
+        True,
+    ]
 
 
 def test_build_demo_generated_deck_placeholder_targets_report_snapshot() -> None:

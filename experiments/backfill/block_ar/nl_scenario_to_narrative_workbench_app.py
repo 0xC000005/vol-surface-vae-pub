@@ -44,6 +44,7 @@ FACTOR_ROW_COLUMNS = [
     "Confidence",
 ]
 PACKET_COLUMNS = ["View", "Positive", "Negative Window", "Hard Negative"]
+SOURCE_MODE_CHOICES = ["Historical Joint39", "Generated Deck", "Factor Table"]
 
 
 def factor_rows_dataframe(sidecar: ScenarioSidecarV1) -> pd.DataFrame:
@@ -189,50 +190,70 @@ def normalize_generated_deck_for_app(
     return _sidecar_outputs(sidecar)
 
 
+def mode_visibility_flags(source_mode: str) -> tuple[bool, bool, bool]:
+    selected = str(source_mode or "").strip()
+    if selected not in SOURCE_MODE_CHOICES:
+        selected = "Factor Table"
+    return (
+        selected == "Historical Joint39",
+        selected == "Generated Deck",
+        selected == "Factor Table",
+    )
+
+
 def build_demo() -> Any:
     import gradio as gr
+
+    def mode_visibility_updates(source_mode: str) -> tuple[Any, Any, Any]:
+        return tuple(
+            gr.update(visible=visible)
+            for visible in mode_visibility_flags(source_mode)
+        )
 
     with gr.Blocks(title="Scenario-to-Narrative Workbench") as demo:
         gr.Markdown("# Scenario-to-Narrative Analyst Workbench")
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
                 source_mode = gr.Radio(
-                    choices=["Historical Joint39", "Generated Deck", "Factor Table"],
+                    choices=SOURCE_MODE_CHOICES,
                     value="Factor Table",
                     label="Input mode",
                 )
-                historical_window_id = gr.Textbox(
-                    label="Historical Joint39 window id",
-                    value="joint39_train_1553",
-                )
-                historical_cards_jsonl = gr.Textbox(
-                    label="Historical cards JSONL",
-                    value=str(DEFAULT_CARDS_JSONL),
-                )
-                historical_button = gr.Button("Load Historical Joint39")
-                deck_report_path = gr.Textbox(
-                    label="Generated deck report JSON",
-                    placeholder=(
-                        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
-                        ".../prefix_report_snapshot.json"
-                    ),
-                )
-                deck_button = gr.Button("Load Generated Deck")
-                factor_csv = gr.Textbox(
-                    label="Factor table CSV",
-                    lines=10,
-                    value=(
-                        "factor,start,end,confidence\n"
-                        "SPX,1294.0,1311.0,medium\n"
-                        "DXY,90.3,87.2,high\n"
-                        "CRUDE_OIL,62.1,70.5,medium\n"
-                        "GOLD,548.0,622.5,medium\n"
-                    ),
-                )
-                normalize_button = gr.Button(
-                    "Normalize Factor Table",
-                    variant="primary",
-                )
+                with gr.Column(visible=False) as historical_group:
+                    historical_window_id = gr.Textbox(
+                        label="Historical Joint39 window id",
+                        value="joint39_train_1553",
+                    )
+                    historical_cards_jsonl = gr.Textbox(
+                        label="Historical cards JSONL",
+                        value=str(DEFAULT_CARDS_JSONL),
+                    )
+                    historical_button = gr.Button("Load Historical Joint39")
+                with gr.Column(visible=False) as deck_group:
+                    deck_report_path = gr.Textbox(
+                        label="Generated deck report JSON",
+                        placeholder=(
+                            "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+                            ".../prefix_report_snapshot.json"
+                        ),
+                    )
+                    deck_button = gr.Button("Load Generated Deck")
+                with gr.Column(visible=True) as factor_table_group:
+                    factor_csv = gr.Textbox(
+                        label="Factor table CSV",
+                        lines=10,
+                        value=(
+                            "factor,start,end,confidence\n"
+                            "SPX,1294.0,1311.0,medium\n"
+                            "DXY,90.3,87.2,high\n"
+                            "CRUDE_OIL,62.1,70.5,medium\n"
+                            "GOLD,548.0,622.5,medium\n"
+                        ),
+                    )
+                    normalize_button = gr.Button(
+                        "Normalize Factor Table",
+                        variant="primary",
+                    )
             with gr.Column(scale=2):
                 status = gr.Markdown(
                     status_cards_markdown(None, validation_status="waiting")
@@ -246,6 +267,12 @@ def build_demo() -> Any:
                 warnings_json = gr.Code(language="json", label="Warnings")
                 sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
 
+        source_mode.change(
+            fn=mode_visibility_updates,
+            inputs=[source_mode],
+            outputs=[historical_group, deck_group, factor_table_group],
+            show_progress="hidden",
+        )
         historical_button.click(
             fn=normalize_historical_for_app,
             inputs=[historical_window_id, historical_cards_jsonl],
