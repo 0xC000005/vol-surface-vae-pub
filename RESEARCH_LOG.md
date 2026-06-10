@@ -131636,3 +131636,2495 @@ with the main-regime top3/90 posterior view and frozen SNI rollout.
 `docs/research_protocols/nl_prefix_latent_public_paper_cleanup_plan.md`
 
 ---
+## 2026-06-01: NL narrative-to-narrative support retrieval intake
+
+### Context
+The user proposed a new support-sourcing direction for the narrative-conditioned scenario generator. The current workflow compresses a rich risk-manager narrative into a text embedding, projects it into the SNI final-hidden memory space, and searches historical support by similarity to that compact memory. This can lose detail: a 30-day episode may match a story because of its whole path shape, sequencing, cross-asset mechanism, and qualitative risk language, not only because its final hidden vector is close.
+
+The proposed reframing is to retrieve historical support at the episode/narrative level:
+
+1. **LLM-based qualitative assessment**: compare the user narrative against candidate historical 30-day episodes and ask whether the full episode agrees with the description.
+2. **Narrative-to-narrative matching**: reuse or regenerate professional captions for historical windows, then search for historical narratives that semantically and directionally match the user narrative.
+3. **Richer historical episode cards**: expand each historical window from technical asset-move descriptions into risk-manager-style language, potentially enriched by official macro/news context when available.
+
+### Online Research Summary
+- Sentence-BERT introduced efficient sentence embeddings for semantic similarity search: instead of feeding every sentence pair through BERT, it creates comparable sentence vectors and reduces a 10,000-sentence similarity search from roughly BERT-scale pairwise cost to seconds-scale vector search. Source: https://arxiv.org/abs/1908.10084
+- Dense Passage Retrieval shows that text retrieval can be implemented with learned dense representations and dual encoders, supporting the idea that we can retrieve similar historical narratives rather than forcing every query through the 128-dim SNI memory bridge. Source: https://arxiv.org/abs/2004.04906
+- ColBERT is directly relevant because it avoids collapsing a document into one vector too early: it encodes query and document separately, then uses late interaction for fine-grained token-level matching. This is a useful analogy for preserving risk-story details such as "VIX elevated", "carry rebound", and "liquidity-led rally". Source: https://arxiv.org/abs/2004.12832
+- BEIR benchmark evidence cautions that retrieval generalization is hard: BM25 remains a robust baseline, while rerankers and late-interaction models often perform best but cost more. This supports a hybrid retrieval design rather than a pure dense-vector solution. Source: https://arxiv.org/abs/2104.08663
+- OpenAI's reranking cookbook describes the standard production pattern: cheap embedding/bi-encoder retrieval for candidate recall, followed by a more accurate but more expensive cross-encoder or GPT-style reranker on only the top candidates. Source: https://developers.openai.com/cookbook/examples/search_reranking_with_cross-encoders
+- Current Sentence Transformers tooling supports embeddings, semantic search, sparse encoders, and cross-encoder rerankers in one ecosystem, which is a practical implementation path for a local TestFlight. Source: https://github.com/huggingface/sentence-transformers
+- Contrastive dense retrieval work shows that self-supervised contrastive training can improve dense retrieval, especially when direct labels are scarce. This supports using multiple captions per historical episode as positives and incompatible/opposite-direction episodes as hard negatives. Source: https://arxiv.org/abs/2112.09118
+- NIST cautions against using LLMs as final relevance judges for TREC-style evaluation. For this project, that means Codex/LLM qualitative scoring can be a reranking or data-generation tool, but downstream historical backtests and deterministic grounding checks must remain the final evidence. Source: https://www.nist.gov/publications/dont-use-llms-make-relevance-judgments
+- Public macro context can be sourced from official/historical materials such as Federal Reserve FOMC/Tealbook/Greenbook materials, FRED observations, and structured news/event APIs such as GDELT. These are candidates for offline enrichment of episode cards, not live leakage into future outcomes. Sources: https://www.federalreserve.gov/monetarypolicy/fomc_historical.htm, https://fred.stlouisfed.org/docs/api/fred/series_observations.html, https://docs.gdeltcloud.com/api-reference/v2
+
+### Decision
+This is a principled direction. It does **not** abandon the historical support bank or the frozen SNI generator. It changes the support-retrieval front end from "single projected text vector finds nearby SNI memory" to "episode-level narrative retrieval finds historically coherent support, with SNI memory and starting-level fit retained as guardrails."
+
+The 128-dim bridge should become one retrieval signal, not the only retrieval signal. The new candidate method is:
+
+```text
+user professional narrative
+-> structured grounding + warning-only future-language split
+-> hybrid episode retrieval over historical narrative cards
+   - lexical / BM25-like match
+   - dense text embedding match
+   - optional late-interaction or cross-encoder rerank
+   - existing SNI final-hidden memory match
+-> direction and starting-level guardrails
+-> sparse top3/90 support posterior
+-> frozen SNI component-preserving rollout
+-> historical backtest + fixed-start conditionality audit
+```
+
+### Recommended TestFlight Scale
+Use a bounded pilot before regenerating or reranking the entire corpus online:
+
+- Start with non-overlapping or stride-5/10 historical 30-day windows.
+- Reuse existing professional captions where available.
+- Add one richer risk-manager episode card per sampled window only if needed.
+- Build four retrievers:
+  1. incumbent projected-memory retrieval;
+  2. narrative-to-narrative dense embedding retrieval;
+  3. hybrid lexical + dense + memory retrieval;
+  4. hybrid retrieval plus Codex/LLM qualitative rerank on top candidates only.
+- Evaluate fixed-start conditionality, support diversity, grounded-claim pass rate, support-family coherence, CRPS, energy, coverage, and qualitative casebook plausibility.
+
+### Guardrails
+- Captions must describe the current/recent 30-day prefix only; no realized future leakage.
+- LLM qualitative assessment is not final validation. It may rerank top candidates, but historical backtests and deterministic direction checks decide promotion.
+- Macro/news enrichment must be timestamp-safe and source-auditable.
+- The method should remain simple enough to explain to a risk manager: "we search historical episodes described in the same language, then generate paths with the numerical scenario engine."
+
+### Next Step
+After this research-log entry, pilot the hybrid narrative-to-narrative support retriever against the incumbent top3/90 memory-support selector.
+
+---
+## 2026-06-01: NL episode-level narrative retrieval branch prepared
+
+### Context
+The user wants to test a new support-sourcing idea without breaking the existing paper/demo method before tomorrow's presentation. The incumbent nearest-similar top3/90 support-posterior workflow remains the current presentation and paper candidate. The new idea is isolated as an exploratory branch.
+
+### Plan
+Prepare a separate episode-level narrative retrieval lane. The branch compares a professional user narrative against historical 30-day episode narrative cards, then applies grounded-claim agreement, fixed-start compatibility, temporal diversity, SNI memory compatibility, and the existing top3/90 component-preserving frozen SNI rollout.
+
+### Guardrails
+- Do not edit the existing caption generator, Codex caption batcher, narrative pipeline, component-posterior bakeoff, paper, or demo defaults in place.
+- If an incumbent script is useful, copy it to a new `nl_episode_narrative_*` file and modify only the copy.
+- Do not use realized future paths in retrieval text or caption fields.
+- Do not use Codex/LLM qualitative judgments as final validation.
+- Do not start online macro/news enrichment until local narrative-to-narrative retrieval shows a scenario-level signal.
+
+### Prepared Artifacts
+- Plan: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md`
+- Method intake: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_method_intake.md`
+- Switch-ready goal: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`
+- Linked from: `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`, `docs/research_protocols/nl_prefix_latent_current_truth.md`, and `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+
+### Recommended Activation
+The first HEAD iteration should be `research_ideation` / `exploration`: build a local episode-card and retrieval dry-run from existing professional captions and support-bank artifacts only. If that changes support selection in the right direction, run a scenario-level TestFlight against the incumbent. Online material hunting with Codex is phase 4, not phase 1.
+
+---
+## 2026-06-01: NL episode retrieval goal activated with Phase 0 and online enrichment
+
+### Context
+The user accepted the episode-level narrative retrieval direction but raised an important concern: the existing self-supervised captions may not be general or searchable enough. The six public demo/paper narratives are professional but fully specify many factors. The broader caption corpus is useful, but many `training_caption` fields are short and factor-list-like, while real risk-manager narratives may mention only one or two channels and rely on mechanism, transmission, sequencing, and portfolio implication.
+
+### Decision
+Activate the isolated episode-level narrative retrieval branch as the NL prefix-latent autoresearch objective. The incumbent nearest-similar top3/90 paper/demo workflow remains protected and must not be changed until promotion gates and independent verification support a change.
+
+### Active Phase Plan
+1. Phase 0: corpus-quality audit and multi-view risk-manager episode-card enrichment.
+2. Phase 1: local narrative-to-narrative retrieval over fully specified and sparse queries.
+3. Phase 2: scenario-level TestFlight versus the incumbent top3/90 selector.
+4. Phase 3: confirmation/backtest and conditionality evidence.
+5. Phase 4: Codex-assisted online search and online episode enrichment with timestamp-safe source auditing.
+6. Phase 5: product readout and promotion review.
+
+### Guardrails
+- Existing caption generator, Codex caption batcher, narrative pipeline, component-posterior bakeoff, paper, and demo defaults must not be edited in place.
+- New implementation should use `nl_episode_narrative_*` scripts and tests.
+- Realized future paths must not enter retrieval text or training captions.
+- Codex/LLM qualitative relevance may rerank or enrich candidate episode cards but is not final validation.
+- Online enrichment is required for the branch, but it may remain diagnostic if it adds leakage, source risk, noise, or worse scenario-level performance.
+
+### Updated Artifacts
+- Active goal: `docs/research_protocols/nl_prefix_latent_goal.json`
+- Branch goal mirror: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`
+- Local ignored goal: `autoresearch-session/nl_prefix_latent_goal.json`
+- Plan: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md`
+- Method intake: `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_method_intake.md`
+- Current truth: `docs/research_protocols/nl_prefix_latent_current_truth.md`
+- Skill policy: `.agents/skills/nl-prefix-latent-autoresearch/SKILL.md`
+
+---
+## 2026-06-01: NL episode-level narrative retrieval Phase 0-2 evidence
+
+### Context
+The active isolated branch tests the user's idea that support retrieval should match full historical episode narratives, not only a projected 128-dim terminal memory. The incumbent paper/demo top3/90 path remains unchanged.
+
+### Hypothesis
+Narrative-to-narrative retrieval over full historical episode descriptions can recover more story-compatible support regimes while preserving the historical support prior. Related work supports this direction: dense retrieval needs hard negatives and stable training (Zhan et al., SIGIR 2021, https://arxiv.org/abs/2104.08051); time-series RAG work argues that retrieving related time-series examples can improve forecasting/generation under nonstationarity (RAF, https://arxiv.org/abs/2411.08249; TS-RAG, https://arxiv.org/abs/2503.07649); financial stress-testing practice uses narratives, primary risk factors, historical co-movement, and scenario selection rather than free-form text-only generation (Federal Reserve GMS documentation, https://www.federalreserve.gov/supervisionreg/files/gms-model.pdf; OFR scenario selection, https://www.financialresearch.gov/working-papers/2013/02/07/systematic-scenario-selection/).
+
+### Execution
+- Added isolated Phase 0/1/2 code only under new `nl_episode_narrative_*` files:
+  - `experiments/backfill/block_ar/nl_episode_narrative_cards.py`
+  - `experiments/backfill/block_ar/nl_episode_narrative_retrieval.py`
+  - `experiments/backfill/block_ar/nl_episode_narrative_support_cards.py`
+  - `experiments/backfill/block_ar/nl_episode_narrative_bridge_report.py`
+- Added focused tests in `test_code/test_nl_episode_narrative_retrieval.py`.
+- Built broad support-bank raw-history cards for `3944` train windows and all-window cards for `4010` windows.
+- Ran six professional casebook retrieval against broad support cards with a `30`-window temporal gap.
+- Built a bridge-style report for `66` decoder-test windows, retrieving only from `3944` train supports.
+- Ran GPU scenario-level TestFlight with top-3 weighted episode supports, `4` samples/support, and a true-history SNI oracle reference.
+
+### Results
+Focused tests: `uv run pytest test_code/test_nl_episode_narrative_retrieval.py -q` -> `9 passed`.
+
+Key artifacts:
+- Phase 0 train support cards: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_support_bank_cards_970c_train/support_card_quality_report.json`
+- Phase 1 broad gap-30 retrieval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_retrieval_phase1_broad_support_gap30_970e/local_retrieval_report.json`
+- Phase 2 bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_bridge_report_970g_gap30_full66/episode_retrieval_bridge_report.json`
+- Phase 2 scenario eval with oracle: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_scenario_eval_970i_top3_full66_s4_oracle/scenario_level_eval_report.json`
+- Compact evidence summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_evidence_summary_970j/episode_narrative_evidence_summary.json`
+
+Evidence summary:
+- Support cards: `3944` train cards from raw support-bank histories.
+- Hybrid broad retrieval mean top-1 score: `0.401`; mean pairwise support Jaccard across six narratives: `0.0044` after gap-30.
+- 66-window episode support generator: CRPS improvement vs persistence `13.3%`; energy improvement vs persistence `15.4%`; 80% coverage `0.612`.
+- Same-split true-history SNI oracle: CRPS improvement vs persistence `15.2%`; energy improvement vs persistence `16.2%`; 80% coverage `0.458`.
+
+### Interpretation
+Result status: `mechanism_found_not_promoted`.
+
+The branch fixes the inventory-coverage issue: retrieval now searches the same broad historical support bank used by the generator, not just the 380 captioned validation windows. The same-split scenario TestFlight is strong enough to continue: episode retrieval lands close to the true-history SNI oracle on CRPS/energy and improves coverage. However, the local support-card text is still rule-based and semantically weak for rates/commodity narratives, so this is not a default replacement for the incumbent top3/90 paper/demo method.
+
+### Next Step
+Run Phase 4 targeted online/Codex enrichment or learned reranking for weak archetypes, especially rates selloff and commodity inflation, then rebuild cards/bridge and rerun the same 66-window scenario gate. Do not change the production demo or paper defaults until this branch beats or is clearly competitive with the incumbent under verifier review.
+
+---
+## 2026-06-01: NL episode retrieval conditionality lift over start-only
+
+### Context
+The user clarified that the main differentiator for narrative-to-narrative support retrieval is not CRPS, Energy Score, or backtest validation by itself. The primary product question is whether the narrative condition adds useful scenario movement beyond the baseline change caused by the accepted starting level. CRPS/Energy should remain guardrails.
+
+### Implementation
+Added an isolated start-only comparator and conditionality-lift audit without touching the incumbent paper/demo top3/90 workflow:
+
+- `experiments/backfill/block_ar/nl_episode_narrative_bridge_report.py` now supports `--selector-mode start_only`, selecting support by terminal-state compatibility with the accepted start and no narrative text.
+- `experiments/backfill/block_ar/nl_episode_narrative_conditionality_lift.py` compares episode-narrative retrieval against the start-only support baseline on the same evaluated starts and generated arrays.
+- `test_code/test_nl_episode_narrative_retrieval.py` now covers start-only ranking and narrative-vs-start-only lift reporting.
+
+### Artifacts
+- Start-only bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_start_only_bridge_report_971a_gap30_full66/start_only_bridge_report.json`
+- Start-only scenario eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_start_only_scenario_eval_971b_top3_full66_s4/scenario_level_eval_report.json`
+- Conditionality lift audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_conditionality_lift_971c_vs_start_only/conditionality_lift_report.json`
+
+### Result
+Verdict: `conditionality_lift_detected_quality_warning`.
+
+The episode-level narrative condition is not invisible after fixing the start:
+
+- mean support Jaccard vs start-only: `0.006`
+- mean support Jaccard distance: `0.994`
+- mean terminal factor KS vs start-only: `0.365`
+- mean path energy distance vs start-only: `0.340`
+- mean absolute terminal mean shift: `0.360` standardized units
+
+But the current pure local text-to-text retriever is not promotable because the historical-quality guardrail is worse than start-only on the same 66-window run:
+
+- narrative CRPS: `0.579`; start-only CRPS: `0.527`
+- narrative Energy: `0.776`; start-only Energy: `0.693`
+
+### Decision
+Conditionality exists, but the pure semantic episode selector throws away too much state-level information. The next principled step is a hybrid start-aware narrative selector or Codex/agentic shortlist reranker: local narrative retrieval should recall candidates, then a deterministic/agentic rerank should preserve start fit, grounded direction agreement, SNI-memory compatibility, and risk-manager qualitative match before rollout.
+
+Do not promote this branch to the demo/paper default yet. The incumbent nearest-similar top3/90 workflow remains the public default until a hybrid/agentic candidate passes the same narrative-vs-start-only lift audit and quality guardrails.
+
+---
+## 2026-06-01: NL episode retrieval start-aware hybrid rerank
+
+### Context
+The 971c narrative-vs-start-only audit showed that pure local episode text retrieval creates real conditionality, but loses historical quality versus the start-only support baseline. The user also clarified that Codex/agentic technology is allowed for narrative-to-narrative mapping if pure semantic similarity is not enough. Before using Codex, a deterministic hybrid rerank was tested to see whether start compatibility plus narrative match already fixes the failure.
+
+### Method
+Added a start-aware hybrid selector inside the isolated episode bridge report path:
+
+```text
+local narrative-to-narrative recall
+-> combined score = text_weight * narrative_match
+                  + start_weight * terminal_start_match
+-> temporal-gap top-k supports
+-> top3/90 frozen-SNI rollout
+```
+
+No production demo/paper defaults were changed.
+
+### Artifacts
+- Hybrid bridge reports: `episode_narrative_hybrid_start_text_bridge_971d_t25_s75_gap30_full66`, `971e_t50_s50`, `971f_t75_s25`
+- Hybrid scenario evals: `episode_narrative_hybrid_start_text_eval_971h_t25_s75_top3_full66_s4`, `971g_t50_s50`, `971i_t75_s25`
+- Hybrid lift reports: `episode_narrative_hybrid_start_text_lift_971k_t25_s75_vs_start_only`, `971j_t50_s50`, `971l_t75_s25`
+- Selection summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_selection_971m/hybrid_start_text_selection_report.json`
+
+### Result
+All tested hybrid balances pass `conditionality_lift_detected` against the same start-only support baseline.
+
+Recommended next candidate: `hybrid_t25_s75_971h` (`text_weight=0.25`, `start_weight=0.75`).
+
+Key metrics:
+
+- CRPS: `0.541` versus start-only `0.527`
+- Energy: `0.710` versus start-only `0.693`
+- CRPS improvement vs persistence: `18.98%`
+- Energy improvement vs persistence: `22.66%`
+- mean support Jaccard vs start-only: `0.042`
+- mean terminal factor KS vs start-only: `0.292`
+- path energy distance vs start-only: `0.133`
+
+For comparison, pure text retrieval had stronger distribution lift but worse quality guardrails: CRPS `0.579`, Energy `0.776`, and `conditionality_lift_detected_quality_warning`.
+
+### Decision
+The deterministic start-aware hybrid is the next principled candidate. It preserves enough start-level information to avoid the pure-text quality failure while retaining measurable narrative-vs-start-only conditionality. Codex/agentic reranking remains allowed, but should now be used only if the higher-sample confirmation reveals semantic mismatches that deterministic hybrid scoring cannot fix.
+
+Next step: run higher-sample confirmation for `text_weight=0.25`, `start_weight=0.75` against start-only and pure-text baselines before considering paper/demo promotion or Codex enrichment.
+
+---
+## 2026-06-01: NL episode retrieval hybrid high-sample confirmation
+
+### Context
+The low-sample 971m grid selected the deterministic start-aware hybrid selector (`text_weight=0.25`, `start_weight=0.75`) as the best candidate among the tested hybrids. The next gate was to confirm it at a larger scenario sample count against the start-only support baseline.
+
+### Artifacts
+- Start-only high-sample eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_start_only_scenario_eval_971n_top3_full66_s16/scenario_level_eval_report.json`
+- Hybrid high-sample eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_eval_971o_t25_s75_top3_full66_s16/scenario_level_eval_report.json`
+- Hybrid high-sample lift audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_lift_971p_t25_s75_s16_vs_start_only/conditionality_lift_report.json`
+- Confirmation summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_confirmation_971q/hybrid_start_text_confirmation_report.json`
+
+### Result
+The 25/75 start-aware hybrid remains `conditionality_lift_detected` at 16 samples per support component.
+
+Quality guardrail versus start-only:
+
+- hybrid CRPS: `0.519`; start-only CRPS: `0.506`
+- hybrid Energy: `0.675`; start-only Energy: `0.660`
+- hybrid 80% coverage: `0.635`; start-only 80% coverage: `0.672`
+
+Narrative lift versus start-only:
+
+- mean support Jaccard: `0.042`
+- mean support Jaccard distance: `0.958`
+- mean terminal factor KS: `0.213`
+- path energy distance: `0.075`
+- mean terminal mean shift: `0.170` standardized units
+
+### Decision
+This resolves the immediate pure-semantic failure mode: a deterministic start-aware narrative selector can preserve measurable fixed-start narrative conditionality while keeping historical quality close to the start-only baseline. It is now the current episode-retrieval research candidate, not a promoted paper/demo default.
+
+Next step: independent verifier review of the 970-971 evidence. Codex/agentic semantic spot checks should be used only if verifier or qualitative inspection finds support mismatches that deterministic text/start scoring cannot explain.
+
+---
+## 2026-06-01: NL episode retrieval hybrid verifier
+
+### Context
+After the 971q high-sample confirmation, the hybrid start-aware narrative selector was the first episode-retrieval candidate to pass the narrative-vs-start-only lift gate while staying close to start-only on quality. Because this could influence future promotion decisions, an independent verifier review was run before any paper/demo default change.
+
+### Verifier Artifact
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-06-01_episode_retrieval_hybrid_971.md`
+
+### Verdict
+`PARTIAL`.
+
+The verifier agrees with the narrow claim: `hybrid_start_text` with `text_weight=0.25`, `start_weight=0.75` passes the defined conditionality-lift gate at 16 samples per support component while keeping CRPS/Energy close to start-only.
+
+The verifier does not agree with any broader production/default claim. Start-only remains better on CRPS, Energy, and coverage, and the current audit does not yet prove every selected support is the best human/risk-manager semantic analogue.
+
+### Confirmed Numbers
+- start-only CRPS `0.506351084872`, Energy `0.66034357134`, coverage `0.672390572391`
+- hybrid CRPS `0.518818034367`, Energy `0.675310894297`, coverage `0.634641284641`
+- hybrid lift verdict `conditionality_lift_detected`
+- mean support Jaccard `0.042424242424`
+- mean terminal factor KS `0.2125501813`
+- path energy distance `0.075309890689`
+
+### Decision
+Proceed with the hybrid as an isolated research candidate. Do not promote it to the paper/demo default. Next step is qualitative support-match spot checking; use Codex/agentic reranking only if deterministic text/start scoring selects semantically weak supports.
+
+---
+## 2026-06-01: NL episode retrieval support-match spot check
+
+### Context
+The independent verifier found that the 25/75 hybrid candidate passes the quantitative conditionality-lift gate but still needs qualitative support-match review before any public-default claim. The risk is that support Jaccard/KS can prove movement while not proving that the selected supports are semantically good analogues.
+
+### Artifact
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_support_spotcheck_971r/support_match_spotcheck.json`
+
+### Result
+Across the 66 decoder-test queries for `hybrid_start_text` with `text_weight=0.25`, `start_weight=0.75`:
+
+- title match top1 share: `0.894`
+- title match top3 share: `0.970`
+- archetype match top1 share: `0.924`
+- archetype match top3 share: `0.985`
+
+Sampled cases are mostly semantically coherent: safe-haven queries retrieve safe-haven supports, commodity-inflation queries retrieve commodity-inflation supports, fragile-risk-on queries retrieve fragile-risk-on supports, and dollar-liquidity queries retrieve dollar-liquidity supports.
+
+One sampled defensive risk-off query selected a safe-haven gold support first. This is not obviously wrong because both are `financial_accident` archetypes, but it is a semantic gray zone and useful evidence for where Codex/agentic shortlist adjudication may help.
+
+### Decision
+The deterministic hybrid is semantically plausible enough to continue without immediate full online enrichment. Codex/agentic reranking should be reserved for borderline support families, especially where title-level match fails but archetype-level match passes.
+
+---
+## 2026-06-01: NL episode retrieval product readout
+
+### Context
+After the high-sample confirmation, verifier review, and support-match spot check, the branch needed a concise product-readout artifact that explains what the candidate does and what status it has.
+
+### Artifact
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_product_readout_971s/product_readout.json`
+
+Markdown companion:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_product_readout_971s/product_readout.md`
+
+### Decision
+Status: `research_candidate_not_public_default`.
+
+The recommended research candidate is deterministic `hybrid_start_text` with `text_weight=0.25`, `start_weight=0.75`. It answers the product conditionality question better than pure text retrieval because it adds narrative-vs-start-only scenario movement while preserving much more start-state fidelity.
+
+The incumbent paper/demo top3/90 method remains unchanged. Codex/agentic reranking is optional for borderline semantic families, not required for the next deterministic confirmation.
+
+---
+## 2026-06-01: NL episode support cards tightened taxonomy and scenario-writing standards
+
+### Context
+The user challenged the broad `Safe-haven gold bid` label after the paper/demo showed weak terminal Gold separation versus the start-only baseline. The concern was that historical windows may have been labeled safe-haven too loosely, e.g. Gold and rates rally while equities also rally and VIX falls. The user requested a tighter taxonomy, confidence labels, title-anchor evidence checks, and a broader check across all narrative families before rebuilding the corpus. The user also requested online research on how economic scenarios are properly described beyond the two internal risk-manager narrative documents.
+
+### Online scenario-writing references
+External stress-testing practice supports a stricter narrative contract:
+
+- Federal Reserve supervisory scenarios are hypothetical, not forecasts, and specify a set of macro/financial variables such as GDP, CPI, unemployment, asset prices, interest rates, credit spreads, FX, and volatility: https://www.federalreserve.gov/publications/2025-stress-test-scenarios.htm
+- Bank of England stress scenarios are severe but plausible, linked to current vulnerabilities, internally coherent across macro and financial-market channels, and explicitly not forecasts: https://www.bankofengland.co.uk/stress-testing/2024/stress-testing-uk-banking-system-scenarios-2024-desk-based
+- Basel/BIS stress-testing guidance emphasizes severe-but-plausible conditions, material/relevant risks, and internal consistency across key variables: https://www.bis.org/basel_consolidated_guidelines/chapter/RMA/30.htm
+- IMF stress-testing material describes scenario design as starting from a narrative about tail risks interacting with financial vulnerabilities and transmitting into macro-financial impact: https://www.elibrary.imf.org/view/journals/087/2020/016/article-A001-en.xml
+
+Operational implication for this branch: a professional episode card must not merely say factors went up/down. It should identify the scenario title, trigger/mechanism, transmission, cross-asset evidence, material risk channels, ambiguity/confidence, and a no-forecast caveat. Title anchors must appear in evidence: Safe-haven Gold must include Gold evidence; Commodity Inflation must include crude/commodity evidence; Dollar Liquidity must include dollar/funding evidence.
+
+### Implementation
+Updated the isolated episode-support-card branch, not the incumbent paper/demo default:
+
+- `experiments/backfill/block_ar/nl_episode_narrative_support_cards.py`
+- `test_code/test_nl_episode_narrative_retrieval.py`
+
+The Safe-haven family is now split into finer labels:
+
+- `Classic safe-haven gold risk-off`: Gold up, US10Y down, VIX up, SPX down; high confidence.
+- `Safe-haven gold bid`: Gold up and US10Y down with partial stress confirmation; medium confidence.
+- `Gold-duration bid without risk-off confirmation`: Gold up and rates down but no clean risk-off confirmation; low confidence.
+- `Gold up in risk-on relief`: Gold up while SPX is up and VIX is down; low confidence and not treated as clean safe-haven.
+- `Gold up mixed defensive`: incomplete/mixed defensive evidence; medium confidence.
+- `Dollar/rates defensive regime`: dollar/rates defense where Gold is not the dominant safe-haven channel; medium confidence.
+
+Additional labels tightened other narrative families, including commodity-inflation, dollar-liquidity, dollar-strength risk-on relief, fragile risk-on, defensive risk-off, rates-led tightening, and mixed cross-asset regimes.
+
+Added support-card quality checks:
+
+- title-contract pass share;
+- anchor-evidence pass share;
+- confidence counts by title;
+- forced title-anchor evidence rows.
+
+### Artifacts
+Rebuilt the tightened all-window support-card corpus:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_support_bank_cards_all_972b_tight_taxonomy/episode_narrative_support_cards.jsonl`
+
+Quality report:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_support_bank_cards_all_972b_tight_taxonomy/support_card_quality_report.json`
+
+Hybrid retrieval spot check on tightened cards:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_narrative_hybrid_start_text_bridge_972c_tight_taxonomy_t25_s75_gap30_full66/hybrid_start_text_bridge_report.json`
+
+### Result
+The tightened corpus contains these title counts:
+
+- `Commodity-inflation pressure`: 888
+- `Dollar-liquidity squeeze`: 804
+- `Fragile risk-on rebound`: 555
+- `Gold up in risk-on relief`: 358
+- `Classic safe-haven gold risk-off`: 332
+- `Dollar/rates defensive regime`: 282
+- `Mixed cross-asset regime`: 265
+- `Safe-haven gold bid`: 214
+- `Dollar strength in risk-on relief`: 130
+- `Gold-duration bid without risk-off confirmation`: 78
+- `Gold up mixed defensive`: 55
+- `Rates-led tightening pressure`: 31
+- `Defensive risk-off shock`: 18
+
+Every title family has `anchor_evidence_share = 1.0` and `title_contract_pass_share = 1.0` in the 972b quality report.
+
+Confidence counts across the tightened corpus are:
+
+- high: 1668
+- medium: 1511
+- low: 831
+
+The 66-window hybrid text/start retrieval spot check remains semantically strong on the tightened corpus:
+
+- title top1 match: 0.909
+- title top3 match: 1.000
+- archetype top1 match: 0.970
+- archetype top3 match: 1.000
+
+Safe-haven/gold rows are now materially clearer: windows previously at risk of broad `Safe-haven gold bid` labeling are separated into `Classic safe-haven gold risk-off`, `Safe-haven gold bid`, `Gold-duration bid without risk-off confirmation`, and `Gold up in risk-on relief`.
+
+Historical next-30-day Gold continuation by refined title shows why this matters:
+
+- `Classic safe-haven gold risk-off`: n=332, future Gold mean +5.63, median +3.55, up share 0.512.
+- `Safe-haven gold bid`: n=214, future Gold mean +15.39, median +7.80, up share 0.570.
+- `Gold-duration bid without risk-off confirmation`: n=78, future Gold mean +1.51, up share 0.500.
+- `Gold up in risk-on relief`: n=358, future Gold mean +5.32, up share 0.506.
+- `Gold up mixed defensive`: n=55, future Gold mean -10.52, up share 0.382.
+
+This refines the previous Safe-haven Gold interpretation. The old broad bucket was overloaded. Clean classic risk-off safe-haven prefixes are correctly identified, but they do not guarantee strong additional terminal Gold upside over 30 days. A broader medium-confidence safe-haven bid bucket has more positive continuation, while risk-on Gold and duration-only Gold regimes should not be sold as classic safe-haven stress.
+
+### Validation
+Fresh focused checks passed:
+
+- `uv run pytest test_code/test_nl_episode_narrative_retrieval.py -q`: 15 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_episode_narrative_support_cards.py experiments/backfill/block_ar/nl_safe_haven_gold_label_audit.py experiments/backfill/block_ar/nl_episode_narrative_bridge_report.py`: pass.
+
+### Decision
+This is a data-quality and retrieval-corpus improvement for the isolated episode-level narrative retrieval branch. It does not change the incumbent paper/demo top3/90 default yet.
+
+Next principled step: run scenario-level evaluation/backtest using the 972b tightened support cards and compare against the 971 hybrid candidate and the current start-only baseline. Only after that should any paper/demo wording change from the current Safe-haven Gold explanation.
+
+---
+## 2026-06-01: NL EpisodeCardV3 TestFlight objective
+
+### Context
+The user approved the direction of improving narrative generation for self-supervised training and narrative retrieval, but asked for a bounded TestFlight before full corpus regeneration. The user also clarified two design requirements:
+
+- rich institutional narratives should be generated as multiple `view x angle` records, including Fed/central-bank style, bank/stress-scenario style, institutional weekly risk-monitor style, macro/economics outlook style, and professional risk-manager memo style;
+- short user-like narratives can be generated more densely, even per historical date/window, because they are cheap and reflect realistic sparse prompts.
+
+### Decision
+Set the active objective to an isolated `EpisodeCardV3` TestFlight. This is not a paper/demo default change and not a full regeneration.
+
+The TestFlight will use:
+
+- 15-day stride / half-overlap windows for rich institutional-style episode narratives;
+- daily sparse user-like query variants inside the same TestFlight slice;
+- the tightened 972b taxonomy for supported angles, including refined safe-haven/gold distinctions;
+- hard negatives and rejection records for unsupported or contradictory angles;
+- grouped-by-episode retrieval so an episode is not over-counted because it has many narrative variants;
+- retrieval and scenario evaluation against the 971/972 hybrid candidate and start-only baseline.
+
+### Documentation
+Added a dedicated protocol:
+
+`docs/research_protocols/nl_prefix_latent_episode_card_v3_testflight.md`
+
+Updated active tracking docs:
+
+- `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md`
+- `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`
+- `docs/research_protocols/nl_prefix_latent_goal.json`
+- `docs/research_protocols/nl_prefix_latent_current_truth.md`
+
+### TestFlight Output Contract
+The TestFlight should produce:
+
+- `episode_card_v3_schema.json`;
+- `episode_card_v3_testflight_cards.jsonl`;
+- `episode_card_v3_quality_report.json`;
+- `episode_card_v3_retrieval_report.json`;
+- `episode_card_v3_scenario_eval_report.json`;
+- `episode_card_v3_conditionality_lift_report.json`;
+- a research-log summary recommending `go_full_regeneration`, `revise_schema`, or `do_not_regenerate`.
+
+### Guardrails
+Do not edit the incumbent paper/demo default, old caption generator, or old cookbook in place. Do not leak realized future paths into retrieval text. Do not use online material unless timestamp safety and source provenance are recorded. Stop after the TestFlight and ask the user for explicit approval before full corpus regeneration.
+
+---
+## 2026-06-01: NL EpisodeCardV3 TestFlight result
+
+### Context
+The active goal was to run an isolated EpisodeCardV3 TestFlight before any full corpus regeneration. The TestFlight needed to build a bounded multi-view, multi-angle historical episode narrative corpus with 15-day rich institutional records and daily sparse user-like records, evaluate retrieval and scenario conditionality against the 971/972 hybrid candidate and start-only baseline, document the results, and stop for user approval before full regeneration.
+
+### Implementation
+Added a new isolated script:
+
+`experiments/backfill/block_ar/nl_episode_card_v3_testflight.py`
+
+Updated local retrieval to consider the new V3 view names while preserving old cards:
+
+`experiments/backfill/block_ar/nl_episode_narrative_retrieval.py`
+
+Added focused tests in:
+
+`test_code/test_nl_episode_narrative_retrieval.py`
+
+EpisodeCardV3 builds grouped episode cards from the tightened 972b support cards. It generates source-inspired narrative views without external API calls:
+
+- `risk_manager_memo`
+- `fed_current_conditions`
+- `bank_stress_scenario`
+- `macro_outlook_newsletter`
+- `weekly_risk_monitor`
+- `technical_factor_evidence`
+- `sparse_user_query`
+
+It uses 15-day stride / half-overlap for rich institutional cards and daily sparse records for the remaining support windows. The retrieval index can see many `view x supported_angle` records, but final support selection remains grouped by historical episode.
+
+### Artifacts
+V3 card corpus and quality report:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_testflight_973a/episode_card_v3_testflight_cards.jsonl`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_testflight_973a/episode_card_v3_quality_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_testflight_973a/episode_card_v3_testflight_summary.json`
+
+Bridge reports:
+
+- V3: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_bridge_973b_t25_s75_gap30_full66/hybrid_start_text_bridge_report.json`
+- Start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_start_only_bridge_973c_gap30_full66/start_only_bridge_report.json`
+- Tightened 972b reference: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_legacy_972b_bridge_973d_t25_s75_gap30_full66/hybrid_start_text_bridge_report.json`
+
+Scenario evals, all matched at 66 windows, 4 samples/support component, field-weighted support sampling, seed 9734, train-tail split:
+
+- V3: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_scenario_eval_973e_t25_s75_top3_full66_s4/scenario_level_eval_report.json`
+- Start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_start_only_eval_973f_top3_full66_s4/scenario_level_eval_report.json`
+- Tightened 972b: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_legacy_972b_eval_973g_t25_s75_top3_full66_s4/scenario_level_eval_report.json`
+
+Conditionality lift reports:
+
+- V3 versus start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_conditionality_lift_973h_vs_start_only/conditionality_lift_report.json`
+- Tightened 972b versus start-only: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_legacy_972b_lift_973i_vs_start_only/conditionality_lift_report.json`
+
+### Results
+Corpus quality:
+
+- grouped cards: `4010`
+- narrative records: `27754`
+- rich 15-day cards: `100`
+- sparse daily cards: `3910`
+- hard-negative records: `4010`
+- leakage pass share: `1.0`
+- mean positive angles per card: `2.795`
+
+Matched scenario quality:
+
+- V3: CRPS `0.557`, Energy `0.736`, 80% coverage `0.573`
+- start-only: CRPS `0.534`, Energy `0.704`, 80% coverage `0.592`
+- tightened 972b: CRPS `0.550`, Energy `0.721`, 80% coverage `0.568`
+
+Matched conditionality lift versus start-only:
+
+- V3 support Jaccard distance `0.959`, terminal factor KS `0.310`, path energy distance `0.180`
+- tightened 972b support Jaccard distance `0.942`, terminal factor KS `0.283`, path energy distance `0.130`
+
+Interpretation: V3 improves fixed-start narrative conditionality relative to the tightened 972b text/start hybrid reference, with stronger terminal-factor and path-level separation. It has a small scenario-quality regression versus both start-only and tightened 972b in this 4-sample TestFlight. This is acceptable as evidence to regenerate the richer corpus for a larger confirmation run, but it is not a default-selector promotion.
+
+### Validation
+Fresh checks:
+
+- `uv run pytest test_code/test_nl_episode_narrative_retrieval.py -q`: 20 passed.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_episode_card_v3_testflight.py experiments/backfill/block_ar/nl_episode_narrative_retrieval.py`: pass.
+- Both goal JSON files parse with `python -m json.tool` after status updates.
+
+### Decision
+Recommendation: `go_full_regeneration`, pending explicit user approval.
+
+Do not change the paper/demo default yet. Do not mark EpisodeCardV3 as the promoted selector. The correct next step is to ask the user whether to proceed with full regeneration under the same schema and guardrails, then run a larger post-regeneration confirmation before any public default change.
+
+---
+## 2026-06-01: NL EpisodeCardV3 Codex-authored narrative TestFlight result
+
+### Context
+The user clarified that the EpisodeCardV3 TestFlight was expected to regenerate a small number of genuinely Codex-authored risk-manager narratives for human review before full corpus regeneration. The earlier 973a-973i run tested the V3 schema, local template-rendered records, retrieval, and scenario conditionality, but it did not call Codex and did not prove the generated prose standard.
+
+### Implementation
+Added an isolated corrected TestFlight script:
+
+`experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py`
+
+The script selects temporally diverse support-bank windows from the broad 4,010-window support inventory, converts them into temporary `RiskManagerCaptionV2` prompt bundles, invokes the existing strict Codex batch runner, validates the outputs, and writes a human-review markdown packet. It does not modify the incumbent caption corpus, paper/demo defaults, or full regeneration pipeline.
+
+### Artifacts
+- Selected cases: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_authored_testflight_974a/selected_support_cases.md`
+- Temporary prompt bundle: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_authored_testflight_974a/codex_testflight_pipeline_report.json`
+- Codex report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_authored_testflight_974a/codex_caption_run/codex_caption_batch_report.json`
+- Review packet: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_authored_testflight_974a/codex_authored_narrative_review.md`
+- Review summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_authored_testflight_974a/codex_authored_review_report.json`
+
+### Results
+- Selected support cases: `10`, with `180`-window temporal gap for diversity.
+- Codex model: `gpt-5.5` with `xhigh` reasoning effort.
+- Captions generated: `10 / 10`.
+- Validation errors: `0`.
+- Codex errors: `0`.
+- Leakage card count: `0`.
+- Full professional median word count: `407.5`.
+- Sparse user-query median word count: `79.0`.
+
+The generated narratives are substantially richer than the deterministic local V3 templates. They include scenario title, archetype, mechanical summary, current market state, trigger, transmission, cross-asset reaction, sequence, portfolio vulnerability, risk-manager implication, evidence used, ambiguity flags, no-forecast caveat, hard negatives, and self-critique.
+
+### Important Nuance
+The short `training_caption` field remains concise and factor-heavy. The richer risk-manager narrative is present in the assembled professional fields and the `full_professional` view. Future embedding/retrieval experiments should either use the fused full-professional text view or revise the prompt to make `training_caption` itself longer and more mechanism-rich.
+
+### Decision
+The corrected Codex-authored narrative TestFlight passes as a human-review artifact. Pause here for user review before full corpus regeneration. Do not treat the local 973a template run alone as approval for regeneration, and do not promote any paper/demo default from this narrative-quality TestFlight by itself.
+
+---
+## 2026-06-01: NL EpisodeCardV3 multi-format Codex TestFlight bugfix
+
+### Context
+The user identified that the earlier one-page review showed nearly identical narrative formats. This was a real bug/design flaw: the 974a Codex run generated one `RiskManagerCaptionV2` per support window, then local rendering recombined the same generated fields into several apparent views. That did not test independent old-baseline, sparse-user, weekly-monitor, mechanism-first, and full risk-manager formats.
+
+### Fix
+Added an isolated `run-multiformat` path in `experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py`. The corrected path uses a strict `MultiFormatNarrativeBatch` schema and asks Codex to author genuinely distinct formats for each selected historical window:
+
+- `old_factor_baseline`
+- `sparse_user_prompt`
+- `weekly_risk_monitor`
+- `mechanism_first_memo`
+- `full_risk_manager_memo`
+- evidence, ambiguity, no-forecast caveat, hard negatives, and self-critique
+
+Regression tests were added in `test_code/test_nl_episode_card_v3_codex_testflight.py` to ensure the prompt requires distinct Codex-authored formats and the review markdown uses the independently generated fields rather than local recombinations.
+
+### Regenerated TestFlight
+Corrected artifact root:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_975a`
+
+Review-ready artifacts:
+
+- one-page single-period review: `review_ready_single_period.md`
+- all-window review: `multiformat_review_ready.md`
+- report: `multiformat_codex_report.json`
+- generated narratives: `multiformat_narratives.jsonl`
+
+Result: `10 / 10` multi-format narratives generated with `gpt-5.5`, `xhigh` reasoning effort, `0` Codex errors, `0` validation errors, and `0` validation warnings. The sparse user prompts now mention only one or two channels and leave cross-asset inference to retrieval; the full risk-manager memos retain mechanism, transmission, portfolio vulnerability, ambiguity, and no-forecast boundaries.
+
+### Verification
+- `uv run black --check experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_card_v3_codex_testflight.py`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py`
+- `python -m json.tool experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_975a/multiformat_codex_report.json`
+- `uv run pytest test_code/test_nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_narrative_retrieval.py test_code/test_917a_nl_codex_caption_batch.py -q`
+
+All verification commands passed. The existing paper/demo top3/90 default was not changed.
+
+---
+## 2026-06-01: NL EpisodeCardV3 sparse narrative prompt bugfix
+
+### Context
+The user reviewed the 975a one-page multi-format packet and identified that the sparse user prompt still contained assistant-request language: "Give me a current risk read on whether this is just equity noise or something broader." That is not a clean conditioning narrative. It mixes a user command with the current-market description and would pollute narrative-to-narrative retrieval/training text.
+
+### Root Cause
+The `sparse_user_prompt` field was described as realistic user input, so Codex interpreted it as a request to an assistant. The validator only checked factor-list length and duplicate text; it did not reject instruction-like text or internal product references.
+
+### Fix
+Updated `experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py` so the sparse field is defined as a declarative sparse conditioning narrative, not an assistant instruction. Added validators that reject:
+
+- instruction/question phrases such as `give me`, `can you`, `please`, `summarize`, `write this up`, `I need a read`, and question marks;
+- internal product references such as `support system`, `retrieval`, `model`, `embedding`, `training`, `conditioning`, and `scenario generator`.
+
+Also fixed a leakage-validator false positive so negated no-forecast caveats such as "does not forecast the next 30 days" are not treated as future leakage.
+
+### Regenerated TestFlight
+Superseded packets:
+
+- 975a: independent formats, but sparse prompts still included assistant-request language.
+- 976a: request language removed, but one sparse prompt still referred to the `support system`.
+
+Current review-ready packet:
+
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_977a`
+
+Key artifacts:
+
+- `review_ready_single_period.md`
+- `multiformat_review_ready.md`
+- `multiformat_codex_report.json`
+- `multiformat_narratives.jsonl`
+
+Result: `10 / 10` multi-format narratives, `0` Codex errors, `0` validation errors, `0` validation warnings. Sparse prompts are now declarative current-market descriptions using only one or two channels and no internal system language.
+
+### Verification
+- `uv run pytest test_code/test_nl_episode_card_v3_codex_testflight.py -q`
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py`
+- `uv run python experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py run-multiformat --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_977a --max-cases 10 --min-window-gap 180 --batch-size 2 --timeout-seconds 1200 --continue-on-error --skip-existing`
+- JSON validation of `docs/research_protocols/nl_prefix_latent_goal.json` and `docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`
+
+The existing paper/demo top3/90 default remains unchanged.
+
+---
+## 2026-06-01: NL EpisodeCardV3 institutional note and evidence-title cleanup
+
+### Context
+The 979a Codex-authored multi-format TestFlight fixed the sparse-prompt and weekly-monitor issues, but the review found two remaining quality problems before full corpus regeneration: the `bank_stress_scenario` field forced stress language even for relief/risk-on episodes, and rough source labels could overstate the dominant evidence, e.g. partial gold confirmation labeled as classic safe-haven gold or credit-beta relief labeled as commodity-inflation pressure.
+
+### Change
+- Renamed the generated institutional field from `bank_stress_scenario` to `institutional_risk_committee_note`.
+- Updated the prompt so the committee note works for both stress and non-stress regimes.
+- Added explicit title/taxonomy guidance: choose `scenario_title` from dominant evidence, not from the rough source label.
+- Narrowed the sparse instruction validator so legitimate market prose like "frame the prefix as" is not rejected as an assistant request.
+- Updated protocol/current-truth/goal files to point to the corrected 980a packet.
+
+### Result
+980a regenerated four review cases with zero validation errors and zero warnings. Titles now reflect the evidence more precisely:
+
+- `joint39_train_2172`: `financial-accident risk-off with partial safe-haven confirmation`.
+- `joint39_train_2894`: `gold-duration safe-haven risk-off with mixed dollar confirmation`.
+- `joint39_train_2680`: `Dollar-led liquidity relief with gold participation`.
+- `joint39_train_2389`: `Post-stress reflation and credit-beta relief`.
+
+### Verification
+- `uv run pytest test_code/test_nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_narrative_retrieval.py test_code/test_917a_nl_codex_caption_batch.py -q` -> `35 passed`.
+- `uv run black --check experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_card_v3_codex_testflight.py` -> clean.
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_episode_card_v3_codex_testflight.py` -> clean.
+- 980a report status: `pass`, `4 / 4`, `0` validation errors, `0` warnings.
+
+### Current Artifact
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_980a/multiformat_codex_report.json`
+
+---
+## 2026-06-01: NL EpisodeCardV3 full regeneration prep plan
+
+### Context
+The user approved planning for the next isolated EpisodeCardV3 branch but asked not to start the full regeneration yet. The goal is to test whether richer professional episode narratives and narrative-to-narrative retrieval can improve fixed-start conditionality over the start-only baseline without breaking the incumbent top3/90 paper/demo workflow.
+
+### Prep Completed
+- Added the full-regeneration runbook: `docs/research_protocols/nl_prefix_latent_episode_full_regeneration_prep.md`.
+- Updated the episode-retrieval plan and current-truth ledger to point to the new runbook and mark the branch as ready for a user-set goal.
+- Updated both tracked goal JSON files with a ready-to-run full-regeneration objective, while preserving `do_not_start_until_user_sets_goal=true`.
+- Cleaned the isolated local V3 utility to use `institutional_risk_committee_note` instead of the stale `bank_stress_scenario` view name.
+
+### Planned Run
+Use the corrected `980a` Codex-authored multi-format standard. Regenerate rich institutional narratives on a 15-trading-day stride, generate sparse user-like and technical records on daily eligible windows, keep the daily support bank for SNI start-fit and rollout, and compare incumbent projected-memory, start-only, local text retrieval, true semantic text retrieval, hybrid text/start retrieval, optional Codex shortlist rerank, and optional online-enriched retrieval.
+
+### Evaluation Gate
+The primary success criterion is fixed-start narrative conditionality over the start-only baseline: different narratives at the same accepted start must change selected support episodes and scenario distributions in economically meaningful channels. CRPS, Energy Score, coverage, grounded-claim pass rate, leakage checks, temporal diversity, and support-family cohesion remain guardrails. The paper/demo default must remain unchanged until verifier-backed promotion.
+
+### Verification
+Confirmed CLI entrypoints for local V3 card generation, Codex multi-format generation, narrative retrieval, bridge reports, scenario-level frozen-SNI evaluation, and conditionality lift audit. Focused tests for V3 view generation and Codex multi-format prompt requirements passed.
+
+---
+## 2026-06-01: NL EpisodeCardV3 full retrieval evaluation 981
+
+### Context
+The active isolated EpisodeCardV3 branch regenerated the professional multi-format historical episode narrative corpus, built local and true-embedding narrative-to-narrative support selectors, and evaluated them through the existing top3/90 component-preserving frozen-SNI rollout. The incumbent paper/demo defaults were not changed.
+
+### Corpus
+- Full local EpisodeCardV3 corpus: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_regen_981b/episode_card_v3_testflight_cards.jsonl`
+- Quality report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_regen_981b/episode_card_v3_quality_report.json`
+- Cards: `4010`; records: `30034`; rich 15-trading-day cards: `268`; sparse daily cards: `3742`; leakage pass share: `1.0`.
+
+### Evaluator Fix
+The scenario evaluator must rebuild the same 4,010-window train support block as the support bank. The correct invocation uses `--eval_split train --val_size 441 --test_start 4511 --max_windows 4010`. Earlier failures were split mismatches that rebuilt only the validation block.
+
+### Artifacts
+- Branch summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_retrieval_evaluation_981q/episode_card_v3_full_retrieval_evaluation_summary.json`
+- Start-only eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_start_only_eval_981g_gap30_full66_top3_s16/scenario_level_eval_report.json`
+- Local pure episode-text eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_episode_text_eval_981i_gap30_full66_top3_s16/scenario_level_eval_report.json`
+- Local 25/75 hybrid eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_hybrid_start_text_eval_981j_t25_s75_gap30_full66_top3_s16/scenario_level_eval_report.json`
+- OpenAI embedding evals: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_openai_embedding_eval_981o_t25_s75_gap30_full66_top3_s16/scenario_level_eval_report.json` and `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_openai_embedding_eval_981r_t25_s75_gap30_full66_top3_s16/scenario_level_eval_report.json`
+
+### Results
+Scenario guardrails, lower is better for CRPS/Energy:
+
+- start-only: CRPS `0.507832`, Energy `0.664455`, coverage `0.676599`
+- local pure episode-text: CRPS `0.584345`, Energy `0.740728`, coverage `0.695260`
+- local 25/75 hybrid: CRPS `0.528060`, Energy `0.689416`, coverage `0.669723`
+- OpenAI 25/75 hybrid runs: CRPS about `0.5324`, Energy about `0.6931`-`0.6946`, coverage about `0.643`
+
+Conditionality lift versus start-only:
+
+- local pure episode-text: `conditionality_lift_detected_quality_warning`, terminal KS `0.353001`, path energy `0.285027`, CRPS delta `0.076513`
+- local 25/75 hybrid: `conditionality_lift_detected`, terminal KS `0.276361`, path energy `0.157514`, CRPS delta `0.020228`
+- OpenAI 25/75 hybrid: `conditionality_lift_detected`, terminal KS about `0.235`, path energy about `0.121`-`0.124`, CRPS delta about `0.0246`
+
+Semantic support match on 66 decoder-test queries:
+
+- local pure episode-text: title/archetype top1 and top3 match `1.000`
+- local 25/75 hybrid: title/archetype top1 `0.909`, top3 `0.955`
+- OpenAI 25/75 hybrid: title/archetype top1 `0.924`, top3 `1.000`
+
+### Decision
+Do not promote the episode branch to paper/demo defaults yet. The local `text_weight=0.25`, `start_weight=0.75` hybrid is the best isolated branch candidate because it has stronger scenario conditionality than the OpenAI embedding hybrids while keeping guardrail regression close to start-only. Pure text retrieval is semantically exact but too quality-regressive. True OpenAI embeddings improve semantic top-3 support match but do not improve scenario conditionality or guardrails enough to justify promotion.
+
+Codex/agentic reranking or online enrichment is not needed as a blanket corpus step from this evidence. Reserve it for semantic gray-zone windows or for a learned support-posterior follow-up that improves guardrails without losing the stronger 981 fixed-start conditionality.
+
+---
+## 2026-06-01: NL EpisodeCardV3 projected-memory baseline addendum
+
+### Context
+The 981 branch completion audit found one remaining explicit comparator in the objective: the incumbent-style projected-memory selector. Existing projected-memory artifacts use older validation-manifest index spaces, so a same-index baseline was built for the 4,010-window EpisodeCardV3 support bank.
+
+### Artifact
+- Projected-memory bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_projected_memory_bridge_981t_adapter_gap30_full66/projected_memory_bridge_report.json`
+- Projected-memory scenario eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_projected_memory_eval_981u_adapter_gap30_full66_top3_s16/scenario_level_eval_report.json`
+- Projected-memory lift audit: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_projected_memory_lift_981v_adapter_s16_vs_start_only/conditionality_lift_report.json`
+- Refreshed branch summary: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_retrieval_evaluation_981q/episode_card_v3_full_retrieval_evaluation_summary.json`
+
+### Result
+The projected-memory adapter baseline passes `conditionality_lift_detected` versus start-only, with terminal KS `0.324`, path energy `0.226`, and mean terminal mean shift `0.363`. But it is weaker than the local 25/75 hybrid as a product candidate: CRPS `0.541` versus local hybrid `0.528`, Energy `0.699` versus `0.689`, and 80% coverage `0.656` versus `0.670`.
+
+The semantic support match is the clearest failure mode: projected memory title top1 match is only `0.106` and title top3 match `0.424`, versus local 25/75 title top1 `0.909` and title top3 `0.955`.
+
+### Decision
+The objective's projected-memory comparator is now covered. The recommendation remains unchanged: do not promote this branch to paper/demo defaults; keep local 25/75 hybrid as the isolated branch incumbent. The projected-memory result supports the research motivation for narrative-to-narrative support selection: single-vector projected memory can create distribution movement while selecting semantically weak historical supports.
+
+---
+## 2026-06-02: NL EpisodeCardV3 local-prose retraction and hard guardrail
+
+### Context
+The user clarified that local deterministic/template prose is unacceptable for narrative artifacts even for smoke tests or mechanism tests. The prior 981 branch was therefore not a valid full regeneration: it consumed locally generated EpisodeCardV3 prose rather than direct Codex/GPT-authored narrative views.
+
+### Decision
+Local deterministic/template prose generation is now banned for all narrative artifacts: training captions, retrieval cards, TestFlights, smoke tests, mechanism tests, ablations, paper/demo casebooks, and quality screens. Local code may still compute structured facts, market moves, supported-angle labels, support metadata, leakage checks, and scenario metrics. Every searchable narrative view must be directly authored by Codex/GPT or supplied by a trusted human/source document.
+
+### Retraction
+The 973 local schema/retrieval TestFlight and the 981 full EpisodeCardV3 retrieval/embedding/backtest results are reclassified as invalid for final training/retrieval assessment, conditionality assessment, smoke evidence, mechanism evidence, paper claims, demo claims, or selector promotion. They may only be used as negative examples of the banned failure mode. Any 981 conclusions such as local 25/75 hybrid being a branch incumbent must be redone from direct Codex/GPT-authored multi-format episode cards.
+
+### Implementation
+- Disabled `nl_episode_card_v3_testflight.py build-cards` and local deterministic EpisodeCardV3 summary paths with a fail-closed runtime error.
+- Added retrieval-side validation so old local/template EpisodeCardV3 cards and single-caption local-view projections are rejected before retrieval or bridge construction.
+- Updated the embedding bridge default away from the invalid 981 local corpus path.
+- Added `multiformat_episode_cards.jsonl` output in the Codex multi-format path, mapping direct Codex-authored fields into retrieval views without local rewording.
+- Marked one-caption local-view review cards as `valid_for_training_retrieval=false`.
+- Updated the NL autoresearch skill, current-truth file, branch plan, runbook, TestFlight protocol, and goal JSONs to require direct Codex/GPT-authored full regeneration before rerunning retrieval/backtest/conditionality claims.
+
+### Verification
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_narrative_retrieval.py test_code/test_nl_episode_narrative_embedding_bridge_report.py -q
+# 31 passed
+```
+
+The old local builder now fails loudly:
+
+```bash
+uv run python experiments/backfill/block_ar/nl_episode_card_v3_testflight.py build-cards --max-cards 1
+# RuntimeError: Local deterministic/template EpisodeCardV3 narrative generation is disabled.
+```
+
+### Next Step
+The next trustworthy experiment is full direct Codex/GPT-authored corpus regeneration under the 980a multi-format standard, followed by local-control retrieval, true semantic retrieval, frozen-SNI scenario backtests, and fixed-start conditionality audits. Do not use 981 artifacts as evidence except as a retracted negative control.
+
+---
+## 2026-06-02: NL EpisodeCardV3 direct-Codex full corpus and retrieval audit
+
+### Context
+The user rejected local deterministic/template EpisodeCardV3 prose as invalid
+for training, retrieval, smoke, mechanism, or conditionality evidence. This run
+therefore regenerated the full historical episode narrative corpus using direct
+Codex/GPT-authored multi-format narratives only, then reran retrieval,
+true-embedding retrieval, frozen-SNI scenario backtests, and fixed-start
+conditionality audits.
+
+### Guardrail
+Local code was allowed only for structured market facts, support metadata,
+validation, leakage checks, embeddings, and scenario metrics. Every searchable
+narrative view in the final corpus is marked as direct Codex-authored. The old
+981 local-template corpus remains retracted and must not be used as positive
+evidence.
+
+### Corpus Result
+Final artifact:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_multiformat_982g_sharded/final/final_codex_corpus_report.json`.
+
+- expected windows: `4010`;
+- generated cards: `4010`;
+- missing windows: `0`;
+- validation errors: `0`;
+- invalid cards: `0`;
+- validation warnings: `21`;
+- retrieval guard passed: `true`;
+- authoring route: `direct_codex_multiformat_gpt_5_5_xhigh`;
+- local template prose used: `false`.
+
+### Retrieval and Scenario Evidence
+Matched 66-window frozen-SNI scenario results at 16 samples/support component:
+
+| Method | CRPS | Energy | 80% coverage | Terminal MAE |
+|---|---:|---:|---:|---:|
+| Start-only | `0.506351` | `0.660344` | `0.672391` | `0.735695` |
+| Pure episode text | `0.549540` | `0.717667` | `0.679461` | `0.800170` |
+| Local 25/75 text/start hybrid | `0.528387` | `0.685665` | `0.656773` | `0.765105` |
+| OpenAI large-embedding 25/75 hybrid | `0.525272` | `0.682662` | `0.653212` | `0.754177` |
+
+All narrative-aware methods beat persistence on CRPS and Energy, but none beat
+the start-only guardrail on historical CRPS/Energy.
+
+### Conditionality Lift
+Conditionality lift versus the same-start start-only baseline:
+
+| Method | Verdict | Support Jaccard distance | Terminal factor KS | Path energy distance | CRPS delta vs start-only |
+|---|---|---:|---:|---:|---:|
+| Pure episode text | `conditionality_lift_detected` | `0.996970` | `0.305742` | `0.221377` | `0.043189` |
+| Local 25/75 text/start hybrid | `conditionality_lift_detected` | `0.954545` | `0.194558` | `0.090675` | `0.022036` |
+| OpenAI large-embedding 25/75 hybrid | `conditionality_lift_detected` | `0.936364` | `0.189483` | `0.089874` | `0.018921` |
+
+The direct-Codex narrative corpus therefore does add measurable support and
+scenario-distribution movement beyond the accepted starting level. Pure text
+retrieval gives the strongest conditionality and the largest quality regression.
+The OpenAI large-embedding hybrid is slightly better than the local hybrid on
+CRPS/Energy, but weaker on conditionality lift.
+
+### Decision
+Do not promote episode-level narrative-to-narrative retrieval as the paper/demo
+default yet. The result is a valid research branch and a useful evidence base,
+not a replacement for the current incumbent. The current paper/demo default
+should remain the nearest-similar top3/90 support-posterior workflow until a
+narrative-aware selector or fusion rule preserves this conditionality lift while
+matching or approaching the start-only/incumbent historical-fidelity guardrail.
+
+### Verification
+Focused tests passed:
+
+```bash
+uv run pytest test_code/test_nl_episode_card_v3_codex_testflight.py test_code/test_nl_episode_narrative_retrieval.py test_code/test_nl_episode_narrative_embedding_bridge_report.py -q
+# 31 passed
+```
+
+Tracked state was updated in
+`docs/research_protocols/nl_prefix_latent_current_truth.md` and
+`autoresearch-session/nl_prefix_latent_state.json`.
+
+---
+## 2026-06-02: NL EpisodeCardV3 982g verifier addendum
+
+### Context
+After the 982g direct-Codex corpus/retrieval audit was appended, an independent
+verification pass checked the claim against actual scripts and artifacts.
+
+### Verifier Result
+Verifier report:
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-06-02_direct_codex_982g.md`.
+
+Verdict: `PARTIAL`.
+
+The verifier agrees that the full 982g direct-Codex corpus is complete and that
+fixed-start narrative conditionality lift is supported. It does not support
+promoting the episode-level narrative retrieval branch to the paper/demo default
+because start-only remains better on CRPS/Energy.
+
+### Action
+Keep the current nearest-similar top3/90 paper/demo default unchanged. Use the
+982g corpus as the valid evidence base for the next research step: improve the
+narrative-aware support posterior or fusion rule so conditionality lift survives
+while historical-fidelity metrics approach the start-only/incumbent guardrail.
+
+---
+## 2026-06-02: NL 982g direct-Codex text-to-SNI-memory bridge full-corpus run
+
+### Context
+The user asked to test the old hidden-space / CLIP-style path with the richer direct-Codex 982g corpus: embed the full professional narrative inventory with real OpenAI embeddings, train a bridge from narrative embedding to the SNI 128-dim final encoder memory, and use the bridge to retrieve historical support.
+
+### Implementation
+Added an isolated script, `experiments/backfill/block_ar/nl_episode_text_memory_bridge_report.py`, and focused regression coverage in `test_code/test_nl_episode_text_memory_bridge_report.py`. The script consumes only saved direct-Codex/GPT-authored episode-card narrative views; it does not generate deterministic narrative prose and does not modify the paper/demo default. It trains a mini-batch text-to-memory bridge with MSE, cosine alignment, and in-batch contrastive text-to-memory negatives.
+
+### Full-Corpus Bridge Run
+- Corpus: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_multiformat_982g_sharded/final/multiformat_episode_cards.jsonl`.
+- Embedding model: real OpenAI `text-embedding-3-large`, not the hash/toy backend.
+- Embedded narrative views: 32,080.
+- Bridge target: `memory_targets` from `prefix_latent_support_bank_train_all_939a/support_bank_arrays.npz`, shape 4010 x 128.
+- Bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_text_memory_bridge_large_66q/text_memory_bridge_report.json`.
+- Training examples: 31,552 train narrative views.
+- Training loss: 2.663 -> 1.093; cosine loss: 0.957 -> 0.089.
+- Held-out bridge summary: mean true-memory cosine 0.787; median true-memory rank 711; recall@10 true-memory 0.061.
+
+### Scenario-Level Validation
+Ran frozen SNI scenario evaluation on 66 held-out windows with top-k 3, 16 samples, field-weight support sampling, common random numbers, and direct-memory diagnostic enabled.
+
+| Method | CRPS z | Energy z | 80% coverage | CRPS improvement vs persistence | Energy improvement vs persistence |
+|---|---:|---:|---:|---:|---:|
+| Start-only 982g baseline | 0.506351 | 0.660344 | 0.672391 | 0.242321 | 0.280541 |
+| Existing 982g embedding-hybrid retrieval | 0.525272 | 0.682662 | 0.653212 | 0.214008 | 0.256225 |
+| Existing 982g episode-text retrieval | 0.549540 | 0.717667 | 0.679461 | 0.177695 | 0.218087 |
+| Text-memory bridge, start weight 0.0 | 0.551857 | 0.719389 | 0.658560 | 0.174229 | 0.216210 |
+| Text-memory bridge, start weight 0.25 | 0.550313 | 0.717713 | 0.655853 | 0.176539 | 0.218036 |
+| Text-memory bridge, start weight 0.5 | 0.550876 | 0.718649 | 0.651321 | 0.175696 | 0.217016 |
+
+### Conditionality Lift
+Against the start-only support baseline, all text-memory bridge variants triggered `conditionality_lift_detected`:
+
+| Variant | Mean support Jaccard | Mean terminal factor KS | Mean path energy lift z | CRPS delta vs start-only | Energy delta vs start-only |
+|---|---:|---:|---:|---:|---:|
+| Start weight 0.0 | 0.003030 | 0.318174 | 0.231008 | 0.045505 | 0.059045 |
+| Start weight 0.25 | 0.003030 | 0.312500 | 0.225726 | 0.043962 | 0.057370 |
+| Start weight 0.5 | 0.003030 | 0.310315 | 0.226615 | 0.044525 | 0.058306 |
+
+### Interpretation
+The richer direct-Codex narratives plus real OpenAI embeddings do train a much cleaner text-to-SNI-memory bridge than the older weak bridge diagnostics: the bridge learns the 128-dim memory target with high cosine alignment and creates strong narrative-vs-start support separation. However, the downstream held-out scenario distribution is still not better than the existing embedding-hybrid retrieval or start-only baseline on CRPS/Energy. This means the old hidden-space CLIP-style bridge is useful as a conditional support signal and diagnostic, but it is not yet a promoted production replacement for the current support-grounded top3/90 family.
+
+### Decision
+Keep these artifacts as the full-corpus real-embedding bridge baseline for future comparison. Do not change the paper/demo default from the verified top3/90 support-coherence path based on this run alone. The next principled improvement is to use the learned text-memory bridge as an additional support feature or reranking signal alongside narrative-to-narrative support retrieval, rather than relying on the projected 128-dim memory alone.
+
+### Verification
+- `pytest test_code/test_nl_episode_text_memory_bridge_report.py test_code/test_nl_episode_narrative_embedding_bridge_report.py -q` passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_episode_text_memory_bridge_report.py` passed.
+
+---
+## 2026-06-02: NL 982g bridged-memory retrieval inside grounded top3/90 ensemble
+
+### Context
+The user clarified that the intended test was not to replace the support-grounded top3/90 ensemble. The intended change is narrower: keep the existing grounded support mixture and top3/90 component-preserving ensemble, but replace the historical-support retrieval score with a learned rich-narrative text-embedding -> SNI final-memory bridge.
+
+### Implementation Correction
+Updated `experiments/backfill/block_ar/nl_episode_text_memory_bridge_report.py` with an exact-variant path:
+
+1. use direct-Codex rich narrative views with real OpenAI `text-embedding-3-large` embeddings;
+2. train the bridge from narrative embedding to the SNI 128-dim final encoder memory;
+3. rank historical supports by bridged-memory similarity plus a light accepted-start fit term;
+4. use saved direct-Codex grounding sidecar evidence only as a current/recent prefix direction check;
+5. require selected supports to pass grounding with zero mismatches;
+6. apply the same sparse top3/90 support-posterior rule before frozen SNI rollout.
+
+This is not a deterministic narrative route and it does not generate new local prose.
+
+### Exact-Variant Artifacts
+- Bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_text_memory_grounded_top3_90_66q/text_memory_bridge_report.json`.
+- Scenario report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_text_memory_grounded_top3_90_66q_s16/scenario_level_eval_report.json`.
+- Conditionality lift: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_lift_text_memory_grounded_top3_90_vs_start/conditionality_lift_report.json`.
+- Embedding cache: hit; no new OpenAI embedding calls were made for the exact rerun after copying the real cached `text-embedding-3-large` matrix.
+- Selected supports: 66/66 held-out queries selected 3 top3/90 supports; all 198 selected supports passed grounding with 0 mismatches.
+
+### Held-Out Scenario Metrics
+| Method | CRPS z | Energy z | 80% coverage | CRPS improvement vs persistence | Energy improvement vs persistence |
+|---|---:|---:|---:|---:|---:|
+| Start-only 982g baseline | 0.506351 | 0.660344 | 0.672391 | 0.242321 | 0.280541 |
+| Existing 982g embedding-hybrid retrieval | 0.525272 | 0.682662 | 0.653212 | 0.214008 | 0.256225 |
+| Pure text-memory bridge, start weight 0.25 | 0.550313 | 0.717713 | 0.655853 | 0.176539 | 0.218036 |
+| Bridged-memory retrieval + grounding + top3/90 | 0.532703 | 0.696132 | 0.662251 | 0.202889 | 0.241549 |
+
+### Conditionality Lift vs Start-Only
+- Verdict: `conditionality_lift_detected`.
+- Mean support Jaccard: 0.006061.
+- Mean terminal factor KS: 0.281299.
+- Mean path energy lift z: 0.182276.
+- CRPS delta vs start-only: 0.026352.
+- Energy delta vs start-only: 0.035789.
+
+### Interpretation
+This corrected experiment is much closer to the user's intended method. Adding grounding and the top3/90 support-posterior layer substantially improves the learned-bridge support path relative to the pure text-memory bridge while preserving measurable narrative conditionality. It still trails start-only and the existing 982g embedding-hybrid retrieval on 66-window historical CRPS/Energy, so it is not yet promoted as the paper/demo default. However, it is now a credible candidate feature for support retrieval: the bridge should be fused with the current narrative/hybrid selector rather than evaluated as a standalone replacement.
+
+### Verification
+- `pytest test_code/test_nl_episode_text_memory_bridge_report.py test_code/test_nl_episode_narrative_embedding_bridge_report.py -q` passed.
+- `python -m py_compile experiments/backfill/block_ar/nl_episode_text_memory_bridge_report.py` passed.
+
+---
+## 2026-06-02: NL two-stage text-space retrieval objective and grounding evidence
+
+### Context
+The active NL prefix-latent objective was reset to a two-stage text-space retrieval branch. The goal is to keep retrieval in OpenAI narrative-embedding space where possible, but teach or constrain similarity so it means financially compatible 30-day market condition rather than similar prose. The current paper/demo top3/90 workflow and frozen SNI rollout remain protected defaults.
+
+### Protocol Updates
+- Updated tracked goal/current-truth/plan/skill files to name `text_space_sni_taught_narrative_retrieval` as the active branch.
+- Updated `autoresearch-session/nl_prefix_latent_goal.json` and `autoresearch-session/nl_prefix_latent_state.json` with the same objective and current evidence.
+- Guardrails remain: no narrative regeneration, no deterministic/template prose, no SNI encoder/decoder changes, no paper/demo default change without verifier-backed promotion.
+
+### Experiments
+1. True raw OpenAI narrative-to-narrative support check over the direct-Codex 982g corpus:
+   - Script: `experiments/backfill/block_ar/nl_episode_text_embedding_casebook_support_check.py`.
+   - Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/six_case_true_openai_embedding_support_check_983a/true_openai_embedding_casebook_support_check.json`.
+   - Result: raw `text-embedding-3-large` N2N selected only `2/18` six-case top3 supports that passed grounded direction checks; projected-memory plus grounding remained `18/18`.
+2. Stage 1 same-window contrastive text-space adapter:
+   - Script: `experiments/backfill/block_ar/nl_episode_text_space_contrastive_retriever.py`.
+   - Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_text_space_contrastive_983b/text_space_contrastive_retriever_report.json`.
+   - Result: same-window view recall@1 improved from `0.477` to `0.542`, but six-case direction pass fell to `1/18`; same-window contrastive training alone is not enough.
+3. Raw OpenAI N2N plus generic top-four grounding filter:
+   - Artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/six_case_true_openai_embedding_grounded4_support_check_983d/true_openai_embedding_casebook_support_check.json`.
+   - Result: support coherence improved to `18/18`, matching projected-memory plus grounding on the six public casebook narratives.
+4. Grounded OpenAI bridge-format report and frozen-SNI scenario evaluation:
+   - Bridge: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_embedding_grounded_top3_90_66q/embedding_grounded_bridge_report.json`.
+   - Scenario eval: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_embedding_grounded_top3_90_66q_s16/scenario_level_eval_report.json`.
+   - Grounding pass: `198/198` selected 66-window top3/90 supports.
+   - Frozen-SNI scenario result: CRPS improvement vs persistence `0.186184`, Energy improvement `0.214236`, coverage80 `0.681870`.
+
+### Comparison
+- Grounded OpenAI top3/90: CRPS improvement `0.186184`, Energy improvement `0.214236`, coverage80 `0.681870`.
+- Projected-memory grounded top3/90: CRPS improvement `0.202889`, Energy improvement `0.241549`, coverage80 `0.662251`.
+- Earlier embedding+start hybrid: CRPS improvement `0.214008`, Energy improvement `0.256225`, coverage80 `0.653212`.
+
+### Interpretation
+Raw semantic text retrieval fails because language similarity is not financial-state compatibility. A small same-window contrastive adapter does not fix this. Generic grounding is effective for prefix/support coherence: it turns raw OpenAI text retrieval from `2/18` to `18/18` on six-case support checks and `198/198` on the 66-window held-out bridge. However, support coherence alone does not yet beat projected-memory or hybrid-start retrieval on frozen-SNI historical scenario quality.
+
+### Decision
+Do not promote text-space retrieval yet. The next principled step is Stage 2: build a candidate-level frozen-SNI/backtest preference reranker over the grounded text-retrieval support pool. It should learn which grounded, semantically plausible supports actually produce better held-out scenario distributions under the unchanged top3/90 frozen-SNI rollout.
+
+---
+## 2026-06-02: NL Stage-2 grounded text-preference reranker 984a
+
+### Context
+The active two-stage text-space narrative-retrieval branch asked whether we can stay in OpenAI narrative-embedding space while teaching support selection to mean financially compatible market condition, not generic semantic similarity. Stage 1 showed that raw text retrieval needed grounding and that same-window text-space contrastive training alone did not fix support coherence. The next step was Stage 2: keep the grounded OpenAI text candidate pool, learn a historical support-preference reranker from realized next-30-day replay closeness, then apply the unchanged top3/90 support assembly and frozen-SNI rollout.
+
+### Implementation
+Added an isolated research script and focused tests:
+
+- `experiments/backfill/block_ar/nl_episode_grounded_text_support_preference_reranker.py`
+- `test_code/test_nl_episode_grounded_text_support_preference_reranker.py`
+
+The reranker does not regenerate narratives, does not use deterministic/template prose, does not project query text into SNI memory, does not change top3/90 assembly, and does not update the frozen SNI encoder/decoder. It trains a ridge preference model over grounded text-retrieval support candidates. Candidate labels are negative historical replay loss between the query window's realized next-30-day `future_delta` and the candidate support window's realized next-30-day `future_delta`, standardized by the train delta scale. The learned scores rerank the existing candidate pool; top3/90 selection is then applied exactly as the support-posterior assembly rule.
+
+### Commands
+
+```bash
+pytest test_code/test_nl_episode_grounded_text_support_preference_reranker.py -q
+
+uv run python experiments/backfill/block_ar/nl_episode_grounded_text_support_preference_reranker.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a \
+  --max-train-queries 1024 \
+  --support-pool-size 8 \
+  --temporal-gap 30 \
+  --max-grounding-claims 4 \
+  --ridge-alpha 10.0 \
+  --weight-temperature 1.0
+
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_bridge_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_grounded_text_preference_984a_s16 \
+  --query-role anchor \
+  --top-k 3 \
+  --samples 16 \
+  --support-sampling-mode field_weight \
+  --seed 982 \
+  --common-random-numbers-by-query \
+  --device cuda \
+  --eval_split train_tail \
+  --max_windows 4010 \
+  --chunk-size 8
+
+uv run python experiments/backfill/block_ar/nl_episode_narrative_conditionality_lift.py \
+  --narrative-report experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_grounded_text_preference_984a_s16/scenario_level_eval_report.json \
+  --narrative-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_grounded_text_preference_984a_s16/scenario_level_eval_arrays.npz \
+  --start-only-report experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_start_only_66q_s16/scenario_level_eval_report.json \
+  --start-only-arrays experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_start_only_66q_s16/scenario_level_eval_arrays.npz \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_lift_grounded_text_preference_984a_vs_start
+
+python -m py_compile experiments/backfill/block_ar/nl_episode_grounded_text_support_preference_reranker.py
+pytest test_code/test_nl_episode_grounded_text_support_preference_reranker.py -q
+pytest test_code/test_nl_episode_narrative_embedding_bridge_report.py test_code/test_nl_episode_text_memory_bridge_report.py -q
+```
+
+### Artifacts
+
+- Reranker report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_reranker_report.json`
+- Reranked bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_bridge_report.json`
+- Model JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_model.json`
+- Scenario evaluation: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_grounded_text_preference_984a_s16/scenario_level_eval_report.json`
+- Conditionality lift: `experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_lift_grounded_text_preference_984a_vs_start/conditionality_lift_report.json`
+
+### Evidence
+
+Reranker replay screen over `1024` train-query pools / `8078` candidate rows:
+
+- result status: `mechanism_found`
+- CRPS delta versus unreranked grounded text pool: `+0.028768`
+- Energy delta: `+0.040435`
+- coverage delta: `-0.008379`
+- CRPS win rate: `0.590909`
+- Energy win rate: `0.606061`
+
+Frozen-SNI 66-window scenario evaluation at 16 samples/support component:
+
+- narrative-generator CRPS improvement versus persistence: `+0.219440`
+- Energy improvement versus persistence: `+0.251990`
+- coverage80: `0.649767`
+
+Comparison on the same 66-window family:
+
+- grounded OpenAI text pool: CRPS `+0.186184`, Energy `+0.214236`, coverage `0.681870`
+- projected-memory plus grounding: CRPS `+0.202889`, Energy `+0.241549`, coverage `0.662251`
+- OpenAI embedding hybrid: CRPS `+0.214008`, Energy `+0.256225`, coverage `0.653212`
+
+984a is best on CRPS among these compared text/projected-memory methods and second on Energy by a small margin behind the embedding hybrid.
+
+Conditionality lift versus start-only:
+
+- verdict: `conditionality_lift_detected`
+- mean support Jaccard distance: `0.990909`
+- mean terminal factor KS: `0.274038`
+- mean path energy distance: `0.181869`
+- mean abs terminal shift: `0.271840` standardized units
+- CRPS delta versus start-only: `+0.015291`
+- Energy delta versus start-only: `+0.026206`
+
+### Decision
+
+984a is the strongest current text-space research candidate. It shows the two-stage idea is useful: grounding fixes semantic support incoherence, and historical replay preference improves support ranking enough to beat grounded text and projected-memory baselines on frozen-SNI scenario CRPS/Energy while preserving material narrative-vs-start-only lift.
+
+Do not promote it silently to paper/demo default yet. Start-only remains slightly better on absolute CRPS/Energy on this split, although the deltas are inside the branch guardrail. The next promotion step should be independent verification plus a higher-sample/multistart confirmation. Until then, the verified paper/demo default remains nearest-similar top3/90.
+
+---
+## 2026-06-02: Safe-haven Gold retriever comparison review 984b
+
+### Context
+The user asked for human-reviewable documents to compare two non-targeted retrieval families for the Safe-haven Gold case: the new OpenAI text-embedding plus frozen-SNI preference reranker and the older projected-memory retriever retrained on richer Codex-authored narratives. The comparison must not target a specific Safe-haven response or add a risk-channel gate.
+
+### Artifacts
+
+- Review packet markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_retriever_comparison_review_984b/safe_haven_gold_retriever_comparison_review.md`
+- Review packet JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_retriever_comparison_review_984b/safe_haven_gold_retriever_comparison_review.json`
+- Generator script: `experiments/backfill/block_ar/nl_safe_haven_retriever_comparison_review.py`
+- Tracked index: `docs/research_protocols/nl_safe_haven_retriever_review_984b.md`
+
+### Findings
+
+Exact Safe-haven Gold support sets have no top-3 overlap.
+
+`text_embedding_grounded_preference_984a` selected:
+
+- `joint39_train_1177`: equity-vol risk-off with gold-duration bid and credit relief;
+- `joint39_train_0546`: broad risk-off with partial safe-haven gold confirmation;
+- `joint39_train_3517`: gold-led haven bid with weak volatility confirmation.
+
+`projected_memory_rich_narrative` selected:
+
+- `joint39_train_2798`: commodity pressure with residual defensive hedging;
+- `joint39_train_2644`: Financial-accident risk-off with partial safe-haven confirmation;
+- `joint39_train_2853`: rates-led risk-off with partial gold confirmation.
+
+All six selected supports pass the generic grounding direction check and are `financial_accident` cards. The projected-memory method has three high-confidence selected supports; the text-preference method has two high-confidence supports and one medium-confidence support.
+
+### Metric Context
+
+On the 66-window frozen-SNI scenario evaluation, `984a` has stronger broad historical CRPS/Energy than projected memory: CRPS improvement `+0.219440` versus `+0.202889`, and Energy improvement `+0.251990` versus `+0.241549`. Projected memory has slightly higher coverage: `0.662251` versus `0.649767`.
+
+On the start-only conditionality lift audit, projected memory is marginally higher on terminal KS/path energy: KS `0.281299` and path energy `0.182276`, versus `984a` KS `0.274038` and path energy `0.181869`. `984a` is closer to start-only on absolute fidelity: CRPS delta `+0.015291` and Energy delta `+0.026206`, versus projected-memory CRPS delta `+0.026352` and Energy delta `+0.035789`.
+
+### Decision
+
+The packet is intentionally review-first. Preliminary read: projected memory retrieves slightly cleaner high-confidence Safe-haven Gold support narratives for this exact case, while `984a` is stronger on broad 66-window historical CRPS/Energy and nearly tied on aggregate conditionality lift. The human review question is whether the selected prefixes read like plausible Safe-haven Gold conditioning states, not whether the future Gold path continues upward.
+
+---
+## 2026-06-02: NL hard-negative corpus audit and regeneration gate
+
+### Context
+The paper and presentation describe explicit hard-negative contrastive training for the NL bridge/retriever. The current 982g corpus contains direct Codex/GPT-authored positive narratives, but we needed to verify whether the negative layer and current training reports actually match that method.
+
+### Audit
+Added a dedicated protocol and audit script:
+
+- `docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md`
+- `experiments/backfill/block_ar/nl_hard_negative_corpus_audit.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.md`
+
+The active workflow and goal now point to the hard-negative corpus gate before any new retraining or public method claim.
+
+### Findings
+The audit status is `fail_needs_regeneration`.
+
+- `4010` cards audited.
+- Stored hard-negative text distribution: `3530` cards have `3` negatives and `480` cards have `4` negatives.
+- Required minimum for the explicit standard: `8` matched hard-negative text views per window, matching the positive training views currently used by the bridge.
+- Cards meeting that minimum: `0`.
+- Cards with linked negative-window metadata: `0`.
+- Current audited bridge/retriever reports using explicit stored hard-negative rows: `False`.
+- Hard-negative leakage found by the audit: `0` cards.
+
+### Decision
+The 982g positive narrative bank remains useful, but the hard-negative layer is not paper-method compliant. Do not retrain or claim explicit hard-negative learning until a regenerated hard-negative bank passes coverage, linked-window, contradiction, leakage, authoring, and split-safety validation.
+
+### Next Work
+Define the hard-negative bank schema, select incompatible historical windows from structured prefix facts, generate matched-view hard-negative narratives with Codex/GPT only, validate the bank, then retrain projected-memory and text-space methods with explicit negative rows while keeping frozen SNI rollout and top3/90 assembly fixed.
+
+---
+## 2026-06-02: NL hard-negative linked-window generation manifest
+
+### Context
+After the 985a audit failed, the next phase was to prepare a hard-negative generation manifest without locally authoring any narrative prose.
+
+### Artifact
+Added and ran:
+
+- `experiments/backfill/block_ar/nl_hard_negative_bank_regenerate.py`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest.jsonl`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest_summary.json`
+
+### Result
+The manifest status is `ok`.
+
+- `32080` rows = `4010` windows x `8` positive training views.
+- Every positive training view has one linked hard-negative generation task.
+- Each task links to a real incompatible historical window with contradiction channels.
+- Same-window negative links: `0`.
+- Duplicate target/view pairs: `0`.
+- Missing positive view rows: `0`.
+- Windows with insufficient negative candidates: `0`.
+- Local prose generated: `False`; `generated_negative_text` is intentionally empty.
+
+### Decision
+The manifest is ready for Codex/GPT hard-negative authoring. It is not the final hard-negative corpus yet. The next active phase is to call Codex/GPT over this manifest, then validate that generated negative texts are prefix-only, professional, contradiction-consistent, non-leaky, and linked to the intended negative historical memories.
+
+---
+## 2026-06-02: NL hard-negative Codex authoring batch and validation
+
+### Context
+The 985a audit showed that the existing hard-negative layer was not method-compliant, and the 985b manifest linked every positive training view to a real incompatible historical window. The next step was to prove the actual Codex/GPT authoring and validation path without using deterministic fallback prose.
+
+### Implementation
+Added:
+
+- `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py`
+- `experiments/backfill/block_ar/nl_hard_negative_bank_validate.py`
+
+The generator calls `codex exec` with a strict output schema and validates each returned hard-negative text for identity match, length, future/metric leakage, internal training-language leakage, contradiction-channel mention, and excessive overlap with the positive text. The validator independently checks generated bank rows against the manifest.
+
+### Batch Result
+Ran a bounded real Codex/GPT batch for one complete target window across the eight training views.
+
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`
+
+Metrics:
+
+- requested rows: `8`
+- generated rows: `8`
+- Codex errors: `0`
+- generator validation errors: `0`
+- generator validation warnings: `0`
+- independent validator valid rows: `8`
+- independent validator errors: `0`
+- independent validator warnings: `0`
+- local generated prose: `False`
+
+### Decision
+The Codex/GPT authoring and validation route is now proven on a small batch. The full hard-negative corpus is still incomplete: `32072` rows remain unauthored and unvalidated. Do not retrain or update paper claims until the full bank is generated, validated, and then consumed by explicit-negative bridge/retriever training.
+
+---
+## 2026-06-02: NL hard-negative Codex corpus scale-up to 96 validated rows
+
+### Context
+The 985c Codex/GPT authoring path was previously proven on one 8-row target-window batch. This continuation hardened the runner for resume-safe full-manifest scaling and expanded the validated hard-negative bank.
+
+### Implementation Update
+Updated `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py` with `--max-new` support. The runner can now scan the full `32080`-row manifest, include existing generated rows in the aggregate bank, and author only the next bounded number of missing rows. This prevents chunked runs from overwriting the aggregate bank with only the latest offset.
+
+### Scale-Up Result
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`
+
+Current corpus status:
+
+- target manifest rows: `32080`
+- generated hard-negative rows: `96`
+- independently valid rows: `96`
+- remaining unauthored rows: `31984`
+- validation errors: `0`
+- validation warnings: `0`
+- Codex errors: `0`
+- duplicate row ids: `0`
+- local generated prose: `False`
+- view coverage: `12` rows for each of the `8` positive training views
+
+Batch-size evidence:
+
+- batch size `8` passed;
+- batch size `16` passed;
+- batch size `32` passed, but with higher latency;
+- current recommendation for unattended scaling is to use `--count 0 --max-new N --batch-size 16 or 32`, with validation after each run.
+
+### Decision
+The hard-negative generation path is now operational and resume-safe, but the full corpus is not complete. Do not retrain or update paper claims until all `32080` rows are authored, the independent validator passes without `--allow-partial`, and the bridge/retriever reports prove that explicit negative rows were consumed.
+
+---
+## 2026-06-02: NL hard-negative Codex corpus scale-up to 352 validated rows
+
+### Context
+Continued the hard-negative corpus generation from the resume-safe 985c output directory. The previous validated state was `96` generated rows across `12` complete target windows.
+
+### Run
+Command pattern:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py \
+  --count 0 --max-new 256 --batch-size 32 \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch \
+  --continue-on-error
+```
+
+The runner scanned the full `32080`-row manifest, skipped the existing `96` generated rows, and requested `256` new Codex/GPT-authored hard-negative rows.
+
+### Result
+Artifacts:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`
+
+Current corpus status:
+
+- target manifest rows: `32080`
+- generated hard-negative rows: `352`
+- independently valid rows: `352`
+- complete target windows: `44`
+- remaining unauthored rows: `31728`
+- validation errors: `0`
+- validation warnings: `0`
+- Codex errors: `0`
+- duplicate row ids: `0`
+- local generated prose: `False`
+- view coverage: `44` rows for each of the `8` positive training views
+
+### Decision
+The Codex/GPT hard-negative authoring path continues to scale cleanly under bounded `--max-new` runs. The full corpus remains incomplete. Continue scaling in resumable increments, validate after each increment, and do not retrain/update paper claims until all `32080` rows are authored and the independent validator passes without `--allow-partial`.
+
+---
+## 2026-06-02: NL hard-negative corpus validated partial generation
+
+### Context
+The hard-negative corpus gate exists because the paper/presentation describe explicit hard-negative contrastive training, but the audited 982g negative layer only had short rejection labels and did not prove matched hard-negative narrative usage.
+
+### Audit
+- Audit artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.json`.
+- Audit status: `fail_needs_regeneration`.
+- Cards audited: `4010`.
+- Existing stored negatives: `3530` cards with `3` strings and `480` cards with `4` strings.
+- Cards meeting the explicit `8` negative-view minimum: `0`.
+- Linked negative-window metadata: `0` cards.
+- Current audited bridge/retriever reports using explicit stored negative rows: `false`.
+
+### Regeneration Manifest
+- Manifest artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest.jsonl`.
+- Target rows: `32080` = `4010` windows x `8` positive training views.
+- Each row links one positive view to a real incompatible historical window and contradiction channels.
+- Same-window negative links: `0`.
+- Local generated negative prose: `false`.
+
+### Codex/GPT Authoring Status
+- Generated bank: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Validation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`.
+- Status: `partial_pass_generation_limit`.
+- Generated rows: `1088` / `32080`.
+- Complete target windows: `136`.
+- Distinct linked negative windows: `381`.
+- Same-window negative links: `0`.
+- Independent validation: `1088` valid rows, `0` errors, `6` warnings.
+- Warning interpretation: the six warnings are high token-overlap warnings on mechanical/factor-list rows where factor names overlap but directions are contradictory.
+- Codex errors: `0`.
+- Local prose generated: `false`.
+- Remaining rows: `30992`.
+
+### Decision
+The old weak-negative layer is confirmed invalid for the explicit hard-negative method claim. The Codex/GPT authoring and validation route is working and validated on a partial corpus, but the full corpus is not complete. Do not retrain promoted bridge/retriever methods or update paper/demo claims until the full hard-negative bank validates and downstream comparisons are rerun.
+
+---
+## 2026-06-02: NL hard-negative validator hardening
+
+### Context
+After validating the partial 985c bank, the validator was hardened against two failure modes that would undermine explicit hard-negative training: using the same historical window as its own negative and copying the positive text as the negative.
+
+### Changes
+- Added explicit validation error `same_window_negative_link` when `target_window_id == negative_window_id`.
+- Added explicit validation error `copied_positive_text` when the hard-negative text exactly copies the positive view.
+- Added focused regression tests in `test_code/test_nl_hard_negative_corpus.py`.
+
+### Verification
+- `pytest test_code/test_nl_hard_negative_corpus.py -q`: `2 passed`.
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 1088 --allow-partial`: `pass`, `1088` valid rows, `0` errors, `6` warnings.
+
+### Decision
+The partial hard-negative bank remains valid under the stricter validator. The full corpus remains incomplete, so retraining and public method-claim updates remain blocked until all `32080` rows are authored and validated.
+
+---
+## 2026-06-02: NL hard-negative corpus 2112-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The previous validated partial bank had `1088` rows; this tranche used the same Codex/GPT-only authoring path and strict validator, with no local deterministic prose.
+
+### Generation
+- Command family: `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 1024 --batch-size 32 --continue-on-error`.
+- Generated bank: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Status: `partial_pass_generation_limit`.
+- Total generated rows: `2112` / `32080`.
+- New rows in this tranche: `1024` requested, `1024` valid.
+- Complete target windows: `264`.
+- Distinct linked negative windows: `710`.
+- Remaining rows: `29968`.
+- Codex errors: `0`.
+- Local generated prose: `false`.
+
+### Validation
+- Independent validation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`.
+- Validator status: `pass`.
+- Valid rows: `2112`.
+- Validation errors: `0`.
+- Validation warnings: `6`; these remain the known high token-overlap mechanical/factor-list rows where factor names overlap but directions are contradictory.
+- Same-window negative links: `0`.
+- Empty hard-negative texts: `0`.
+- View coverage: `264` rows for each of the `8` positive training views.
+
+### Verification
+- `pytest test_code/test_nl_hard_negative_corpus.py -q`: `2 passed`.
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 2112 --allow-partial`: `pass`, `2112` valid rows, `0` errors, `6` warnings.
+
+### Decision
+The hard-negative generation route continues to scale cleanly, but the full corpus remains incomplete. Do not retrain promoted bridge/retriever methods or update paper/demo method claims until all `32080` rows are authored and the full validator passes without `--allow-partial`.
+
+---
+## 2026-06-02: NL hard-negative corpus 3136-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The previous validated partial bank had `2112` rows. This tranche used the same Codex/GPT-only authoring path and strict validator, with no local deterministic prose.
+
+### Generation
+- Command family: `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 1024 --batch-size 32 --continue-on-error`.
+- Generated bank: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Generation report after repair: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Total generated rows after repair: `3136` / `32080`.
+- Main tranche: `1024` requested, `1021` initially valid.
+- Repair tranche: `3` requested, `3` valid.
+- Complete target windows: `392`.
+- Distinct linked negative windows: `904`.
+- Remaining rows: `28944`.
+- Codex errors: `0`.
+- Local generated prose: `false`.
+
+### Validation
+- Independent validation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`.
+- Validator status: `pass`.
+- Valid rows: `3136`.
+- Validation errors after repair: `0`.
+- Validation warnings: `6`; these remain the known high token-overlap mechanical/factor-list rows where factor names overlap but directions are contradictory.
+- Same-window negative links: `0`.
+- Empty hard-negative texts: `0`.
+- View coverage: `392` rows for each of the `8` positive training views.
+
+### Repair Detail
+The main tranche rejected three `institutional_risk_committee_note` rows because the generated notes were shorter than the 45-word minimum. A focused Codex/GPT rerun regenerated those three rows and restored complete eight-view window coverage through `joint39_train_0391`.
+
+### Verification
+- `pytest test_code/test_nl_hard_negative_corpus.py -q`: `2 passed`.
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 3136 --allow-partial`: `pass`, `3136` valid rows, `0` errors, `6` warnings.
+
+### Decision
+The hard-negative generation route continues to scale and the validator is correctly rejecting weak generations. The full corpus remains incomplete. Do not retrain promoted bridge/retriever methods or update paper/demo method claims until all `32080` rows are authored and the full validator passes without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 4368-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The full required bank remains `32080` rows, one matched hard-negative narrative for each of `4010` windows x `8` positive training views, authored by Codex/GPT only and linked to real incompatible historical windows.
+
+### Progress
+- Extended `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl` from `3344` to `4368` validated rows.
+- The main `1024`-attempt tranche produced `1022` valid rows with `0` Codex execution errors. Two `institutional_risk_committee_note` candidates were rejected as `too_short` at `44` words; a focused Codex/GPT retry regenerated both rows successfully.
+- Current bank coverage is `546` complete target windows x `8` views, `1192` distinct linked negative windows, `0` same-window negative links, and `0` empty hard-negative texts.
+- Independent validation passes for the partial bank: `4368` valid rows, `0` errors, `12` warnings. The warnings are high-overlap mechanical/factor-list cases where directions remain contradictory.
+- Remaining rows before the full explicit hard-negative corpus passes: `27712`. No retraining or paper/demo method promotion is allowed yet.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 4368 --allow-partial` -> `status: pass`, `valid_row_count: 4368`, `error_count: 0`, `warning_count: 12`.
+- Coverage summary: all eight positive views have `546` rows; same-window links `0`; empty texts `0`; contradiction counts range from `3` to `10` channels.
+- `pytest test_code/test_nl_hard_negative_corpus.py -q` -> `2 passed in 0.08s`.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json`, `docs/research_protocols/nl_prefix_latent_current_truth.md`, `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`, and `docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md` to reflect the `4368`-row validated tranche.
+
+---
+## 2026-06-03: NL hard-negative corpus 5392-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Progress
+- Extended `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl` from `4368` to `5392` validated rows.
+- The main `1024`-attempt tranche produced `1013` valid rows with `0` Codex execution errors. Eleven `institutional_risk_committee_note` candidates were rejected as `too_short`; a focused Codex/GPT retry regenerated all eleven rows successfully.
+- Current bank coverage is `674` complete target windows x `8` views, `1290` distinct linked negative windows, `0` same-window negative links, and `0` empty hard-negative texts.
+- Independent validation passes for the partial bank: `5392` valid rows, `0` errors, `40` warnings. The warnings are high-overlap mechanical/factor-list cases where directions remain contradictory.
+- Remaining rows before the full explicit hard-negative corpus passes: `26688`. No retraining or paper/demo method promotion is allowed yet.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 5392 --allow-partial` -> `status: pass`, `valid_row_count: 5392`, `error_count: 0`, `warning_count: 40`.
+- Coverage summary: all eight positive views have `674` rows; same-window links `0`; empty texts `0`; contradiction counts range from `3` to `10` channels.
+- `pytest test_code/test_nl_hard_negative_corpus.py -q` -> `2 passed in 0.09s`.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json`, `docs/research_protocols/nl_prefix_latent_current_truth.md`, `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`, and `docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md` to reflect the `5392`-row validated tranche.
+
+---
+## 2026-06-03: NL hard-negative corpus 6416-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Progress
+- Extended `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl` from `5392` to `6416` validated rows.
+- The main `1024`-attempt tranche produced `1021` valid rows with `0` Codex execution errors. Three `institutional_risk_committee_note` candidates were rejected as `too_short`; a focused Codex/GPT retry regenerated all three rows successfully.
+- Current bank coverage is `802` complete target windows x `8` views, `1390` distinct linked negative windows, `0` same-window negative links, and `0` empty hard-negative texts.
+- Independent validation passes for the partial bank: `6416` valid rows, `0` errors, `40` warnings. The warnings are high-overlap mechanical/factor-list cases where directions remain contradictory.
+- Remaining rows before the full explicit hard-negative corpus passes: `25664`. No retraining or paper/demo method promotion is allowed yet.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 6416 --allow-partial` -> `status: pass`, `valid_row_count: 6416`, `error_count: 0`, `warning_count: 40`.
+- Coverage summary: all eight positive views have `802` rows; same-window links `0`; empty texts `0`; contradiction counts range from `3` to `10` channels.
+- `pytest test_code/test_nl_hard_negative_corpus.py -q` -> `2 passed in 0.12s`.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json`, `docs/research_protocols/nl_prefix_latent_current_truth.md`, `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`, and `docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md` to reflect the `6416`-row validated tranche.
+
+---
+## 2026-06-03: NL hard-negative corpus 7440-row validated tranche
+
+### Context
+Continued the explicit hard-negative corpus gate for the NL support-grounded scenario generator. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Progress
+- Extended `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl` from `6416` to `7440` validated rows.
+- The `1024`-attempt tranche accepted all `1024` Codex/GPT-authored rows with `0` Codex execution errors and `0` validation errors, so no repair pass was needed.
+- Current bank coverage is `930` complete target windows x `8` views, `1532` distinct linked negative windows, `0` same-window negative links, and `0` empty hard-negative texts.
+- Independent validation passes for the partial bank: `7440` valid rows, `0` errors, `52` warnings. The warnings are high-overlap mechanical/factor-list cases where directions remain contradictory.
+- Remaining rows before the full explicit hard-negative corpus passes: `24640`. No retraining or paper/demo method promotion is allowed yet.
+
+### Verification
+- `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 7440 --allow-partial` -> `status: pass`, `valid_row_count: 7440`, `error_count: 0`, `warning_count: 52`.
+- Coverage summary: all eight positive views have `930` rows; same-window links `0`; empty texts `0`; contradiction counts range from `3` to `10` channels.
+- `pytest test_code/test_nl_hard_negative_corpus.py -q` -> `2 passed in 0.08s`.
+- Updated `docs/research_protocols/nl_prefix_latent_goal.json`, `docs/research_protocols/nl_prefix_latent_current_truth.md`, `docs/research_protocols/nl_prefix_latent_autoresearch_plan.md`, and `docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md` to reflect the `7440`-row validated tranche.
+
+---
+## 2026-06-03: NL hard-negative corpus 8464-row validated tranche
+
+### Context
+Continued the 985c Codex/GPT-only hard-negative corpus authoring gate from the prior `7440`-row validated partial bank. The goal remains the full `32080` matched hard-negative rows before any bridge/retriever retraining or paper/demo method-claim update.
+
+### Run
+- Ran `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 1024 --batch-size 64 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error`.
+- The main tranche requested `1024` new rows and accepted `1023`; the only reject was `joint39_train_1031__institutional_risk_committee_note`, a too-short `42`-word institutional note against the `45`-word minimum.
+- Ran a focused one-row Codex/GPT repair with `--max-new 1 --batch-size 1`; it accepted the repaired row with `0` validation errors.
+
+### Validation
+- Generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Bank artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Final generation status: `partial_pass_generation_limit`, `8464` generated rows, `23616` pending rows, `0` Codex errors, `0` validation errors, `55` validation warnings, and `local_prose_generated=false`.
+- Independent validator: `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 8464 --allow-partial` returned `pass` with `8464` valid rows, `0` errors, and `55` warnings.
+- Coverage check: `8464` rows cover `1058` complete 8-view target windows, `1662` distinct linked negative windows, `0` same-window links, `0` empty hard-negative texts, and `1058` rows for each positive view.
+- Regression test: `pytest test_code/test_nl_hard_negative_corpus.py -q` returned `2 passed in 0.10s`.
+- `docs/research_protocols/nl_prefix_latent_goal.json` remains valid JSON after the ledger update.
+
+### Decision
+The Codex/GPT authoring route remains validated but partial. Do not retrain the projected-memory bridge or text-space retriever, and do not update paper/demo method claims, until the full `32080`-row bank validates without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 8664-row validated tranche
+
+### Context
+
+Continued the 985c Codex/GPT-only hard-negative corpus authoring gate from the prior validated partial bank. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Run
+
+- Ran `python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 128 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error`.
+- The runner skipped `8536` existing generated rows, requested `128` new Codex/GPT-authored rows, and accepted all `128`.
+- Latest generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Bank artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Final generation status: `partial_pass_generation_limit`, `8664` generated rows, `23416` pending rows, `0` Codex errors, `0` validation errors, `55` validation warnings, and `local_prose_generated=false`.
+
+### Validation
+
+- Independent validator: `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 8664 --allow-partial` returned `pass` with `8664` valid rows, `0` errors, and `55` warnings.
+- Coverage check: `8664` rows cover `1083` complete 8-view target windows, `1706` distinct linked negative windows, `0` same-window links, `0` empty hard-negative texts, and `1083` rows for each positive view.
+- Manifest state: the first missing row is now `joint39_train_1083__sparse_user_query`.
+- Focused regression test: `pytest test_code/test_nl_hard_negative_corpus.py -q` returned `2 passed in 0.10s`.
+
+### Decision
+
+The smaller `--batch-size 8` tranche repaired the hole block through `joint39_train_1082` cleanly and should be the next resume strategy unless throughput becomes unacceptable. The full corpus remains incomplete, so do not retrain the projected-memory bridge or text-space retriever, and do not update paper/demo method claims, until the full `32080`-row bank validates without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 8931-row validated tranche
+
+### Context
+
+Continued the 985c Codex/GPT-only hard-negative corpus authoring gate. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Run
+
+- Ran `python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error`.
+- The runner started at `joint39_train_1083__sparse_user_query`, requested `256` new Codex/GPT-authored rows, and accepted all `256`.
+- Latest generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Bank artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Final generation status: `partial_pass_generation_limit`, `8931` generated rows, `23149` pending rows, `0` Codex errors, `0` validation errors, `61` validation warnings, and `local_prose_generated=false`.
+
+### Validation
+
+- Independent validator: `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 8931 --allow-partial` returned `pass` with `8931` valid rows, `0` errors, and `61` warnings.
+- Coverage check: `8931` rows cover `1116` complete 8-view target windows plus one partial target window with three valid pre-existing views, `1754` distinct linked negative windows, `0` same-window links, and `0` empty hard-negative texts.
+- Manifest state: the first missing row is now `joint39_train_1116__institutional_risk_committee_note`.
+- Focused regression test: `pytest test_code/test_nl_hard_negative_corpus.py -q` returned `2 passed in 0.10s`.
+
+### Decision
+
+The serialized `--batch-size 8` strategy again produced a clean tranche with no Codex or validation errors, though the warning count rose from `55` to `61` due to additional high-overlap mechanical/factor-list rows. Continue with small-batch resume runs and fill the partial `joint39_train_1116` window next. The full corpus remains incomplete, so do not retrain the projected-memory bridge or text-space retriever, and do not update paper/demo method claims, until the full `32080`-row bank validates without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 9297-row validated tranche
+
+### Context
+
+Continued the 985c Codex/GPT-only hard-negative corpus authoring gate. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Run
+
+- Ran `python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error`.
+- The runner started at `joint39_train_1116__institutional_risk_committee_note`, requested `256` new Codex/GPT-authored rows, and accepted all `256`.
+- The resume scan also reincorporated valid pre-existing generated files, so the aggregate bank advanced from `8931` to `9297` rows rather than only to `9187`.
+- Latest generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Bank artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Final generation status: `partial_pass_generation_limit`, `9297` generated rows, `22783` pending rows, `0` Codex errors, `0` validation errors, `61` validation warnings, and `local_prose_generated=false`.
+
+### Validation
+
+- Independent validator: `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 9297 --allow-partial` returned `pass` with `9297` valid rows, `0` errors, and `61` warnings.
+- Coverage check: `9297` rows cover `1162` complete 8-view target windows plus one partial target window with one valid sparse-user view, `1770` distinct linked negative windows, `0` same-window links, and `0` empty hard-negative texts.
+- Manifest state: the first missing row is now `joint39_train_1162__weekly_risk_monitor`.
+- Focused regression test: `pytest test_code/test_nl_hard_negative_corpus.py -q` returned `2 passed in 0.10s`.
+
+### Decision
+
+The serialized `--batch-size 8` strategy remains clean: this tranche added `256` newly authored rows with no Codex or validation errors and no additional warnings. Continue with small-batch resume runs, beginning at `joint39_train_1162__weekly_risk_monitor`. The full corpus remains incomplete, so do not retrain the projected-memory bridge or text-space retriever, and do not update paper/demo method claims, until the full `32080`-row bank validates without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 9617-row validated tranche
+
+### Context
+
+Continued the 985c Codex/GPT-only hard-negative corpus authoring gate. The full required corpus remains `32080` rows from `4010` windows x `8` positive training views, with every hard-negative narrative authored by Codex/GPT or trusted human/source text and linked to a real incompatible historical support window.
+
+### Run
+
+- Ran `python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error`.
+- The runner started at `joint39_train_1162__weekly_risk_monitor`, requested `256` new Codex/GPT-authored rows, and accepted all `256`.
+- The resume scan also reincorporated valid pre-existing generated files, so the aggregate bank advanced from `9297` to `9617` rows.
+- Latest generation report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`.
+- Bank artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`.
+- Final generation status: `partial_pass_generation_limit`, `9617` generated rows, `22463` pending rows, `0` Codex errors, `0` validation errors, `63` validation warnings, and `local_prose_generated=false`.
+
+### Validation
+
+- Independent validator: `python experiments/backfill/block_ar/nl_hard_negative_bank_validate.py --bank-jsonl experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl --expected-count 9617 --allow-partial` returned `pass` with `9617` valid rows, `0` errors, and `63` warnings.
+- Coverage check: `9617` rows cover `1202` complete 8-view target windows plus one partial target window with one valid sparse-user view, `1796` distinct linked negative windows, `0` same-window links, and `0` empty hard-negative texts.
+- Manifest state: the first missing row is now `joint39_train_1202__weekly_risk_monitor`.
+- Focused regression test: `pytest test_code/test_nl_hard_negative_corpus.py -q` returned `2 passed in 0.12s`.
+
+### Decision
+
+The serialized `--batch-size 8` strategy again produced a clean tranche with `256` newly authored rows, `0` Codex errors, and `0` validation errors. Warning count increased from `61` to `63` from high-overlap mechanical/factor-list rows. Continue with small-batch resume runs, beginning at `joint39_train_1202__weekly_risk_monitor`. The full corpus remains incomplete, so do not retrain the projected-memory bridge or text-space retriever, and do not update paper/demo method claims, until the full `32080`-row bank validates without `--allow-partial`.
+
+---
+## 2026-06-03: NL hard-negative corpus 9873-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus is still a data-method consistency gate: no retraining, paper/default promotion, or demo claim changes are allowed until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1202__weekly_risk_monitor` and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=9873`, `requested_count=32080`, `skipped_existing_count=9617`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=22207`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=9873`, `valid_row_count=9873`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `9873` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1827` distinct linked negative windows.
+- Manifest coverage: `1234` complete 8-view target windows plus one partial target window with only the pre-existing sparse-user view; next missing row is `joint39_train_1234__weekly_risk_monitor`; remaining rows are `22207`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `9617` to `9873` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 10129-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1234__weekly_risk_monitor` and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=10129`, `requested_count=32080`, `skipped_existing_count=9873`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=21951`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=10129`, `valid_row_count=10129`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `10129` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1849` distinct linked negative windows.
+- Manifest coverage: `1266` complete 8-view target windows plus one partial target window with only the pre-existing sparse-user view; next missing row is `joint39_train_1266__weekly_risk_monitor`; remaining rows are `21951`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.15s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `9873` to `10129` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 10385-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1266__weekly_risk_monitor` and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=10385`, `requested_count=32080`, `skipped_existing_count=10129`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=21695`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=10385`, `valid_row_count=10385`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `10385` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1885` distinct linked negative windows.
+- Manifest coverage: `1298` complete 8-view target windows plus one partial target window with only the pre-existing sparse-user view; next missing row is `joint39_train_1298__weekly_risk_monitor`; remaining rows are `21695`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.13s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `10129` to `10385` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 10641-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1298__weekly_risk_monitor`, requested `256` rows, and accepted `255`. One candidate for `joint39_train_1322__factor_list_baseline` was rejected because the generated payload had `target_window_id=joint39_train_1323` instead of the requested `joint39_train_1322`.
+
+Then ran a focused repair:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 1 --batch-size 1 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The repair accepted the failed row and the resume scan reincorporated the already-authored later rows.
+
+### Evidence
+
+- Final generation report after repair: `status=partial_pass_generation_limit`, `generated_count=10641`, `requested_count=32080`, `skipped_existing_count=10640`, `new_generation_request_count=1`, `new_generation_valid_count=1`, `pending_due_to_max_new=21439`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=10641`, `valid_row_count=10641`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `10641` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1903` distinct linked negative windows.
+- Manifest coverage: `1330` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1330__weekly_risk_monitor`; remaining rows are `21439`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The saved bank is clean and has advanced from `10385` to `10641` validated rows. The failed 256-row candidate was rejected, not admitted to the bank, and a focused retry repaired the coverage hole. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 10897-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1330__weekly_risk_monitor` and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=10897`, `requested_count=32080`, `skipped_existing_count=10641`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=21183`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=10897`, `valid_row_count=10897`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `10897` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1906` distinct linked negative windows.
+- Manifest coverage: `1362` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1362__weekly_risk_monitor`; remaining rows are `21183`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.16s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `10641` to `10897` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 11153-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1362__weekly_risk_monitor` and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=11153`, `requested_count=32080`, `skipped_existing_count=10897`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=20927`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=11153`, `valid_row_count=11153`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `11153` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1915` distinct linked negative windows.
+- Manifest coverage: `1394` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1394__weekly_risk_monitor`; remaining rows are `20927`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `10897` to `11153` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 11409-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1394__weekly_risk_monitor`, ended with the partial `joint39_train_1426__sparse_user_query` row, and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=11409`, `requested_count=32080`, `skipped_existing_count=11153`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=20671`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=11409`, `valid_row_count=11409`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `11409` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1927` distinct linked negative windows.
+- Manifest coverage: `1426` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1426__weekly_risk_monitor`; remaining rows are `20671`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `11153` to `11409` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 11665-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1426__weekly_risk_monitor`, ended with the partial `joint39_train_1458__sparse_user_query` row, and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=11665`, `requested_count=32080`, `skipped_existing_count=11409`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=20415`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=63`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=11665`, `valid_row_count=11665`, `error_count=0`, `warning_count=63`, `local_prose_generated=false`.
+- Coverage audit: `11665` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1940` distinct linked negative windows.
+- Manifest coverage: `1458` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1458__weekly_risk_monitor`; remaining rows are `20415`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `11409` to `11665` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 11921-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1458__weekly_risk_monitor`, ended with the partial `joint39_train_1490__sparse_user_query` row, and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=11921`, `requested_count=32080`, `skipped_existing_count=11665`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=20159`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=65`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=11921`, `valid_row_count=11921`, `error_count=0`, `warning_count=65`, `local_prose_generated=false`.
+- Warning inspection: the two new warnings are `high_positive_text_overlap` warnings on `joint39_train_1462__technical_factor_evidence` and `joint39_train_1462__factor_list_baseline`; both remain warnings, not errors.
+- Coverage audit: `11921` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1946` distinct linked negative windows.
+- Manifest coverage: `1490` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1490__weekly_risk_monitor`; remaining rows are `20159`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.12s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `11665` to `11921` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 12177-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The corpus remains a data-method consistency gate: retraining, paper/default promotion, and demo method-claim changes stay blocked until the full `32080`-row bank validates without the partial flag.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1490__weekly_risk_monitor`, ended with the partial `joint39_train_1522__sparse_user_query` row, and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=12177`, `requested_count=32080`, `skipped_existing_count=11921`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=19903`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=65`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=12177`, `valid_row_count=12177`, `error_count=0`, `warning_count=65`, `local_prose_generated=false`.
+- Warning inspection: warning count stayed at `65`; no new warnings were introduced in this tranche.
+- Coverage audit: `12177` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1973` distinct linked negative windows.
+- Manifest coverage: `1522` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1522__weekly_risk_monitor`; remaining rows are `19903`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.10s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `11921` to `12177` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation and do not retrain or update paper/demo claims until all `32080` rows pass strict validation.
+
+---
+## 2026-06-03: NL hard-negative corpus 12433-row validated tranche
+
+### Context
+
+Continued the explicit hard-negative corpus gate for the NL prefix-latent workflow. The user asked to stop after the current in-flight task and then switch to presentation/demo preparation, so this entry documents the completed tranche and no additional hard-negative tranche is being started in this turn.
+
+### Run
+
+Ran one serialized Codex/GPT authoring tranche:
+
+```bash
+python experiments/backfill/block_ar/nl_hard_negative_codex_batch.py --count 0 --max-new 256 --batch-size 8 --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch --continue-on-error
+```
+
+The tranche started at `joint39_train_1522__weekly_risk_monitor`, ended with the partial `joint39_train_1554__sparse_user_query` row, and accepted all `256` requested rows.
+
+### Evidence
+
+- Generation report: `status=partial_pass_generation_limit`, `generated_count=12433`, `requested_count=32080`, `skipped_existing_count=12177`, `new_generation_request_count=256`, `new_generation_valid_count=256`, `pending_due_to_max_new=19647`, `codex_error_count=0`, `validation_error_count=0`, `validation_warning_count=65`, `local_prose_generated=false`.
+- Independent validator: `status=pass`, `bank_row_count=12433`, `valid_row_count=12433`, `error_count=0`, `warning_count=65`, `local_prose_generated=false`.
+- Warning inspection: warning count stayed at `65`; no new warnings were introduced in this tranche.
+- Coverage audit: `12433` unique rows, `0` duplicate row ids, `0` empty `hard_negative_text` fields, `0` empty `generated_negative_text` fields, `0` same-window negative links, `1978` distinct linked negative windows.
+- Manifest coverage: `1554` complete 8-view target windows plus one partial target window with only the sparse-user view; next missing row is `joint39_train_1554__weekly_risk_monitor`; remaining rows are `19647`.
+- Focused tests: `pytest test_code/test_nl_hard_negative_corpus.py -q` passed with `2 passed in 0.08s`.
+
+### Decision
+
+The Codex/GPT authoring and validation path remains clean and has advanced from `12177` to `12433` validated rows. The full hard-negative corpus is still incomplete; continue serialized tranche generation later and do not retrain or update paper/demo claims until all `32080` rows pass strict validation. For the next turn of work, switch to presentation/demo preparation and public demo access rather than launching another hard-negative tranche.
+
+---
+## 2026-06-07: NL 14+14 retrieval training plan
+
+### Context
+
+After verifying the presentation and paper LaTeX, the intended projected-memory method is the narrative-to-memory bridge: text is embedded, projected into frozen SNI memory space, and support windows are ranked by narrative-memory match plus accepted-start fit and grounding checks. The current implemented bridge still needs to be updated before it can claim explicit paired hard-negative consumption.
+
+### Stored Plan
+
+Added `docs/research_protocols/nl_prefix_latent_14x14_retrieval_training_plan.md`.
+
+The plan uses the validated stride-5 14-positive / 14-hard-negative manifest as the shared training input:
+
+- manifest report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_self_supervised_training_manifest_990a/training_manifest_report.json`;
+- target episodes: `802`;
+- positive examples: `11228`;
+- hard-negative examples: `11228`;
+- total examples: `22456`;
+- pair rows: `11228`;
+- validation errors: `0`;
+- text digest: `c1586f2f5a4c1787ff4b874b21e3e742f6b011964f13d59ee9413dd52ea002ac`.
+
+### Training Methods
+
+1. Narrative-to-narrative text-space retrieval: embed all manifest texts, train a contrastive text-space adapter with same-window positives and explicit matched hard-negative margins, then use frozen-SNI backtests as the support preference teacher/evaluator while keeping top-3/90 rollout unchanged.
+
+2. Narrative-to-projected-memory retrieval: update or wrap the bridge trainer so each text maps to the SNI memory of the window it describes, while pair rows add explicit hard-negative memory margins: source positive text for window `i` should score closer to `m_i` than linked incompatible memory `m_j`; authored negative text for `j` remains a real description of `j`, not a fake source-class negative. Generic in-batch contrastive alone is not enough to claim the full explicit hard-negative bridge method.
+
+### Decision
+
+Use the 990a manifest as the shared data surface for both retrieval methods. The next executable work is manifest-aware embedding/cache loading, then separate smoke trainers for text-space retrieval and projected-memory retrieval. Do not update paper/demo defaults or claim explicit hard-negative bridge training until run reports prove pair rows were consumed and downstream support/scenario evaluations pass.
+
+---
+## 2026-06-07: NL 14+14 retrieval training smoke and full OpenAI run
+
+### Context
+
+Started executing the stored `docs/research_protocols/nl_prefix_latent_14x14_retrieval_training_plan.md`. The objective was to implement manifest-aware training for both retrieval families over the validated stride-5 14+14 narrative bank, prove explicit pair-row consumption, and run training/validation before any support-level or frozen-SNI scenario promotion claim.
+
+### Implementation
+
+Added:
+
+- `docs/superpowers/plans/2026-06-07-nl-14x14-retrieval-training.md`;
+- `experiments/backfill/block_ar/nl_14x14_manifest_retrieval_training.py`;
+- `test_code/test_nl_14x14_manifest_retrieval_training.py`.
+
+The trainer consumes:
+
+- `training_examples.jsonl` from `stride5_self_supervised_training_manifest_990a`;
+- `training_pairs.jsonl` from `stride5_self_supervised_training_manifest_990a`;
+- `support_bank_arrays.npz::memory_targets` for the projected-memory bridge.
+
+It supports two methods: text-space contrastive retrieval and projected-memory bridge training with explicit source and reciprocal hard-negative memory margins. The combined run now uses one shared embedding cache so both methods consume the same `text-embedding-3-large` array rather than paying for duplicate embedding calls.
+
+### Validation Runs
+
+Focused tests:
+
+```bash
+pytest test_code/test_nl_14x14_manifest_retrieval_training.py test_code/test_nl_stride5_self_supervised_training_manifest.py -q
+```
+
+Result: `6 passed in 1.45s`.
+
+Compile check:
+
+```bash
+python -m py_compile experiments/backfill/block_ar/nl_14x14_manifest_retrieval_training.py experiments/backfill/block_ar/nl_stride5_self_supervised_training_manifest.py
+```
+
+Result: passed.
+
+Hash smoke artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_retrieval_training_smoke_990c/training_run_report.json`;
+- examples: `448`;
+- pair rows consumed: `224` per method;
+- status: `pass`.
+
+OpenAI API smoke artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_retrieval_training_openai_smoke_990d/training_run_report.json`;
+- examples: `112`;
+- pair rows consumed: `56` per method;
+- embedding model: `text-embedding-3-large`;
+- status: `pass`.
+
+Full OpenAI training artifact:
+
+- `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_retrieval_training_openai_full_990e/training_run_report.json`;
+- embedding model: `text-embedding-3-large`;
+- embedding count: `22456`;
+- embedding dimension: `3072`;
+- shared embedding cache: `true`;
+- status: `pass`.
+
+Text-space method full-run diagnostics:
+
+- examples: `22456`;
+- pair rows consumed: `11228`;
+- raw same-label recall@1: `0.046`;
+- adapted same-label recall@1: `0.09266666666666666`;
+- mean pair margin: `0.23581112921237946`;
+- pair-margin positive rate: `0.8488`.
+
+Projected-memory method full-run diagnostics:
+
+- examples: `22456`;
+- pair rows consumed: `11228`;
+- target cosine mean: `0.8241640329360962`;
+- target cosine median: `0.8374636173248291`;
+- true-memory rank median: `801.0`;
+- recall@10 true memory: `0.019`;
+- source hard-negative margin mean: `0.07496333122253418`;
+- source hard-negative margin positive rate: `0.752`;
+- reciprocal hard-negative margin mean: `0.05928935110569`;
+- reciprocal hard-negative margin positive rate: `0.6922`.
+
+### Decision
+
+The 14+14 self-supervised training step is now implemented and validated at the trainer/embedding/margin-report level for the stride-5 corpus. This is not a paper/demo default change and not yet a frozen-SNI scenario-quality claim. The next step is support-level audit for both trained methods, followed by matched top-3/90 frozen-SNI scenario evaluation against raw OpenAI retrieval, projected-memory baseline, start-only, and the current paper/demo candidate.
+
+---
+## 2026-06-07: NL 14+14 support audit and matched frozen-SNI evaluation
+
+### Context
+The 14+14 stride-5 retrieval trainers had passed embedding/margin-level validation, but that was not enough to claim scenario quality. The next gate was support-level auditing and then matched frozen-SNI top3/90 scenario evaluation against raw OpenAI retrieval, projected-memory baseline, start-only, and the current bridge-shaped episode candidate.
+
+### Implementation
+Added isolated post-training utilities:
+
+- `experiments/backfill/block_ar/nl_14x14_support_audit.py`
+- `experiments/backfill/block_ar/nl_14x14_matched_eval_summary.py`
+- `test_code/test_nl_14x14_support_audit.py`
+
+The support audit consumes saved 990e arrays only; it does not call OpenAI and does not generate narrative text. It emits bridge-report-shaped rows for:
+
+- `raw_openai_14x14_top3_90`
+- `text_space_contrastive_14x14_top3_90`
+- `projected_memory_14x14_top3_90`
+
+It also filters existing bridge-shaped baselines to the same query windows:
+
+- `baseline_start_only_981d_top3`
+- `baseline_projected_memory_981t_top3`
+- `baseline_raw_openai_grounded_982g_top3_90`
+- `current_episode_grounded_text_preference_984a_top3_90`
+
+The verified public paper/demo default remains the nearest-similar main-regime top3/90 posterior-ensemble workflow, which is not a direct bridge-report artifact. This matched bridge run includes the bridge-shaped episode grounded text-preference candidate and records the public posterior artifacts separately for provenance.
+
+### Validation
+Commands run:
+
+```bash
+pytest test_code/test_nl_14x14_support_audit.py -q
+python -m py_compile experiments/backfill/block_ar/nl_14x14_support_audit.py
+python -m py_compile experiments/backfill/block_ar/nl_14x14_matched_eval_summary.py
+python experiments/backfill/block_ar/nl_14x14_support_audit.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_smoke_990f \
+  --query-windows 3945 \
+  --skip-default-baselines
+python experiments/backfill/block_ar/nl_14x14_support_audit.py \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f
+uv run python experiments/backfill/block_ar/nl_scenario_level_evaluation.py \
+  --bridge-report experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f/matched_top3_90_bridge_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g \
+  --allow-duplicate-query-windows \
+  --common-random-numbers-by-query \
+  --common-random-base-seed 9907 \
+  --support-sampling-mode field_weight \
+  --top-k 3 \
+  --samples 4 \
+  --n-steps 30 \
+  --chunk-size 8 \
+  --device cuda \
+  --eval_split train_tail \
+  --max_windows 4010
+uv run python experiments/backfill/block_ar/nl_14x14_matched_eval_summary.py \
+  --scenario-report experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g/scenario_level_eval_report.json \
+  --support-audit experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f/support_level_audit_report.json \
+  --output-dir experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g
+```
+
+Notes from debugging: direct `python` used the conda interpreter and lacked `pyarrow`; `uv run python` used the repo `.venv` with `pyarrow` installed. The scenario evaluator also needs `--eval_split train_tail --max_windows 4010` for support-bank-indexed bridge reports; the default validation split rebuilds only 50 windows.
+
+### Artifacts
+
+- Support audit JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f/support_level_audit_report.json`
+- Support audit Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f/support_level_audit_report.md`
+- Matched bridge report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_support_audit_990f/matched_top3_90_bridge_report.json`
+- Scenario eval report: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g/scenario_level_eval_report.json`
+- Per-method summary JSON: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g/matched_scenario_eval_by_method.json`
+- Per-method summary Markdown: `experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_14x14_matched_top3_90_scenario_eval_990g/matched_scenario_eval_by_method.md`
+
+### Results
+
+The matched query set is the stride-5 overlap with the frozen support-decoder-test split: 13 windows (`3945` through `4005` every five windows). The matched bridge report contains 91 scenario rows: 7 methods times 13 windows. All selected rows have top-3 support pools with normalized weights.
+
+Per-method frozen-SNI narrative-generator metrics, ranked by CRPS then Energy improvement versus persistence:
+
+| Rank | Method | CRPS mean | CRPS improvement | Energy mean | Energy improvement | Coverage80 |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | `baseline_start_only_981d_top3` | 0.5193 | 0.2317 | 0.6821 | 0.2560 | 0.6258 |
+| 2 | `current_episode_grounded_text_preference_984a_top3_90` | 0.5229 | 0.2263 | 0.7019 | 0.2343 | 0.6005 |
+| 3 | `baseline_raw_openai_grounded_982g_top3_90` | 0.5409 | 0.1998 | 0.7348 | 0.1985 | 0.6661 |
+| 4 | `baseline_projected_memory_981t_top3` | 0.5534 | 0.1813 | 0.7183 | 0.2165 | 0.5682 |
+| 5 | `text_space_contrastive_14x14_top3_90` | 0.5641 | 0.1655 | 0.7352 | 0.1981 | 0.6488 |
+| 6 | `raw_openai_14x14_top3_90` | 0.5751 | 0.1493 | 0.7505 | 0.1814 | 0.6462 |
+| 7 | `projected_memory_14x14_top3_90` | 0.5817 | 0.1395 | 0.7573 | 0.1740 | 0.6354 |
+
+Support-level scores were not predictive of scenario quality on this slice. For example, `text_space_contrastive_14x14_top3_90` had high mean top-1 support score (`0.9449`) but still ranked fifth by frozen-SNI CRPS/Energy. The new projected-memory 14+14 method also trailed the older projected-memory baseline.
+
+### Decision
+Do not promote the new 14+14 retrieval methods yet. They are now bridge/evaluator-compatible and validated as post-training artifacts, but on the matched 13-window frozen-SNI slice they underperform start-only and the current bridge-shaped episode candidate. Treat this as a real negative downstream result, not as a blocker in the narrative corpus itself.
+
+The next principled step is not another blind full run. Use this support/eval harness to diagnose why the new 14+14 supports rank lower downstream: compare support economic channels by window, add replay/preference supervision over candidate supports, and only then rerun the matched frozen-SNI gate. The public paper/demo nearest-similar top3/90 default remains unchanged.
+
+---
+
+## 2026-06-10: NL hard-negative corpus scope decision — stride-5 14+14 accepted, daily 32k bank de-scoped
+
+### Context
+The 985-series daily hard-negative bank (manifest 985b: 32,080 rows = 4,010 windows x 8 views)
+stalled at 12,433/32,080 validated rows (38.8%, last tranche 2026-06-03). Meanwhile the stride-5
+lane completed end-to-end: 988b bank 802/802 targets pass (14 positive views + 14 matched,
+window-linked hard negatives per target, spotcheck 989a PASS), 990a training manifest
+(11,228 positives + 11,228 matched hard negatives, 11,228 pair rows, 0 validation errors,
+digest c1586f2f5a4c1787), and 990e training consumed all 11,228 pair rows for both methods.
+
+### Decision (project owner, 2026-06-10)
+The full daily 32,080-row bank is NOT required. The stride-5 14+14 corpus (988b -> 990a) is the
+accepted matched hard-negative corpus surface for the NL thread. 985c authoring stays paused at
+12,433 rows (kept on disk; no further Codex spend). The corpus-generation half of the
+hard-negative gate is considered satisfied by the stride-5 corpus.
+
+### What remains open (unchanged by this decision)
+1. The paper/presentation-reported bridge metrics still come from the older in-batch-negative
+   training; the current_truth ban on claiming "trained with the full explicit hard-negative
+   method" for the REPORTED bridge stays until a stride-5-trained method is promoted.
+2. 990e was pilot-scale (80 optimizer steps ~1.8 epochs, single seed, no held-out text split) and
+   990g matched top3/90 eval ranked both methods behind start-only (text_space CRPS 0.5641,
+   projected_memory 0.5817 vs start-only 0.5193) -> logged "Do not promote".
+3. No independent verifier report exists for the 985/988/990 series (newest report 2026-06-02).
+Closing path: scale 990e training on the stride-5 corpus (full epochs, multi-seed, held-out text
+split, plan-required sparse-query/view-robustness diagnostics), pass the downstream backtest gate
+vs start-only/984a, obtain verifier AGREE, then update paper text to describe the stride-5 method.
+
+---
+
+## 2026-06-10: NL 990g falsification classification (train_fit) + stored 991-series plan
+
+### Context
+Per the falsification workflow, the 990g negative (both stride-5-trained retrieval methods lost
+the matched 13-window frozen-SNI top3/90 eval to start-only) requires exactly one primary failure
+class before any method change. Deep review of trainer code, 990e/990f/990g artifacts, the 14x14
+plan, and the paper method (6-agent verification pass).
+
+### Classification: PRIMARY = train_fit
+- The bridge fails IN-SAMPLE: true_memory_rank_median 801/4010 and recall@10 0.019 on its own
+  training targets (cosine ranking verified correct in _target_cosine_and_rank, lines 511-534) —
+  80 optimizer steps (~1.8 epochs), single unrecorded seed, fixed-step loop, NO held-out split,
+  NO validation-coupled stopping (paper Alg 1 mandates it), NO checkpoints saved.
+- Mechanistic chain verified: downstream CRPS rank across all 7 methods is PERFECTLY monotone
+  (Spearman 1.0) in mean support temporal distance (start_only 126 -> 984a 818 -> ... ->
+  projected_memory_14x14 2105). Unfit retrieval cannot resolve window identity -> selects
+  temporally/economically distant supports -> worse-conditioned mixtures -> worse CRPS.
+- Rejected as primary: coverage mismatch (rank failure occurs on own training labels; targets
+  span full 0..4009), test_mismatch (no audit; 13-window ordering replicates the verified
+  66-window 982g scoreboard), objective-geometry (unfalsifiable until fit adequacy; pre-registered
+  reclassification target), baseline-strength (adjudicable only at fit ceiling).
+
+### Decision: stored 991-series plan
+docs/research_protocols/nl_prefix_latent_991a_train_fit_minimal_fix_plan.md. One axis = training
+budget/model selection; all losses/margins/architecture frozen at 990e values.
+1. Trainer upgrades (reporting contract, TDD first): window-level holdout blocks w/ +-30 purge
+   (val includes gate windows 3945-4005 so query texts are never trained on), 2-view-family
+   holdout (sparse-query + view-robustness diagnostics), checkpoint saving, validation-coupled
+   stopping (--max-steps 5000 --eval-every 250 --patience 8), lr/seed/argv recording.
+2. 991a: 3 seeds x both methods; $0 OpenAI (990e cache symlink); ~10-15 min/seed on 3070 Ti.
+3. Pre-registered fit gate (kill): bridge held-out rank_median <= 400 AND recall@10 >= 0.10;
+   text-space held-out same-label recall@10 >= 2x raw AND top-10 temporal distance -30%; in >=2/3
+   seeds. Fail at convergence -> train_fit FALSIFIED -> reclassify objective-geometry, 992a
+   single-knob MSE->contrastive reweight. No 991c run on fit-gate failure.
+4. If fit passes: 991b support audit (mechanism gate: mean support temporal distance <= 1000;
+   <= 800 promotion-eligible) -> 991c byte-identical 990g rerun (CRN 9907) -> 991d 66-window
+   promotion frame -> 991e fixed-start conditionality. Promotion needs absolute CRPS AND Energy
+   beat vs start-only + >= 984a + verifier AGREE.
+5. Claim bans: text-space lane is research-only (paper trains only B_phi); embedding-model
+   deviation (3-large vs paper's 3-small) must be flagged; stride-5-only training claim.
+
+---
+
+## 2026-06-10: Exp 991a — train_fit minimal fix FALSIFIED; failure reclassified to objective-geometry
+
+### Exp 991a: stride-5 14+14 retraining with window/view holdout + validation-coupled stopping
+**Based on**: 990e pilot (80 steps) + 990g "Do not promote" + 2026-06-10 falsification classification
+(primary = train_fit). Plan: `docs/research_protocols/nl_prefix_latent_991a_train_fit_minimal_fix_plan.md`.
+
+### Hypothesis
+990g's loss was undertraining: with proper budget (5000 max steps, ~114 epochs at B=512),
+validation-coupled selection, and a leakage-safe window holdout, the pre-registered fit gate
+(bridge held-out rank_median<=400 & recall@10>=0.10; text-space Tier-B recall>=2x raw & temporal
+distance -30%; >=2/3 seeds) would pass. Risk: if it fails AT CONVERGENCE, train_fit is falsified.
+
+### Changes (reporting contract, zero research axes; all losses/weights/margins/arch = 990e)
+Trainer `nl_14x14_manifest_retrieval_training.py` (TDD, 7 new tests, 10/10 pass): window-level
+holdout `610:730,1490:1610,2370:2490,3250:3370,3915:4010` with +-30 purge (val contains the 13
+gate windows 3945-4005); view-family holdout `sparse_user_query,risk_manager_memo` (Tier-B);
+best+final checkpoints (state_dict/config/seed/lr/argv/git_sha); validation-coupled stopping
+(eval-every 250, patience 8); dense loss traces; rng-sampled + held-out pair margins;
+`--embedding-cache-dir`. Split is mask-level so the embedded text list is byte-identical ->
+990e cache hit, $0 OpenAI. Split: 14936 train / 3650 val / 2515 Tier-B / 1355 purged examples;
+5749 train pairs, 1610 val pairs.
+
+### Command (seeds 0,1,2; ~6 min/seed on shared 3070 Ti)
+```
+PYTHONPATH=. uv run python experiments/backfill/block_ar/nl_14x14_manifest_retrieval_training.py \
+  --method both --embedding-backend openai --embedding-model text-embedding-3-large \
+  --steps 5000 --batch-size 512 --lr 1e-3 --pair-margin 0.15 \
+  --val-window-ranges 610:730,1490:1610,2370:2490,3250:3370,3915:4010 --purge-gap 30 \
+  --holdout-view-families sparse_user_query,risk_manager_memo \
+  --eval-every 250 --patience 8 --seed {S} --device cuda \
+  --output-dir .../stride5_14x14_retrieval_training_openai_holdout_991a_seed{S}
+```
+Aggregate + gate adjudication: `experiments/backfill/block_ar/nl_14x14_991a_seed_aggregate.py` ->
+`stride5_14x14_retrieval_training_openai_holdout_991a_aggregate/seed_aggregate_report.json`.
+
+### Results (median [min,max] across 3 seeds; "990e" = 80-step pilot, in-sample only)
+
+| Metric | 990e pilot | 991a in-sample | 991a HELD-OUT | Gate | Verdict |
+|---|---|---|---|---|---|
+| Bridge true-memory rank median | 801/4010 | 556 [314,592] | **1042.5 [1000,1052]** | <=400 | FAIL 0/3 |
+| Bridge recall@10 (true memory) | 0.019 | 0.045 [0.036,0.088] | **0.0073 [0.004,0.0087]** | >=0.10 | FAIL 0/3 |
+| Bridge target cosine mean | 0.824 | 0.823 | 0.788 [0.771,0.794] | — | — |
+| Text Tier-B recall@10 ratio (adapted/raw) | — | — | **2.58x [2.57,2.61]** (0.214->0.554) | >=2x | pass 3/3 |
+| Text temporal-distance reduction (top-10) | — | — | **16.3% [14.6,17.1]** (1201.5->1005) | >=30% | FAIL 0/3 |
+| Early stop | n/a (fixed 80) | — | bridge best@250-500, stop@2250-2500; text best@750-1000, stop@2750-3000 | — | converged |
+
+**FIT GATE: FAIL (bridge 0/3, text-space 0/3). Pre-registered consequence applied: train_fit
+FALSIFIED as primary at convergence; 991b-991e NOT run.**
+
+### WHY (diagnostics beyond the run reports, from the aggregate script)
+1. **Bridge = objective-geometry failure, not coverage and not budget.** Held-out rank is FLAT in
+   distance-to-nearest-train-window: Spearman -0.059 [-0.070,-0.055]; bucket medians 31-60d=1045,
+   61-90d=961, 91+d=951 (n=815/548/137). A memorize+interpolate failure would degrade with
+   distance; flatness means the MSE-dominant objective (weights 1.0 MSE / 0.2 cos / 0.2 InfoNCE /
+   0.5+0.25 margins) maps text into a central memory region: high target cosine (0.79) with
+   catastrophic rank — the conditional-mean-regression signature the 06-10 classification
+   pre-registered under class (d). Budget axis is exhausted: in-sample rank improved 801->314
+   (seed 0) while held-out stayed ~1000, and val rank DEGRADES after step 250-500.
+2. **Unseen-view generalization works; unseen-window does not.** Bridge Tier-B (held-out views,
+   train windows) rank 716.5 vs Tier-A (unseen windows) 1042.5 — the model resolves new TEXT about
+   known windows far better than new WINDOWS, i.e., it has learned window-conditional text
+   averaging, not a text->memory-geometry map.
+3. **Text-space adapter genuinely learns text identity but not regime locality.** Raw Tier-B
+   recall@10 control 0.2145 -> adapted 0.554 (2.6x, passes its arm); raw Tier-A 0.1695 -> 0.44.
+   But temporal distance only -16% (gate -30%): SupCon positives are same-window views ONLY —
+   no term attracts temporally/economically adjacent windows, and 990f showed support temporal
+   distance perfectly rank-orders downstream CRPS (Spearman 1.0). The objective optimizes the
+   wrong invariance for the downstream gate.
+
+### What was learned
+- More compute cannot fix the 14x14 bridge: the failure is in WHAT the loss asks for, exhausting
+  the train_fit axis with evidence (held-out plateau + flat distance curve + early best_step).
+- The flat rank-vs-distance curve also pre-emptively kills "densify window coverage" as a
+  contingency — adding more training windows would not teach interpolation under this objective.
+- The new holdout/early-stop harness is sound (cache hit, leakage-safe split, deterministic) and
+  is the permanent reporting contract for this lane.
+
+### Decision: VALUABLE FAILURE -> reclassify + 992a
+Primary failure class for the 14x14 lane is now **objective-geometry** (`backend` analogue:
+MSE conditional-mean regression + local-only margins). Knob Ledger: 992a changes ONE objective
+knob on the bridge — `mse_weight 1.0->0.2`, `contrastive_weight 0.2->1.0` (global ranking term
+dominant) — everything else frozen (same holdout harness, same seeds, same gate). Text-space gets
+no change this iteration (its recall arm passed; locality term is a separate future axis).
+Paper-claim bans unchanged; "Do not promote" stands; nearest-similar top3/90 default unchanged.
+
+---
