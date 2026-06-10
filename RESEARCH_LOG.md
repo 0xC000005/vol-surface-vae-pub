@@ -134451,3 +134451,18 @@ within-pool tilt distillation) on the 994a eval frame. 984a's Stage-2 should be 
 against the same pool interface. Promotion still requires the full gate + verifier AGREE.
 
 ---
+
+### 994b addendum (agent final report, additional mechanism facts)
+- **No recency shift**: oracle top-3 mean |support-query| = 395.1 vs start-only 380.5 — the
+  oracle's win does NOT come from picking more recent supports; it reorders WITHIN the same
+  temporal band (mechanism signal, not locality refinement).
+- **Set-level value confirmed empirically**: the final 3-support mixture (CRPS 0.3525) beats the
+  pool-best SINGLE replay candidate (0.3714) and the selected-label mean (0.3840) —
+  diversification contributes beyond candidate picking, validating N1's set-level teacher design.
+- Weight temperature: pre-registered T=0.2 was near-uniform (top-3 replay spreads ~0.01-0.03);
+  recorded grid fallback chose T=0.02 (mean max-weight 0.536, effective-n 2.42).
+- Conservatism note: oracle enforced the >=30 mutual support gap while the start-only baseline
+  top-3 is dense — the constraint binds against the oracle, so the headroom is if anything
+  understated.
+
+---

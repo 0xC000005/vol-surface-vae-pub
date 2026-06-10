@@ -815,6 +815,9 @@ def main(argv: list[str] | None = None) -> int:
         engine_runtime = time.time() - t_engine
         runtimes["engine_seconds"] = round(engine_runtime, 1)
         print(f"engine runtime: {engine_runtime:.1f}s", flush=True)
+        annotate_engine_report_with_leakage_flag(
+            output_dir / "scenario_level_eval_report.json"
+        )
 
     # ---- Phase 6: paired block bootstrap vs the 994a start-only baseline.
     oracle_report_path = output_dir / "scenario_level_eval_report.json"
