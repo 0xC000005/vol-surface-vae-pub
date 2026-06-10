@@ -134295,3 +134295,79 @@ Compass PENDING USER REVIEW per autoresearch governance (mandatory stop after co
 generation). No new training until P0-P2 results are in and the user approves direction.
 
 ---
+
+## 2026-06-10: Compass amendment (extrapolation objection) + approval of P0-P2
+
+### Owner objection
+Locality-first pooling is dubious for production: deployment is EXTRAPOLATION (the start is the
+live edge of history), not interpolation between historical neighbors.
+
+### Verification (code + artifacts, this session)
+- No causal mask exists in selection code (`min_index_gap` only spaces selected supports apart,
+  never relative to the query) — BUT the matched evals were causally clean anyway: 990f/990g bank
+  = windows 0..3943, queries 3945..4005, so all supports were strictly historical. Start-only's
+  measured dominance is NOT a future-side-neighbor artifact (replay-teacher boundary overlap
+  remains a separate, train-side-only issue).
+- The objection bites as a POOL-QUALITY problem: in a novel regime (no good level-analogue in
+  history) the nearest-by-level pool is far/thin, locality-first commits to it silently, and text
+  can only re-weight bad candidates. Analog-scarcity is worst exactly in tails (Delle Monache) —
+  i.e., exactly the GMRM stress use case.
+
+### Amendments (approved)
+1. P3 mandatory rider: **pool-quality gate** — report pool min/median start-distance + density vs
+   train-side distribution; below pre-registered threshold -> flag "analogue-scarce regime" and
+   route to an explicitly-labeled distant-analogue fallback (no silent thin-pool serving).
+2. P2 adds a **start-novelty stratum** (query start distance to nearest bank window) — directly
+   tests whether text methods win where locality degrades.
+3. P0 heldout deliberately includes the val-region regime break (val[4040:4540] ~= 2019-2021,
+   COVID shock) — the dataset's best extrapolation stress test.
+
+### Decision
+Owner approved compass + amendments. EXECUTING P0 (eval harness: val-region queries, causal bank,
+paired moving-block bootstrap), P1 (oracle-within-pool tilt probe; no narratives needed), P2
+(retro-stratification of existing 66-window per-window results by PRE-REGISTERED train-side
+hardness + novelty strata). Note: text-method evaluation on the new val heldout will require a
+small Codex narrative-authoring batch for the selected query windows (condition-only, no
+realized-future text) — flagged as follow-up, not needed for P0-P2.
+
+---
+
+## 2026-06-10: Exp 993a — pre-registered hardness/novelty stratification (compass P2)
+
+### Setup
+Script `experiments/backfill/block_ar/nl_993a_hardness_novelty_stratification.py` ->
+`retrieval_hardness_stratification_993a/{strata_spec.json,stratified_results.json}`.
+Phase A (outcome-free, written before any eval report opened): strata from train-side start-state
+geometry (939a `history_level[:,-1,:]`, per-dim z-scored, mirroring start_distances_to_query_start):
+novelty_1nn (distance to nearest causal bank window) and density_50nn (mean of 50 nearest), tercile
+thresholds from train side (+-30 self-exclusion). Phase B: paired per-window deltas vs start_only
+(method `narrative_generator_topk`, metrics ensemble_crps_z / energy_score_z / coverage_80) from the
+existing 982g 66q_s16 reports (984a, embedding_grounded_top3_90, episode_text).
+
+### Results (delta CRPS vs start-only; positive = loses to start-only; sign test two-sided)
+
+| Stratum | n | 984a | embedding_top3/90 | episode_text |
+|---|---|---|---|---|
+| density mid | 44 | +0.015 (win .34, p=.049) | +0.033 (win .23, p=.000) | +0.036 (win .25, p=.001) |
+| density HIGH (scarce) | 20 | +0.016 (win .25, p=.041) | **+0.047** (win .15, p=.003) | **+0.061** (win .10, p=.000) |
+| novelty low | 34 | +0.019 (win .32) | +0.037 | +0.030 |
+| novelty mid | 27 | +0.011 (win .33) | +0.034 | +0.053 |
+| novelty HIGH | 5 | +0.013 (win .20) | +0.062 | +0.082 |
+
+### Findings
+1. **No sign flip anywhere**: the literature-unanimous "retrieval wins in hard/rare strata"
+   prediction (AnEn lowest-error bin, RATD, Hu 2021) does NOT hold on this heldout. The P2 kill
+   condition for the hardness-gating story is MET on available data — "retrieval helps tails"
+   may no longer be invoked to excuse headline losses on the train-tail frame.
+2. Text-similarity methods degrade FASTER in analogue-scarce strata (+0.047/+0.061 vs +0.033/+0.036)
+   — consistent with the pool-quality mechanism: scarcity hurts text-proposed distant supports more
+   than start-local ones. 984a's loss is roughly uniform (~+0.012-0.019) across strata.
+3. Caveats: 66 stride-1 windows ~= 3 independent blocks (F4); high-novelty stratum has n=5 and
+   low-density n=2 — the train-tail heldout contains no true regime break. Final adjudication of
+   the extrapolation/novelty question moves to the P0 val-region harness (2019-2021 incl. COVID).
+
+### Decision
+Hardness-gated retrieval (N2-as-model) stays dead unless the P0 val-region frame contradicts this.
+Proceed to P0 harness + P1 oracle probe.
+
+---
