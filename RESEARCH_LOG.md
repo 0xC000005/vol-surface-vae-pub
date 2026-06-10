@@ -134405,3 +134405,49 @@ bootstrap) is the working high-power heldout for the retrieval program. Proceed 
 (oracle-within-pool tilt) on the same 89-query frame.
 
 ---
+
+## 2026-06-10: Exp 994b — ORACLE-WITHIN-POOL TILT BEATS START-ONLY; within-pool tilt family ALIVE (compass P1)
+
+### Setup
+Leakage-only oracle diagnostic (never deployable; realized futures used BY DESIGN — mirrors the
+906c oracle pattern at pool scope). Script `experiments/backfill/block_ar/nl_994b_oracle_within_pool_tilt.py`
+(+9/9 unit tests). For each of the SAME 89 val-frame queries (994a frame, windows 4010..4450):
+start-local top-50 pool (994a z-distance ranking; causal bank 0..4009) -> score each candidate by
+solo ensemble replay (frozen 734a, 16 samples x 30 steps, CRN per query; 71,200 rollouts, 1,730s)
+-> oracle top-3 (>=30 mutual gap, softmax T=0.02) -> SAME engine eval as 994a -> paired
+moving-block bootstrap vs the 994a start-only baseline. Total runtime 1,793s.
+
+### Results (paired delta = oracle - start_only; negative = oracle better; n=89)
+
+| Metric | mean delta | 95% CI (L=6) | 95% CI (L=30) | win rate |
+|---|---|---|---|---|
+| ensemble_crps_z | **-0.0264** | [-0.0312,-0.0234] | [-0.0297,-0.0236] | **0.978** |
+| energy_score_z | **-0.0290** | [-0.0358,-0.0242] | [-0.0340,-0.0270] | 0.888 |
+| coverage_80 | +0.0266 (0.774->0.800, toward nominal) | [+0.0205,+0.0364] | [+0.0212,+0.0352] | 0.528 |
+
+**Pre-registered kill condition NOT met: verdict `oracle_beats_start_only_tilt_family_alive`.**
+CIs exclude zero at BOTH block lengths. Oracle headroom (-0.026 CRPS, ~7% of the 0.379 baseline)
+EXCEEDS 984a's deficit (+0.015): a learned tilt capturing even half the headroom beats both
+start-only and 984a, and the new 15-block eval can resolve that effect size (CI width ~0.008).
+
+### Mechanism diagnostics
+- The oracle is NOT locality re-discovery: median locality rank of oracle-selected supports =
+  18/50 (mean 21.5); **66.3% of queries share ZERO top-3 supports with start-only** (mean
+  intersection 0.36/3).
+- Locality still matters within the pool — Spearman(oracle CRPS, start distance) median +0.35 —
+  but is heterogeneous (p10 -0.07, p90 +0.67): there is genuine query-dependent signal beyond
+  locality for a student to learn.
+- Caveats: per-candidate solo replay selection (a LOWER bound on the set-level oracle per the
+  Gumbel App-D argument — set-level can only be >=); calm-bias risk transfers to the STUDENT
+  (the oracle is judged on the real eval metric so its win is metric-true, but N1's
+  calm-debiasing remains mandatory for the learned version); val frame is 2016-2017 (no COVID;
+  test region untouched).
+
+### Decision
+P1 PASSES. The within-pool tilt program (H4 chassis + N1 learned tilt) is green-lit by its own
+pre-registered gate: proceed to P3 (locality-first factorization plumbing with pool-quality gate,
+conflict detector, learned tilt slot) and P4 (N1: calm-debiased, set-level, noise-banded
+within-pool tilt distillation) on the 994a eval frame. 984a's Stage-2 should be re-benchmarked
+against the same pool interface. Promotion still requires the full gate + verifier AGREE.
+
+---
