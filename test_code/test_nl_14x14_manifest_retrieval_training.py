@@ -526,6 +526,47 @@ def test_report_records_lr_seed_argv_and_dense_loss_trace(tmp_path: Path) -> Non
     assert 50 in steps_logged and 100 in steps_logged and 120 in steps_logged
 
 
+def test_bridge_loss_weight_cli_plumbing(tmp_path: Path) -> None:
+    examples_path, pairs_path, arrays_path = _split_manifest(tmp_path)
+
+    args = train.parse_args(["--mse-weight", "0.2", "--contrastive-weight", "1.0"])
+    assert args.mse_weight == 0.2
+    assert args.contrastive_weight == 1.0
+    # defaults stay at the 990e values
+    defaults = train.parse_args([])
+    assert defaults.mse_weight == 1.0
+    assert defaults.contrastive_weight == 0.2
+
+    report = train.run_training(
+        Namespace(
+            examples_jsonl=examples_path,
+            pairs_jsonl=pairs_path,
+            support_arrays=arrays_path,
+            output_dir=tmp_path / "reweight",
+            method="projected-memory",
+            embedding_backend="hash",
+            embedding_model="unit-hash",
+            dotenv_path=".env",
+            embedding_batch_size=16,
+            hash_dim=32,
+            max_targets=None,
+            steps=2,
+            batch_size=8,
+            adapter_dim=16,
+            hidden_dim=16,
+            lr=1e-3,
+            pair_margin=0.15,
+            seed=0,
+            device="cpu",
+            mse_weight=0.2,
+            contrastive_weight=1.0,
+        )
+    )
+    loss_terms = report["projected_memory"]["training"]["loss_terms"]
+    assert loss_terms["mse_weight"] == 0.2
+    assert loss_terms["contrastive_weight"] == 1.0
+
+
 def test_cli_flags_parse() -> None:
     args = train.parse_args(
         [

@@ -1471,6 +1471,8 @@ def run_training(args: argparse.Namespace) -> dict[str, Any]:
             support_arrays_path=args.support_arrays,
             output_dir=output / "projected_memory",
             embedding_cache_dir=shared_embedding_cache,
+            mse_weight=float(getattr(args, "mse_weight", 1.0)),
+            contrastive_weight=float(getattr(args, "contrastive_weight", 0.2)),
             **common,
         )
     _write_json(output / "training_run_report.json", report)
@@ -1502,6 +1504,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--pair-margin", type=float, default=0.15)
+    parser.add_argument("--mse-weight", type=float, default=1.0)
+    parser.add_argument("--contrastive-weight", type=float, default=0.2)
     parser.add_argument("--val-window-ranges", type=str, default=None)
     parser.add_argument("--purge-gap", type=int, default=0)
     parser.add_argument("--holdout-view-families", type=str, default=None)

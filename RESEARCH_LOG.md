@@ -134128,3 +134128,73 @@ no change this iteration (its recall arm passed; locality term is a separate fut
 Paper-claim bans unchanged; "Do not promote" stands; nearest-similar top3/90 default unchanged.
 
 ---
+
+## 2026-06-10: Exp 992a + 992b — objective-geometry fix also falsified; oracle audit shows the exact-window gate exceeds the memory-space information ceiling
+
+### Exp 992a: bridge objective reweight (single knob)
+**Based on**: 991a valuable failure (train_fit falsified; reclassified objective-geometry).
+Knob Ledger: `mse_weight 1.0->0.2`, `contrastive_weight 0.2->1.0` (global ranking term dominant);
+everything else frozen (991a holdout harness, seeds 0/1/2, gate unchanged). Command = 991a command
+with `--method projected-memory --mse-weight 0.2 --contrastive-weight 1.0`, output dirs
+`stride5_14x14_retrieval_training_openai_bridge_reweight_992a_seed{S}`. ~2 min/seed, $0 OpenAI
+(990e cache). CLI weight plumbing added via TDD (11/11 tests pass).
+
+### Results (3 seeds; vs 991a)
+
+| Metric | 991a (mse-dominant) | 992a (contrastive-dominant) | Gate | Verdict |
+|---|---|---|---|---|
+| Held-out true-memory rank median | 1042.5 [1000,1052] | **969 [909.5,1020]** | <=400 | FAIL 0/3 |
+| Held-out recall@10 | 0.0073 [0.004,0.0087] | 0.0093 [0.0067,0.0127] | >=0.10 | FAIL 0/3 |
+| Held-out target cosine | 0.788 | **0.39 [0.38,0.41]** | — | mean-regression signature GONE |
+| In-sample rank median | 556 [314,592] | **265.5 [255.5,278]** | — | improved |
+| Tier-B (unseen views, seen windows) rank | 716.5 | **434 [429,457.5]** | — | improved 40% |
+| Rank-vs-train-distance Spearman | -0.059 | +0.008 [-0.001,+0.018] | — | STILL FLAT |
+| best_step | 250-500 | 250 (all seeds) | — | val degrades immediately |
+
+The knob propagated (cosine collapsed 0.79->0.39, in-sample and unseen-view ranking improved
+substantially) but the held-out unseen-WINDOW metric barely moved. Mechanistic 3-level check:
+knob activated yes, propagated to in-sample/Tier-B geometry yes, target metric (Tier-A) no.
+
+### Exp 992b: memory-space locality oracle audit (the WHY)
+Script: `experiments/backfill/block_ar/nl_14x14_memory_locality_oracle_audit.py` ->
+`stride5_14x14_memory_locality_oracle_992b/memory_locality_oracle_report.json` (600 windows, seed 0).
+
+| Oracle (query -> rank of memory[w] in 939a bank, 4010 rows) | rank median | recall@10 |
+|---|---|---|
+| memory[w+5] (adjacent stride-5 neighbor, 25/30 shared prefix days) | **208** | **0.112** |
+| memory[w+10] | 221.5 | 0.088 |
+| memory[w+30] (one full prefix length) | **434** | 0.027 |
+
+Plus: top-10 memory-space neighbors of memory[w] are a median **69 days** away (weak temporal
+locality); cos(memory[w], memory[w+5]) = 0.868 vs random-pair 0.684 (narrow discrimination band).
+
+**Conclusion: the pre-registered fit gate (rank<=400 AND recall@10>=0.10 on unseen windows) sits
+AT or ABOVE the adjacent-memory oracle ceiling** (oracle recall@10 = 0.112 at offset 5; rank 434
+at offset 30). A text-conditioned predictor holds strictly less window-identifying information
+than a neighboring memory vector. Exact-window retrieval in frozen SNI memory space is
+information-limited for ANY input lacking the realized path; 991a/992a "failures" measured the
+space, not just the bridge. (A real bridge-vs-oracle gap remains — 969 vs 208 — but the gate as
+set was unreachable, and exact-window ID is also not what downstream needs: 990f showed support
+TEMPORAL DISTANCE, not window identity, rank-orders CRPS perfectly.)
+
+### What was learned
+1. Both pre-registered failure classes (train_fit 991a, objective-geometry 992a) are exhausted at
+   convergence with the same falsifier (flat rank-vs-distance). The binding constraint is the
+   intermediate OBJECTIVE: "rank the exact true memory among 4010" is (a) information-capped by
+   the memory space itself and (b) misaligned with the downstream risk objective.
+2. Contrastive-dominant weighting is strictly better geometry for this lane (keep for any future
+   bridge work): in-sample 265 vs 556, Tier-B 434 vs 716, no mean-collapse.
+3. This satisfies the falsification workflow's test_mismatch audit requirement: the oracle/split
+   audit demonstrates the gate metric is not aligned with the risk objective and not achievable
+   in the target space. Only NOW is changing the intermediate objective/test licensed.
+
+### Decision: VALUABLE FAILURE x2 + audit -> lane direction decision (user review)
+The 991-series plan is exhausted (gate failed under both sanctioned classes; contingency A
+executed; oracle audit explains why). Per governance, changing the intermediate objective is a
+direction-level decision -> STOP for user review. Recommended next direction: re-aim Stage-1 at
+**regime-neighborhood retrieval** (predict into a locality-preserving target: e.g., rank windows
+by |retrieved-true| temporal/regime proximity, or supervise text->support-NEIGHBORHOOD posteriors
+directly against the 990f mechanism), optionally composed with the 984a replay-preference Stage-2.
+Paper-claim bans unchanged; "Do not promote" stands; top3/90 default unchanged.
+
+---
