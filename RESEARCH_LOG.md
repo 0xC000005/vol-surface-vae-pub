@@ -134198,3 +134198,100 @@ directly against the 990f mechanism), optionally composed with the 984a replay-p
 Paper-claim bans unchanged; "Do not promote" stands; top3/90 default unchanged.
 
 ---
+
+## 2026-06-10: Research Compass — NL retrieval beyond exact-window ID (PENDING USER REVIEW)
+
+### Provenance
+9-agent ideation pass (research-ideation skill): 3 evidence agents (support-selection mechanics,
+984a teacher audit; lane-history agent crashed, reconstructed from session evidence), 5 literature
+agents (soft/continuous contrastive; RAG-for-timeseries + analog ensembles; ranker distillation;
+cross-domain analogue metrics; adversarial prior-art), 1 adversarial panel (Statistician/Systems/
+Domain) that ran MEASURED probes against 939a/984a artifacts. Pre-literature hypotheses H1-H4 were
+registered before the literature pass (Hinton discipline).
+
+### CRITICAL MEASURED FINDINGS (independent of any hypothesis — these stand alone)
+- **F1: the 984a replay teacher is structurally calm-biased.** Measured on 300 train queries
+  (30d query-candidate exclusion): Spearman(replay_loss_z, candidate future activity) = **+0.737**
+  per query; Spearman(candidate MEAN replay rank across 100 queries, activity) = **+0.989** —
+  the teacher's dominant axis is QUERY-INDEPENDENT "prefer candidates with damped futures"
+  (L1-against-a-single-realization degeneracy).
+- **F2: the teacher contains no locality signal**: Spearman(replay loss, |delta t|) = **+0.034**.
+  Together F1+F2 mechanistically explain the 984a sign flip (replay-space win +0.029 vs frozen-SNI
+  loss -0.015 against start-only): the proxy scores futures at the wrong interface with a
+  degenerate scoring rule. This retires the raw replay-distillation family.
+- **F3: within-pool headroom exists but is thin after debiasing**: top-50 start-local pools show
+  replay std 0.175 vs stride-1 twin-noise 0.048 (3.6x), but 53% of the ordering is the calmness
+  axis; residual-signal/noise = 1.69 median, >2x in only 36% of pools.
+- **F4: the current evaluation cannot adjudicate ANY candidate.** Heldout = 66 consecutive
+  stride-1 windows = **~3.2 independent 30-day outcomes**; promotion deltas in play are
+  +-0.015-0.03 CRPS; train/heldout boundary windows share up to 29/30 future days. BLOCKING
+  DEFECT for promotion and falsification alike. Val region [4040:4540] is unused by the support
+  bank and available.
+- Selection mechanics (for the record): start-only = top-k by -||z(start levels)||_2 (one-day
+  joint39 level snapshot, per-dim z-scored, L2) — temporally local because near-unit-root level
+  configurations are rarely revisited across eras; narrative mode blends text-memory cosine with
+  start-distance penalties into ONE scalar (cosine measured coefficient is small) then applies a
+  hard direction gate + anchor-cohesion + 30-index non-overlap. The factorization hook exists
+  after candidate_support_table (nl_prefix_latent_analogue_mixture_prior.py:964).
+
+### Ranked plan (information value per unit effort; P0-P2 before ANY training)
+- **P0 — Evaluation fix (blocking infrastructure, ~1 day):** relocated/expanded heldout into
+  val[4040:4540], paired block bootstrap CIs, exclude/discount boundary-overlap windows.
+  Additive reporting immediately; any promotion-gate change goes through the test_mismatch
+  protocol + verifier AGREE.
+- **P1 — Oracle-within-pool tilt probe (~2h, zero training):** per heldout window, start-local
+  top-50 pool -> re-weight top-3 by TRUE within-pool ensemble-replay score (oracle, deployment-
+  matched top3/90 semantics) -> frozen-SNI rollout vs start-only (paired block bootstrap).
+  **Bounds H1/H2/H4-tilt/N1 in one experiment.** Kill: oracle tilt fails to beat start-only ->
+  the entire within-pool tilt program is dead (information ceiling at pool level).
+- **P2 — Retro-stratification by PRE-REGISTERED train-side hardness (~2h, zero compute):**
+  stratify existing 984a/start-only per-window results by support density + start-only predicted
+  dispersion; test the literature-unanimous prediction (AnEn lowest-error bin, RATD rare-case
+  gains, Hu 2021) that retrieval wins the HARD stratum. Either explains start-only's headline
+  dominance or kills the tails narrative. Strata pre-registered from train side only.
+- **P3 — H4 chassis: locality-first factorization (~1 day plumbing):** new prior_mode — start
+  locality proposes top-M pool, text tilt re-weights WITHIN pool, top3/90 unchanged. Riders
+  (mandatory): per-query headroom gate (F3 statistic) + degenerate-tilt fraction reporting;
+  learned tilt slot (existing bridge cosine is inert, coeff -0.029); narrative-vs-start conflict
+  detector with documented tail limitation (zero headroom for narrative-contradicts-start
+  queries inside a local pool). Non-regression vs start-only ~by construction; exactly the GMRM
+  baseline+tilt product shape.
+- **P4 — N1: within-pool calm-debiased SET-level replay tilt (training-shaped; CONDITIONAL on
+  P0+P1):** teacher = within-pool ensemble/energy replay of candidate SETS (not solo L1),
+  calmness main effect residualized, noise-banded pairwise margins (drop |delta| < twin-noise
+  0.048); student = query-side-only tilt (REPLUG-LSR/Margin-MSE shape; Gumbel-Reranking App. D
+  warns per-candidate teachers misalign with top-k SET selection). Lit: Atlas, REPLUG, FiD-KD,
+  Margin-MSE, Gumbel Reranking, FinSeer, Hu et al. 2021 reverse analog.
+- **P5 — H3 demoted to diagnostic head (cheap, product-facing):** text -> DISTRIBUTION over
+  joint39 prefix features; spread = narrative-specificity gauge (wide -> shade toward start-only);
+  "what the model heard" observables panel for GMRM exhibits. NO retrieval claim. Probe first:
+  ridge R^2 per factor + weighted-Jaccard vs start-feature retrieval (kill diagnostic if
+  Jaccard > 0.8 or mechanism-factor R^2 ~ 0).
+- **P6 — H2 raw-material probe only:** partial Spearman of text-cosine vs outcome-space distance
+  controlling for start z. If ~0 (|rho|<0.05) -> text embeddings carry no outcome signal beyond
+  the start state; caps ALL text-side hypotheses. If positive and a geometry is needed for the
+  P3 tilt slot: Rank-N-Contrast over OUTCOME/regime distance (rank-based, no bandwidth knob).
+  Calendar-time soft kernels are REJECTED (TNC regime-break lesson: temporal proximity is
+  anti-similarity at breaks; calendar kernel = start-only re-implemented through text, max=tie).
+
+### Killed / rejected (with mechanism)
+- H1 raw global replay-preference distillation: teacher main axis query-independent calm bias
+  (F1) + zero locality content (F2); distilling it harder optimizes a misaligned proxy.
+- Exact-window text->memory retrieval: falsified 991a/992a/992b (information ceiling).
+- Calendar-time soft-label kernels and learned kernel bandwidths: degenerate optimum at the
+  falsified design; max-tie argument above.
+- Solo-candidate teacher scores for a mixture product (Gumbel App. D independence failure) —
+  any future teacher must be SET-level.
+
+### Leakage flags (standing)
+- `true_replay_loss_z` is attached to heldout candidate rows in reranker artifacts — audit any
+  deployment path to never sort on it.
+- Train/heldout boundary future-overlap inflates replay-space diagnostics for locality-flavored
+  selectors; exclude first ~30 heldout windows from replay-space comparisons.
+- Replay teachers may use train-window futures as TRAINING signal only (no deployment use).
+
+### Status
+Compass PENDING USER REVIEW per autoresearch governance (mandatory stop after compass
+generation). No new training until P0-P2 results are in and the user approves direction.
+
+---
