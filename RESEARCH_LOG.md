@@ -134371,3 +134371,37 @@ Hardness-gated retrieval (N2-as-model) stays dead unless the P0 val-region frame
 Proceed to P0 harness + P1 oracle probe.
 
 ---
+
+## 2026-06-10: Exp 994a — val-frame evaluation harness + start-only baseline (compass P0)
+
+### What was built
+- `experiments/backfill/block_ar/nl_994a_val_frame_start_only_eval.py`: start-only scenario eval
+  on the broad val frame — 89 queries (windows 4010..4450, stride 5) = **15 non-overlapping
+  30-day blocks** (vs ~3 on the 66-window train-tail frame). Reuses
+  `nl_episode_narrative_bridge_report.py build_start_only_bridge_report` (the exact generator the
+  982g start-only run used: z-scaled terminal-state distance, top-8, softmax T=1.0) +
+  `nl_scenario_level_evaluation.py` unchanged (top-3, field_weight, samples 16, n_steps 30,
+  seed 4, CRN base 8128). Engine runtime 58s.
+- `experiments/backfill/block_ar/nl_994a_paired_block_bootstrap.py` (+ 6/6 unit tests): paired
+  per-window deltas with moving-block bootstrap (block length configurable; stride-aware L=6 =
+  30 calendar days for stride-5 queries; reports effective independent blocks).
+
+### Sanity checks
+- Causality exact: bank max window 4009 < min query 4010; rebuilt block matches bank history_raw
+  to 0.0; support gap >=30 holds.
+- Start-only on val frame: CRPS_z mean **0.379** (median 0.361, range 0.26-0.58), Energy_z 0.583,
+  cov80 0.774 — calmer regime than train-tail (0.506/0.660/0.672). vs persistence: CRPS -0.152
+  [95% CI -0.183,-0.122 at stride-aware L=6, 14.8 effective blocks], Energy -0.274 [-0.308,-0.236].
+- **Frame-date correction (important):** the broad val frame covers **2016-01-27 .. 2017-12-06**,
+  NOT 2019-2021. COVID (2020-02-18 = row 5060) lies in the held-out TEST region (>= test_start
+  4511) and stays untouched for method iteration. The frame's novelty content = the 2017
+  extreme-low-vol regime (9/89 queries in the top train-side novelty decile, windows 4375-4430).
+  The COVID extrapolation question can only be adjudicated at promotion time on the test region
+  by the independent verifier.
+
+### Decision
+P0 infrastructure accepted: the val frame (15 independent blocks, causal bank, paired block
+bootstrap) is the working high-power heldout for the retrieval program. Proceed to P1
+(oracle-within-pool tilt) on the same 89-query frame.
+
+---
