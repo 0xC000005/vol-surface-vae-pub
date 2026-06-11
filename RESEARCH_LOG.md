@@ -134671,3 +134671,26 @@ train queries — adjudicated by the full-run quality gate (1,000 queries, 50-qu
 subsample), which remains the pre-registered go/no-go for 997b training.
 
 ---
+
+## 2026-06-11: OWNER OBJECTIVE CORRECTION — CRPS demoted to reconstruction diagnostic; "beat start-only" retired as promotion target
+
+### The correction (owner-stated, ratified)
+1. The product objective is counterfactual "what-if" scenario generation. For counterfactual
+   queries the realized future is a draw from the UNCONDITIONED world; penalizing divergence from
+   it is anti-correlated with usefulness. Chasing CRPS-vs-realized selects for ignoring the
+   narrative (its optimum is start-only/persistence) — the 99x program drifted into this trap via
+   the inherited promotion bar.
+2. CRPS retains two narrow roles: (a) RECONSTRUCTION DIAGNOSTIC — our eval narratives are authored
+   from actual historical conditions, so conditioned scenarios should reconstruct the actual
+   outcome distribution; CRPS measures this reconstruction quality (note: it is not used as a
+   training loss anywhere — the system is retrieval, not CRPS-trained); (b) FIDELITY FLOOR /
+   non-regression insurance, now guaranteed structurally by the start_pool_text_tilt chassis.
+3. **"Beat start-only on absolute CRPS/Energy" is RETIRED as a promotion target** (owner decision).
+   Re-adjudication of candidates (incl. 984a) moves to: better conditionality at an intact
+   fidelity floor.
+4. 997a: allowed to complete (cheap; its teacher-quality gate answers a real information
+   question). 997b student training HELD — its WIN bar was a prediction target.
+5. New head research question: **how to rigorously validate a counterfactual scenario without a
+   realized future** — ideation pass launched (validation-framework compass).
+
+---
