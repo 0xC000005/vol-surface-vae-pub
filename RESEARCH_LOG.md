@@ -134642,3 +134642,32 @@ the set-level teacher. One research axis: the TEACHER's semantics move from solo
 - Same pre-registered gates on the 994a frame: WIN <= -0.013 CI excl 0; PARTIAL < 0; KILL else.
 
 ---
+
+## 2026-06-11: Exp 997x — fresh-CRN robustness check: the 994b oracle headroom is REAL
+
+### Context
+The 997a smoke raised a methodological alarm: on 5 early train queries, set-to-set mixture-CRPS
+dispersion (mean 0.0114) sat BELOW the CRN twin-noise floor (0.0155; std/noise 0.73, 0% queries
+>2x), and 994b's oracle had selected candidates under the SAME CRN base seed (8128) used by the
+final eval — a potential shared-noise channel that no deployable student could exploit (and
+consistent with oracle-win/student-fail in 996b).
+
+### Experiment
+Re-ran BOTH the 994a start-only eval and the 994b oracle-tilt eval with a fresh CRN stream
+(base seed 31337, all else byte-identical), paired block bootstrap L=6.
+
+### Result: headroom unchanged under fresh noise
+| Metric | original (8128) | fresh CRN (31337) |
+|---|---|---|
+| dCRPS | -0.0264 [-0.0312,-0.0234] | **-0.0257 [-0.0307,-0.0227]** |
+| dEnergy | -0.0290 | -0.0276 [-0.0342,-0.0232] |
+| dCoverage | +0.0266 | +0.0277 (0.774->nominal) |
+
+The oracle's selection advantage transfers across noise streams: the within-pool headroom is a
+property of the SELECTED SUPPORTS, not of shared CRN. The target the set-level teacher chases is
+confirmed real. The 997a smoke gate-(a) failure therefore reads as either (i) unrepresentative
+early-window smoke queries or (ii) genuinely thin set-to-set dispersion among SAMPLED sets on
+train queries — adjudicated by the full-run quality gate (1,000 queries, 50-query twin
+subsample), which remains the pre-registered go/no-go for 997b training.
+
+---
