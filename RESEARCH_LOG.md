@@ -134623,3 +134623,22 @@ top3/90; more compute). Choice surfaced to owner. Promotion state unchanged: sta
 the floor; "Do not promote" stands; nearest-similar top3/90 default unchanged.
 
 ---
+
+## 2026-06-11: Owner decision — 997-series: set-level teacher (LOOP/Gumbel direction)
+
+Following the 996b KILL (solo-replay teacher + degenerate deployment), owner selected option (b):
+the set-level teacher. One research axis: the TEACHER's semantics move from solo candidates to
+3-member MIXTURE replay (identical to deployed top3/90 field_weight sampling). Plan:
+- 997a labels: for the same 1,000 train queries (995d plan) sample ~40 candidate SETS per query
+  from the top-50 causal pool (locality set, solo-label-informed sets, diversity-spread sets,
+  random sets), roll out each mixture with deployed engine semantics (16 samples, CRN), score
+  ensemble CRPS vs realized — ~640k rollouts, same scale as 995d.
+- Intermediate teacher-quality gate BEFORE any training: within-query set-score dispersion must
+  exceed the CRN noise floor, and the best-sampled-set mini-oracle must point toward the 994b
+  oracle direction (sanity that sampled sets contain good sets).
+- 997b student: sum-decomposable set scorer (per-candidate features) + explicit set-diversity
+  features, trained listwise on set rankings; deployment via greedy top-3 set construction
+  through the 994b-style bridge (engine-identical); chassis remains the production interface.
+- Same pre-registered gates on the 994a frame: WIN <= -0.013 CI excl 0; PARTIAL < 0; KILL else.
+
+---
