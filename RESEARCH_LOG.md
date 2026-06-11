@@ -134752,3 +134752,131 @@ Highlights and reversals vs the pre-registered candidates:
 Status: framework pending owner ratification; 997a labels completing (science record); 997b held.
 
 ---
+## 2026-06-11: NL dual demo upgrade: projected-memory generator and date-based scenario workbench
+
+## Change Log
+
+- Updated the narrative-to-scenario Gradio demo to default to the 14+14 projected-memory retrieval backend rather than the old narrative/support example path. The demo now points at the stride-5 14+14 projected-memory bridge report, the 991a projected-memory training arrays, and the 991a projected-memory adapter checkpoint.
+- Kept narrative-to-narrative retrieval out of the product demo path per current instruction. It remains a research comparison method, not the demo default.
+- Updated the bridge adapter loader to read the adapter hidden width from checkpoint config, preserving compatibility with the 991a projected-memory checkpoint.
+- Replaced the old mechanistic recommended examples with six scenario families, each represented by short, medium, and full narrative inputs. This is intended to show that a short input and a longer input can preserve the same core conditionality when the starting state is held fixed.
+- Updated the scenario-to-narrative workbench so historical review is selected by calendar end date instead of asking users for an internal `joint39_train_*` id. The app maps dates through support-bank metadata and displays the 30-day conditioning range before visualization/generation.
+- Added late-2008 turbulent-period presets to make severe-window review easy for the boss-demo workflow.
+- Wrote the handoff document `docs/research_protocols/nl_dual_demo_upgrade_handoff.md` and updated the scenario-to-narrative TestFlight note plus the older boss-demo runbook pointer.
+
+## Validation
+
+Focused checks run during the update:
+
+```bash
+uv run --no-sync pytest test_code/test_785a_nl_risk_manager_story_gradio_app.py -q
+uv run --no-sync pytest test_code/test_nl_scenario_to_narrative_workbench_app.py -q
+python -m py_compile experiments/backfill/block_ar/nl_risk_manager_story_smoke.py experiments/backfill/block_ar/nl_risk_manager_story_gradio_app.py experiments/backfill/block_ar/nl_scenario_to_narrative_workbench_app.py
+```
+
+Observed results before final handoff: `48 passed`, `23 passed`, and `py_compile` exit code `0`.
+
+## Caveats
+
+- This is a demo/backend wiring change and a product-readiness step. It is not yet a claim that the projected-memory bridge has promoted the paper result on downstream frozen-SNI scenario metrics.
+- Positive scenario-to-narrative examples mean correct descriptions of the selected scenario. For late-2008 windows, appropriately severe positive narratives are expected because the target scenario itself is severe.
+- Hard negatives should be same-style contradictory near-misses; they are not guaranteed to sound optimistic or benign.
+
+---
+## 2026-06-11: Scenario-to-narrative UI correction: single start-date historical selector
+
+## Change Log
+
+- Corrected the scenario-to-narrative workbench historical UI after review: it now exposes one control labeled `Select the historical period by starting date`.
+- Removed the main-UI `Turbulent period preset` and `Historical ending date` controls. The app maps the selected start date to the next 30 observed market days through support-bank metadata.
+- Visible date choices and range text no longer include `joint39_train_*`, `Train`, or turbulent-review labels. Internal ids remain in machine-readable sidecar artifacts for reproducibility only.
+- Updated `docs/research_protocols/nl_dual_demo_upgrade_handoff.md` and `docs/research_protocols/scenario_to_narrative_workbench_testflight.md` to record the corrected interaction.
+
+## Validation
+
+Focused app test:
+
+```bash
+uv run --no-sync pytest test_code/test_nl_scenario_to_narrative_workbench_app.py -q
+```
+
+Observed result: `25 passed in 3.88s`.
+
+---
+## 2026-06-11: AAA_OAS/USDJPY factor-index audit: source data correct, narrative support-card mapping contaminated
+
+### Context
+The scenario-to-narrative demo displayed inconsistent credit-spread scales: `BBB_OAS` around `4 -> 7` while `AAA_OAS` appeared around `12090 -> 8577` for the 2008-09-22 to 2008-10-31 period.
+
+### Findings
+- Source data is correct. In `data/multi_factor_levels.parquet`, `aaa_oas` and `bbb_oas` are both decimal spread levels; for 2008-09-22 to 2008-10-31, `aaa_oas` is `2.76 -> 4.07` and `bbb_oas` is `4.02 -> 6.98`.
+- The 939a support bank raw 39-column frame is consistent with the source/model block. The factor tail after 25 IV cells is: `spx, usdcad, usdjpy, dxy, copper, wheat, crude_oil, us2y, us10y, aaa_oas, bbb_oas, nikkei, gold, vix`.
+- Two local factor-name mappings were wrong: `USDJPY` used column `29` (copper) instead of `27`, and `AAA_OAS` used column `36` (nikkei) instead of `34`.
+- This affected the scenario-to-narrative display/extraction and the support-card narrative builder. Therefore generated support-card-derived narrative artifacts that relied on these mappings, including 970f-derived/982g rich narratives and downstream 14+14 retrieval corpora, should be treated as contaminated for `USDJPY` and `AAA_OAS` evidence until regenerated.
+
+### Code Fix
+- Corrected `HISTORICAL_RAW_PATH_FACTORS` in `experiments/backfill/block_ar/nl_scenario_to_narrative_workbench.py`.
+- Corrected `MARKETS` indices in `experiments/backfill/block_ar/nl_episode_narrative_support_cards.py`.
+- Added a regression test proving the 39-column tail mapping for `USDJPY`, `AAA_OAS`, and `BBB_OAS`.
+
+### Validation
+- `uv run --no-sync pytest test_code/test_nl_scenario_to_narrative_workbench.py -q -k 'correct_factor_tail_columns or enriches_raw_history_paths'` -> `2 passed`.
+- `uv run --no-sync pytest test_code/test_nl_scenario_to_narrative_workbench_app.py -q` -> `25 passed`.
+- Rechecked the live app normalization for start date `2008-09-22`: `BBB_OAS 4.02 -> 6.98`, `AAA_OAS 2.76 -> 4.07`, `USDJPY 106.35 -> 98.28`.
+
+### Decision
+Do not rely on existing rich narrative banks or hard-negative corpora as clean training truth until they are regenerated from the corrected factor mapping. The numerical source data and 939a support bank are not discarded; the contaminated layer is the factor-name-to-column extraction used for narrative evidence.
+
+---
+
+## 2026-06-11: JOINT39 FACTOR-MAPPING CONTAMINATION — audit complete (provenance + census + blast radius)
+
+### Bug (verified)
+Narrative-facing factor extraction mapped AAA_OAS->col 36 (actually NIKKEI) and USDJPY->col 29
+(actually COPPER). Correct: usdjpy=27, aaa_oas=34, bbb_oas=35, nikkei=36 (panel order verified
+against data/multi_factor_data.npz). ROOT = `MARKETS` in `nl_episode_narrative_support_cards.py`
+(untracked Phase-0b builder of the 970c/970f/972b support-card banks; all 4,010 970f cards
+literally record index=36/29 in their sidecars). Everything downstream inherited factor facts
+from those cards — no other generator had its own mapping. Fix authored by the owner's Codex
+session 2026-06-11 14:06-14:35 EDT (uncommitted, in-place; old revision unrecoverable from git);
+all artifacts generated before then are suspect. Smoking gun: `nl_14_view_variant_pilot.py`
+carried a prompt rule suppressing "AAA_OAS +552.89"-style magnitudes — the symptom was seen and
+masked at the prompt level instead of root-caused (logged as a process lesson).
+
+### Empirical census (claimed values vs recomputed panel moves)
+- 970f/972b root banks: CONTAMINATED (12/12 windows; sidecars declare index 36/29).
+- 982g corpus (4,010 x 8): CONTAMINATED (AAA matches nikkei-bucket-only 64/80, USDJPY copper-only
+  57/75, zero true-only; affected factors appear in 100% of mechanical views).
+- 988b stride-5 14+14 bank: CONTAMINATED (target summaries inherit 982g; candidate evidence
+  equals nikkei col-36 to float precision).
+- 995c/995a val corpus (mine, 06-10): CONTAMINATED 89/89 + 5/5 (generated pre-fix via imports
+  from the broken module).
+- Six-case casebook: MIXED — query/grounding lane CLEAN (name-based lookups,
+  'factor:aaa_oas_30d_change=' — correct 23/23+29/29); displayed analogue narratives inherit 982g.
+- Production grounding pipeline (nl_narrative_grounded_scenario_pipeline.py) uses NAME-based
+  factor lookups -> the promoted top3/90 demo default lane is structurally clean.
+
+### Blast radius
+SURVIVES (numeric, code-verified): 734a/739a generator + all tri-scope/IV results; 939a bank;
+994a harness + start-only baselines; 994b oracle + 997x (headroom -0.026 ROBUST); 995d labels;
+995b chassis; 992b information ceiling (ROBUST — upper-bounds any corrected corpus too);
+984a teacher calm-bias findings F1/F2 (ROBUST — numeric teacher property).
+TAINTED-LIKELY-HOLDS (geometric/structural cores corroborated by numeric evidence; exact numbers
+need restamping after regeneration): 991a/992a falsifications; 990f temporal-distance mechanism;
+996 N1 kill; 993a text-method strata deltas.
+REGENERATE (text artifacts): 970f/972b -> 982g + its text evals/grounding audits ->
+988b/990a (only if retrieval training resumes; currently held) -> 995c val corpus -> demo cached
+packets -> paper casebook analogue exhibits. 997a set-level labels (running) are numeric-clean.
+8 governance surfaces need amendment (current_truth 982g-usable claim, 14+14 corpus-accepted
+claim, etc.) — amended this session.
+
+### Decision
+Regeneration plan staged to the corrected objective (product lane first): (R1) regenerate root
+support cards from raw arrays (local, fast — fixed module already in tree); (R2) regenerate 982g
+corpus via Codex (the major spend; 995c actuals imply roughly ~$200 list-rate / multi-day
+rate-limit budget at 4,010x8) + rerun grounding/casebook audits; (R3) 995c val corpus re-author
+(small, ~$5); (R4) 14+14/990a + retrieval retraining ONLY if that lane resumes; (R5) demo packet
+refresh + paper exhibit regeneration. Scope/order pending owner approval. The two uncommitted
+fix files should be committed with regression tests before any regeneration.
+
+---

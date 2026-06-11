@@ -1,11 +1,28 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
 this file states which claims are currently promoted and which are still only
 diagnostic.
+
+
+## 2026-06-11 CONTAMINATION NOTICE — joint39 factor-mapping bug (READ FIRST)
+
+Narrative-facing factor extraction mapped AAA_OAS->col36 (NIKKEI) and USDJPY->col29 (COPPER)
+in the untracked support-card builder (`nl_episode_narrative_support_cards.py` MARKETS); fixed
+2026-06-11 ~14:11 EDT (owner Codex session). Verified contaminated TEXT artifacts: 970c/970f/972b
+support banks, the FULL 982g corpus (factor claims for USDJPY/AAA_OAS describe copper/nikkei),
+988b/990a 14+14 corpus, 995a/995c val-frame corpus, demo saved packets, casebook DISPLAYED
+analogue narratives. CLEAN: the production grounding/query lane (name-based factor lookups),
+all numeric machinery and results (734a/739a, 939a, 994a/b harness+oracle, 995b chassis, 995d
+labels, 992b ceiling, start-only baselines). Supersedes any statement below that the 982g
+corpus "remains usable" or that the 14+14 corpus-generation gate is "satisfied": those corpora
+are AUTHORING-ROUTE PROOF ONLY until regenerated with the corrected mapping. Text-method eval
+numbers (984a/episode_text/embedding variants, 990g, 991a/992a, 996a/b, 993a text columns) are
+measurements of contaminated inputs — geometric/structural conclusions stand per the 2026-06-11
+RESEARCH_LOG audit entry; exact numbers require restamping after regeneration.
 
 ## Current Contract
 
