@@ -134694,3 +134694,61 @@ subsample), which remains the pre-registered go/no-go for 997b training.
    realized future** — ideation pass launched (validation-framework compass).
 
 ---
+## 2026-06-11: NL demo upgrade workstream: projected-memory narrative-to-scenario and turbulent scenario-to-narrative
+
+### Context
+Owner requested a new tracked workstream covering both NL demos after the objective correction that CRPS is a reconstruction diagnostic/fidelity floor rather than the product promotion target. The demos must now communicate counterfactual conditionality and narrative robustness more directly.
+
+### Narrative-to-Scenario Demo Scope
+- Upgrade the narrative-to-scenario generator and paper/demo surfaces to use the new 14+14 rich-narrative retrieval work, specifically the projected-memory retrieval method rather than narrative-to-narrative retrieval.
+- Keep the frozen SNI rollout and support-grounded top3/90-style assembly discipline unless a later validated design explicitly changes it.
+- Replace the current six mechanistic examples with six richer scenario examples, each available at multiple narrative lengths.
+- Add a robustness showcase: for the same starting level and same core economic description, short and long narratives should produce similar final tables/support readouts, demonstrating that sparse user-like text can work when it preserves the core condition.
+
+### Scenario-to-Narrative Demo Scope
+- Improve the scenario-to-narrative workbench for turbulent-period review, especially 2008-style periods.
+- Replace confusing historical-window-id input with a date-oriented selector. Selecting a date should visibly imply/highlight the 30-day conditioning window used by the scenario/narrative pipeline.
+- Preserve numerical scenario visualization and structured 14-positive / 14-hard-negative narrative output, but make the turbulent-period workflow easier for non-authors to use.
+
+### Validation Questions Before UI/Claim Changes
+- Confirm which projected-memory 14+14 artifacts are actually promotion-eligible after the latest objective correction, and avoid claiming narrative-to-narrative retrieval in the product path.
+- Validate turbulent-period scenario-to-narrative behavior before showcasing it: sample 2008 windows, inspect the 14 positive narratives, and verify that matched hard negatives are truly contradictory rather than merely generically negative.
+- Check whether negative/turbulent periods produce appropriately severe positive descriptions and whether the hard negatives remain useful near-misses.
+
+### Initial Execution Plan
+1. Inspect current narrative-to-scenario demo wiring, paper references, and retrieval artifact contracts.
+2. Inspect current scenario-to-narrative workbench date/window mapping and narrative packet generator.
+3. Design the minimal projected-memory demo upgrade path and the turbulent date-selector workflow.
+4. Build/validate in small pilots before changing public demo defaults or paper claims.
+5. Record validation artifacts and update current-truth surfaces only after the pilots pass.
+
+---
+
+## 2026-06-11: Research Compass — counterfactual validation without realized futures (framework v1, PENDING OWNER RATIFICATION)
+
+6-agent ideation (5 literature areas + adversarial panel) produced the replacement acceptance
+framework, persisted at `docs/research_protocols/nl_counterfactual_validation_framework_v1.md`.
+Highlights and reversals vs the pre-registered candidates:
+- **Most load-bearing: matched-episode conditional backtest** — but as pre-registered it was a
+  propriety trap (outcome-conditioned episode selection rewards extremist generators — Lerch);
+  revised spec: ex-ante trigger registry frozen before scoring, leave-episode-out retrieval,
+  MC exact nulls (Dufour), published minimum detectable effect, twCRPS for outcome-defined
+  queries; "no rejection" reported as "insufficient evidence", never "calibrated".
+- **Most gameable: cycle-consistency/SBC** — vanilla rank-uniformity is passed PERFECTLY by a
+  pipeline that ignores the narrative (Modrak); survives only with data-dependent test
+  quantities + a mandatory information-gain co-gate (conditioned vs start-only energy distance
+  CI > 0) + workbench-authoring isolation (path-only input).
+- **Most important NEW validator: convex-hull/support honesty gate** — the one failure mode all
+  divergence/cycle methods are structurally blind to (narrative outside analogue support);
+  labeling gate ("outside historical analogue support"), never silent nearest-representable.
+- Plausibility budget reframed from tunable bound to **episode-calibrated reported statistics**
+  (ESS, KL vs realized-regime-shift quantiles k*, innovation-space modesty q, SWIM severity
+  frontier) — severity and plausibility on separate axes.
+- Bayes-consistency demoted to tier-3 mechanism-localization diagnostic (circularity + ESS
+  collapse risks). Expert protocols = sign-off layer, never evidence gates.
+- **LIVE BUG FLAGGED: audit whether 994a/matched-eval analogue pools can contain windows
+  overlapping the evaluated window (leave-episode-out leakage)** before trusting any existing
+  matched-eval number.
+Status: framework pending owner ratification; 997a labels completing (science record); 997b held.
+
+---
