@@ -134565,3 +134565,61 @@ Covariates stored per candidate for calm-debiasing (cand_future_activity) and no
 labels 995d) -> launching N1 training.
 
 ---
+
+## 2026-06-11: Exp 996a/996b — N1 learned within-pool tilt: KILL at the pre-registered gate (valuable failure, mechanism identified)
+
+### Setup (exactly per pre-registered design; no test changes, no threshold moves)
+Teacher: 995d labels calm-debiased (global OLS on cand_future_activity; post-debias pooled
+Spearman vs activity -0.0089 ~ 0; raw was +0.351 pooled — weaker than the F1 +0.7 expectation)
++ noise-banded pairs (band max(0.048, 0.5*pool sigma); 612,044 pairs retained, 50%).
+Student: linear pairwise ranker (C=0.01 selected by 5 contiguous-block CV folds x 3 seeds);
+deployable features only — weights: text_cosine +0.932, start_distance_z -0.224,
+prefix_delta_cos +0.252. CV: pair acc 0.574, within-pool rho 0.144. tilt_weight=128 pre-registered
+via CV proxy argmin before any val outcome. Deployment: 89 val queries (995c narratives,
+text-embedding-3-large, 982g cache reused for candidates), P3 chassis external slot, identical
+engine/CRN as 994a (neutral-tilt parity 89/89 exact). 15/15 unit tests.
+
+### Results (paired delta = tilt - start_only)
+
+| Metric | mean | 95% CI (L=6) | 95% CI (L=30) | win rate |
+|---|---|---|---|---|
+| ensemble_crps_z | **+0.00579** | [+0.0032,+0.0084] | [+0.0049,+0.0082] | 0.382 |
+| energy_score_z | +0.00446 | [+0.0008,+0.0085] | [+0.0037,+0.0080] | 0.449 |
+| coverage_80 | **-0.0249** (0.774->0.749) | [-0.0317,-0.0190] | — | 0.427 |
+
+**Gate verdict: KILL** (needed <= -0.013 with CI excluding 0; got positive with CI excluding 0).
+Telemetry: analogue_scarce 11/89; conflicts 27/89; selection changed for 76.4% of queries.
+
+### WHY (CV-vs-val gap decomposition — which stage broke)
+1. Teacher signal alive but WEAK: pair acc 0.574 vs 0.5 chance; rho 0.144 — far below the
+   oracle's ordering power. Caveat: global debias leaves per-query within-pool
+   Spearman(debiased, activity) = -0.59 (per-query structure not fully neutralized).
+2. Student generalization marginal: best CV proxy improvement -0.0012 ~ 9% of the WIN bar,
+   reachable only at extreme tilt weights.
+3. **Deployment sign flip is the dominant break (+0.0070 gap): the weighted-SOLO-replay proxy is
+   blind to mixture diversification.** At tw=128 the deployed weights are near-degenerate (mean
+   max weight 0.895, median 0.984, effective-n 1.27 vs the 994b oracle's 2.42), and the coverage
+   drop (-0.025) shows concentrated mixtures got NARROWER — true ensemble CRPS punishes that.
+   This is precisely the per-candidate-vs-set-level failure pre-registered in the compass
+   (Gumbel App-D) and confirmed by the 994b addendum fact that the mixture beats the best single
+   candidate (0.3525 vs 0.3714).
+
+### What was learned
+- The 994b oracle headroom (-0.0264) is NOT reachable via solo-replay teacher -> pairwise student
+  -> degenerate-weight deployment. The binding failure is SET-LEVEL: both the proxy used to pick
+  tilt_weight and (partly) the teacher itself score candidates solo while the product deploys a
+  3-member mixture whose value includes diversification.
+- Even perfectly fixed deployment calibration caps this student at ~-0.001 (its CV proxy best) —
+  an order of magnitude under the WIN bar. The student/teacher ordering quality (rho 0.144) is
+  the deeper constraint, not just calibration.
+- Product telemetry works: scarce-pool and conflict flags fired sensibly (11/89, 27/89).
+
+### Decision: VALUABLE FAILURE — stop, document, surface direction choice
+Per one-axis discipline the next sanctioned moves are (a) cheap set-level deployment repair
+(diversification-aware proxy / effective-n constraint on tilt_weight; bounds what calibration
+alone recovers — expected ceiling ~PARTIAL at best) or (b) the set-level TEACHER (LOOP-shaped /
+Gumbel relaxed top-k over pool mixtures — the only teacher whose semantics match the deployed
+top3/90; more compute). Choice surfaced to owner. Promotion state unchanged: start-only remains
+the floor; "Do not promote" stands; nearest-similar top3/90 default unchanged.
+
+---
