@@ -134551,3 +134551,17 @@ The narrative corpus now covers the evaluation region: every text-conditioned me
 honestly evaluated on the 994a frame. P4 unblocks when 995d labels finish (running).
 
 ---
+
+## 2026-06-11: Exp 995d — train-side causal within-pool replay labels COMPLETE
+
+1,000 stratified train queries x top-50 strictly-causal pools (candidates <= query-30) x solo
+ensemble replay (frozen 734a, 16x30, per-query CRN): **50,000 labels, 0 skipped queries, all
+finite** (replay_crps mean 0.5431, std 0.2842). Validation: causality assertion passed (max
+excess 0 across all shards); CRN bit-determinism confirmed (recompute == stored, bitwise).
+Runtime ~6.3h under GPU contention. Artifacts:
+`nl_scenario_demo_outputs/train_pool_replay_labels_995d/` (10 shards + manifest + validation).
+Covariates stored per candidate for calm-debiasing (cand_future_activity) and noise-banding
+(query_pool_replay_crps_std). P4 prerequisites now ALL met (P3 chassis 995b, val narratives 995c,
+labels 995d) -> launching N1 training.
+
+---
