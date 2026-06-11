@@ -134494,3 +134494,31 @@ neutral (== start-only) until a tilt candidate passes its gate. Next: val-frame 
 (995a, running) then P4/N1 learned tilt into the 'external' slot.
 
 ---
+
+## 2026-06-10: Exp 995a — val-frame narrative pilot (5 windows) PASSES; scaling to 89 approved by policy
+
+### Setup
+Lane: `nl_episode_card_v3_codex_testflight.py run-multiformat` (the 982g production lane,
+gpt-5.5 xhigh, direct Codex), fed by new prep driver
+`experiments/backfill/block_ar/nl_995a_val_frame_narrative_pilot.py` (prepare/audit only — authors
+nothing locally). Pilot windows 4010/4120/4230/4340/4450 spanning the 994a frame. Data integrity:
+rebuilt 0..4450 block matches 939a bank rows 0..4009 bit-exactly; z-scales train-side only;
+calendar dates match the 994a bridge query_dates; bundle features use history rows only.
+
+### Results
+- 5/5 cards authored + validated: schema EXACT match to 982g
+  (`nl_episode_card_v3_codex_multiformat_card_v1`, same view set), `window_id` prefix
+  `joint39_val_####`, split tag `val_frame_994a`, `valid_for_training_retrieval=true`.
+- LEAKAGE AUDIT: zero post-window date/event references on all 5; LEAKAGE_PATTERNS scan 0 hits;
+  forbidden numerics 0; the 4 future-phrase warnings are negated no-forecast caveats (allowed).
+- Cost measured: ~5.5 min / 5 calls; scaling estimate for 89 windows ~= $6 API-rate or
+  subscription rate-limit budget, ~1-2 h wall.
+
+### Decision
+Pilot usable -> scale to all 89 stride-5 val windows per the standing OpenAI policy
+(pilot -> validate -> scale). This permanently extends the narrative corpus into the val
+evaluation region (asset outlives methods). In parallel, start P4's train-side within-pool
+replay-label computation (GPU lane, no API) — pools must be per-query causal (candidates
+<= query-30) to mimic deployment.
+
+---
