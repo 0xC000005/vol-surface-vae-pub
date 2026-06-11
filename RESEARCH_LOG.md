@@ -134466,3 +134466,31 @@ against the same pool interface. Promotion still requires the full gate + verifi
   understated.
 
 ---
+
+## 2026-06-10: Exp 995b — P3 chassis: start_pool_text_tilt prior mode (locality-first factorization)
+
+### What was built (TDD: 16 failing tests written first; +223/-2 lines, add-only)
+New `memory_prior_mode='start_pool_text_tilt'` in
+`experiments/backfill/block_ar/nl_prefix_latent_analogue_mixture_prior.py`:
+- POOL: top-M (default 50) by start_only_score — text cannot influence membership.
+- TILT within pool only: tilt_mode = 'neutral' (bit-exact equivalence with soft_topk_start_only,
+  asserted rtol=atol=0 -> non-regression by construction) | 'memory_cosine' (weak placeholder) |
+  'external' (external_tilt_scores dict — the N1 student slot). Final top-k by
+  start_only_score + tilt_weight*tilt, min_index_gap respected, softmax weights exposed.
+- POOL-QUALITY GATE (always attached for this mode): pool min/median start-distance + density vs
+  reference q90 (provided quantiles or computed from candidate table) -> 'analogue_scarce' flag.
+- CONFLICT DETECTOR: market_implication_alignment of grounded direction claims vs pool
+  start-only-weighted prefix terminal deltas -> mismatch_rate / conflict flag; grounding=None
+  safe (checked=0).
+- Schema is a strict superset of soft_topk_start_only; other modes unchanged (asserted).
+
+### Verification
+17/17 new tests pass; all 200 pre-existing tests across 25 files touching the module unchanged;
+direct consumers (797a module, 791a story smoke, 785a gradio app) re-verified.
+
+### Decision
+The GMRM baseline+tilt architecture now exists in code with its safety riders. The chassis ships
+neutral (== start-only) until a tilt candidate passes its gate. Next: val-frame narrative pilot
+(995a, running) then P4/N1 learned tilt into the 'external' slot.
+
+---

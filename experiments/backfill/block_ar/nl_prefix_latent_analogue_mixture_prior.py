@@ -544,6 +544,169 @@ def direction_passing_diverse_top_indices(
     )
 
 
+def _start_pool_text_tilt_selection(
+    rows: list[dict[str, Any]],
+    *,
+    history_level: np.ndarray,
+    grounding: dict[str, Any] | None,
+    spec_names: list[str],
+    top_k: int,
+    temperature: float,
+    pool_size: int,
+    tilt_mode: str,
+    tilt_weight: float,
+    external_tilt_scores: dict[int, float] | None,
+    pool_reference_quantiles: dict[str, float] | None,
+    analogue_scarce_threshold_z: float | None,
+    min_index_gap: int = 0,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any], dict[str, Any]]:
+    """Locality-first pool-then-reweight selection (P3 chassis).
+
+    1. POOL: the candidate pool is the top-``pool_size`` windows ranked by
+       ``start_only_score`` alone — text/narrative signals can never change
+       pool membership.
+    2. TILT: within the pool only, candidates are re-ranked by
+       ``start_only_score + tilt_weight * tilt`` where the tilt source is
+       pluggable (``neutral`` -> 0, ``memory_cosine`` -> the existing bridge
+       cosine, ``external`` -> caller-provided per-window scores; windows
+       missing from ``external_tilt_scores`` get tilt 0.0). With a neutral
+       tilt this reproduces ``soft_topk_start_only`` exactly whenever
+       ``pool_size >= top_k``.
+    3. POOL-QUALITY GATE: pool min/median/mean start distances are compared
+       against a train-side reference q90. The reference comes from
+       ``pool_reference_quantiles['q90_min_distance']`` when provided;
+       otherwise it is computed ON THE FLY from the candidate table as the
+       q90 of all candidate ``start_distance_z`` values (a conservative
+       proxy, recorded as ``reference_source='computed_from_candidate_table_q90'``).
+       ``analogue_scarce_threshold_z`` overrides the reference threshold.
+    4. CONFLICT DETECTOR: the pool's start-only-softmax-weighted prefix
+       terminal deltas are checked against the grounded direction claims via
+       ``market_implication_alignment``; ``conflict`` fires when more than
+       half of the checkable claims mismatch.
+
+    Returns ``(selected_indices, selected_scores, pool_quality,
+    narrative_start_conflict)``.
+    """
+
+    if not rows:
+        raise ValueError("candidate rows must be non-empty")
+    tilt_source = str(tilt_mode)
+    if tilt_source not in {"neutral", "memory_cosine", "external"}:
+        raise ValueError(f"unknown tilt_mode: {tilt_mode!r}")
+    if tilt_source == "external" and external_tilt_scores is None:
+        raise ValueError(
+            "external_tilt_scores is required when tilt_mode='external'"
+        )
+    external_by_window: dict[int, float] = {}
+    if external_tilt_scores is not None:
+        external_by_window = {
+            int(window_idx): float(score)
+            for window_idx, score in external_tilt_scores.items()
+        }
+    # --- 1. POOL: locality only, no text influence on membership ---
+    pool_indices = _top_indices(rows, "start_only_score", int(pool_size))
+    by_idx = {int(row["window_index"]): row for row in rows}
+    pool_rows = [by_idx[int(idx)] for idx in pool_indices]
+    # --- 2. TILT: re-rank within the pool only ---
+    combined_scores: list[float] = []
+    for row in pool_rows:
+        if tilt_source == "neutral":
+            tilt = 0.0
+        elif tilt_source == "memory_cosine":
+            tilt = float(row.get("memory_support_cosine", 0.0))
+        else:
+            tilt = external_by_window.get(int(row["window_index"]), 0.0)
+        combined = float(row.get("start_only_score", -1e9)) + float(
+            tilt_weight
+        ) * float(tilt)
+        row["pool_tilt_score"] = float(tilt)
+        row["pool_tilt_combined_score"] = float(combined)
+        combined_scores.append(float(combined))
+    ordered = sorted(
+        range(len(pool_rows)),
+        key=lambda pos: combined_scores[pos],
+        reverse=True,
+    )
+    selected: list[int] = []
+    selected_scores: list[float] = []
+    for pos in ordered:
+        idx = int(pool_rows[pos]["window_index"])
+        if any(
+            abs(idx - chosen_idx) < int(min_index_gap) for chosen_idx in selected
+        ):
+            continue
+        selected.append(idx)
+        selected_scores.append(combined_scores[pos])
+        if len(selected) >= max(int(top_k), 1):
+            break
+    indices = np.asarray(selected, dtype=np.int64)
+    scores = np.asarray(selected_scores, dtype=np.float32)
+    # --- 3. POOL-QUALITY GATE: never silently degrade ---
+    pool_distances = np.asarray(
+        [float(row.get("start_distance_z", 0.0)) for row in pool_rows],
+        dtype=np.float64,
+    )
+    if pool_reference_quantiles is not None and (
+        "q90_min_distance" in pool_reference_quantiles
+    ):
+        reference_q90 = float(pool_reference_quantiles["q90_min_distance"])
+        reference_source = "provided_reference_quantiles"
+    else:
+        all_distances = np.asarray(
+            [float(row.get("start_distance_z", 0.0)) for row in rows],
+            dtype=np.float64,
+        )
+        reference_q90 = float(np.quantile(all_distances, 0.90))
+        reference_source = "computed_from_candidate_table_q90"
+    scarce_threshold = (
+        float(analogue_scarce_threshold_z)
+        if analogue_scarce_threshold_z is not None
+        else float(reference_q90)
+    )
+    pool_min_distance = float(np.min(pool_distances))
+    pool_quality = {
+        "pool_size": int(len(pool_rows)),
+        "requested_pool_size": int(pool_size),
+        "pool_min_start_distance_z": pool_min_distance,
+        "pool_median_start_distance_z": float(np.median(pool_distances)),
+        "pool_density": float(np.mean(pool_distances)),
+        "reference_q90_min_distance": float(reference_q90),
+        "reference_source": str(reference_source),
+        "analogue_scarce_threshold_z": float(scarce_threshold),
+        "analogue_scarce": bool(pool_min_distance > scarce_threshold),
+    }
+    # --- 4. CONFLICT DETECTOR: grounded claims vs pool prefix deltas ---
+    grounding_dict = grounding if isinstance(grounding, dict) else {}
+    pool_weights = _softmax(
+        np.asarray(
+            [float(row.get("start_only_score", 0.0)) for row in pool_rows],
+            dtype=np.float32,
+        ),
+        temperature=float(temperature),
+    )
+    pool_terminal_rows = weighted_prefix_terminal_rows(
+        history_level=history_level,
+        window_indices=pool_indices,
+        weights=pool_weights,
+        spec_names=spec_names,
+    )
+    pool_alignment = market_implication_alignment(
+        grounding=grounding_dict,
+        scenario_rows=pool_terminal_rows,
+    )
+    checked = int(pool_alignment.get("checked_count", 0) or 0)
+    mismatches = int(pool_alignment.get("mismatch_count", 0) or 0)
+    mismatch_rate = float(mismatches / checked) if checked else 0.0
+    narrative_start_conflict = {
+        "mismatch_rate": float(mismatch_rate),
+        "conflict": bool(checked > 0 and mismatch_rate > 0.5),
+        "checked": int(checked),
+        "mismatch_count": int(mismatches),
+        "pool_alignment": pool_alignment,
+    }
+    return indices, scores, pool_quality, narrative_start_conflict
+
+
 def evaluate_mixture_variant(
     *,
     name: str,
@@ -928,10 +1091,26 @@ def build_mixture_memory_prior(
     quality_guard_max_candidate_entropy_quantile: float | None = None,
     quality_guard_min_support_weight_max_quantile: float | None = 0.25,
     quality_guard_probability_temperature: float | None = None,
+    pool_size: int = 50,
+    tilt_mode: str = "neutral",
+    tilt_weight: float = 1.0,
+    external_tilt_scores: dict[int, float] | None = None,
+    pool_reference_quantiles: dict[str, float] | None = None,
+    analogue_scarce_threshold_z: float | None = None,
 ) -> dict[str, Any]:
-    """Build a query memory or analogue-mixture memory prior."""
+    """Build a query memory or analogue-mixture memory prior.
+
+    ``pool_size`` / ``tilt_mode`` / ``tilt_weight`` / ``external_tilt_scores``
+    / ``pool_reference_quantiles`` / ``analogue_scarce_threshold_z`` only
+    apply to the ``start_pool_text_tilt`` mode (P3 locality-first
+    pool-then-reweight chassis); they are inert for every other mode.
+    """
 
     prior_mode = str(mode)
+    if grounding is None:
+        # Start-only style calls may omit grounding; an empty grounding dict
+        # yields zero checkable direction claims everywhere downstream.
+        grounding = {}
     query = np.asarray(query_memory, dtype=np.float32).reshape(-1)
     memory = _as_float_array(memory_targets, name="memory_targets", ndim=2)
     if prior_mode == "query_memory":
@@ -1833,6 +2012,8 @@ def build_mixture_memory_prior(
                 else "query_window_index"
             ),
         }
+    pool_quality: dict[str, Any] | None = None
+    narrative_start_conflict: dict[str, Any] | None = None
     if prior_mode == "soft_topk_memory":
         indices = _top_indices(candidates, "memory_support_cosine", top_k)
         scores = _scores_for_indices(candidates, indices, "memory_support_cosine")
@@ -1885,6 +2066,27 @@ def build_mixture_memory_prior(
     elif prior_mode == "soft_topk_start_only":
         indices = _top_indices(candidates, "start_only_score", top_k)
         scores = _scores_for_indices(candidates, indices, "start_only_score")
+    elif prior_mode == "start_pool_text_tilt":
+        (
+            indices,
+            scores,
+            pool_quality,
+            narrative_start_conflict,
+        ) = _start_pool_text_tilt_selection(
+            candidates,
+            history_level=history_level,
+            grounding=grounding,
+            spec_names=spec_names,
+            top_k=int(top_k),
+            temperature=float(temperature),
+            pool_size=int(pool_size),
+            tilt_mode=str(tilt_mode),
+            tilt_weight=float(tilt_weight),
+            external_tilt_scores=external_tilt_scores,
+            pool_reference_quantiles=pool_reference_quantiles,
+            analogue_scarce_threshold_z=analogue_scarce_threshold_z,
+            min_index_gap=int(diverse_min_index_gap),
+        )
     elif prior_mode == "soft_topk_combined":
         indices = _top_indices(candidates, "combined_score", top_k)
         scores = _scores_for_indices(candidates, indices, "combined_score")
@@ -1989,7 +2191,21 @@ def build_mixture_memory_prior(
     if prior_mode == "kernel_topk_narrative_start_checked":
         support_diversity_policy["kernel_score"] = "memory_support_cosine"
         support_diversity_policy["kernel_temperature"] = float(temperature)
-    return {
+    if prior_mode == "start_pool_text_tilt":
+        support_diversity_policy["policy"] = "start_pool_text_tilt_support"
+        support_diversity_policy["requested_pool_size"] = int(pool_size)
+        support_diversity_policy["pool_size"] = (
+            int(pool_quality["pool_size"]) if pool_quality is not None else 0
+        )
+        support_diversity_policy["tilt_mode"] = str(tilt_mode)
+        support_diversity_policy["tilt_weight"] = float(tilt_weight)
+        support_diversity_policy["temporal_min_index_gap"] = int(
+            diverse_min_index_gap
+        )
+        support_diversity_policy["temporal_non_overlap_enforced"] = bool(
+            int(diverse_min_index_gap) > 0
+        )
+    result = {
         "mode": prior_mode,
         "memory": mixture_memory,
         "analogue_count": int(indices.size),
@@ -2006,6 +2222,11 @@ def build_mixture_memory_prior(
             else "query_window_index"
         ),
     }
+    if pool_quality is not None:
+        result["pool_quality"] = pool_quality
+    if narrative_start_conflict is not None:
+        result["narrative_start_conflict"] = narrative_start_conflict
+    return result
 
 
 def _case_inputs_from_casebook(casebook_summary: str | Path) -> list[dict[str, Any]]:
