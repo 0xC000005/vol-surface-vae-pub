@@ -134522,3 +134522,32 @@ replay-label computation (GPU lane, no API) — pools must be per-query causal (
 <= query-30) to mimic deployment.
 
 ---
+
+## 2026-06-11: Exp 995c — val-frame narrative corpus COMPLETE (89/89, zero leakage)
+
+### Results
+Full 89-window val-frame narrative corpus authored through the 982g production lane (gpt-5.5
+xhigh, direct Codex, batch-size 2): **89 requested / 89 authored / 89 valid / 0 quarantined**.
+Leakage audit (zero tolerance): LEAKAGE_PATTERNS 0 hits; per-card post-window date/event scan 0
+violations; forbidden numerics 0. Schema exact match to 982g
+(`nl_episode_card_v3_codex_multiformat_card_v1`); all integrity checks preserved (bit-exact bank
+match, causality 4009<4010, train-side z-scales, parquet calendar dates, history-rows-only
+features). 34 cards carry monitored non-gating warnings (negated no-forecast phrasing class).
+
+### Notes
+- Two first-attempt cards quarantined by the audit were FALSE POSITIVES (a no-forecast
+  meta-sentence in quality_self_critique; a bare-year regex hit on "2083.25" magnitude);
+  re-authored per retry-once policy, regex refined to exclude decimal contexts (unit-tested).
+- Lane was killed once at batch 31/45 by background-task reaping; resumed cleanly via
+  --skip-existing (provenance records both commands).
+- Cost actuals: 3.70M input (2.30M cached) / 245k output tokens ~= $4.48 list-rate proxy,
+  likely $0 marginal under the Codex subscription. Wall ~95 min.
+- Artifacts: `nl_scenario_demo_outputs/val_frame_narrative_full_995c/` (cards, final_corpus_report,
+  validation_report, provenance with SHA-256s, full prompt/event archive). Driver:
+  `nl_995a_val_frame_narrative_pilot.py prepare --all-stride5`.
+
+### Decision
+The narrative corpus now covers the evaluation region: every text-conditioned method can be
+honestly evaluated on the 994a frame. P4 unblocks when 995d labels finish (running).
+
+---

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-"""995a PILOT: condition-only narrative authoring for 5 val-frame query windows.
+"""995a/995c: condition-only narrative authoring for val-frame query windows.
 
-PILOT ONLY (5 windows: 4010, 4120, 4230, 4340, 4450 -- spanning the 994a broad
-val frame). This script does NOT author any narrative prose locally. It has two
-subcommands:
+995a PILOT (5 windows: 4010, 4120, 4230, 4340, 4450 -- spanning the 994a broad
+val frame) validated the lane; ``prepare --all-stride5`` scales the same lane
+to the FULL 89-window 994a query set (4010, 4015, ..., 4450; verified against
+``val_frame_sanity_checks_994a.json``) for the 995c corpus run. This script
+does NOT author any narrative prose locally. It has two subcommands:
 
   prepare -- build the Codex prompt bundles (structured facts only) for the
       pilot windows directly from the raw joint39 panel via the exact 994a
@@ -83,6 +85,19 @@ from experiments.backfill.block_ar.nl_risk_manager_caption_v2 import (  # noqa: 
 )
 
 PILOT_WINDOWS = (4010, 4120, 4230, 4340, 4450)
+QUERY_STRIDE = 5
+VAL_FRAME_SANITY_JSON = Path(
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "val_frame_eval_994a_start_only/val_frame_sanity_checks_994a.json"
+)
+# Token cost estimate assumptions (USD per 1M tokens, GPT-5-family API list
+# rates used as a proxy for gpt-5.5; the Codex CLI lane runs under ChatGPT
+# subscription auth, so marginal billed cost may be $0).
+COST_RATES_USD_PER_MTOK = {
+    "input_uncached": 1.25,
+    "input_cached": 0.125,
+    "output": 10.0,
+}
 DEFAULT_CHECKPOINT = (
     "models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/"
     "best_model.pt"
@@ -106,7 +121,10 @@ MONTH_YEAR_PATTERN = re.compile(
     rf"\b(?P<month>{MONTH_NAMES})\.?\s+(?:(?P<day>\d{{1,2}})(?:st|nd|rd|th)?,?\s+)?"
     r"(?P<year>(?:19|20)\d{2})\b"
 )
-BARE_YEAR_PATTERN = re.compile(r"\b((?:19|20)\d{2})\b")
+# Year-like 4-digit tokens, EXCLUDING decimal-number contexts: "2083.25" is a
+# market-move magnitude (e.g. AAA_OAS wider by 2083.25), not a year, and
+# "0.2083" is a fraction. Real year tokens ("2016", "in 2016.") still match.
+BARE_YEAR_PATTERN = re.compile(r"(?<![\d.])\b((?:19|20)\d{2})\b(?!\.\d)")
 FORBIDDEN_NUMERIC_PATTERNS = (
     re.compile(r"\bVaR\b"),
     re.compile(r"\bvalue[- ]at[- ]risk\b", re.I),
@@ -168,10 +186,35 @@ def _sha256(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _stride5_windows_verified(sanity_json: Path) -> list[int]:
+    """Full 994a val-frame query set, verified against the 994a sanity report."""
+
+    windows = list(range(VAL_FIRST_WINDOW, VAL_LAST_WINDOW + 1, QUERY_STRIDE))
+    sanity = json.loads(_resolve(sanity_json).read_text(encoding="utf-8"))
+    frame = sanity.get("frame", {})
+    query_indices = [int(i) for i in frame.get("query_indices", [])]
+    if windows != query_indices:
+        raise ValueError(
+            "--all-stride5 windows disagree with the 994a frame query set: "
+            f"built {len(windows)} windows "
+            f"({windows[0]}..{windows[-1]} stride {QUERY_STRIDE}), sanity file "
+            f"has {len(query_indices)} query_indices"
+        )
+    if int(frame.get("query_stride", 0)) != QUERY_STRIDE:
+        raise ValueError(
+            f"994a sanity file reports query_stride={frame.get('query_stride')}"
+            f", expected {QUERY_STRIDE}"
+        )
+    return windows
+
+
 def prepare(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = _resolve(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    windows = [int(w) for w in args.windows]
+    if bool(getattr(args, "all_stride5", False)):
+        windows = _stride5_windows_verified(args.sanity_json)
+    else:
+        windows = [int(w) for w in args.windows]
     for w in windows:
         if not (VAL_FIRST_WINDOW <= w <= VAL_LAST_WINDOW):
             raise ValueError(
@@ -274,17 +317,34 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
 
-    pipeline_report = {
-        "schema_version": "episode_card_v3_codex_testflight_pipeline_v1",
-        "scope_note": (
+    all_stride5 = bool(getattr(args, "all_stride5", False))
+    if all_stride5:
+        scope_note = (
+            f"995c FULL RUN ({len(windows)} windows: the complete 994a "
+            f"stride-{QUERY_STRIDE} val-frame query set "
+            f"{windows[0]}..{windows[-1]}, verified against "
+            f"{VAL_FRAME_SANITY_JSON.name}): condition-only val-frame "
+            "narrative authoring bundles built from the raw joint39 panel "
+            "(994a 0..4450 block frame), NOT from the 939a bank or 972b "
+            "source cards (those stop at window 4009). Searchable prose must "
+            "be Codex-authored via nl_episode_card_v3_codex_testflight.py "
+            "run-multiformat."
+        )
+        selection_mode = "all_stride5_val_frame_windows_995c"
+    else:
+        scope_note = (
             "995a PILOT (5 windows only): condition-only val-frame narrative "
             "authoring bundles built from the raw joint39 panel (994a 0..4450 "
             "block frame), NOT from the 939a bank or 972b source cards (those "
             "stop at window 4009). Searchable prose must be Codex-authored via "
             "nl_episode_card_v3_codex_testflight.py run-multiformat."
-        ),
+        )
+        selection_mode = "explicit_pilot_windows_995a"
+    pipeline_report = {
+        "schema_version": "episode_card_v3_codex_testflight_pipeline_v1",
+        "scope_note": scope_note,
         "source_cards_jsonl": "raw_panel_994a_block_frame",
-        "selection_mode": "explicit_pilot_windows_995a",
+        "selection_mode": selection_mode,
         "rich_stride": 0,
         "prompt_version": PROMPT_VERSION,
         "narrative_bundles": bundles,
@@ -437,6 +497,55 @@ def _date_references_after(
                 {"token": match.group(1), "snippet": snippet(*match.span())}
             )
     return violations, year_mentions
+
+
+def _aggregate_token_usage(event_files: list[Path]) -> dict[str, Any]:
+    """Sum `turn.completed` usage records across all codex event files."""
+
+    keys = (
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+    )
+    totals = dict.fromkeys(keys, 0)
+    per_batch: list[dict[str, Any]] = []
+    for path in event_files:
+        batch = {key: 0 for key in keys}
+        batch["events_file"] = str(path.relative_to(ROOT))
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "turn.completed":
+                continue
+            usage = event.get("usage", {})
+            for key in keys:
+                batch[key] += int(usage.get(key, 0) or 0)
+        for key in keys:
+            totals[key] += batch[key]
+        per_batch.append(batch)
+    uncached = totals["input_tokens"] - totals["cached_input_tokens"]
+    estimated_cost_usd = (
+        uncached * COST_RATES_USD_PER_MTOK["input_uncached"]
+        + totals["cached_input_tokens"] * COST_RATES_USD_PER_MTOK["input_cached"]
+        + totals["output_tokens"] * COST_RATES_USD_PER_MTOK["output"]
+    ) / 1_000_000.0
+    return {
+        "totals": totals,
+        "per_batch": per_batch,
+        "estimated_cost_usd": round(estimated_cost_usd, 4),
+        "cost_rate_assumptions_usd_per_mtok": dict(COST_RATES_USD_PER_MTOK),
+        "cost_note": (
+            "estimate uses GPT-5-family API list rates as a proxy for "
+            "gpt-5.5; the Codex CLI lane runs under ChatGPT subscription "
+            "auth, so the marginal billed cost may be $0"
+        ),
+    }
 
 
 def audit(args: argparse.Namespace) -> dict[str, Any]:
@@ -632,12 +741,120 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
         "feature_provenance": pipeline["val_frame_995a"],
     }
     _write_json(output_dir / "provenance.json", provenance)
+
+    # Final corpus report: counts, per-window status, token usage / cost,
+    # schema check vs 982g. Failing cards are QUARANTINED (listed here and
+    # excluded from the valid set) -- never deleted from the JSONL.
+    requested_windows = [
+        int(w) for w in pipeline["val_frame_995a"]["pilot_windows"]
+    ]
+    per_card_by_index = {
+        int(row["window_index"]): row
+        for row in per_card
+        if row["window_index"] is not None
+    }
+    codex_errors_by_id: dict[str, list[dict[str, Any]]] = {}
+    for row in codex_report.get("errors", []):
+        codex_errors_by_id.setdefault(str(row.get("window_id", "")), []).append(row)
+    per_window_status: list[dict[str, Any]] = []
+    missing_windows: list[int] = []
+    quarantined_window_ids: list[str] = []
+    warning_window_ids: list[str] = []
+    for w in requested_windows:
+        date_info = window_dates.get(str(w), {})
+        row = per_card_by_index.get(w)
+        window_id = f"joint39_val_{w:04d}"
+        if row is None:
+            missing_windows.append(w)
+            per_window_status.append(
+                {
+                    "window_index": w,
+                    "window_id": window_id,
+                    "history_start": date_info.get("history_start"),
+                    "history_end": date_info.get("history_end"),
+                    "status": "missing",
+                    "codex_errors": codex_errors_by_id.get(window_id, []),
+                }
+            )
+            continue
+        lane_warnings = [
+            issue
+            for issue in row["lane_validator_issues"]
+            if issue.get("severity") != "error"
+        ]
+        n_warnings = len(lane_warnings) + len(row["future_phrase_warnings"])
+        if not row["pass"]:
+            quarantined_window_ids.append(row["window_id"])
+        elif n_warnings:
+            warning_window_ids.append(row["window_id"])
+        per_window_status.append(
+            {
+                "window_index": w,
+                "window_id": row["window_id"],
+                "history_start": row["history_start"],
+                "history_end": row["history_end"],
+                "scenario_title": row["scenario_title"],
+                "status": "valid" if row["pass"] else "quarantined",
+                "leakage_scan_hit_count": len(row["leakage_scan_hits"]),
+                "post_window_date_violation_count": len(
+                    row["post_window_date_violations"]
+                ),
+                "forbidden_numeric_hit_count": len(row["forbidden_numeric_hits"]),
+                "future_phrase_warning_count": len(row["future_phrase_warnings"]),
+                "lane_validator_warning_count": len(lane_warnings),
+                "lane_validator_error_count": len(row["lane_validator_issues"])
+                - len(lane_warnings),
+            }
+        )
+    token_usage = _aggregate_token_usage(event_files)
+    corpus_report = {
+        "schema_version": "nl_995c_val_frame_corpus_report_v1",
+        "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "authoring_lane": provenance["authoring_lane"],
+        "codex_model": codex_report.get("codex_model"),
+        "reasoning_effort": codex_report.get("reasoning_effort"),
+        "counts": {
+            "requested": len(requested_windows),
+            "authored": len(cards),
+            "valid": n_pass,
+            "with_warnings": len(warning_window_ids),
+            "quarantined": len(quarantined_window_ids),
+            "missing": len(missing_windows),
+        },
+        "quarantine_policy": (
+            "cards failing any leakage / post-window-date / forbidden-numeric "
+            "/ lane-error check are quarantined (listed below, excluded from "
+            "the valid set) but kept in multiformat_episode_cards.jsonl"
+        ),
+        "quarantined_window_ids": quarantined_window_ids,
+        "warning_window_ids": warning_window_ids,
+        "missing_window_indices": missing_windows,
+        "lane_status": codex_report.get("status"),
+        "lane_validation_error_count": codex_report.get("validation_error_count"),
+        "lane_validation_warning_count": codex_report.get(
+            "validation_warning_count"
+        ),
+        "codex_error_count": codex_report.get("codex_error_count"),
+        "token_usage": token_usage,
+        "schema_check_vs_982g": schema_comparison,
+        "per_window_status": per_window_status,
+        "artifact_paths": {
+            "cards_jsonl": str(cards_path),
+            "validation_report": str(output_dir / "validation_report.json"),
+            "provenance": str(output_dir / "provenance.json"),
+            "codex_report": str(output_dir / "multiformat_codex_report.json"),
+        },
+    }
+    _write_json(output_dir / "final_corpus_report.json", corpus_report)
     return {
         "status": report["status"],
         "n_pass": n_pass,
         "card_count": len(cards),
+        "counts": corpus_report["counts"],
+        "estimated_cost_usd": token_usage["estimated_cost_usd"],
         "validation_report": str(output_dir / "validation_report.json"),
         "provenance": str(output_dir / "provenance.json"),
+        "final_corpus_report": str(output_dir / "final_corpus_report.json"),
     }
 
 
@@ -650,6 +867,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     prep.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
     prep.add_argument(
         "--windows", type=int, nargs="+", default=list(PILOT_WINDOWS)
+    )
+    prep.add_argument(
+        "--all-stride5",
+        action="store_true",
+        help=(
+            "prepare the FULL 994a stride-5 val-frame query set "
+            f"({VAL_FIRST_WINDOW}..{VAL_LAST_WINDOW}, 89 windows), verified "
+            "against the 994a sanity-check JSON (overrides --windows)"
+        ),
+    )
+    prep.add_argument(
+        "--sanity-json", type=Path, default=VAL_FRAME_SANITY_JSON
     )
 
     aud = sub.add_parser("audit")
