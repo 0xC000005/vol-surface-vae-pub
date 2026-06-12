@@ -134880,3 +134880,17 @@ refresh + paper exhibit regeneration. Scope/order pending owner approval. The tw
 fix files should be committed with regression tests before any regeneration.
 
 ---
+
+## 2026-06-11: Comprehensive whole-project audit (15-agent tiered workflow) + validation-framework ratification
+
+Ratified counterfactual validation framework v1 as-is as the NL-thread acceptance basis (replaces retired beat-start-only CRPS; commit 2112ace1). Then ran a model-tiered audit (haiku inventory -> sonnet verify -> opus synthesis w/ HEAD re-verification of high-severity) over SNI gen / NL gen / demos / papers+presentation / log+state / index-mapping / 994a leakage. Full report: `docs/research_protocols/2026-06-11_comprehensive_project_audit.md` (15 agents, ~1.1M tokens, 505 tool calls).
+
+DECISION SIGNALS:
+- regen_safe = TRUE: factor-mapping contamination scoped to ONE builder (nl_episode_narrative_support_cards.py). `grep 'AAA_OAS.*36|USDJPY.*29'` across all nl_*.py = empty; no other file needs fixing. Caveats: (a) fix is uncommitted — commit + regression test BEFORE regen; (b) usdcad/copper/wheat unmapped in MARKETS (extend if regen must cover them); (c) corpus-clean != evidence-trustworthy.
+- leakage: 994a/994b/997x oracle headroom (-0.026) VERIFIED leakage-clean (causal query_gap=30 before tilt; nl_994b_oracle_within_pool_tilt.py:160 keep=(train!=q)&(abs(train-q)>=query_gap)). BUT the 14x14 matched-eval (990f/990g) DOES leak (diversity-only filter, pool[0..3943]/query[3944..4009] gap=1, ~30/66 windows exposed) -> ratified framework's matched-eval-leakage prereq only PARTIALLY met. NL paper headline 946c backtest is a SEPARATE clean harness (min support-query gap 39, 285 examples, pre-contamination 906b pipeline).
+
+BELIEF CORRECTIONS (HEAD-reverified):
+- 734a AND 768a FAIL the 712a scorecard (overall_pass=false, verified on disk). "Deployable incumbent" is informal/risk-manager-presentable, NOT 712a-certified. Papers/presentation must disclose.
+- "8/11 = 192-window short frame" is MIS-ATTRIBUTED: 192 windows belong to 435a oracle only; 755a/768a are not 192-window (per-suite 52-89). 8/11(train_tail) vs 6/11(val) is a data-PERIOD effect. NOTE: synth's exact "441-window" figure did NOT reproduce in spot-check — treat as unverified.
+
+READINESS: SNI paper/presentation = gaps (712a-fail + drop false 192-frame framing + co-report joint-scope economic-link 0.810/0.783). NL paper = headline clean (946c), fix 946c-vs-878a mechanism conflation + gap-verify 878a. NL presentation = do NOT claim explicit-hard-negative method validated (corpus authoring-proof-only + 990g leaky). Demos = start-only baseline fan computed but never overlaid (fan_chart_figure); displayed analogue narratives contaminated until regen.
