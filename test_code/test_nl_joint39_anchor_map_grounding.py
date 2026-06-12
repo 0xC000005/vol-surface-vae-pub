@@ -83,16 +83,11 @@ def test_gate_flags_old_bug_and_passes_correct():
     assert card_index_violations(good) == []
 
 
-@pytest.mark.xfail(
-    reason="legacy support-card corpora (970f etc.) contaminated until R1 regen (#31); "
-    "remove this marker after regeneration so it becomes a hard gate",
-    strict=False,
-)
 def test_regenerated_support_cards_on_disk_are_clean():
-    """Real gate: every support-card corpus on disk must have zero violations.
+    """Hard gate: every support-card corpus on disk must have zero violations.
 
-    Currently xfail because legacy corpora predate the fix. After R1 regenerates them
-    (and the final 27f sign-off), drop the xfail marker so this is a hard pass.
+    Went green 2026-06-12 after R1 regenerated 970c/970f/972b with the fixed builder
+    (was xfail while legacy corpora were contaminated).
     """
     candidates = list(
         (ROOT / "experiments/backfill/block_ar/nl_scenario_demo_outputs").glob(
