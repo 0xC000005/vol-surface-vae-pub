@@ -1,5 +1,9 @@
-# Counterfactual Scenario Validation Framework (Acceptance Spec v1 — PENDING OWNER RATIFICATION)
+# Counterfactual Scenario Validation Framework (Acceptance Spec v1 — RATIFIED)
 
+Status: **RATIFIED as-is 2026-06-11 by owner.** This is now the official promotion/acceptance
+basis for the NL scenario line, replacing "beat start-only CRPS" (retired). Blocking prerequisite
+before the load-bearing matched-episode backtest is trusted: the 994a/matched-eval pool↔eval-window
+overlap leakage audit must pass. Standing epistemic disclaimer (§Flags) applies to every report.
 Date: 2026-06-11
 Origin: owner objective correction (CRPS = reconstruction diagnostic + fidelity floor;
 "beat start-only" retired as promotion target) -> 6-agent ideation workflow (5 literature
