@@ -5,10 +5,12 @@ import csv
 import json
 import math
 import re
+from functools import lru_cache
 from io import StringIO
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -33,6 +35,19 @@ GENERATED_REPORT_MARKET_TO_FACTOR = {
     "IV_ATM_1Y": "IV_ATM_1Y",
     "IV_SURFACE": "IV_SURFACE",
 }
+HISTORICAL_RAW_PATH_FACTORS = (
+    ("SPX", 25),
+    ("NIKKEI", 36),
+    ("VIX", 38),
+    ("BBB_OAS", 35),
+    ("AAA_OAS", 34),
+    ("DXY", 28),
+    ("USDJPY", 27),
+    ("CRUDE_OIL", 31),
+    ("US2Y", 32),
+    ("US10Y", 33),
+    ("GOLD", 37),
+)
 ScenarioTypeV1 = Literal[
     "historical_joint39",
     "generated_deck",
@@ -57,6 +72,7 @@ class ScenarioFactorRowV1(BaseModel):
     magnitude: Literal["flat", "small", "medium", "large"]
     confidence: str = "medium"
     evidence: str = Field(min_length=1)
+    path_values: list[float] | None = None
 
 
 class ScenarioSidecarV1(BaseModel):
@@ -170,6 +186,29 @@ def factor_row_from_start_end(
         magnitude=magnitude_for_delta(delta),
         confidence=_compact(confidence) or "medium",
         evidence=evidence,
+    )
+
+
+def factor_row_from_path_values(
+    factor: str,
+    values: list[float],
+    *,
+    confidence: str = "raw_history_path",
+) -> ScenarioFactorRowV1:
+    finite_values = [float(value) for value in values if math.isfinite(float(value))]
+    if len(finite_values) < 2:
+        raise ValueError("path_values must contain at least two finite values")
+    row = factor_row_from_start_end(
+        factor,
+        finite_values[0],
+        finite_values[-1],
+        confidence=confidence,
+    )
+    return row.model_copy(
+        update={
+            "path_values": finite_values,
+            "evidence": f"{row.evidence}; path_points={len(finite_values)}",
+        }
     )
 
 
@@ -386,6 +425,59 @@ def _historical_factor_rows(card: dict[str, Any]) -> list[ScenarioFactorRowV1]:
         _historical_factor_rows_from_support_metadata(card)
         or _historical_factor_rows_from_evidence(card)
     )
+
+
+def _historical_window_index(card: dict[str, Any]) -> int | None:
+    support_metadata = card.get("support_metadata")
+    if isinstance(support_metadata, dict):
+        try:
+            return int(support_metadata.get("window_index"))
+        except (TypeError, ValueError):
+            pass
+    match = re.search(r"_(\d+)\s*$", _compact(card.get("window_id")))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+@lru_cache(maxsize=4)
+def _cached_history_raw_from_npz(path_text: str) -> np.ndarray:
+    with np.load(path_text, allow_pickle=False) as arrays:
+        if "history_raw" not in arrays:
+            raise ValueError(f"{path_text}: missing history_raw array")
+        return np.asarray(arrays["history_raw"], dtype=np.float32)
+
+
+def _historical_factor_rows_from_raw_history(
+    card: dict[str, Any],
+    support_arrays_path: str | Path | None,
+) -> list[ScenarioFactorRowV1]:
+    if support_arrays_path is None or str(support_arrays_path) == "":
+        return []
+    path = _resolve_repo_path(support_arrays_path)
+    if not path.exists():
+        return []
+    window_index = _historical_window_index(card)
+    if window_index is None:
+        return []
+
+    history_raw = _cached_history_raw_from_npz(str(path))
+    if history_raw.ndim != 3 or history_raw.shape[1] < 2:
+        return []
+    if window_index < 0 or window_index >= history_raw.shape[0]:
+        return []
+
+    history = np.asarray(history_raw[window_index], dtype=np.float32)
+    rows: list[ScenarioFactorRowV1] = []
+    for factor, column_index in HISTORICAL_RAW_PATH_FACTORS:
+        if column_index >= history.shape[1]:
+            continue
+        values = [float(value) for value in history[:, column_index]]
+        try:
+            rows.append(factor_row_from_path_values(factor, values))
+        except ValueError:
+            continue
+    return rows
 
 
 def _direction_sign(direction: str) -> int:
@@ -706,6 +798,7 @@ def normalize_historical_joint39_card(
     card: dict[str, Any],
     *,
     source_path: str | Path,
+    support_arrays_path: str | Path | None = None,
 ) -> ScenarioSidecarV1:
     window_id = _compact(card.get("window_id"))
     if not window_id:
@@ -720,6 +813,13 @@ def normalize_historical_joint39_card(
                 "message": "Historical card has no caption_fields.evidence_used rows.",
             }
         )
+    source_artifacts = {"cards_jsonl": str(source_path)}
+    raw_history_rows = _historical_factor_rows_from_raw_history(
+        card,
+        support_arrays_path,
+    )
+    if raw_history_rows and support_arrays_path is not None:
+        source_artifacts["support_arrays"] = str(support_arrays_path)
     return ScenarioSidecarV1(
         scenario_id=window_id,
         scenario_type="historical_joint39",
@@ -727,8 +827,8 @@ def normalize_historical_joint39_card(
         scenario_title=_compact(card.get("scenario_title")),
         archetype=_compact(card.get("archetype")) or "mixed_ambiguous",
         mechanical_summary=mechanical,
-        factor_rows=_historical_factor_rows(card),
-        source_artifacts={"cards_jsonl": str(source_path)},
+        factor_rows=raw_history_rows or _historical_factor_rows(card),
+        source_artifacts=source_artifacts,
         normalization_warnings=warnings,
         summary_source="historical_episode_card",
     )
@@ -737,6 +837,8 @@ def normalize_historical_joint39_card(
 def load_historical_joint39_sidecar(
     cards_jsonl: str | Path,
     target_window_id: str,
+    *,
+    support_arrays_path: str | Path | None = None,
 ) -> tuple[ScenarioSidecarV1, dict[str, Any]]:
     path = Path(cards_jsonl)
     by_id: dict[str, dict[str, Any]] = {}
@@ -749,4 +851,11 @@ def load_historical_joint39_sidecar(
     if target_id not in by_id:
         raise ValueError(f"target window not found: {target_window_id}")
     card = by_id[target_id]
-    return normalize_historical_joint39_card(card, source_path=path), card
+    return (
+        normalize_historical_joint39_card(
+            card,
+            source_path=path,
+            support_arrays_path=support_arrays_path,
+        ),
+        card,
+    )
