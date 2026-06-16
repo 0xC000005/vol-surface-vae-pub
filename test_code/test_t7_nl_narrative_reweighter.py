@@ -4,12 +4,14 @@ Run from repo root: PYTHONPATH=. python -m pytest test_code/test_t7_nl_narrative
 """
 import numpy as np
 
+from experiments.backfill.block_ar.nl_14x14_support_audit import _apply_top3_90
 from experiments.backfill.block_ar.nl_narrative_reweighter import (
     analogue_profile,
     dir_sign,
     match,
     narrative_emphasis,
     reweight_candidate_scores,
+    reweight_pool,
 )
 
 
@@ -105,3 +107,14 @@ def test_reweight_upweights_match():
     by_w = {c["window_index"]: c["score"] for c in out}
     assert by_w[100] > 0.5 and by_w[200] < 0.5   # matching up, opposing down
     assert cands[0]["score"] == 0.5              # inputs not mutated
+
+
+def test_reweight_pool_beta_zero_matches_top3_90():
+    cands = [{"window_index": w, "score": s} for w, s in [(100, 0.9), (200, 0.6), (300, 0.3), (400, 0.1)]]
+    e = {"USDJPY": {"direction": "up", "salience": 1.0}}
+    profiles = {100: {"USDJPY": "up"}, 200: {"USDJPY": "down"}, 300: {"USDJPY": "up"}, 400: {"USDJPY": "flat"}}
+    base_sel, _ = _apply_top3_90(cands)
+    tilted = reweight_pool(cands, emphasis=e, profiles_by_window=profiles, beta=0.0)
+    t7_sel, _ = _apply_top3_90(tilted)
+    assert [c["window_index"] for c in base_sel] == [c["window_index"] for c in t7_sel]
+    assert [round(c["weight"], 6) for c in base_sel] == [round(c["weight"], 6) for c in t7_sel]

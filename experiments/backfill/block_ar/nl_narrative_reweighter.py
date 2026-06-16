@@ -180,3 +180,8 @@ def reweight_candidate_scores(candidates, emphasis, profiles_by_window, beta: fl
         row["score"] = float(cand["score"]) + b * m
         out.append(row)
     return out
+
+
+def reweight_pool(candidates, *, emphasis, profiles_by_window, beta: float):
+    """Narrative-tilt a retrieved pool, ready for _apply_top3_90. beta=0 -> identity."""
+    return reweight_candidate_scores(candidates, emphasis, profiles_by_window, beta)
