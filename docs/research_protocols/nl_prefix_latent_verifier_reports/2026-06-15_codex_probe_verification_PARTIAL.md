@@ -77,3 +77,20 @@ P(0) ≈ 38%).
   edge windows (ValueError "no usable negative candidate"); ≥~560 OVERFLOWS codex context. Working
   band ≈ 280–480 depending on the window. 793/802 built at 200; the remaining 9 needed 320 (5) and
   480 (4). Recommend defaulting to ~360 with per-window escalation on assignment-starve.
+
+---
+
+## Addendum (2026-06-15): T4 honest baseline restamp on CLEAN manifest — both old methods FAIL fit gate
+
+Multi-seed (0/1/2), `--method both`, mirror-992a protocol (openai 3-large, 5000 steps, val split
+610:730,1490:1610,2370:2490,3250:3370,3915:4010, purge-gap 30, holdout view families, patience 8),
+clean manifest (hash bf328fd8), embeddings self-healed.
+- **projected_memory** heldout_true_memory_rank_median: **980.5 / 1021 / 1009.5**; recall@10:
+  **0.0067 / 0.0080 / 0.0053** → FAILS fit gate (<=400 / >=0.10) across ALL seeds. Matches the
+  contaminated 992a (969 / 0.0093).
+- **text_space** heldout same-label recall@1 ~0.20-0.22; top-10 retrieved temporal distance
+  ~946-998 days (near-random for window identity) → no precise window retrieval either.
+CONCLUSION: the clean-data restamp REPRODUCES the failure. The contamination was NOT masking a working
+retriever; the exact-window / contrastive objective is information-limited (992b confirmed on clean
+data). Honest closure: do-not-promote stands. Validates the pivot to T7 (conditioning interface).
+Artifacts: stride5_14x14_retrieval_training_clean_restamp_20260615/both_seed{0,1,2}/.
