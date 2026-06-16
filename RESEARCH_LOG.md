@@ -134905,3 +134905,37 @@ Resolved the 2026-06-11 joint39 factor-mapping contamination (AAA_OAS read col36
 - EMBEDDINGS (27e): cache is CONTENT-ADDRESSED (openai_text_embedding_3_large_<sha-of-text>.npz). Clean narratives = new keys -> clean embeddings on-demand on next retrieval run; contaminated embeddings unreachable/unused. No active regen required (self-healing). No spend.
 - LESSONS: (a) NEVER change --batch-size between resume runs — skip-existing keys on the batch-grouped output filename; a batch-size-1 backfill mismatched the batch-size-2 cache, re-authored from 0, timed out mid-way, and overwrote the jsonl 788->635 (recovered by re-running batch-size 2, which reloads cached batches). (b) run-multiformat reuses an existing pipeline report; a stale 5-bundle dry-run report caused a 5-card no-op (build/verify the report bundle count before authoring). (c) prepare --max-cases defaults to 10.
 - Numeric spine was always clean (734a/739a, 994a/994b oracle, 939a bank, 992b ceiling). Old contaminated text corpora (982g_sharded stride-1, 988b 14+14) are superseded; any retrieval-lane text-method numbers (984a/990g/etc.) need restamping if that lane resumes.
+
+## $(date +%Y-%m-%d): T7 reweighter — free necessary-condition gate PASSES (not a structural no-op)
+
+### Context
+T7 = training-free narrative-conditioned reweighter: `score += beta*match(emphasis, analogue_profile)`
+before `_apply_top3_90`, beta=0 exact no-op. Before building the GPU rollout eval, ran the advisor's
+free necessary-condition gate (`nl_t7_beta_sensitivity_gate.py`, CPU-only): does sweeping beta move
+the top3/90 OUTPUT (selected window_ids + normalized weights)? If not, no rollout can differ and T7
+is dead (kill condition). Deck = 66-query grounded_text_preference bridge (982g clean corpus,
+required_grounding_claims = per-factor emphasis). Caveat: deck is pre-#48 — 8/528 candidates violate
+causal gap (min 4); dropped via post-hoc gap>=30 filter.
+
+### Key Findings
+| pool | mean match std | beta>=0.25 churn (med) | weight L1 (mean) | #moved/66 |
+|---|---|---|---|---|
+| pre_top3_90 (direction-gated, production) | 0.42 | 0.50 | 0.72 | 34 (52%) |
+| top_train_pool (raw retrieval) | 0.40 | 0.00* | 0.44 | 29 (44%) |
+*raw pool mean size 2.9 (<=3 => top3/90 keeps all; weights still shift, hence wL1>0, churn 0).
+
+- **NOT a structural no-op**: beta moves the selection on ~half the queries; in-pool match spread is
+  real (~0.4), so the direction-gated pool is NOT fully pre-aligned.
+- **Effect saturates at beta≈0.25** (identical 0.25->4.0): the tilt either flips a rank once or not.
+- The other ~half of queries don't move (small/empty emphasis or all-candidates-tie on match).
+
+### Decision
+Necessary condition met -> PROCEED to the rollout-based responsiveness+fidelity eval (T7.7 proper).
+Correct invalid metric: per the advisor, conditionality-by-cross-case-dispersion is invalid (rewards
+noise); use per-case responsiveness = mean_i ||terminal_i(beta) - terminal_i(0)|| vs the repeat-seed
+noise floor, + fidelity floor (score_sample_distribution CRPS/coverage not regressed vs beta=0).
+Cleanliness for the rollout eval: restrict to the ~58 queries with ZERO causal-gap violators (their
+pools are provably identical to a #48-fixed retrieval) — no pool regeneration needed. Honor the kill
+condition: beta=0/no-op remains a legitimate outcome pending the rollout eval.
+
+---
