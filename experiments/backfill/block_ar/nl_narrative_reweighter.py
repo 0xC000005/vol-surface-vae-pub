@@ -32,3 +32,25 @@ def match(emphasis: dict[str, dict[str, Any]], analogue: dict[str, str]) -> floa
         sal = float(spec.get("salience", 0.0))
         total += sal * dir_sign(str(spec.get("direction", ""))) * dir_sign(a_dir)
     return total
+
+
+_OAS_FACTORS = {"AAA_OAS", "BBB_OAS"}
+
+
+def _direction(factor: str, delta: float, small: float = 1e-9) -> str:
+    if abs(float(delta)) < small:
+        return "flat"
+    if factor in _OAS_FACTORS:
+        return "wider" if delta > 0 else "tighter"
+    return "up" if delta > 0 else "down"
+
+
+def analogue_profile(*, window_index, panel, factor_cols, horizon: int = 30) -> dict[str, str]:
+    """Factor-direction profile of the analogue's `horizon`-day window."""
+    i = int(window_index)
+    end = min(i + int(horizon) - 1, panel.shape[0] - 1)
+    out: dict[str, str] = {}
+    for factor, col in factor_cols.items():
+        delta = float(panel[end, int(col)] - panel[i, int(col)])
+        out[factor] = _direction(factor, delta)
+    return out

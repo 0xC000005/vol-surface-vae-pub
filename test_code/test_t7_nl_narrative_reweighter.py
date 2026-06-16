@@ -2,7 +2,13 @@
 
 Run from repo root: PYTHONPATH=. python -m pytest test_code/test_t7_nl_narrative_reweighter.py -q
 """
-from experiments.backfill.block_ar.nl_narrative_reweighter import dir_sign, match
+import numpy as np
+
+from experiments.backfill.block_ar.nl_narrative_reweighter import (
+    analogue_profile,
+    dir_sign,
+    match,
+)
 
 
 def test_dir_sign():
@@ -22,3 +28,14 @@ def test_match_agreement():
     assert match({"SPX": {"direction": "down", "salience": 1.0}}, {"SPX": "flat"}) == 0.0
     # missing factor in analogue contributes 0
     assert match({"VIX": {"direction": "up", "salience": 1.0}}, {}) == 0.0
+
+
+def test_analogue_profile_directions():
+    # synthetic panel: 40 rows, 2 factor cols. col0 rises +5 over [0,29]; col1 falls.
+    panel = np.zeros((40, 2), dtype=np.float32)
+    panel[:, 0] = np.linspace(0, 10, 40)   # rising
+    panel[:, 1] = np.linspace(0, -10, 40)  # falling
+    cols = {"USDJPY": 0, "AAA_OAS": 1}
+    prof = analogue_profile(window_index=0, panel=panel, factor_cols=cols, horizon=30)
+    assert prof["USDJPY"] == "up"
+    assert prof["AAA_OAS"] == "tighter"   # OAS spread falling -> tighter
