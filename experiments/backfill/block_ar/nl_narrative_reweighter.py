@@ -7,12 +7,19 @@ docs/research_protocols/nl-prefix-latent-t7-narrative-reweighter-intake.md.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from experiments.backfill.block_ar.nl_joint39_anchor_map import joint39_anchor_columns
 
 _POS = {"up", "wider"}
 _NEG = {"down", "tighter"}
+
+
+@lru_cache(maxsize=1)
+def _valid_factors() -> frozenset[str]:
+    """Canonical joint39 anchor factor names (UPPER); cached to avoid npz reload per call."""
+    return frozenset(joint39_anchor_columns().keys())
 
 
 def dir_sign(direction: str) -> int:
@@ -72,7 +79,7 @@ _DOWN_WORDS = ("down", "fall", "falling", "lower", "drop", "selloff", "sell-off"
 
 
 def _emphasis_from_implications(implications: list[str]) -> dict[str, dict[str, Any]]:
-    factors = set(joint39_anchor_columns().keys())
+    factors = _valid_factors()
     out: dict[str, dict[str, Any]] = {}
     for line in implications:
         low = str(line).lower()
@@ -92,8 +99,59 @@ def _emphasis_from_implications(implications: list[str]) -> dict[str, dict[str, 
     return out
 
 
+# magnitude -> salience: monotonic only (beta absorbs absolute scale, so exact values
+# don't matter; large>medium>small and the sign are what count). unclear keeps a small
+# nonzero tilt since the direction is still stated; flat contributes nothing.
+_MAGNITUDE_SALIENCE = {"large": 1.0, "medium": 0.67, "small": 0.34, "unclear": 0.34, "flat": 0.0}
+
+
+def _canonical_factor(market: str, valid: frozenset[str]) -> str | None:
+    """Map a grounding `market` string to a canonical joint39 anchor factor, or None."""
+    m = str(market).strip().upper()
+    if m in valid:
+        return m
+    low = str(market).strip().lower()
+    for factor, aliases in _ALIASES.items():
+        if factor in valid and any(a in low for a in aliases):
+            return factor
+    return None  # e.g. IV_SURFACE (not a single anchor) -> dropped
+
+
+def _emphasis_from_structured(implications: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Read the grounding's native ConditionMarketImplication dicts (market/direction/magnitude).
+
+    This is the real grounding shape (verified across 10.8k on-disk implications), strictly
+    higher-fidelity than prose-parsing. mixed/unclear/flat directions contribute no tilt.
+    On duplicate factors, keep the higher-salience implication.
+    """
+    valid = _valid_factors()
+    out: dict[str, dict[str, Any]] = {}
+    for it in implications:
+        if not isinstance(it, dict):
+            continue
+        factor = _canonical_factor(it.get("market", ""), valid)
+        if factor is None:
+            continue
+        direction = str(it.get("direction", "")).strip().lower()
+        if dir_sign(direction) == 0:  # flat / mixed / unclear / empty -> no directional tilt
+            continue
+        sal = _MAGNITUDE_SALIENCE.get(str(it.get("magnitude", "")).strip().lower(), 0.5)
+        if sal <= 0.0:
+            continue
+        prev = out.get(factor)
+        if prev is None or sal > prev["salience"]:
+            out[factor] = {"direction": direction, "salience": float(sal)}
+    return out
+
+
 def narrative_emphasis(grounding_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Structured `factor_emphasis` if present; else parse grounding prose; else {} (identity)."""
+    """Narrative -> {factor: {direction, salience}}. Priority:
+    (1) explicit `factor_emphasis` dict (forward-compat; not emitted by current schema);
+    (2) the grounding's native structured `current_market_state_implications` dicts (the real,
+        verified shape: market+direction+magnitude) -- primary path;
+    (3) legacy prose-parse when implications are plain strings;
+    (4) {} identity (safe-degrade). Scope: current state only (not recent_regime).
+    """
     g = grounding_output or {}
     cog = g.get("condition_only_grounding", g)
     structured = cog.get("factor_emphasis") or g.get("factor_emphasis")
@@ -101,5 +159,7 @@ def narrative_emphasis(grounding_output: dict[str, Any]) -> dict[str, dict[str, 
         return {str(k).upper(): {"direction": str(v.get("direction", "")),
                                  "salience": float(v.get("salience", 1.0))}
                 for k, v in structured.items()}
-    implications = cog.get("current_market_state_implications") or []
-    return _emphasis_from_implications(list(implications))
+    implications = list(cog.get("current_market_state_implications") or [])
+    if any(isinstance(it, dict) and "market" in it for it in implications):
+        return _emphasis_from_structured(implications)
+    return _emphasis_from_implications([str(x) for x in implications])

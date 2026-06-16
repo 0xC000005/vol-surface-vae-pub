@@ -57,3 +57,32 @@ def test_emphasis_prose_fallback():
 
 def test_emphasis_empty_safe():
     assert narrative_emphasis({}) == {}   # safe-degrade -> identity reweight
+
+
+def test_emphasis_prefers_structured():
+    grounding = {"condition_only_grounding": {
+        "factor_emphasis": {"VIX": {"direction": "up", "salience": 0.8}},
+        "current_market_state_implications": ["equities down"],  # should be ignored
+    }}
+    e = narrative_emphasis(grounding)
+    assert e == {"VIX": {"direction": "up", "salience": 0.8}}
+
+
+def test_emphasis_reads_native_structured_implications():
+    # The REAL grounding shape (verified on disk): current_market_state_implications is a list
+    # of ConditionMarketImplication dicts with market/direction/magnitude/confidence.
+    grounding = {"condition_only_grounding": {"current_market_state_implications": [
+        {"market": "SPX", "direction": "down", "magnitude": "medium", "confidence": "high"},
+        {"market": "VIX", "direction": "up", "magnitude": "large", "confidence": "high"},
+        {"market": "BBB_OAS", "direction": "wider", "magnitude": "small", "confidence": "medium"},
+        {"market": "credit spreads", "direction": "wider", "magnitude": "small"},  # alias -> BBB_OAS
+        {"market": "IV_SURFACE", "direction": "up", "magnitude": "medium"},         # not an anchor -> dropped
+        {"market": "DXY", "direction": "mixed", "magnitude": "medium"},             # mixed -> no tilt
+    ]}}
+    e = narrative_emphasis(grounding)
+    assert e["SPX"]["direction"] == "down"
+    assert e["VIX"]["direction"] == "up" and e["VIX"]["salience"] == 1.0   # large
+    assert e["BBB_OAS"]["direction"] == "wider"
+    # monotonic salience: large > medium > small > 0
+    assert e["VIX"]["salience"] > e["SPX"]["salience"] > e["BBB_OAS"]["salience"] > 0.0
+    assert "IV_SURFACE" not in e and "DXY" not in e   # non-anchor / non-directional dropped
