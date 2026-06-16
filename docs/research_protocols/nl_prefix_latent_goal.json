@@ -1,276 +1,419 @@
 {
-    "objective": "Revise the natural-language conditioned scenario-generator manuscript into a concise public technical paper. Keep the current nearest-similar top3/90 support-posterior workflow and evidence, but rewrite the abstract, introduction, related work, method/results framing, and appendix/provider language so the paper no longer reads like an internal autoresearch report.",
+  "active_family": "hard_negative_corpus_audit_regeneration_validation",
+  "active_hard_negative_corpus_objective": {
+    "name": "explicit_hard_negative_corpus_gate",
+    "status": "active",
+    "reason": "The paper/presentation describe explicit hard-negative contrastive training, but current 982g bridge runs use positive views plus in-batch or derived negatives rather than a validated matched hard-negative corpus.",
+    "source_positive_corpus": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_multiformat_982g_sharded/final/multiformat_episode_cards.jsonl",
+    "audit_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.json",
+    "latest_audit_result": {
+      "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.json",
+      "cards_audited": 4010,
+      "status": "fail_needs_regeneration",
+      "hard_negative_text_count_distribution": {
+        "3": 3530,
+        "4": 480
+      },
+      "cards_with_enough_hard_negative_texts": 0,
+      "linked_negative_key_card_count": 0,
+      "current_reports_use_explicit_stored_hard_negatives": false,
+      "failures": [
+        "hard_negative_text_view_coverage_below_positive_training_view_count",
+        "hard_negatives_not_linked_to_real_incompatible_windows",
+        "current_training_reports_do_not_use_explicit_stored_negatives"
+      ]
+    },
+    "latest_generation_manifest": {
+      "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest.jsonl",
+      "summary": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest_summary.json",
+      "status": "ok_manifest_ready_for_codex_gpt_authoring",
+      "card_count": 4010,
+      "positive_training_views_per_window": 8,
+      "manifest_rows": 32080,
+      "target_rows": 32080,
+      "missing_positive_view_rows": 0,
+      "windows_with_insufficient_negative_candidates": 0,
+      "local_prose_generated": false,
+      "same_window_negative_links": 0,
+      "duplicate_target_view_pairs": 0
+    },
+    "latest_codex_generation_batch": {
+      "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl",
+      "generation_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json",
+      "validation_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json",
+      "status": "partial_pass_generation_limit",
+      "requested_rows": 32080,
+      "generated_rows": 12433,
+      "valid_rows": 12433,
+      "remaining_rows": 19647,
+      "latest_batch_size": 8,
+      "latest_new_generation_request_count": 256,
+      "latest_new_generation_valid_count": 256,
+      "latest_repair_request_count": 256,
+      "latest_repair_valid_count": 256,
+      "complete_target_windows": 1554,
+      "partial_target_windows": 1,
+      "first_missing_manifest_row": "joint39_train_1554__weekly_risk_monitor",
+      "distinct_negative_windows": 1978,
+      "codex_error_count": 0,
+      "validation_error_count": 0,
+      "validation_warning_count": 65,
+      "validator_hardening": "same-window negative links and exact positive-text copies are explicit validation errors",
+      "local_prose_generated": false,
+      "note": "The Codex/GPT hard-negative authoring path is validated on 12433 rows: 1554 full 8-view target windows plus one valid sparse_user_query view for joint39_train_1554. The latest serialized batch-size-8 tranche requested 256 rows and accepted all 256, extending contiguous coverage through joint39_train_1553. The first missing manifest row is now joint39_train_1554__weekly_risk_monitor. The sixty-five warnings are high token-overlap warnings on mechanical/factor-list rows whose directions are still contradictory; no new warnings were introduced in the latest tranche. This is not the full 32080-row hard-negative corpus."
+    },
+    "protocol": "docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md",
+    "required_standard": {
+      "positive_training_views_per_window": 8,
+      "hard_negative_text_views_per_window_min": 8,
+      "linked_negative_historical_windows_required": true,
+      "hard_negative_authoring": "direct_codex_gpt_or_trusted_human_only",
+      "contradiction_requirement": "Each hard negative must contradict at least one high-confidence grounding channel or regime mechanism.",
+      "no_future_leakage": true,
+      "no_local_template_or_deterministic_prose": true
+    },
+    "phase_plan": [
+      {
+        "phase": 0,
+        "name": "audit_current_982g_negative_layer",
+        "goal": "Measure positive view coverage, hard-negative text coverage, linked negative-window metadata, leakage, authoring, and whether current bridge/retriever reports used explicit stored negatives.",
+        "status": "completed_failed_regeneration_required"
+      },
+      {
+        "phase": 1,
+        "name": "define_hard_negative_schema_and_selector",
+        "goal": "Define a hard-negative bank schema linking each negative narrative to a real incompatible historical window and contradiction rationale.",
+        "status": "completed_manifest_ready"
+      },
+      {
+        "phase": 2,
+        "name": "codex_gpt_regenerate_hard_negative_views",
+        "goal": "Generate matched-view hard-negative narratives through Codex/GPT only; preserve prefix-only language and professional risk-manager style.",
+        "status": "active_partial_12433_rows_passed"
+      },
+      {
+        "phase": 3,
+        "name": "validate_hard_negative_bank",
+        "goal": "Validate coverage, authoring, leakage, linked-window integrity, contradiction quality, temporal non-overlap, and train/heldout split safety.",
+        "status": "partial_validation_passed_full_corpus_pending"
+      },
+      {
+        "phase": 4,
+        "name": "retrain_after_validation_only",
+        "goal": "Only after validation passes, retrain projected-memory and text-space retrievers with explicit negative rows while keeping top3/90 and frozen SNI rollout fixed.",
+        "status": "pending"
+      }
+    ],
+    "non_promotion_rule": "No paper/demo default or method claim may be updated until the hard-negative corpus validates and downstream comparison is independently verified."
+  },
+  "active_retrieval_objective": {
+    "current_result_status": "stage2_research_candidate_not_public_default",
+    "name": "two_stage_text_space_retriever",
+    "primary_success_criterion": "support coherence and fixed-start narrative conditionality improve over raw semantic retrieval while historical CRPS/Energy/coverage remain competitive with the current baseline guardrails",
+    "required_baselines": [
+      "raw_text_embedding_3_large_narrative_to_narrative",
+      "current_projected_memory_plus_grounding",
+      "start_only_terminal_state",
+      "current_top3_90_paper_demo_candidate"
+    ],
+    "stage_1": {
+      "goal": "Stay in OpenAI embedding space and learn a financial-condition metric from direct Codex/GPT-authored multi-view narratives. Same historical window across narrative styles is positive; semantically similar but directionally incompatible windows are hard negatives.",
+      "must_not_do": [
+        "do_not_project_query_text_to_128_dim_sni_memory_for_this_stage",
+        "do_not_regenerate_or_template_any_narratives",
+        "do_not_change_top3_90_assembly_or_frozen_sni_rollout"
+      ],
+      "name": "multi_view_contrastive_text_retriever"
+    },
+    "stage_2": {
+      "goal": "Use frozen SNI only as a teacher/evaluator: retrieve support candidates, run the unchanged component-preserving top3/90 rollout, compare with realized next-30-day historical paths, and train/evaluate pairwise preferences that rank better supports above worse supports.",
+      "latest_result": {
+        "conditionality_lift_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_lift_grounded_text_preference_984a_vs_start/conditionality_lift_report.json",
+        "conditionality_mean_abs_terminal_shift_z": 0.271840486563,
+        "conditionality_path_energy_distance_z": 0.181868667951,
+        "conditionality_support_jaccard_distance": 0.990909090909,
+        "conditionality_terminal_factor_ks": 0.274038461538,
+        "conditionality_verdict": "conditionality_lift_detected",
+        "crps_delta_vs_start_only": 0.01529098415,
+        "energy_delta_vs_start_only": 0.026205503953,
+        "interpretation": "Strongest current text-space research candidate; improves historical rollout quality versus grounded text and projected-memory baselines and restores stronger narrative lift than embedding hybrid, but does not beat start-only absolute CRPS/Energy on this split and is not promoted to paper/demo default.",
+        "name": "grounded_text_preference_reranker_984a",
+        "replay_coverage_delta_vs_unreranked_positive_is_better": -0.008378658379,
+        "replay_crps_delta_vs_unreranked_positive_is_better": 0.028768143419,
+        "replay_energy_delta_vs_unreranked_positive_is_better": 0.040434647776,
+        "replay_train_queries": 1024,
+        "replay_training_rows": 8078,
+        "reranked_bridge_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_bridge_report.json",
+        "reranker_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_grounded_text_preference_reranker_984a/grounded_text_preference_reranker_report.json",
+        "scenario_coverage80": 0.649766899767,
+        "scenario_crps_improvement_vs_persistence": 0.219440453638,
+        "scenario_energy_improvement_vs_persistence": 0.251989852225,
+        "scenario_eval_report": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_codex_982g_scenario_grounded_text_preference_984a_s16/scenario_level_eval_report.json",
+        "status": "research_candidate_not_public_default"
+      },
+      "must_not_do": [
+        "do_not_use_realized_future_text_in_narratives",
+        "do_not_hand_design_terminal_scenario_response_features_as_the_primary_target",
+        "do_not_update_sni_encoder_or_decoder"
+      ],
+      "name": "frozen_sni_backtest_preference_reranker"
+    }
+  },
+  "active_testflight": {
+    "codex_authored_review_result": {
+      "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_980a/multiformat_codex_report.json",
+      "caption_count": 4,
+      "codex_error_count": 0,
+      "codex_model": "gpt-5.5",
+      "leakage_card_count": 0,
+      "note": "This corrected 980a TestFlight regenerated independent Codex-authored multi-format narratives with an institutional risk-committee note and evidence-dominant scenario titles. Earlier packets are superseded: 974a rendered local views from one generated caption; 975a had instruction-like sparse prompts; 976a had one internal support-system reference; 977a lacked an institutional note; 978a exposed weekly-monitor factor-list warnings; 979a still used bank-stress wording and over-broad source labels.",
+      "reasoning_effort": "xhigh",
+      "requires_user_review_before_full_regeneration": true,
+      "review_markdown": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_980a/multiformat_review_ready.md",
+      "selected_cases": 4,
+      "single_period_review_markdown": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_codex_multiformat_testflight_980a/review_ready_single_period.md",
+      "validation_error_count": 0,
+      "validation_warning_count": 0
+    },
+    "decision_after_testflight": [
+      "go_full_regeneration",
+      "revise_schema",
+      "do_not_regenerate"
+    ],
+    "name": "episode_card_v3_codex_authored_narrative_testflight",
+    "next_step": "user_sets_full_regeneration_goal",
+    "protocol": "docs/research_protocols/nl_prefix_latent_episode_card_v3_testflight.md",
+    "required_views": [
+      "risk_manager_memo",
+      "fed_current_conditions",
+      "institutional_risk_committee_note",
+      "macro_outlook_newsletter",
+      "weekly_risk_monitor",
+      "technical_factor_evidence",
+      "sparse_user_query"
+    ],
+    "rich_institutional_windowing": {
+      "description": "Use half-overlap 30-day prefixes for expensive rich institutional narratives.",
+      "stride_days": 15
+    },
+    "sparse_user_windowing": {
+      "description": "Generate short user-like narratives per historical date/window inside the TestFlight slice.",
+      "stride_days": 1
+    },
+    "status": "codex_authored_testflight_complete_full_regeneration_prep_ready",
+    "stop_before_full_regeneration": true,
+    "testflight_result": {
+      "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_testflight_973a/episode_card_v3_testflight_summary.json",
+      "promoted_default": false,
+      "quality_tradeoff": "Retracted: the local schema/retrieval TestFlight used deterministic/template prose and is invalid for narrative-regeneration, retrieval, conditionality, smoke, or mechanism evidence.",
+      "recommendation": "retracted_invalid_for_training_retrieval_or_smoke",
+      "requires_user_approval_before_full_regeneration": true
+    }
+  },
+  "allowed_new_files": [
+    "experiments/backfill/block_ar/nl_episode_narrative_cards.py",
+    "experiments/backfill/block_ar/nl_episode_narrative_retrieval.py",
+    "experiments/backfill/block_ar/nl_episode_narrative_retrieval_testflight.py",
+    "experiments/backfill/block_ar/nl_episode_narrative_conditionality_lift.py",
+    "experiments/backfill/block_ar/nl_episode_narrative_online_enrichment.py",
+    "test_code/test_nl_episode_narrative_retrieval.py",
+    "experiments/backfill/block_ar/nl_episode_grounded_text_support_preference_reranker.py",
+    "test_code/test_nl_episode_grounded_text_support_preference_reranker.py",
+    "experiments/backfill/block_ar/nl_hard_negative_corpus_audit.py",
+    "experiments/backfill/block_ar/nl_hard_negative_bank_regenerate.py",
+    "experiments/backfill/block_ar/nl_hard_negative_codex_batch.py",
+    "experiments/backfill/block_ar/nl_hard_negative_bank_validate.py",
+    "test_code/test_nl_hard_negative_corpus.py"
+  ],
+  "candidate_methods": [
+    "incumbent_projected_memory_selector",
+    "start_only_terminal_state_selector",
+    "dense_narrative_to_narrative_selector",
+    "lexical_or_claim_overlap_selector",
+    "hybrid_episode_selector",
+    "hybrid_episode_selector_sparse_query_views",
+    "hybrid_episode_selector_plus_codex_rerank_top_candidates_only",
+    "online_enriched_hybrid_episode_selector",
+    "grounded_text_preference_reranker",
+    "projected_memory_explicit_hard_negative_bridge",
+    "text_space_explicit_hard_negative_retriever"
+  ],
+  "explicitly_untouched_files_until_promotion": [
+    "experiments/backfill/block_ar/nl_risk_manager_caption_v2.py",
+    "experiments/backfill/block_ar/nl_codex_caption_batch.py",
+    "experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py",
+    "experiments/backfill/block_ar/nl_support_component_posterior_bakeoff.py",
+    "paper/narrative_grounded_scenarios/main.tex",
+    "paper/narrative_grounded_scenarios/presentation.tex"
+  ],
+  "full_regeneration_prep": {
+    "approved_narrative_standard": "episode_card_v3_codex_multiformat_testflight_980a",
+    "do_not_start_until_user_sets_goal": false,
+    "guardrails": [
+      "heldout_crps",
+      "energy_score",
+      "coverage",
+      "grounded_claim_pass_rate",
+      "leakage_absence",
+      "temporal_diversity",
+      "support_family_cohesion"
+    ],
+    "must_compare": [
+      "incumbent_projected_memory_selector",
+      "start_only_terminal_state_selector",
+      "local_control_narrative_to_narrative_selector_over_codex_gpt_text",
+      "true_semantic_embedding_narrative_to_narrative_selector",
+      "hybrid_text_start_selector",
+      "optional_codex_agentic_shortlist_rerank",
+      "optional_online_enriched_hybrid_selector"
+    ],
+    "primary_success_criterion": "fixed_start_narrative_conditionality_over_start_only_baseline",
+    "retracted_981_result": {
+      "best_branch_candidate": "none",
+      "promote_to_paper_demo_default": false,
+      "reason": "981 consumed a local deterministic/template EpisodeCardV3 corpus. All retrieval, embedding, and scenario-level conclusions from that corpus are invalid for final assessment and must be redone from direct Codex/GPT-authored multi-format cards.",
+      "summary_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/episode_card_v3_full_retrieval_evaluation_981q/episode_card_v3_full_retrieval_evaluation_summary.json"
+    },
+    "rich_institutional_windowing": "15_trading_day_stride",
+    "runbook": "docs/research_protocols/nl_prefix_latent_episode_full_regeneration_prep.md",
+    "sparse_user_windowing": "daily_eligible_30_day_prefixes",
+    "status": "reset_requires_direct_codex_gpt_full_regeneration",
+    "support_bank_windowing": "daily_final_support_bank_for_start_fit_and_sni_rollout"
+  },
+  "hard_guardrails": [
+    "do_not_modify_existing_caption_generator_or_cookbook_files_in_place",
+    "copy_existing_scripts_to_new_episode_narrative_retrieval_files_before_experimenting",
+    "do_not_change_paper_or_demo_defaults_until_independent_verifier_agrees",
+    "do_not_use_realized_future_paths_in_retrieval_text_or_training_caption_fields",
+    "do_not_treat_codex_or_llm_relevance_judgment_as_final_validation",
+    "do_not_use_local_deterministic_or_template_prose_for_any_narrative_artifact_even_smoke_or_mechanism_tests",
+    "do_not_retrain_or_claim_explicit_hard_negative_learning_until_the_hard_negative_bank_validation_passes",
+    "do_not_upload_private_paper_or_private_notebook_content_to_external_services",
+    "keep_fixed_start_user_selected_or_user_supplied_before_support_retrieval",
+    "keep_frozen_sni_rollout_contract_unchanged",
+    "record_online_sources_and_timestamp_safety_for_every_online_enrichment_artifact"
+  ],
+  "incumbent_to_protect": {
+    "do_not_modify_demo_or_paper_defaults": true,
+    "must_remain_default": true,
+    "name": "Nearest similar regimes / Main-regime view: top3/90",
+    "status": "paper_demo_candidate_verified_963c"
+  },
+  "iteration_type": "research_ideation_then_experiment_then_post_experiment_analysis",
+  "kill_conditions": [
+    "semantic_retrieval_selects_directionally_wrong_supports",
+    "conditionality_gain_disappears_under_shuffled_narrative_or_collapses_to_start_only",
+    "scenario_quality_materially_regresses_without_measured_trust_or_conditionality_gain",
+    "online_enrichment_adds_leakage_or_untraceable_claims",
+    "codex_reranking_is_not_reproducible_enough_for_auditable_support_selection",
+    "sparse_query_views_fail_to_retrieve_supports_matching_the_intended_mechanism"
+  ],
+  "last_updated": "2026-06-15",
+  "contamination_recovery_note": "Resolved 2026-06-12. Canonical map fixed (commit 2c0aa31d); R1 clean (commit f018dc38); R3 995c clean (89 val cards); stride-5 982g 802 cards clean. 988b/990a 14+14 corpus CONTAMINATED; clean rebuild RUNNING 2026-06-15.",
+  "owner_decision_20260615": "invest_smart: rebuild clean 14x14 bank once; train improved retriever (NV-Retriever + locality-soft/P5 target); restamp old baseline on clean data; gate via validation_framework_v1 + Codex verifier. No method promoted.",
   "loop_name": "HEAD",
-  "workflow": "nl-prefix-latent-autoresearch",
-  "method_identity": "support_grounded_latent_scenario_generation",
-  "current_production_candidate": {
-    "name": "Nearest similar regimes / Main-regime view",
-    "support_selector": "cohesive_topk_narrative_start_checked",
-    "posterior_view": "top3_90_current_multistart_presentation_candidate_top2_80_ks_oriented_variant",
-    "status": "paper_demo_candidate_verified_963c",
-    "selection_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_selection_961b_29w/posterior_ensemble_selection_report.json",
-    "confirmation_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_963c_multistart_confirmation/posterior_ensemble_multistart_confirmation.json",
-    "verifier_artifact": "docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-27_posterior_ensemble_multistart_confirmation_963c.md",
-    "tradeoff": "Main-regime views strengthen fixed-start narrative and portfolio conditionality relative to all-regime pooling. The three-start high-sample confirmation ranks top3_90 first on the current weighted tradeoff because it has stronger calibration and larger portfolio-tail spread; top2_80 remains the sharper KS-oriented variant; all-regime pooling remains the calibration diagnostic. The 963c verifier agrees with promoting top3_90 as the current paper/demo candidate under this tradeoff framing."
-  },
-  "product_conditionality_definition": {
-    "summary": "A risk-manager narrative is conditionally useful only if, for the same approved starting market level, a materially different professional narrative changes the auditable support mixture and produces a distinguishable future risk distribution in the risk channels implied by that narrative, above repeat, bootstrap, and start-only controls.",
-    "gates": [
-      "semantic_gate: professional narrative text and sidecar preserve the scenario spine, trigger, mechanism, transmission channel, cross-asset reaction, sequencing, portfolio implication, ambiguity, and no-forecast caveat",
-      "support_gate: different narratives select different diverse non-overlapping support mixtures while same-narrative repeats and start-only controls do not",
-      "prefix_gate: selected supports decode into materially different recent-prefix objects under the same fixed start",
-      "factor_distribution_gate: generated factor path distributions separate beyond same-narrative repeat and within-run bootstrap noise",
-      "portfolio_tail_gate: portfolio PnL, VaR/ES-style tail metrics, and contribution views move in the risk channels implied by the narrative",
-      "audit_gate: the app/report exposes narrative, sidecar, fixed start, support windows, support weights, diagnostics, warnings, and artifacts"
-    ],
-        "current_status": "public_paper_cleanup_active",
-        "immediate_task_order": [
-            "document_public_paper_cleanup_plan",
-            "rewrite_abstract_as_problem_method_evidence_conclusion",
-            "simplify_introduction_and_contribution_list",
-            "tighten_related_work_around_llm_limits_scenario_generation_alignment_and_provenance",
-            "replace_internal_autoresearch_language_with_public_facing_terms",
-            "move_or_soften_provider_cost_details_as_implementation_notes",
-            "preserve_safe_haven_gold_prefix_support_versus_terminal_response_explanation",
-            "compile_pdf_and_run_citation_label_stale_language_checks"
-        ]
-  },
-  "production_modes": [
-    "narrative_plus_manual_historical_or_current_start",
-    "narrative_plus_user_specified_joint39_start"
-  ],
-  "disallowed_default_modes": [
-    "narrative_only_model_chosen_start",
-    "hidden_model_chosen_start",
-    "future_outcome_as_conditioning_target"
-  ],
-  "core_contract": [
-    "preserve_full_narrative_as_primary_story_channel",
-    "use_grounding_sidecar_for_direction_checks_and_warnings",
-    "measure_grounding_faithfulness_future_language_filtering_historical_direction_agreement_and_support_direction_consistency",
-    "exclude_forward_looking_or_desired_future_language_from_conditioning_targets",
-    "resolve_user_selected_or_user_supplied_start_before_support_mixture",
-    "condition_support_mixture_on_full_narrative_and_fixed_start",
-    "use_weighted_historical_analogue_mixtures_as_auditable_support_priors",
-    "treat_historical_support_mixture_as_core_inductive_bias_not_fallback",
-    "keep_support_weights_operational_in_rollout_not_display_only",
-    "frame_method_as_support_grounded_latent_scenario_generation_not_pure_text_to_time_series",
-    "report_support_weights_start_distance_direction_checks_and_damping_warnings",
-    "reuse_frozen_sni_generator_native_autoregressive_rollout",
-    "do_not_reduce_product_to_single_nearest_neighbor_replay",
-    "require_scenario_to_text_caption_changes_to_check_both_quant_specialist_word_documents",
-    "record_specialist_document_paths_and_hashes_in_caption_artifacts",
-    "reject_caption_training_data_with_realized_future_or_target_distribution_leakage",
-    "append_research_log_via_research_log_tail_append",
-    "save_verifier_artifacts_for_promoted_claims"
-  ],
-  "research_objective": [
-        "public_paper_cleanup_for_short_technical_method_report",
-        "de_internalize_abstract_introduction_related_work_method_results_and_appendix_language",
-        "move_volatile_provider_cost_details_out_of_core_scientific_argument",
-        "preserve_top3_90_default_reported_configuration_and_safe_haven_gold_mechanism_explanation",
-        "safe_haven_gold_mechanism_audit_for_prefix_support_versus_terminal_response",
-        "safe_haven_gold_start_sensitivity_audit_for_terminal_gold_response",
-    "safe_haven_gold_channel_audit_for_prefix_supported_but_terminal_neutral_factor_response",
-    "distinguish_current_recent_support_alignment_from_day30_terminal_sign_targets",
-    "keep_arrows_only_in_view_and_baseline_change_columns",
-    "remove_vague_high_medium_low_confidence_from_main_demo_table",
-    "display_symmetric_baseline_and_narrative_path_count_and_mean_move_columns",
-    "publish_fixed_start_demo_style_casebook_tables_for_all_six_professional_narratives",
-    "calibrate_30d_baseline_vs_narrative_confidence_readout_for_demo_and_paper",
-    "separate_grounding_confidence_terminal_direction_confidence_and_baseline_impact_strength",
-    "measure_sign_probability_effect_size_band_width_and_baseline_delta_for_each_market",
-    "persist_empirical_terminal_sign_shares_in_demo_reports_for_auditable_confidence_labels",
-    "run_held_out_confidence_reliability_audit_before_promoting_new_low_medium_high_thresholds",
-    "grounding_reliability_audit_for_visible_story_to_claims_interpretation_layer",
-    "measure_claim_faithfulness_unsupported_claim_rate_future_language_detection_and_future_language_leakage",
-    "measure_historical_direction_agreement_for_known_prefix_professional_captions",
-    "measure_support_direction_consistency_for_selected_top3_90_support_regimes",
-    "produce_paper_ready_grounding_reliability_table_and_appendix_examples",
-    "public_paper_demo_consistency_audit_for_verified_top3_90_candidate",
-    "make_demo_default_match_paper_candidate_nearest_similar_main_regime_top3_90",
-    "remove_or_relabel_stale_all_pooling_and_old_weak_conditionality_language_from_public_surfaces",
-    "make_demo_explain_narrative_start_support_regimes_top3_90_ensemble_and_fan_chart",
-    "keep_raw_level_start_anchoring_and_start_normalized_narrative_response_separate",
-    "report_start_level_narrative_and_start_by_narrative_shares_in_paper",
-    "refresh_start_narrative_variation_attribution_for_promoted_top3_90_candidate",
-    "confirm_nearest_similar_main_regime_posterior_ensemble_for_narrative_conditioned_support_grounded_latent_scenario_generator",
-    "keep_historical_support_mixture_as_production_backbone",
-    "use_selected_coherent_support_family_and_sparse_component_posterior_to_improve_risk_manager_visible_conditionality_after_support_grounded_rollout",
-    "keep_all_regime_pooling_as_calibration_diagnostic_not_primary_product_fan",
-    "regenerate_higher_sample_qualitative_fans_before_paper_demo_promotion",
-    "rerun_higher_sample_historical_confirmation_backtest_before_paper_demo_promotion",
-    "upgrade_scenario_to_text_training_captions_to_professional_risk_manager_quality_before_large_embedding_or_bridge_retraining",
-    "improve_support_grounded_distribution_calibration_and_auditability_not_generic_text_embedding_complexity",
-    "prefer_one_elegant_support_posterior_or_bounded_residual_control_layer_over_many_independent_ranker_knobs",
-    "collect_evidence_for_every_candidate_with_fixed_start_controls_start_only_nulls_relevant_factor_plots_and_portfolio_tail_readouts",
-    "demonstrate_conditionality_qualitatively_and_quantitatively_before_any_paper_or_demo_promotion",
-    "benchmark_every_new_method_against_soft_topk_narrative_start_checked",
-    "require_method_intake_artifact_before_sophisticated_candidates_leave_ideation",
-    "require_sophisticated_methods_to_have_method_story_related_work_basis_novelty_claim_elegance_check_backtest_gate_and_kill_condition",
-    "separate_low_cost_exploration_from_default_promotion",
-    "allow_exploratory_regressions_when_the_mechanism_value_is_documented",
-    "allow_small_regressions_only_when_mechanism_and_tradeoff_are_documented",
-    "reject_or_mark_diagnostic_methods_with_drastic_distributional_regression",
-    "reject_support_free_text_latents_without_separate_paradigm_shift_gate_and_verifier",
-    "require_publishable_novelty_to_be_in_conditioning_bridge_reranker_weighting_or_latent_refinement_not_in_removing_support"
-  ],
-  "incumbent_benchmark": {
-    "name": "soft_topk_narrative_start_checked / narrative_generator_topk",
-    "representative_artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/nl_start_residual_scenario_eval_878a_full/scenario_level_eval_report.json",
-    "distributional_floor": "New methods must be at least competitive with the simple mixture on ensemble CRPS, energy score, and 80% coverage before promotion. A small regression is acceptable only if it buys clear trust, stability, or conditionality gains and is documented as a trade-off.",
-    "non_promotion_rule": "Do not promote methods that materially regress below the simple mixture while only improving retrieval rank, target cosine, or an isolated diagnostic."
-  },
-  "research_lanes": {
-    "exploration": "Cheap mechanism-seeking tests may regress, including severe regression, if the result is low cost and explains whether to continue, change, or kill the branch.",
-    "candidate": "A plausible method may tolerate moderate regression only when the trade-off and falsifier were stated before the run.",
-    "promotion": "A candidate must be competitive with the simple mixture on held-out scenario metrics, support audits, fixed-start controls, and null or repeat checks before it changes defaults or paper claims.",
-    "production_demo": "User-facing defaults may not drastically regress; small regressions require a visible trust, warning, OOD, provenance, or fixed-start stability benefit."
-  },
-  "result_status_labels": [
-    "exploratory",
-    "mechanism_found",
-    "dead_end",
-    "candidate",
-    "candidate_rejected",
-    "promotion_candidate",
-    "promoted",
-    "not_promoted"
-  ],
-  "benchmark_floor_status_labels": [
-    "not_applicable",
-    "not_tested",
-    "below_floor",
-    "competitive",
-    "beats_floor"
-  ],
-  "workflow_philosophy": [
-    "explore_like_a_scientist_promote_like_an_engineer",
-    "prefer_scalable_learned_mechanisms_and_data_backed_memory_over_hand_coded_market_rules",
-    "treat_historical_support_as_financial_inductive_bias_not_retrieval_crutch",
-    "treat_simple_mixture_as_promotion_floor_not_exploration_leash",
-    "avoid_complexity_without_a_clean_support_grounded_method_story",
-    "avoid_eval_overfitting_to_target_cosine_retrieval_rank_or_single_metric_improvements",
-    "require_candidate_method_story_related_work_and_kill_condition_before_experiment_launch",
-    "require_coherent_method_story_and_related_work_support_before_promotion",
-    "use_independent_verifier_before_promotion_not_for_every_low_cost_probe"
-  ],
-  "tracked_method_intake_template": "docs/research_protocols/nl_prefix_latent_method_intake_template.md",
-  "current_next_candidate_method_story": "docs/research_protocols/nl_prefix_latent_grounding_reliability_audit_intake.md",
-  "current_warning_layers": [
-    "single_start_962c_temporarily_favored_top2_80",
-    "three_start_963c_favors_top3_90_verified",
-    "coverage_tradeoff_versus_all_regime_pooling",
-    "all_regime_pooling_remains_calibration_diagnostic",
-    "raw_level_paths_remain_materially_start_anchored",
-    "attribution_plot_must_use_current_top3_90_artifacts_not_stale_944a_or_947b_artifacts",
-    "paper_and_demo_must_use_same_top3_90_default_candidate",
-    "all_pooling_language_allowed_only_when_labeled_calibration_diagnostic",
-    "old_weak_conditionality_language_must_be_removed_or_reframed_as_superseded",
-    "grounding_is_llm_extraction_not_trained_by_backtest_and_needs_separate_quality_audit",
-    "historical_backtest_validates_scenario_distribution_not_every_grounding_phrase",
-    "safe_haven_gold_can_be_prefix_supported_but_terminal_neutral_versus_start_only_baseline_for_gold",
-        "safe_haven_gold_terminal_neutrality_persists_across_current_start18_start22_start40_professional_top3_90_artifacts",
-        "safe_haven_gold_prefix_support_does_not_imply_terminal_gold_outperformance"
-  ],
-  "deprioritized_candidate_notes": [
-    "Multiple response-aware support-weighting probes improved selected fixed-start conditionality diagnostics but did not produce a promoted default across held-out quality and stress gates; the next objective should avoid another ranker-only variant unless it directly tests support coherence and component-posterior formation.",
-    "Prompt-only or generic embedding-only work is deprioritized because semantic, support, decoded-prefix, and fixed-start component-preserving conditionality gates are supported; the active bottleneck is stronger product-useful response in the narrative's risk channels after start normalization."
-  ],
-  "research_log_failure_recap": {
-    "source": "RESEARCH_LOG.md entries around 934a-944a",
-    "summary": "Offline response-aware weighting and preview methods repeatedly looked promising at small or cached gates, but several live, scaled, or default gates either smoothed away response, failed direction contracts, or underperformed the incumbent on scenario-quality metrics. The 944a attribution audit then showed that start dominates raw-level geometry while narrative is more visible after start normalization.",
-    "mistake_gates": [
-      "do_not_promote_cached_or_small_sample_response_weighting_without_live_scaled_backtest",
-      "do_not_add_another_ranker_only_variant_unless_it_is_part_of_a_bounded_calibrated_ensemble_method",
-      "do_not_treat_vargain_or_single_metric_improvement_as_product_conditionality",
-      "do_not_accept_methods_that_make_start_only_null_nonzero_or_hide_start_level_dominance",
-      "do_not_continue_temperature_blend_or_threshold_sweeps_after_scaled_rejection",
-      "require_start_normalized_narrative_attribution_and_fixed_start_qualitative_plots_before_paper_or_demo_promotion"
-    ]
-  },
-  "sophisticated_method_gate": {
-    "method_story": "Explain how the method turns a risk-manager narrative plus fixed start into an auditable support-grounded ensemble and then calibrates that ensemble.",
-    "related_work_basis": "Cite primary related work or first-principles local evidence supporting the design family.",
-    "novelty_claim": "State what is new relative to CLIP-style alignment, retrieval/RAG, text-to-time-series generation, and financial scenario generation.",
-    "elegance_check": "Explain why the added component is necessary and not just another knob.",
-    "backtest_gate": "Compare same-seed held-out historical backtests against the simple mixture floor using CRPS, energy, coverage, fixed-start controls, null/repeat checks, and support audits.",
-    "kill_condition": "State the result that stops the branch before launching the run."
-  },
-  "primary_acceptance_metrics": [
-    "energy_score_improvement_vs_persistence",
-    "ensemble_crps_improvement_vs_persistence",
-    "coverage_80",
-    "per_start_quality_floor",
-    "start_normalized_narrative_attribution_share",
-    "fixed_start_narrative_separation",
-    "narrative_relevant_factor_ks_and_path_energy",
-    "portfolio_var_es_tail_separation",
-    "same_narrative_repeat_stability",
-    "shuffled_narrative_null_gap",
-    "decoded_prefix_memory_cosine",
-    "hard_case_validation",
-    "start_state_sensitivity"
-  ],
-  "first_gate": "Promoted fixed-start narrative conditioning claims must include tracked case specs, artifact paths, verifier report, fixed-start equality, support-direction checks, per-start quality, null or repeat baselines, and start-damping diagnostics before production promotion.",
-  "latest_safe_haven_gold_channel_audit": {
-    "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_channel_audit_966b/safe_haven_gold_channel_audit.json",
-    "source_artifacts": "experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_966a_professional_start22_s384_d400/safe_haven_gold",
-    "verifier_artifact": "docs/research_protocols/nl_prefix_latent_verifier_reports/2026-05-29_safe_haven_gold_channel_audit_966b.md",
-    "paper_table_reproduced": true,
-    "gold_index_correct": true,
-    "support_grounding_passes_for_gold": true,
-    "narrative_gold_mean_delta": 4.984,
-    "baseline_gold_mean_delta": 5.085,
-    "narrative_gold_probability_up": 0.577,
-    "baseline_gold_probability_up": 0.593,
-    "interpretation": "No evidence of a table, factor-index, or top3/90 selection bug. The Safe-haven narrative selects Gold-up support prefixes, but the frozen SNI rollout from the same start gives a baseline-neutral day-30 Gold terminal distribution."
-  },
-    "latest_safe_haven_gold_start_sensitivity_audit": {
-        "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_start_sensitivity_966c/safe_haven_gold_start_sensitivity_audit.json",
-    "starts": [
-      18,
-      22,
-      40
-    ],
-    "max_abs_gold_mean_delta_difference": 0.803,
-    "max_abs_gold_probability_up_difference": 0.0207,
-        "gold_terminal_response_varies_materially_by_start": false,
-        "interpretation": "Changing the accepted starting level within the current professional top3/90 artifact set does not produce a material Gold terminal response versus the start-only baseline. The weak Gold response is not unique to start 22; it reflects the current frozen-generator/support response for this narrative."
+  "objective": "Audit, regenerate, and validate the explicit hard-negative corpus required by the NL prefix-latent training method before any new bridge or text-space retriever is promoted. The current 982g positive narrative bank is direct Codex/GPT-authored, but the hard-negative layer must be upgraded to matched hard-negative narratives linked to real incompatible historical windows. Only after this validation passes should the projected-memory bridge and text-space retriever be retrained with explicit negative rows while keeping top3/90 assembly and frozen SNI rollout unchanged.",
+  "phase_plan": [
+    {
+      "goal": "Audit the current 982g corpus and bridge reports for hard-negative coverage, linked negative-window metadata, explicit training usage, leakage, and authoring. Treat failure as a regeneration requirement, not as a paper-ready result.",
+      "name": "hard_negative_corpus_audit_and_gate",
+      "outputs": [
+        "hard_negative_corpus_audit_json",
+        "hard_negative_corpus_audit_markdown",
+        "hard_negative_schema_requirements",
+        "research_log_summary"
+      ],
+      "phase": -1,
+      "required": true
     },
-    "latest_safe_haven_gold_mechanism_audit": {
-        "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/safe_haven_gold_mechanism_audit_966d/safe_haven_gold_mechanism_audit.json",
-        "support_bank_window_count": 4010,
-        "safe_haven_prefix_window_count": 564,
-        "safe_haven_prefix_future_gold_mean": 5.618,
-        "safe_haven_prefix_future_gold_up_share": 0.539,
-        "all_window_gold_prefix_future_corr": -0.169,
-        "safe_haven_prefix_future_corr": -0.365,
-        "selected_component_prefix_gold_up_share": 0.944,
-        "selected_component_actual_future_gold_up_share": 0.611,
-        "selected_component_generated_gold_mean_median": 3.572,
-        "actual_future_to_generated_mean_corr": 0.159,
-        "interpretation": "Grounding/support checks validate the current/recent prefix, not a day-30 Gold target. Historical Safe-haven Gold prefixes are not strongly predictive of further Gold upside, the start-only baseline often selects similar Gold-up supports, and the frozen SNI rollout shrinks support-specific Gold outcomes toward a calibrated terminal distribution."
+    {
+      "goal": "Audit the existing self-supervised captions for factor-list bias, sparse-query coverage, mechanism coverage, and leakage, then regenerate direct Codex/GPT-authored multi-view episode cards without editing incumbent caption files.",
+      "name": "corpus_quality_and_multi_view_episode_cards",
+      "outputs": [
+        "episode_card_schema",
+        "corpus_quality_report",
+        "multi_view_episode_card_jsonl",
+        "unit_tests_for_leakage_and_view_generation"
+      ],
+      "phase": 0,
+      "required": true
     },
-    "latest_start_narrative_attribution": {
-    "artifact": "experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_964a_start_narrative_attribution_top3_90/start_narrative_attribution.json",
-    "posterior_mode": "top3_90",
-    "starts": [
-      18,
-      22,
-      40
-    ],
-    "raw_level": {
-      "start_share": 0.831,
-      "narrative_share": 0.111,
-      "interaction_share": 0.057
+    {
+      "goal": "Compare incumbent memory retrieval, dense text retrieval, lexical/claim retrieval, and hybrid episode retrieval on fully specified and sparse risk-manager queries, using only direct Codex/GPT-authored or trusted human/source narrative text.",
+      "name": "local_narrative_to_narrative_retrieval",
+      "outputs": [
+        "local_retrieval_report",
+        "support_overlap_and_direction_check_tables",
+        "start_only_and_shuffled_narrative_nulls"
+      ],
+      "phase": 1,
+      "required": true
     },
-    "start_normalized": {
-      "start_share": 0.581,
-      "narrative_share": 0.318,
-      "interaction_share": 0.101
+    {
+      "goal": "Pipe candidate supports through the existing top3/90 component-preserving frozen SNI rollout and compare against the incumbent with matched starts, narratives, seeds, and sample counts.",
+      "name": "scenario_level_testflight",
+      "outputs": [
+        "scenario_testflight_report",
+        "fixed_start_conditionality_plots",
+        "heldout_crps_energy_coverage_metrics"
+      ],
+      "phase": 2,
+      "required": true
     },
-    "start_only_same_start_factor_ks": 0.0,
-    "start_only_same_start_portfolio_ks": 0.0
-  }
+    {
+      "goal": "Measure whether episode-level narrative retrieval changes supports and generated scenario distributions beyond a start-only terminal-state support baseline for the same accepted starts. Treat CRPS, Energy, and coverage as quality guardrails, not the main differentiator.",
+      "name": "fixed_start_conditionality_lift_over_start_only",
+      "outputs": [
+        "start_only_bridge_report",
+        "start_only_scenario_eval_report",
+        "conditionality_lift_report",
+        "research_log_summary"
+      ],
+      "phase": 3,
+      "required": true
+    },
+    {
+      "goal": "If pure local semantic retrieval is not good enough, use Codex/agentic qualitative adjudication over a shortlist and/or timestamp-safe online context enrichment to preserve start compatibility while improving narrative lift.",
+      "name": "codex_agentic_rerank_and_online_enrichment",
+      "outputs": [
+        "codex_rerank_manifest",
+        "online_source_manifest",
+        "online_enriched_episode_cards",
+        "online_enrichment_ablation_report",
+        "leakage_and_source_audit"
+      ],
+      "phase": 4,
+      "required": true
+    },
+    {
+      "goal": "If a selector passes, produce a risk-manager-facing readout that explains matched historical episode narratives, explicit versus inferred channels, support checks, and baseline-relative scenario distribution changes.",
+      "name": "product_readout_and_promotion_review",
+      "outputs": [
+        "product_readout_artifact",
+        "promotion_or_nonpromotion_decision",
+        "current_truth_update_if_promoted"
+      ],
+      "phase": 5,
+      "required": true
+    }
+  ],
+  "promotion_gates": [
+    "fixed_start_narrative_support_lift_over_start_only",
+    "fixed_start_narrative_distribution_lift_over_start_only",
+    "grounded_claim_support_pass_rate_remains_high",
+    "sparse_query_retrieval_works_without_explicitly_listing_every_factor",
+    "support_family_cohesion_and_temporal_diversity_improve_or_remain_acceptable",
+    "factor_distribution_and_portfolio_tail_conditionality_improve",
+    "held_out_crps_energy_and_coverage_are_competitive_with_incumbent_and_start_only_guardrails",
+    "online_enrichment_improves_or_explains_failure_without_leakage",
+    "independent_verifier_agrees_before_public_claim_or_default_change"
+  ],
+  "research_lane": "exploration_to_candidate_to_promotion",
+  "tracked_docs": {
+    "episode_card_v3_testflight_protocol": "docs/research_protocols/nl_prefix_latent_episode_card_v3_testflight.md",
+    "method_intake": "docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_method_intake.md",
+    "plan": "docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md",
+    "research_log_entry": "RESEARCH_LOG.md#2026-06-01-nl-narrative-to-narrative-support-retrieval-intake"
+  },
+  "workflow": "nl-prefix-latent-autoresearch"
 }

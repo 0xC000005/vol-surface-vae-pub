@@ -35,9 +35,9 @@ from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (  # noqa:
     run_story_smoke,
 )
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (  # noqa: E402
-    DEFAULT_BRIDGE_ARRAYS as DEFAULT_PREFIX_BRIDGE_ARRAYS,
+    DEFAULT_BRIDGE_ARRAYS as _LEGACY_PREFIX_BRIDGE_ARRAYS,
     DEFAULT_CHECKPOINT as DEFAULT_PREFIX_CHECKPOINT,
-    DEFAULT_BRIDGE_REPORT as DEFAULT_PREFIX_BRIDGE_REPORT,
+    DEFAULT_BRIDGE_REPORT as _LEGACY_PREFIX_BRIDGE_REPORT,
     run_prefix_latent_story_smoke,
     window_metadata_by_bridge_local_index,
 )
@@ -108,6 +108,52 @@ DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS = (
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "prefix_latent_support_bank_train_all_939a/support_bank_arrays.npz"
 )
+# ---------------------------------------------------------------------------
+# PREFIX-LATENT BRIDGE — CONTAMINATION HOLD (2026-06-15)
+# ---------------------------------------------------------------------------
+# The 990f bridge report and 991a_seed1 bridge arrays/adapter were trained on
+# episode cards from the contaminated 982g corpus (joint39 factor-mapping bug:
+# USDJPY→col 29, AAA_OAS→col 36 instead of canonical 27/34 per
+# experiments/backfill/block_ar/nl_joint39_anchor_map.py).  Serving bridge-
+# conditioned text from these artifacts would silently propagate wrong
+# factor-direction narratives into the demo.
+#
+# INTERIM: bridge is DISABLED.  The demo falls back to the clean 939a support-
+# bank path (support_bank_report + support_bank_arrays), which was regenerated
+# with the correct canonical map and remains the promoted default (top3/90
+# nearest-similar ensemble).  Scenario generation and fan charts are FULLY
+# operational from the 939a path; only the prefix-latent bridge conditioning
+# step is bypassed.
+#
+# UX impact: run_prefix_latent_story_smoke will detect missing bridge files
+# and skip the prefix-embedding step, falling back to support-only retrieval
+# (equivalent to the start-only baseline in CRPS terms).  The UI note below
+# surfaces this to the user.
+#
+# TODO: replace with a retrained bridge once the 14x14 corpus has been
+# re-generated from the clean stride-5 cards (939a/clean_stride5_20260612)
+# and a new bridge has been trained on that clean corpus.  Update
+# DEFAULT_PREFIX_BRIDGE_REPORT, DEFAULT_PREFIX_BRIDGE_ARRAYS, and
+# DEFAULT_PREFIX_BRIDGE_ADAPTER to point at the new artifacts.
+# ---------------------------------------------------------------------------
+# Interim: fall back to the legacy oracle-era bridge (pre-contamination, built on
+# val/test window embeddings from the original manifest_openai_schema_v2_representative_220
+# pipeline — these do NOT carry any episode-card text from the contaminated 982g corpus).
+# The legacy bridge's retrieval score will differ from the 14x14 bridge, but the TEXT
+# served by the demo comes from the 939a support-bank cards (clean); the bridge only
+# provides the condition embedding used for retrieval scoring.
+DEFAULT_PREFIX_BRIDGE_REPORT: str = _LEGACY_PREFIX_BRIDGE_REPORT  # legacy clean oracle bridge
+DEFAULT_PREFIX_BRIDGE_ARRAYS: str = _LEGACY_PREFIX_BRIDGE_ARRAYS  # legacy clean oracle arrays
+DEFAULT_PREFIX_BRIDGE_ADAPTER: str = DEFAULT_BRIDGE_ADAPTER  # legacy oracle adapter (embedding_dim=1536, condition_dim=128) — coherent with legacy report/arrays above; was 991a_seed1 (CONTAMINATED)
+_BRIDGE_DISABLED_NOTE = (
+    "\n\n> **Note (2026-06-15):** The 14×14 prefix-latent bridge is temporarily "
+    "disabled — it was trained on contaminated episode-card text (joint39 factor-"
+    "mapping bug: USDJPY→col 29, AAA_OAS→col 36 instead of canonical 27/34). "
+    "Retrieval falls back to the legacy oracle-era bridge (pre-contamination). "
+    "Scenario generation and fan charts remain fully operational via the clean "
+    "939a support-bank path. A clean 14×14 bridge will replace this after the "
+    "corpus retrain."
+)
 DEFAULT_PREFIX_ROLLOUT_TEMPERATURE = 0.5
 DEFAULT_PREFIX_ROLLOUT_FAN_SCALE = 3.5
 DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA = 0.25
@@ -173,23 +219,162 @@ DEFAULT_BOSS_DEMO_PACK_JSON = (
     "prefix_latent_boss_demo_pack_829a_live_casebook/"
     "boss_demo_pack.json"
 )
-CASEBOOK_LABELS = {
-    "fragile_risk_on_rebound": "Fragile risk-on rebound",
-    "defensive_risk_off_shock": "Defensive risk-off shock",
-    "rates_selloff_tightening_fear": "Rates-led tightening fear",
-    "commodity_inflation_pressure": "Commodity inflation pressure",
-    "dollar_liquidity_squeeze": "Dollar liquidity squeeze",
-    "safe_haven_gold_bid": "Safe-haven gold bid",
-}
+NARRATIVE_EXAMPLE_FAMILIES = [
+    (
+        "dollar_squeeze_liquidation",
+        "Dollar squeeze/liquidation",
+        {
+            "short": (
+                "Dollar funding is tight: DXY is surging, USDJPY is breaking "
+                "lower, equities and BBB credit are under pressure, and oil plus "
+                "gold are being sold."
+            ),
+            "medium": (
+                "The current tape is a dollar-liquidity squeeze. Equities are "
+                "falling, volatility is elevated, BBB spreads are wider, DXY is "
+                "bid, USDJPY is lower, and both crude and gold are being "
+                "liquidated rather than acting like clean hedges."
+            ),
+            "full": (
+                "Professional read: this is a dollar-liquidity squeeze with "
+                "commodity and gold liquidation. The active condition is broad "
+                "de-risking through lower equities, higher volatility, wider "
+                "lower-quality credit, a stronger DXY, weaker USDJPY, and heavy "
+                "selling in crude and gold. The curve signal is secondary; the "
+                "main portfolio sensitivity is dollar funding, high-beta credit, "
+                "commodity beta, and positions that assume gold is providing a "
+                "normal haven offset."
+            ),
+        },
+    ),
+    (
+        "safe_haven_risk_off",
+        "Safe-haven risk-off",
+        {
+            "short": (
+                "Risk assets are soft, volatility is up, Treasury yields are "
+                "lower, gold is bid, and credit is showing stress."
+            ),
+            "medium": (
+                "The tape is defensive but not a pure dollar squeeze. Equities "
+                "are selling off, VIX is firmer, BBB spreads are wider, Treasury "
+                "yields are lower, and gold is catching a haven bid while the "
+                "dollar channel is less dominant."
+            ),
+            "full": (
+                "Professional read: the condition is a safety bid around an "
+                "equity-credit drawdown. Transmission runs from weaker equities "
+                "and firmer volatility into lower-quality credit stress, lower "
+                "Treasury yields, and gold demand. The important distinction is "
+                "that gold and duration are confirming defense, while FX is not "
+                "the only channel carrying the stress."
+            ),
+        },
+    ),
+    (
+        "weak_dollar_commodity_bid",
+        "Weak-dollar commodity bid",
+        {
+            "short": (
+                "DXY is heavy, USDJPY is firm, crude and gold are bid, rates are "
+                "a touch higher, and credit is mostly calm."
+            ),
+            "medium": (
+                "The active condition is a weak-dollar commodity repricing. DXY "
+                "is lower while USDJPY, crude, and gold are higher; Treasury "
+                "yields are only modestly firmer and BBB credit is quiet."
+            ),
+            "full": (
+                "Professional read: this is a weak-dollar hard-asset bid with "
+                "restrained credit stress. The trigger is a softer DXY alongside "
+                "a firmer USDJPY cross, stronger crude, and stronger gold. "
+                "Transmission reaches rates through a small backup, but BBB "
+                "credit remains anchored, so the scenario is commodity/FX-led "
+                "rather than broad credit deterioration."
+            ),
+        },
+    ),
+    (
+        "rates_tightening_pressure",
+        "Rates tightening pressure",
+        {
+            "short": (
+                "Treasury yields are backing up, the dollar is firm, equities are "
+                "struggling, and volatility is grinding higher."
+            ),
+            "medium": (
+                "The current condition is rates-led tightening pressure. The "
+                "front end and long end are firmer, DXY is supported, equities "
+                "are under duration pressure, and volatility is rising without a "
+                "full credit accident."
+            ),
+            "full": (
+                "Professional read: the market is repricing around higher rates "
+                "and a firmer dollar. Equities are struggling with duration "
+                "pressure, volatility is grinding higher, and credit is fragile "
+                "but not the first mover. The key exposure is growth-sensitive "
+                "equity beta and duration-sensitive carry, not a classic "
+                "safe-haven liquidation."
+            ),
+        },
+    ),
+    (
+        "post_stress_reflation_relief",
+        "Post-stress reflation relief",
+        {
+            "short": (
+                "Equities are rebounding, volatility is compressing, crude is "
+                "firmer, and credit is healing unevenly."
+            ),
+            "medium": (
+                "The tape is post-stress reflation relief. SPX is higher, VIX is "
+                "lower, crude is participating, BBB credit is improving, and "
+                "high-grade spreads remain the main unresolved split."
+            ),
+            "full": (
+                "Professional read: risk appetite is recovering after stress, "
+                "but the confirmation is uneven. Equity beta and volatility "
+                "compression lead the move, crude provides reflation support, "
+                "and BBB spreads improve. The main ambiguity is high-grade "
+                "credit basis pressure, so the condition is relief with a credit "
+                "quality split rather than a clean broad-risk rally."
+            ),
+        },
+    ),
+    (
+        "split_credit_quality_stress",
+        "Split credit-quality stress",
+        {
+            "short": (
+                "BBB credit is widening while high-grade behaves differently; "
+                "risk tone is mixed and the spread signal is the issue."
+            ),
+            "medium": (
+                "The active condition is split credit-quality stress. Lower-"
+                "quality spreads are under pressure, high-grade spreads do not "
+                "confirm in the same direction, and cross-asset risk signals are "
+                "mixed rather than one-way."
+            ),
+            "full": (
+                "Professional read: this is not a simple risk-on or risk-off "
+                "state. The key condition is divergence inside credit quality: "
+                "BBB spreads point to stress while high-grade credit is moving "
+                "differently. Equities, FX, rates, and commodities provide "
+                "partial context, but portfolio sensitivity should be framed "
+                "around credit-quality basis and hedges that assume spread "
+                "cohorts move together."
+            ),
+        },
+    ),
+]
 RECOMMENDED_NARRATIVE_EXAMPLES = [
     (
-        str(item["name"]),
-        CASEBOOK_LABELS.get(
-            str(item["name"]), str(item["name"]).replace("_", " ").title()
-        ),
-        str(item["story"]),
+        f"{family_key}__{length}",
+        f"{family_label} - {length}",
+        narrative,
     )
-    for item in default_casebook_stories()
+    for family_key, family_label, variants in NARRATIVE_EXAMPLE_FAMILIES
+    for length, narrative in variants.items()
 ]
 APP_DEFAULT_STORY = RECOMMENDED_NARRATIVE_EXAMPLES[0][2]
 DEFAULT_AUTH_USER_ENV = "NARRATIVE_DEMO_AUTH_USER"
@@ -421,6 +606,61 @@ CACHED_PREFIX_CASEBOOK_CONFIG = [
         178,
     ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Corpus path safety (contamination gate)
+# ---------------------------------------------------------------------------
+_CONTAMINATED_PATH_FRAGMENTS: tuple[str, ...] = (
+    "episode_card_v3_full_codex_multiformat_982g_sharded",
+    "stride5_fourteen_view_bank_988b",
+    "stride5_14x14_support_audit_990f",
+    "stride5_14x14_retrieval_training_openai_holdout_990a",
+    "stride5_14x14_retrieval_training_openai_holdout_991a_seed",
+    "990f",
+    "991a_seed",
+)
+_CLEAN_CORPUS_PATHS: tuple[str, ...] = (
+    "prefix_latent_support_bank_train_all_939a",
+    "episode_card_v3_codex_multiformat_982g_clean_stride5_20260612",
+    "manifest_bridge_eval_openai_schema_v2_representative_220",
+    "manifest_openai_schema_v2_representative_220",
+)
+
+
+def assert_clean_corpus_paths(*paths: "str | Path | None") -> None:
+    """Raise RuntimeError if any non-None path matches a known-contaminated fragment.
+
+    The joint39 factor-mapping contamination (2026-06-11) affected corpora in
+    the 982g_sharded, 988b, 990f, 990a, and 991a_seed* output directories.
+    Support paths (939a) were regenerated clean and are safe to serve.
+    """
+    for raw_path in paths:
+        if raw_path is None:
+            continue
+        path_str = str(raw_path)
+        for fragment in _CONTAMINATED_PATH_FRAGMENTS:
+            if fragment in path_str:
+                raise RuntimeError(
+                    f"[contamination-gate] BLOCKED: path contains known-contaminated "
+                    f"fragment '{fragment}': {path_str!r}\n"
+                    "The joint39 factor-mapping bug caused USDJPY and AAA_OAS "
+                    "narratives to be generated from the wrong data columns. "
+                    "Repoint to a clean corpus before starting this app."
+                )
+
+
+# Startup check — fires at import time so misconfiguration fails loudly before
+# the Gradio server starts.  Active paths must NOT be from the contaminated
+# 990f/991a_seed chain.  The legacy oracle bridge (manifest_bridge_eval_*) and
+# the 939a support bank are clean.
+assert_clean_corpus_paths(
+    DEFAULT_PREFIX_BRIDGE_REPORT,   # legacy oracle bridge — clean
+    DEFAULT_PREFIX_BRIDGE_ARRAYS,   # legacy oracle arrays — clean
+    DEFAULT_PREFIX_BRIDGE_ADAPTER,  # legacy oracle adapter — clean
+    DEFAULT_PREFIX_SUPPORT_BANK_REPORT,   # 939a — clean
+    DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS,   # 939a — clean
+)
 
 
 def resolve_launch_auth(
@@ -2082,6 +2322,35 @@ def _path_quantile_row_as_raw_level(
     return converted
 
 
+def _baseline_path_quantile_row_as_raw_level(
+    report: dict[str, Any],
+    market: str,
+) -> dict[str, Any]:
+    """Return the start-only baseline fan row for the given market, converted to raw level.
+
+    The baseline is stored at generation["start_only_baseline"]["path_quantiles"]
+    by attach_start_only_baseline_report().  Returns {} if not present.
+    """
+    generation = _as_dict(report.get("generation"))
+    baseline = _as_dict(generation.get("start_only_baseline"))
+    baseline_rows = _as_list(baseline.get("path_quantiles"))
+    requested = str(market or "SPX")
+    # Search for a matching market row (no analogue_scope filter for baseline)
+    baseline_row: dict[str, Any] = {}
+    for candidate in baseline_rows:
+        if isinstance(candidate, dict) and str(candidate.get("market")) == requested:
+            baseline_row = candidate
+            break
+    if not baseline_row:
+        for candidate in baseline_rows:
+            if isinstance(candidate, dict) and str(candidate.get("market")) == "SPX":
+                baseline_row = candidate
+                break
+    if not baseline_row:
+        return {}
+    return _path_quantile_row_as_raw_level(report, baseline_row)
+
+
 def _prepend_start_to_series(
     days: list[float],
     values: list[float],
@@ -2216,6 +2485,47 @@ def fan_chart_figure(
                 name="Realized future",
             )
         )
+    # --- Start-only baseline secondary fan (dashed / translucent) ---
+    # The start-only baseline is stored at generation["start_only_baseline"]["path_quantiles"]
+    # by attach_start_only_baseline_report().  It represents the unconditioned
+    # (narrative-free) fan from the same day-0 start, enabling a visual comparison
+    # of how much the narrative conditioning shifts the distribution.
+    baseline_row = _baseline_path_quantile_row_as_raw_level(report, market)
+    if baseline_row:
+        b_days_raw = _float_series(baseline_row.get("days"))
+        b_start_level = baseline_row.get("start_level")
+        b_p10 = _float_series(baseline_row.get("p10"))
+        b_p50 = _float_series(baseline_row.get("p50"))
+        b_p90 = _float_series(baseline_row.get("p90"))
+        b_days, b_p10 = _prepend_start_to_series(b_days_raw, b_p10, b_start_level)
+        _, b_p50 = _prepend_start_to_series(b_days_raw, b_p50, b_start_level)
+        _, b_p90 = _prepend_start_to_series(b_days_raw, b_p90, b_start_level)
+        if b_days and b_p10 and len(b_p10) == len(b_days):
+            b_band_x = b_days + list(reversed(b_days))
+            b_band_y = b_p90 + list(reversed(b_p10))
+            fig.add_trace(
+                go.Scatter(
+                    x=b_band_x,
+                    y=b_band_y,
+                    fill="toself",
+                    fillcolor="rgba(158, 158, 158, 0.10)",
+                    line={"color": "rgba(158, 158, 158, 0)"},
+                    hoverinfo="skip",
+                    name="Start-only P10-P90 (baseline)",
+                    showlegend=True,
+                )
+            )
+        if b_days and b_p50 and len(b_p50) == len(b_days):
+            fig.add_trace(
+                go.Scatter(
+                    x=b_days,
+                    y=b_p50,
+                    mode="lines",
+                    line={"color": "#9E9E9E", "width": 2, "dash": "dash"},
+                    opacity=0.65,
+                    name="Start-only median (baseline)",
+                )
+            )
     fig.update_layout(
         title=f"{display_name} 30-day scenario fan (raw level)",
         xaxis_title="Forward day",
@@ -3356,8 +3666,8 @@ def build_prefix_latent_run_args(
         grounding_json=None,
         grounding_model="gpt-5.4-mini",
         grounding_max_output_tokens=1200,
-        embedding_model="text-embedding-3-small",
-        bridge_adapter=DEFAULT_BRIDGE_ADAPTER,
+        embedding_model="text-embedding-3-large",
+        bridge_adapter=DEFAULT_PREFIX_BRIDGE_ADAPTER,
         start_reliability_manifest=(
             DEFAULT_PREFIX_START_RELIABILITY_MANIFEST
             if Path(DEFAULT_PREFIX_START_RELIABILITY_MANIFEST).exists()
@@ -3867,7 +4177,8 @@ def build_demo() -> Any:
             "# Narrative-Conditioned Scenario Generator\n"
             "Describe the current market story, choose the day-0 market state, "
             "and generate raw-level 30-day scenario fans from the nearest-similar "
-            "support ensemble.",
+            "support ensemble."
+            + _BRIDGE_DISABLED_NOTE,
             elem_classes=["demo-hero", "demo-shell"],
         )
         story = gr.Textbox(

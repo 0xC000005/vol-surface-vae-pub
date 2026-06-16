@@ -1,6 +1,6 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-06-11
+Last updated: 2026-06-15
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
@@ -10,19 +10,42 @@ diagnostic.
 
 ## 2026-06-11 CONTAMINATION NOTICE — joint39 factor-mapping bug (READ FIRST)
 
+**STATUS: RESOLVED 2026-06-12** — see recovery summary below and verifier report
+`docs/research_protocols/nl_prefix_latent_verifier_reports/2026-06-15_contamination_recovery_and_clean_rebuild.md`.
+Clean 14x14 hard-negative bank rebuild is IN PROGRESS as of 2026-06-15 (not complete).
+No retrieval method is promoted.
+
 Narrative-facing factor extraction mapped AAA_OAS->col36 (NIKKEI) and USDJPY->col29 (COPPER)
 in the untracked support-card builder (`nl_episode_narrative_support_cards.py` MARKETS); fixed
-2026-06-11 ~14:11 EDT (owner Codex session). Verified contaminated TEXT artifacts: 970c/970f/972b
-support banks, the FULL 982g corpus (factor claims for USDJPY/AAA_OAS describe copper/nikkei),
-988b/990a 14+14 corpus, 995a/995c val-frame corpus, demo saved packets, casebook DISPLAYED
-analogue narratives. CLEAN: the production grounding/query lane (name-based factor lookups),
-all numeric machinery and results (734a/739a, 939a, 994a/b harness+oracle, 995b chassis, 995d
-labels, 992b ceiling, start-only baselines). Supersedes any statement below that the 982g
-corpus "remains usable" or that the 14+14 corpus-generation gate is "satisfied": those corpora
-are AUTHORING-ROUTE PROOF ONLY until regenerated with the corrected mapping. Text-method eval
-numbers (984a/episode_text/embedding variants, 990g, 991a/992a, 996a/b, 993a text columns) are
-measurements of contaminated inputs — geometric/structural conclusions stand per the 2026-06-11
-RESEARCH_LOG audit entry; exact numbers require restamping after regeneration.
+2026-06-11 ~14:11 EDT (owner Codex session). Fix committed 2c0aa31d; canonical column map now
+derived at runtime from `data/multi_factor_data.npz` level_columns+25 via
+`nl_joint39_anchor_map.py`, grounding gate `test_nl_joint39_anchor_map_grounding.py` PASSES.
+
+Verified contaminated TEXT artifacts (pre-2026-06-12): 970c/970f/972b support banks; the FULL
+daily 982g corpus (factor claims for USDJPY/AAA_OAS described copper/nikkei); 988b/990a 14+14
+stride-5 corpus; 995a/995c val-frame corpus; demo saved packets; casebook DISPLAYED analogue
+narratives. Text-method eval numbers (984a/episode_text/embedding variants, 990g, 991a/992a,
+996a/b, 993a text columns) are measurements of contaminated inputs — geometric/structural
+conclusions stand per the 2026-06-11 RESEARCH_LOG audit entry; exact numbers require
+restamping after regeneration.
+
+CLEAN artifacts (regenerated 2026-06-12, grounding gate passes):
+- **R1 support cards**: 970c/970f/972b — regenerated clean (commit f018dc38)
+- **R3 val corpus**: 995c — 89 val-frame cards, clean
+- **Clean stride-5 rich narratives**: 982g — 802 cards, clean
+  (`episode_card_v3_codex_multiformat_982g_clean_stride5_20260612/`)
+
+STILL CONTAMINATED until full rebuild completes: 988b/990a 14+14 paired hard-negative bank;
+text_hash_digest `c1586f2f...` in the 990a training manifest points to contaminated 988b cards.
+Clean rebuild RUNNING 2026-06-15:
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_fourteen_view_bank_clean_20260615/`
+(pilot: 2 windows PASS — see verifier report for details).
+
+CLEAN: the production grounding/query lane (name-based factor lookups), all numeric machinery
+and results (734a/739a, 939a, 994a/b harness+oracle, 995b chassis, 995d labels, 992b ceiling,
+start-only baselines). Supersedes any statement below that implies the pre-2026-06-12 982g
+corpus or 14+14 corpus "remains usable": those artifacts are AUTHORING-ROUTE PROOF ONLY and
+are superseded by the clean 2026-06-12 regenerations listed above.
 
 ## Current Contract
 
@@ -55,7 +78,9 @@ narratives linked to incompatible historical memories were actually used.
 
 Current factual state:
 
-- the 982g positive corpus is direct Codex/GPT-authored and remains usable;
+- the 982g positive corpus is direct Codex/GPT-authored; the contaminated daily 4010-card
+  build is SUPERSEDED by the clean stride-5 802-card rebuild (2026-06-12); "remains usable"
+  as written above is stale and no longer applies to the pre-2026-06-12 daily corpus;
 - stored `hard_negative_views` exist, but are short rejection labels;
 - those stored negatives are not yet linked to real incompatible historical
   support windows;
@@ -168,6 +193,21 @@ in-batch-negative training, and no paper/demo claim may state the reported
 bridge was trained with the full explicit hard-negative method until a
 stride-5-trained method passes the downstream backtest gate and an
 independent verifier agrees.
+
+### 2026-06-15 status: clean 14x14 bank rebuild in progress
+
+Owner decision 2026-06-15 ("invest smart"): rebuild the clean 14x14 hard-negative bank ONCE
+from clean 972b support cards, then train an IMPROVED retriever (NV-Retriever false-negative
+filtering + locality-soft/posterior P5 target) AND restamp the old text_space/projected_memory
+results as an honest baseline on clean data. Gate via validation framework v1 + independent
+Codex verifier after retrain. The 992b information-ceiling finding (exact-window retrieval
+objective is information-limited in 128-dim SNI space; oracle adjacent-window rank 208/4010,
+recall@10 0.112) falsifies the exact-window training OBJECTIVE, not retrieval-conditioning in
+general, and motivates the improved target. No retrieval method is promoted. The contaminated
+988b/990a corpus is NOT to be used for any future retrieval training.
+
+Clean rebuild artifact (in progress):
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_fourteen_view_bank_clean_20260615/`
 
 ## Previous Active Objective: Two-Stage Text-Space Narrative Retriever
 
