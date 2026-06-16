@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from experiments.backfill.block_ar.nl_joint39_anchor_map import joint39_anchor_columns
+
 _POS = {"up", "wider"}
 _NEG = {"down", "tighter"}
 
@@ -54,3 +56,50 @@ def analogue_profile(*, window_index, panel, factor_cols, horizon: int = 30) -> 
         delta = float(panel[end, int(col)] - panel[i, int(col)])
         out[factor] = _direction(factor, delta)
     return out
+
+
+# factor -> aliases that may appear in grounding prose
+_ALIASES = {
+    "SPX": ("spx", "equit", "s&p", "stock"), "VIX": ("vix", "volatil"),
+    "USDJPY": ("usdjpy", "yen", "dollar-yen"), "DXY": ("dxy", "dollar index", "the dollar"),
+    "AAA_OAS": ("aaa",), "BBB_OAS": ("bbb", "credit spread", "ig spread"),
+    "US2Y": ("2y", "two-year", "front-end"), "US10Y": ("10y", "ten-year", "long-end", "yield"),
+    "GOLD": ("gold",), "CRUDE_OIL": ("crude", "oil", "wti", "brent"),
+    "COPPER": ("copper",), "WHEAT": ("wheat",), "NIKKEI": ("nikkei",), "USDCAD": ("usdcad", "loonie"),
+}
+_UP_WORDS = ("up", "rise", "rising", "higher", "firm", "surg", "rally", "rebound", "widen", "elevat", "jump", "gain")
+_DOWN_WORDS = ("down", "fall", "falling", "lower", "drop", "selloff", "sell-off", "tighten", "compress", "decline", "weaken")
+
+
+def _emphasis_from_implications(implications: list[str]) -> dict[str, dict[str, Any]]:
+    factors = set(joint39_anchor_columns().keys())
+    out: dict[str, dict[str, Any]] = {}
+    for line in implications:
+        low = str(line).lower()
+        up = any(w in low for w in _UP_WORDS)
+        down = any(w in low for w in _DOWN_WORDS)
+        if up == down:
+            continue  # ambiguous / none
+        for factor, aliases in _ALIASES.items():
+            if factor not in factors:
+                continue
+            if any(a in low for a in aliases):
+                if factor in _OAS_FACTORS:
+                    direction = "wider" if up else "tighter"
+                else:
+                    direction = "up" if up else "down"
+                out.setdefault(factor, {"direction": direction, "salience": 1.0})
+    return out
+
+
+def narrative_emphasis(grounding_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Structured `factor_emphasis` if present; else parse grounding prose; else {} (identity)."""
+    g = grounding_output or {}
+    cog = g.get("condition_only_grounding", g)
+    structured = cog.get("factor_emphasis") or g.get("factor_emphasis")
+    if isinstance(structured, dict) and structured:
+        return {str(k).upper(): {"direction": str(v.get("direction", "")),
+                                 "salience": float(v.get("salience", 1.0))}
+                for k, v in structured.items()}
+    implications = cog.get("current_market_state_implications") or []
+    return _emphasis_from_implications(list(implications))

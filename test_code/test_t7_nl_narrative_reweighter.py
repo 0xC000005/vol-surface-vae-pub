@@ -8,6 +8,7 @@ from experiments.backfill.block_ar.nl_narrative_reweighter import (
     analogue_profile,
     dir_sign,
     match,
+    narrative_emphasis,
 )
 
 
@@ -39,3 +40,20 @@ def test_analogue_profile_directions():
     prof = analogue_profile(window_index=0, panel=panel, factor_cols=cols, horizon=30)
     assert prof["USDJPY"] == "up"
     assert prof["AAA_OAS"] == "tighter"   # OAS spread falling -> tighter
+
+
+def test_emphasis_prose_fallback():
+    grounding = {"condition_only_grounding": {"current_market_state_implications": [
+        "USDJPY is up strongly as the dollar firms",
+        "AAA credit spreads are widening",
+        "equities (SPX) are down",
+    ]}}
+    e = narrative_emphasis(grounding)   # no structured field -> prose parse
+    assert e["USDJPY"]["direction"] == "up"
+    assert e["AAA_OAS"]["direction"] == "wider"
+    assert e["SPX"]["direction"] == "down"
+    assert all(0.0 <= v["salience"] <= 1.0 for v in e.values())
+
+
+def test_emphasis_empty_safe():
+    assert narrative_emphasis({}) == {}   # safe-degrade -> identity reweight
