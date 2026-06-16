@@ -134939,3 +134939,31 @@ pools are provably identical to a #48-fixed retrieval) — no pool regeneration 
 condition: beta=0/no-op remains a legitimate outcome pending the rollout eval.
 
 ---
+
+## $(date +%Y-%m-%d): T7 reweighter — responsiveness PASS but directional steering FAILS (3rd ceiling)
+
+### Context
+T7 = training-free narrative reweighter over the frozen SNI: score += beta*match(emphasis, analogue
+profile) before top3/90. Built (13 unit tests), extended the #48 causal-gap fix to the embedding-bridge
+retrievers, regenerated a clean 66q deck (0/528 gap violations). Question: does it impart narrative
+conditioning?
+
+### Key Findings (clean deck, 734a frozen, field_weight, 48 samples, CRN-by-query)
+- Free gate: beta moves top3/90 selection on 52% of queries; saturates by beta≈0.25.
+- Rollout responsiveness: among movers, terminal shift ≈3.9× reseed-noise floor; fidelity preserved
+  (CRPS median 0.515 unchanged, mean +0.004; coverage 0.714→0.701 within tol). **Responsiveness is
+  near-tautological** (different analogue => different rollout) — establishes "knob live + fidelity-safe".
+- **Directional hit-rate (DECISIVE):** selected-analogue HISTORY matches claims 0.849; generated
+  forward SCENARIO matches claims **0.424 (beta=0) → 0.428 (beta=0.25)**, ≤ chance, **+0.000 on movers.**
+
+### Decision
+T7 reselects direction-matched analogues but the frozen SNI does NOT carry that direction forward;
+beta>0 adds zero directional accuracy. **NOT a conditioning win; selected_beta=0 for steering.** The
+"TILT HELPS/β=0.25" rollout label measured responsiveness only — corrected. Mechanism = generator's
+forward direction decorrelated from the seeding analogue's. THIRD convergent ceiling (risk_context
+probe + T4 + T7): the frozen SNI is insensitive to the conditioning channel; outside-in narrative
+*directional* steering is not achievable on a frozen generator. Falsification class = backend (the
+frozen generator), not method/test. Verifier note: nl_prefix_latent_verifier_reports/2026-06-16_t7_reweighter_directional.md.
+Optional: fix-pool-vary-emphasis (T7.8) to corroborate; expected to confirm divergence-without-steering.
+
+---
