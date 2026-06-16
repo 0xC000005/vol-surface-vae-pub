@@ -1184,6 +1184,7 @@ def main() -> None:
     )
     parser.add_argument("--risk_state_weight", type=float, default=0.0)
     parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
+    parser.add_argument("--risk_state_dim", type=int, default=0)  # >0 instantiates the inert risk_context slot (probe)
     parser.add_argument("--mixed_support_loss_weight", type=float, default=None)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument(
@@ -1246,7 +1247,15 @@ def main() -> None:
     )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    model, payload = load_model(args.checkpoint, device)
+    model, payload = load_model(
+        args.checkpoint,
+        device,
+        cfg_overrides=(
+            {"risk_state_dim": int(args.risk_state_dim)}
+            if int(args.risk_state_dim) > 0
+            else None
+        ),
+    )
     if args.prefix_feature_mode != "checkpoint":
         enable_prefix_feature_mode(model, prefix_feature_mode=args.prefix_feature_mode)
     if args.velocity_mixer_mode != "checkpoint":

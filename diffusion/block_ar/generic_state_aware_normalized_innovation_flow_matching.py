@@ -1312,9 +1312,13 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
 def load_model(
     checkpoint_path: str,
     device: torch.device,
+    cfg_overrides: dict | None = None,
 ) -> tuple[GenericStateAwareNormalizedInnovationFlowMatching, dict]:
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    cfg = GenericStateAwareNormalizedInnovationFMConfig(**payload["config"])
+    config = dict(payload["config"])
+    if cfg_overrides:
+        config.update(cfg_overrides)  # e.g. risk_state_dim>0 to instantiate the inert slot
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(**config)
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
     incompat = model.load_state_dict(payload["model_state_dict"], strict=False)
     allowed_missing = {
@@ -1351,7 +1355,15 @@ def load_model(
         }
     unexpected = set(incompat.unexpected_keys)
     missing = set(incompat.missing_keys)
-    if unexpected or missing.difference(allowed_missing):
+    # Heads newly instantiated via cfg_overrides (risk_state_dim>0 / conditional base-noise)
+    # are expected-missing from a base checkpoint; they initialize fresh (risk_context_proj
+    # is zero-init, so the slot is benign until trained).
+    _new_head_markers = ("risk_state_head", "risk_context_proj", "base_noise_log_scale")
+    residual_missing = {
+        k for k in missing.difference(allowed_missing)
+        if not any(m in k for m in _new_head_markers)
+    }
+    if unexpected or residual_missing:
         raise RuntimeError(
             "checkpoint state dict mismatch: "
             f"missing={sorted(missing)} unexpected={sorted(unexpected)}"
