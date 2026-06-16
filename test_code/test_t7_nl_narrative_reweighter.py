@@ -9,6 +9,7 @@ from experiments.backfill.block_ar.nl_narrative_reweighter import (
     dir_sign,
     match,
     narrative_emphasis,
+    reweight_candidate_scores,
 )
 
 
@@ -86,3 +87,21 @@ def test_emphasis_reads_native_structured_implications():
     # monotonic salience: large > medium > small > 0
     assert e["VIX"]["salience"] > e["SPX"]["salience"] > e["BBB_OAS"]["salience"] > 0.0
     assert "IV_SURFACE" not in e and "DXY" not in e   # non-anchor / non-directional dropped
+
+
+def test_reweight_beta_zero_identity():
+    cands = [{"window_index": 100, "score": 0.5}, {"window_index": 200, "score": 0.4}]
+    e = {"USDJPY": {"direction": "up", "salience": 1.0}}
+    profiles = {100: {"USDJPY": "up"}, 200: {"USDJPY": "down"}}
+    out = reweight_candidate_scores(cands, e, profiles, beta=0.0)
+    assert [c["score"] for c in out] == [0.5, 0.4]   # unchanged
+
+
+def test_reweight_upweights_match():
+    cands = [{"window_index": 100, "score": 0.5}, {"window_index": 200, "score": 0.5}]
+    e = {"USDJPY": {"direction": "up", "salience": 1.0}}
+    profiles = {100: {"USDJPY": "up"}, 200: {"USDJPY": "down"}}
+    out = reweight_candidate_scores(cands, e, profiles, beta=1.0)
+    by_w = {c["window_index"]: c["score"] for c in out}
+    assert by_w[100] > 0.5 and by_w[200] < 0.5   # matching up, opposing down
+    assert cands[0]["score"] == 0.5              # inputs not mutated

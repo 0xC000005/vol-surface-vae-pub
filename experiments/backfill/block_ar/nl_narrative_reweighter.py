@@ -7,6 +7,7 @@ docs/research_protocols/nl-prefix-latent-t7-narrative-reweighter-intake.md.
 """
 from __future__ import annotations
 
+import copy
 from functools import lru_cache
 from typing import Any
 
@@ -163,3 +164,19 @@ def narrative_emphasis(grounding_output: dict[str, Any]) -> dict[str, dict[str, 
     if any(isinstance(it, dict) and "market" in it for it in implications):
         return _emphasis_from_structured(implications)
     return _emphasis_from_implications([str(x) for x in implications])
+
+
+def reweight_candidate_scores(candidates, emphasis, profiles_by_window, beta: float):
+    """Return copies of candidates with score += beta*match(emphasis, analogue_profile).
+    beta=0 -> exact no-op. Records the additive tilt for transparency."""
+    b = float(beta)
+    out = []
+    for cand in candidates:
+        row = copy.deepcopy(cand)
+        prof = profiles_by_window.get(int(cand["window_index"]), {})
+        m = match(emphasis, prof)
+        row["t7_match"] = float(m)
+        row["t7_tilt"] = float(b * m)
+        row["score"] = float(cand["score"]) + b * m
+        out.append(row)
+    return out
