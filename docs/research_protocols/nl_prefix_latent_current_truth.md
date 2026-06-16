@@ -45,8 +45,12 @@ scripts `nl_t7_select_beta.py` / `nl_t7_beta_sensitivity_gate.py` / `nl_t7_direc
 
 **STATUS: RESOLVED 2026-06-12** — see recovery summary below and verifier report
 `docs/research_protocols/nl_prefix_latent_verifier_reports/2026-06-15_contamination_recovery_and_clean_rebuild.md`.
-Clean 14x14 hard-negative bank rebuild is IN PROGRESS as of 2026-06-15 (not complete).
-No retrieval method is promoted.
+Clean 14x14 hard-negative bank rebuild COMPLETE 2026-06-15 (802/802 pass, status=pass on disk;
+the earlier "IN PROGRESS" note was stale — verified 2026-06-16). No retrieval method is promoted;
+the clean-restamp 14x14 trained bridges (both/projected_memory seed0-2) FAIL the fit gate
+(recall@10 ~0.007 vs 0.10), reproducing the 992b information ceiling on CLEAN data. The improved
+NV-Retriever objective is PENDING (not trained). The demo's wireable clean backend = the
+training-free 939a numeric support-bank top3/90 (already its live default).
 
 Narrative-facing factor extraction mapped AAA_OAS->col36 (NIKKEI) and USDJPY->col29 (COPPER)
 in the untracked support-card builder (`nl_episode_narrative_support_cards.py` MARKETS); fixed
@@ -70,9 +74,10 @@ CLEAN artifacts (regenerated 2026-06-12, grounding gate passes):
 
 STILL CONTAMINATED until full rebuild completes: 988b/990a 14+14 paired hard-negative bank;
 text_hash_digest `c1586f2f...` in the 990a training manifest points to contaminated 988b cards.
-Clean rebuild RUNNING 2026-06-15:
-`experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_fourteen_view_bank_clean_20260615/`
-(pilot: 2 windows PASS — see verifier report for details).
+Clean rebuild COMPLETE 2026-06-15 (verified 2026-06-16: status=pass, 802/802):
+`experiments/backfill/block_ar/nl_scenario_demo_outputs/stride5_fourteen_view_bank_clean_20260615/`.
+This bank is the prerequisite corpus for FUTURE retriever training; the clean-restamp bridges
+trained on it already failed the fit gate (see 2026-06-16 entry above).
 
 CLEAN: the production grounding/query lane (name-based factor lookups), all numeric machinery
 and results (734a/739a, 939a, 994a/b harness+oracle, 995b chassis, 995d labels, 992b ceiling,

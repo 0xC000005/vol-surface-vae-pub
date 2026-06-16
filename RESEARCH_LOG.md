@@ -134906,7 +134906,7 @@ Resolved the 2026-06-11 joint39 factor-mapping contamination (AAA_OAS read col36
 - LESSONS: (a) NEVER change --batch-size between resume runs — skip-existing keys on the batch-grouped output filename; a batch-size-1 backfill mismatched the batch-size-2 cache, re-authored from 0, timed out mid-way, and overwrote the jsonl 788->635 (recovered by re-running batch-size 2, which reloads cached batches). (b) run-multiformat reuses an existing pipeline report; a stale 5-bundle dry-run report caused a 5-card no-op (build/verify the report bundle count before authoring). (c) prepare --max-cases defaults to 10.
 - Numeric spine was always clean (734a/739a, 994a/994b oracle, 939a bank, 992b ceiling). Old contaminated text corpora (982g_sharded stride-1, 988b 14+14) are superseded; any retrieval-lane text-method numbers (984a/990g/etc.) need restamping if that lane resumes.
 
-## $(date +%Y-%m-%d): T7 reweighter — free necessary-condition gate PASSES (not a structural no-op)
+## 2026-06-16: T7 reweighter — free necessary-condition gate PASSES (not a structural no-op)
 
 ### Context
 T7 = training-free narrative-conditioned reweighter: `score += beta*match(emphasis, analogue_profile)`
@@ -134940,7 +134940,7 @@ condition: beta=0/no-op remains a legitimate outcome pending the rollout eval.
 
 ---
 
-## $(date +%Y-%m-%d): T7 reweighter — responsiveness PASS but directional steering FAILS (3rd ceiling)
+## 2026-06-16: T7 reweighter — responsiveness PASS but directional steering FAILS (3rd ceiling)
 
 ### Context
 T7 = training-free narrative reweighter over the frozen SNI: score += beta*match(emphasis, analogue
@@ -134968,7 +134968,7 @@ Optional: fix-pool-vary-emphasis (T7.8) to corroborate; expected to confirm dive
 
 ---
 
-## $(date +%Y-%m-%d): T7.8 fix-pool-vary-emphasis — separation YES, steering NO (corroborates washout)
+## 2026-06-16: T7.8 fix-pool-vary-emphasis — separation YES, steering NO (corroborates washout)
 
 ### Context
 Advisor's clean conditionality test: hold pool+start FIXED, vary the narrative emphasis. 12 host
