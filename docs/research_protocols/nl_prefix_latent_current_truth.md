@@ -1,11 +1,44 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
 this file states which claims are currently promoted and which are still only
 diagnostic.
+
+
+## 2026-06-16 — T7 reweighter: distinguishable but NOT steered; conditioning ceiling ACCEPTED (parked)
+
+Built T7, a training-free narrative reweighter `score += beta * match(narrative_emphasis,
+analogue_factor_profile)` applied before `_apply_top3_90` over the frozen joint39 SNI (beta=0 exact
+no-op; 13 unit tests). Extended the #48 causal-gap fix to the embedding-bridge retrievers (they used
+mutual-diversity-only filtering) and regenerated a clean 66-query deck
+(`..._embedding_grounded_top3_90_66q_clean48/`, 0/528 causal-gap violations). Findings (frozen 734a,
+field_weight, 48 samples, CRN-by-query):
+
+- Responsiveness is near-tautological (a different analogue trivially gives a different rollout) and
+  fidelity-neutral (CRPS median 0.515 unchanged, coverage 0.714->0.701). Not evidence of conditioning.
+- **Directional steering — DECISIVE NEGATIVE.** Selected-analogue HISTORY matches narrative claims
+  **0.849**, but the generated forward SCENARIO matches only **0.428 (<=chance)**; beta=0.25 vs beta=0
+  is **+0.000** on movers. Fix-pool-vary-emphasis (12 pools x 4 contrasting synthetic emphases):
+  cross-emphasis separation **3.46** (~5x reseed noise) = scenarios ARE distinguishable, but
+  directional hit-rate **0.544** vs 0.467 control vs 0.5 chance (n=180, SE~0.037 -> not significant).
+- **Root cause:** the frozen SNI washes out the seed analogue's direction (history 0.849 -> forward
+  ~chance). This is the THIRD convergent ceiling alongside the risk_context oracle-injection probe
+  (generator insensitive to injected conditioning) and the T4 retriever fit-ceiling.
+
+**Conclusion (owner-accepted 2026-06-16): outside-in narrative *directional* steering is not
+achievable on the frozen generator.** "Weak conditionality" = separation-without-directional-control;
+prior `conditionality_lift_detected` results were measuring separation, not steering. **No method
+promoted; start-only remains the absolute-fidelity leader.** T7 retains demo value (distinguishable,
+fidelity-safe scenarios) but is **beta=0 for steering**. The conditionable-generator pivot (retrain
+the SNI with a conditioning channel that propagates forward) is **PARKED, not killed** — owner accepts
+the ceiling "for now"; the probe warns even injected conditioning is washed out, so it is an
+architectural research question, not a tuning fix. Evidence:
+`nl_prefix_latent_verifier_reports/2026-06-16_t7_reweighter_directional.md` (+ `_riskslot_oracle_probe.md`);
+scripts `nl_t7_select_beta.py` / `nl_t7_beta_sensitivity_gate.py` / `nl_t7_directional_hitrate.py` /
+`nl_t7_fixpool_conditionality.py`. No independent verifier was run (no promotion / default change).
 
 
 ## 2026-06-11 CONTAMINATION NOTICE — joint39 factor-mapping bug (READ FIRST)
