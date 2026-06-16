@@ -185,3 +185,17 @@ def reweight_candidate_scores(candidates, emphasis, profiles_by_window, beta: fl
 def reweight_pool(candidates, *, emphasis, profiles_by_window, beta: float):
     """Narrative-tilt a retrieved pool, ready for _apply_top3_90. beta=0 -> identity."""
     return reweight_candidate_scores(candidates, emphasis, profiles_by_window, beta)
+
+
+@lru_cache(maxsize=1)
+def joint39_factor_cols(data_path: str = "data/multi_factor_data.npz") -> dict[str, int]:
+    """factor name -> data column index in multi_factor_data.npz `levels` (NOT joint39 +25).
+
+    analogue_profile reads factor moves off the raw 14-wide `levels` panel, so it needs the
+    data-column index, unlike joint39_anchor_columns() which offsets by 25 IV cells.
+    """
+    import numpy as np
+
+    d = np.load(data_path, allow_pickle=True)
+    cols = [str(c).upper() for c in d["level_columns"]]
+    return {c: i for i, c in enumerate(cols)}

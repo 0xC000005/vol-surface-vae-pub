@@ -8,6 +8,7 @@ from experiments.backfill.block_ar.nl_14x14_support_audit import _apply_top3_90
 from experiments.backfill.block_ar.nl_narrative_reweighter import (
     analogue_profile,
     dir_sign,
+    joint39_factor_cols,
     match,
     narrative_emphasis,
     reweight_candidate_scores,
@@ -118,3 +119,8 @@ def test_reweight_pool_beta_zero_matches_top3_90():
     t7_sel, _ = _apply_top3_90(tilted)
     assert [c["window_index"] for c in base_sel] == [c["window_index"] for c in t7_sel]
     assert [round(c["weight"], 6) for c in base_sel] == [round(c["weight"], 6) for c in t7_sel]
+
+
+def test_joint39_factor_cols():
+    cols = joint39_factor_cols()
+    assert cols["USDJPY"] == 2 and cols["AAA_OAS"] == 9   # data-col indices (not +25)
