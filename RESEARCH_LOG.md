@@ -134967,3 +134967,30 @@ frozen generator), not method/test. Verifier note: nl_prefix_latent_verifier_rep
 Optional: fix-pool-vary-emphasis (T7.8) to corroborate; expected to confirm divergence-without-steering.
 
 ---
+
+## $(date +%Y-%m-%d): T7.8 fix-pool-vary-emphasis — separation YES, steering NO (corroborates washout)
+
+### Context
+Advisor's clean conditionality test: hold pool+start FIXED, vary the narrative emphasis. 12 host
+pools × 4 contrasting synthetic emphases (risk_off/risk_on/rates_up/usd_up), beta=0 control vs 0.25,
+frozen 734a, 48 samples, CRN (`nl_t7_fixpool_conditionality.py`).
+
+### Key Findings
+| beta | cross-emphasis separation | directional hit-rate (n=180, chance 0.5) |
+|---|---|---|
+| 0 | 0.000 (control) | 0.467 |
+| 0.25 | 3.460 (~5× the 0.64 reseed floor) | 0.544 |
+- SEPARATION: YES — different narratives -> distinguishable scenarios, well above noise.
+- STEERING: NO — 0.544 vs 0.467 control vs 0.5 chance; SE≈0.037 (n=180) so +0.044/+0.077 are ~1.2-1.5
+  SE, not significant. Faint trace at best.
+
+### Decision
+Corroborates the matched-episode directional finding. Precise conclusion: T7 yields
+**distinguishable-but-not-directionally-steered** scenarios. "Weak conditionality" = separation
+without directional control; root cause = frozen SNI washes out the seed analogue's direction
+(history 0.849 -> forward ≈chance). Prior "conditionality_lift_detected" measured this separation,
+not steering. NO method promoted; start-only remains the absolute-fidelity leader; T7 stays β=0 for
+steering but has demo-distinguishability value. Next: independent Codex verification of the ceiling
+finding, then record in current_truth + decide the conditionable-generator pivot.
+
+---

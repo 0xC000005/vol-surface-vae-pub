@@ -49,6 +49,24 @@ outside; it would require a generator actually sensitive to the conditioning cha
   given Δ≈0 here, it is expected to confirm divergence-without-steering. Layer the same directional
   check on it (do not score raw cross-narrative divergence — that is also tautological).
 
+## Corroboration: fix-pool-vary-emphasis (T7.8, 2026-06-16)
+Held 12 host pools FIXED, applied 4 contrasting SYNTHETIC emphases (risk_off / risk_on / rates_up
+/ usd_up), reweight->top3/90->rollout each (`nl_t7_fixpool_conditionality.py`, 48 samples, CRN).
+
+| beta | cross-emphasis separation | directional hit-rate (n=180) |
+|---|---|---|
+| 0 (control, emphasis ignored) | 0.000 | 0.467 |
+| 0.25 | 3.460 (~5× the 0.64 reseed-noise floor) | 0.544 |
+
+- **Separation: YES** — different narratives produce distinguishable scenarios well above noise.
+- **Directional steering: NO (within noise)** — hit-rate 0.544 vs 0.467 control vs 0.5 chance;
+  SE≈0.037 at n=180, so +0.044 over chance (~1.2 SE) and the beta-effect +0.077 (~1.5 SE) are not
+  significant. A faint trace at best (synthetic emphases are cleaner than natural ones).
+
+**Refined conclusion:** T7 yields distinguishable-but-not-directionally-steered scenarios. "Weak
+conditionality" = separation without directional control, root-caused to generator washout. The
+prior "conditionality_lift_detected" reports were measuring this separation, not steering.
+
 ## Artifacts
 - `nl_t7_select_beta.py`, `nl_t7_beta_sensitivity_gate.py`, `nl_t7_directional_hitrate.py`
 - `nl_scenario_demo_outputs/nl_t7_beta_sweep_20260616/beta_sweep_report.json`
