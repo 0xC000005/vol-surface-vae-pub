@@ -52,9 +52,9 @@ Methodology:
 
   5. Interpret using chance baseline:
      - Chance rank-median ~190 in pool=380.
-     - If Procrustes is marginally above chance and trained adapter is BELOW chance,
-       the signal is space-limited (not bridge-architecture-limited), and contrastive
-       training has already been tried and degraded a linear baseline.
+     - Corrected (n=66, bug fix): both Procrustes (~178) and adapter (~175) are near-chance.
+       Corrected verdict: NEAR-CHANCE for all methods (not "below chance").
+     - The signal is space-limited (not bridge-architecture-limited).
 
 Schema: nl_retrieval_probe_2_procrustes_linear_bridge_v1
 """
@@ -214,7 +214,10 @@ def main() -> int:
 
     # ── Build TEST queries via heldout_examples ───────────────────────────────
     # heldout_examples: 285 entries (4.3 per window), each has embedding_index, window_index, kind
-    # Group by window_index (pool position), collect embedding_indices
+    # IMPORTANT: window_index in heldout_examples IS the pool position (range 314..379),
+    # matching test_indices from bridge_eval_arrays.npz exactly.
+    # DO NOT remap through window_metadata — that would treat pool positions as global
+    # window IDs and drop 30/66 windows while corrupting ground-truth positions.
     from collections import defaultdict
     test_window_to_emb_indices: dict[int, list[int]] = defaultdict(list)
     for ex in heldout_examples:
@@ -224,17 +227,16 @@ def main() -> int:
     X_test_list = []  # mean text embeddings
     Y_test_gt_pool_positions = []  # pool positions (for gallery lookup)
     test_windows_used = []
-    # Map global_window_index -> pool_position
-    gidx_to_pool_pos = {wm_widx[i]: i for i in range(len(wm_widx))}
 
-    for gidx, emb_idxs in sorted(test_window_to_emb_indices.items()):
-        pool_pos = gidx_to_pool_pos.get(gidx)
-        if pool_pos is None:
+    for pool_pos, emb_idxs in sorted(test_window_to_emb_indices.items()):
+        # pool_pos IS the gallery index directly — verify it is within range
+        if pool_pos < 0 or pool_pos >= memory_pool.shape[0]:
+            print(f"  WARNING: pool_pos={pool_pos} out of range [0,{memory_pool.shape[0]}), skipping")
             continue
         mean_text = text_emb[emb_idxs].mean(axis=0)
         X_test_list.append(mean_text)
         Y_test_gt_pool_positions.append(pool_pos)
-        test_windows_used.append(gidx)
+        test_windows_used.append(pool_pos)
 
     X_test = np.array(X_test_list, dtype=np.float32)           # (n_te, 1536)
     gt_pool_pos = np.array(Y_test_gt_pool_positions, dtype=np.int64)
@@ -248,9 +250,9 @@ def main() -> int:
         window_to_ranks[ex["window_index"]].append(ex["true_rank_full_pool"])
     # Per-window mean rank (averaging over text view kinds)
     adapter_ranks = []
-    for gidx in test_windows_used:
-        if gidx in window_to_ranks:
-            adapter_ranks.append(np.mean(window_to_ranks[gidx]))
+    for pool_pos in test_windows_used:
+        if pool_pos in window_to_ranks:
+            adapter_ranks.append(np.mean(window_to_ranks[pool_pos]))
 
     adapter_rank_median = float(np.median(adapter_ranks)) if adapter_ranks else float("nan")
     adapter_recall_at_10 = float(np.mean([r <= 10 for r in adapter_ranks])) if adapter_ranks else float("nan")
@@ -293,9 +295,9 @@ def main() -> int:
     for ex in heldout_examples:
         window_to_cond[ex["window_index"]].append(cond_vecs[ex["embedding_index"]])
     cond_test = []
-    for gidx in test_windows_used:
-        if gidx in window_to_cond:
-            cond_test.append(np.mean(window_to_cond[gidx], axis=0))
+    for pool_pos in test_windows_used:
+        if pool_pos in window_to_cond:
+            cond_test.append(np.mean(window_to_cond[pool_pos], axis=0))
     if cond_test:
         cond_test_mat = _normalize_rows(np.array(cond_test, dtype=np.float32))
         stats_cond = _retrieval_stats(cond_test_mat, gallery_norm, gt_pool_pos)
@@ -323,10 +325,9 @@ def main() -> int:
     # - 992b oracle ceiling (rank-median=208, recall@10=0.111) is measured on pool=4010,
     #   NOT pool=380.  The two numbers are NOT comparable — they measure different problems.
     #   Do NOT cross-compare rank-medians across pool sizes.
-    # - In pool=380, chance rank-median is ~190.  Procrustes ~162 is marginal above chance.
-    #   The trained 906b adapter ~254 is BELOW chance (worse than random ranking).
-    # - Recall@10 = 0/36 means the model never ranked the true target in the top 10 of 380.
-    #   That is consistent with near-random performance in this pool.
+    # - In pool=380, chance rank-median is ~190.5.  Procrustes and adapter are both near-chance.
+    #   Corrected (n=66): Procrustes ~178, adapter ~175, both near chance.
+    # - recall@10 is low but non-zero; all methods are near-chance on this pool.
     procrustes_above_chance = best_linear_rank < chance_rank_median - 10
     adapter_below_chance = adapter_rank > chance_rank_median + 10
     procrustes_beats_adapter_by_rank = best_linear_rank < adapter_rank - 20
@@ -336,8 +337,8 @@ def main() -> int:
             f"TEXT->MEMORY RETRIEVAL IS NEAR-CHANCE ON HELD-OUT WINDOWS (pool={pool_size}): "
             f"chance rank-median={chance_rank_median:.0f}. "
             f"Procrustes rank-median={best_linear_rank:.0f} (marginally above chance); "
-            f"trained 906b adapter rank-median={adapter_rank:.1f} (BELOW chance, worse than random). "
-            f"recall@10=0/{len(X_test)} (0.0) for all methods. "
+            f"trained 906b adapter rank-median={adapter_rank:.1f} (below chance, worse than random). "
+            f"best recall@10={best_linear_recall:.4f} (n={len(X_test)}). "
             "The trained contrastive adapter underperforms even a training-free linear map, "
             "indicating the training setup degraded retrieval quality. "
             "The root cause is the signal/space limit: the text-embedding space and SNI memory "
@@ -356,7 +357,7 @@ def main() -> int:
             f"PROCRUSTES BEATS TRAINED ADAPTER on rank-median: "
             f"{best_linear_rank:.0f} vs {adapter_rank:.1f} (pool={pool_size}, "
             f"chance={chance_rank_median:.0f}). "
-            f"recall@10=0/{len(X_test)} for both methods. "
+            f"best recall@10={best_linear_recall:.4f} (n={len(X_test)}). "
             "The contrastive adapter underperforms a linear map; training setup is the issue."
         )
         recommendation = (
@@ -368,7 +369,7 @@ def main() -> int:
         verdict = (
             f"TRAINED ADAPTER MATCHES OR BEATS LINEAR MAP: adapter rank-median={adapter_rank:.1f} "
             f"vs Procrustes={best_linear_rank:.0f} (pool={pool_size}, chance={chance_rank_median:.0f}). "
-            f"recall@10=0/{len(X_test)} for both. "
+            f"best recall@10={best_linear_recall:.4f} (n={len(X_test)}). "
             "Both are near-chance in this pool size, suggesting the signal limit is the space."
         )
         recommendation = (
@@ -425,9 +426,10 @@ def main() -> int:
         "recommendation": recommendation,
         "statistical_note": (
             f"n_test={len(X_test)} queries, pool_size={pool_size}. "
-            f"recall@10=0/{len(X_test)}: both Procrustes and adapter failed to rank true "
-            f"target in top-10 of {pool_size}. Chance rank-median = {chance_rank_median:.0f}. "
-            "Procrustes marginally above chance; adapter below chance. "
+            f"Chance rank-median = {chance_rank_median:.0f}. "
+            f"best Procrustes recall@10={best_linear_recall:.4f}, rank-median={best_linear_rank:.1f}. "
+            f"adapter recall@10={adapter_recall_at_10:.4f}, rank-median={adapter_rank:.1f}. "
+            "Both methods are near-chance on this pool. "
             "rank_median is the primary discriminator at this sample size. "
             "992b oracle ceiling (rank-median=208) was measured on pool=4010 — "
             "NOT comparable to this probe's pool=380."
