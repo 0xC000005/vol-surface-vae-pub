@@ -109,50 +109,33 @@ DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS = (
     "prefix_latent_support_bank_train_all_939a/support_bank_arrays.npz"
 )
 # ---------------------------------------------------------------------------
-# PREFIX-LATENT BRIDGE — CONTAMINATION HOLD (2026-06-15)
+# RETRIEVAL QUERY BRIDGE — clean legacy-oracle backend (verified 2026-06-16)
 # ---------------------------------------------------------------------------
-# The 990f bridge report and 991a_seed1 bridge arrays/adapter were trained on
-# episode cards from the contaminated 982g corpus (joint39 factor-mapping bug:
-# USDJPY→col 29, AAA_OAS→col 36 instead of canonical 27/34 per
-# experiments/backfill/block_ar/nl_joint39_anchor_map.py).  Serving bridge-
-# conditioned text from these artifacts would silently propagate wrong
-# factor-direction narratives into the demo.
+# The 14x14 projected-memory bridge (990f/991a_seed1) was trained on the contaminated 982g
+# corpus (joint39 factor-mapping bug: USDJPY→col 29, AAA_OAS→col 36 instead of canonical 27/34
+# per nl_joint39_anchor_map.py) and is NOT used. Crucially, the clean-restamp 14x14 bridge —
+# retrained on the CLEAN bank (stride5_14x14_retrieval_training_clean_restamp_20260615) — was
+# tried and FAILED its fit gate (heldout recall@10 ~0.007 vs 0.10; the 992b exact-window
+# information ceiling, reproduced on clean data). So there is no trained text bridge that beats
+# the default; this is not an "interim hold pending retrain" — the retrain was done and lost.
 #
-# INTERIM: bridge is DISABLED.  The demo falls back to the clean 939a support-
-# bank path (support_bank_report + support_bank_arrays), which was regenerated
-# with the correct canonical map and remains the promoted default (top3/90
-# nearest-similar ensemble).  Scenario generation and fan charts are FULLY
-# operational from the 939a path; only the prefix-latent bridge conditioning
-# step is bypassed.
-#
-# UX impact: run_prefix_latent_story_smoke will detect missing bridge files
-# and skip the prefix-embedding step, falling back to support-only retrieval
-# (equivalent to the start-only baseline in CRPS terms).  The UI note below
-# surfaces this to the user.
-#
-# TODO: replace with a retrained bridge once the 14x14 corpus has been
-# re-generated from the clean stride-5 cards (939a/clean_stride5_20260612)
-# and a new bridge has been trained on that clean corpus.  Update
-# DEFAULT_PREFIX_BRIDGE_REPORT, DEFAULT_PREFIX_BRIDGE_ARRAYS, and
-# DEFAULT_PREFIX_BRIDGE_ADAPTER to point at the new artifacts.
-# ---------------------------------------------------------------------------
-# Interim: fall back to the legacy oracle-era bridge (pre-contamination, built on
-# val/test window embeddings from the original manifest_openai_schema_v2_representative_220
-# pipeline — these do NOT carry any episode-card text from the contaminated 982g corpus).
-# The legacy bridge's retrieval score will differ from the 14x14 bridge, but the TEXT
-# served by the demo comes from the 939a support-bank cards (clean); the bridge only
-# provides the condition embedding used for retrieval scoring.
+# CLEAN BACKEND IN USE: the legacy oracle-era query bridge
+# (manifest_bridge_eval_openai_schema_v2_representative_220, 1536→128, built from val/test window
+# embeddings via the 734a encoder — it carries NO contaminated episode-card text). It projects the
+# user's narrative embedding into the 734a 128-d space; retrieval + scenario generation then run
+# over the clean 939a numeric support bank (top3/90 nearest-similar). This IS narrative-conditioned
+# (the query reflects the user's narrative) — it is NOT a start-only fallback. Both the query bridge
+# and the 939a targets are 734a-encoded and clean; the contamination affected only TEXT authoring,
+# not the numeric encoder outputs used for retrieval.
 DEFAULT_PREFIX_BRIDGE_REPORT: str = _LEGACY_PREFIX_BRIDGE_REPORT  # legacy clean oracle bridge
 DEFAULT_PREFIX_BRIDGE_ARRAYS: str = _LEGACY_PREFIX_BRIDGE_ARRAYS  # legacy clean oracle arrays
 DEFAULT_PREFIX_BRIDGE_ADAPTER: str = DEFAULT_BRIDGE_ADAPTER  # legacy oracle adapter (embedding_dim=1536, condition_dim=128) — coherent with legacy report/arrays above; was 991a_seed1 (CONTAMINATED)
 _BRIDGE_DISABLED_NOTE = (
-    "\n\n> **Note (2026-06-15):** The 14×14 prefix-latent bridge is temporarily "
-    "disabled — it was trained on contaminated episode-card text (joint39 factor-"
-    "mapping bug: USDJPY→col 29, AAA_OAS→col 36 instead of canonical 27/34). "
-    "Retrieval falls back to the legacy oracle-era bridge (pre-contamination). "
-    "Scenario generation and fan charts remain fully operational via the clean "
-    "939a support-bank path. A clean 14×14 bridge will replace this after the "
-    "corpus retrain."
+    "\n\n> **Note:** Retrieval uses the validated clean backend — your narrative is projected "
+    "into the generator's state space and matched to clean historical support regimes "
+    "(top3/90 nearest-similar over the 939a bank). The experimental 14×14 text bridge is not "
+    "used: it did not improve on this backend. Scenario generation and fan charts are fully "
+    "operational."
 )
 DEFAULT_PREFIX_ROLLOUT_TEMPERATURE = 0.5
 DEFAULT_PREFIX_ROLLOUT_FAN_SCALE = 3.5
