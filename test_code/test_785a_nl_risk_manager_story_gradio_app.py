@@ -611,6 +611,19 @@ def test_build_prefix_latent_run_args_uses_clean_legacy_oracle_backend() -> None
     assert args.embedding_model == "text-embedding-3-small"
 
 
+def test_bridge_adapter_rejects_wrong_embedding_dim() -> None:
+    # A 3072-d embedding fed into the 1536-d legacy adapter must fail loudly, not silently.
+    import numpy as np
+    import pytest
+    import torch
+
+    adapter = _load_bridge_adapter(
+        DEFAULT_PREFIX_BRIDGE_ADAPTER, embedding_dim=1536, condition_dim=128
+    )
+    with pytest.raises((RuntimeError, ValueError)):
+        adapter(torch.tensor(np.zeros((1, 3072), dtype="float32")))
+
+
 def test_table_formatters_expose_demo_evidence() -> None:
     report = _report()
     prefix_report = _prefix_report()
