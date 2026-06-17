@@ -10,6 +10,9 @@ sys.path.insert(0, ".")
 
 from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     APP_CSS,
+    DEFAULT_PREFIX_BRIDGE_ADAPTER,
+    DEFAULT_PREFIX_BRIDGE_ARRAYS,
+    DEFAULT_PREFIX_BRIDGE_REPORT,
     DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS,
     DEFAULT_PREFIX_SUPPORT_BANK_REPORT,
     DEFAULT_STORY,
@@ -67,6 +70,9 @@ from experiments.backfill.block_ar.nl_prefix_latent_temporal_grounding_testfligh
 )
 from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     _allocate_weighted_sample_counts,
+)
+from experiments.backfill.block_ar.nl_risk_manager_story_smoke import (
+    _load_bridge_adapter,
 )
 
 
@@ -555,14 +561,54 @@ def test_recommended_narrative_examples_fill_story_without_cached_casebook() -> 
     labels = [label for label, _value in choices]
 
     assert labels[0] == "Type my own narrative"
-    assert "Defensive risk-off shock" in labels
-    assert "Safe-haven gold bid" in labels
+    assert "Dollar squeeze/liquidation - short" in labels
+    assert "Dollar squeeze/liquidation - full" in labels
+    assert "Safe-haven risk-off - short" in labels
     assert recommended_narrative_text("", "my custom story") == "my custom story"
-    selected = recommended_narrative_text("dollar_liquidity_squeeze", "")
-    assert "Dollar liquidity squeeze" in selected
-    assert "Mechanical summary:" in selected
-    assert "No-forecast caveat:" in selected
+    selected = recommended_narrative_text("dollar_squeeze_liquidation__full", "")
+    assert "dollar" in selected.lower()
+    assert "liquidation" in selected.lower()
+    assert "Mechanical summary:" not in selected
+    assert "No-forecast caveat:" not in selected
     assert "will" not in selected.lower()
+
+
+def test_projected_memory_bridge_loader_reads_checkpoint_hidden_dim() -> None:
+    checkpoint = Path(
+        "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+        "stride5_14x14_retrieval_training_openai_holdout_991a_seed1/"
+        "projected_memory/projected_memory_bridge_best.pt"
+    )
+
+    adapter = _load_bridge_adapter(
+        checkpoint,
+        embedding_dim=3072,
+        condition_dim=128,
+    )
+
+    assert adapter.net[1].weight.shape == (256, 3072)
+    assert adapter.net[3].weight.shape == (128, 256)
+
+
+def test_build_prefix_latent_run_args_uses_clean_legacy_oracle_backend() -> None:
+    args = build_prefix_latent_run_args(
+        start_mode="explicit_start_window",
+        samples=12,
+        live_story=True,
+        story="Dollar squeeze with oil and gold liquidation.",
+    )
+
+    # Contamination hold: the 14x14 projected-memory bridge (991a, trained on contaminated 982g)
+    # is NOT used. The demo uses the clean legacy-oracle query bridge (1536->128); the clean-restamp
+    # 14x14 retrain failed its fit gate (992b ceiling), so nothing beats this backend.
+    assert args.bridge_report == DEFAULT_PREFIX_BRIDGE_REPORT
+    assert "manifest_bridge_eval_openai_schema_v2_representative_220" in args.bridge_report
+    assert "projected_memory_14x14" not in args.bridge_report
+    assert args.bridge_arrays == DEFAULT_PREFIX_BRIDGE_ARRAYS
+    assert "991a_seed1" not in args.bridge_arrays
+    assert args.bridge_adapter == DEFAULT_PREFIX_BRIDGE_ADAPTER
+    # embedding model must match the 1536-d legacy adapter (NOT 3072-d text-embedding-3-large)
+    assert args.embedding_model == "text-embedding-3-small"
 
 
 def test_table_formatters_expose_demo_evidence() -> None:

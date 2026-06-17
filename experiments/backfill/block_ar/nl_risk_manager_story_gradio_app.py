@@ -3666,7 +3666,10 @@ def build_prefix_latent_run_args(
         grounding_json=None,
         grounding_model="gpt-5.4-mini",
         grounding_max_output_tokens=1200,
-        embedding_model="text-embedding-3-large",
+        # Legacy-oracle bridge adapter is 1536-d (text-embedding-3-small). Do NOT use
+        # text-embedding-3-large (3072-d) — it would dim-mismatch the adapter. The 14x14 bridge
+        # that used 3072-d is on contamination hold and failed its fit gate (992b ceiling).
+        embedding_model="text-embedding-3-small",
         bridge_adapter=DEFAULT_PREFIX_BRIDGE_ADAPTER,
         start_reliability_manifest=(
             DEFAULT_PREFIX_START_RELIABILITY_MANIFEST
