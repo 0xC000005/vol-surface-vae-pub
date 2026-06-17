@@ -4279,6 +4279,9 @@ def build_demo() -> Any:
         gr.Markdown("## Scenario Distribution")
         prefix_fan_plot = gr.Plot(label="30-day scenario fan chart")
         gr.Markdown(
+            "The colored fan is the narrative-conditioned scenario; the grey dashed "
+            "median + translucent band is the start-only baseline (same start, no "
+            "narrative) — the gap between them is the narrative's baseline-relative effect. "
             "The selected starting level is the day-0 market state used before the "
             "support ensemble and rollout are built."
         )
@@ -4293,7 +4296,10 @@ def build_demo() -> Any:
             "narrative-conditioned scenario. Views are the headline direction "
             "versus the starting level; path counts show how many terminal "
             "paths point that way; mean moves show the average terminal change "
-            "in market units and standardized size."
+            "in market units and standardized size. "
+            "_The change-vs-baseline tilt is baseline-relative directional context "
+            "from the narrative-selected historical analogues — useful for monitoring, "
+            "not a calibrated point forecast._"
         )
         prefix_scenario = gr.HTML(
             value=scenario_summary_html({}),
