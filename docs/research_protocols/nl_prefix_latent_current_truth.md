@@ -1,11 +1,18 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
 this file states which claims are currently promoted and which are still only
 diagnostic.
+
+
+## 2026-06-17 — OWNER DECISION: retire the schema_v2 projector; retrain the retriever from scratch on the clean rich 14+14
+
+The demo's wired narrative→query retriever is the **legacy-oracle adapter** (`manifest_bridge_eval_openai_schema_v2_representative_220`, text-embedding-3-small 1536→128, contrastive). Verified 2026-06-17: it is **clean** on the factor-map bug (schema_v2 AAA_OAS evidence ~0.07 ≈ true AAA_OAS col, not Nikkei ~650; USDJPY ~2.75 ≈ true, not copper ~0.12) — my earlier "possibly contaminated" flag is RETRACTED. BUT it was trained on **single-style** schema_v2 narratives (182 windows, one description each), **not** the rich 14+14 multi-perspective / multi-length corpus. It handles short/long input only because the embedding is length-agnostic, not because it was trained on that diversity.
+
+**Owner decision (2026-06-17): retire it and retrain from scratch on the clean rich 14+14.** Reason: a retriever must be *exposed during training* to the short/long/multi-view narrative styles it will serve. CONSTRAINT (so the retrain succeeds, not repeats a known failure): corpus diversity ALONE is insufficient — the clean-restamp (C, `stride5_14x14_retrieval_training_clean_restamp_20260615`) WAS trained on the rich 14+14 and still failed its gate (recall@10 ~0.007) because the **exact-window objective is information-ceilinged** (992b oracle ~0.11). The retrain therefore = rich 14+14 corpus **+ the locality-soft objective + a fair gate** = the plan in `docs/superpowers/plans/2026-06-17-locality-soft-retriever.md`. Residual risk: even a passing retriever may be capped downstream by the T7 generator-washout ceiling — pre-registered kill condition; a negative result is decisive (escalate to a conditionable generator). The current demo remains show-able in the interim (clean, start-dominated base + visible narrative nudge; nudge-faithfulness unvalidated).
 
 
 ## 2026-06-16 — T7 reweighter: distinguishable but NOT steered; conditioning ceiling ACCEPTED (parked)
