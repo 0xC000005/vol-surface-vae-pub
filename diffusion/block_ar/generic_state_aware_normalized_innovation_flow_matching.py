@@ -12,6 +12,9 @@ from diffusion.block_ar.causal_future_memory_transition_flow_matching import (
     CausalFutureMemoryTransitionFMConfig,
     MemoryConditionedTokenTransitionVelocity,
 )
+from diffusion.block_ar.narrative_conditioning_adapter import (
+    NarrativeConditioningAdapter,
+)
 
 
 @dataclass
@@ -34,6 +37,11 @@ class GenericStateAwareNormalizedInnovationFMConfig(
     mixed_support_observation: str = "none"
     velocity_mixer_mode: str = "transformer"
     adaptive_graph_k: int = 8
+    # Track B optional additive narrative-conditioning channel (default OFF => the
+    # model is byte-identical to the pre-Track-B behavior; see narrative_adapter below).
+    narrative_conditioning: bool = False
+    narrative_dim: int = 1536
+    narrative_hidden: int = 512
 
 
 class AdaptiveGraphResidualTokenTransitionVelocity(nn.Module):
@@ -465,6 +473,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         self.risk_context_proj = (
             _make_risk_context_proj(cfg) if int(cfg.risk_state_dim) > 0 else None
+        )
+        # Track B: optional additive narrative-conditioning channel. Default OFF => None,
+        # so every existing call path is byte-identical. When on, the adapter is zero-init
+        # (exact no-op until trained) and presence-gated.
+        self.narrative_adapter = (
+            NarrativeConditioningAdapter(
+                narrative_dim=int(cfg.narrative_dim),
+                memory_dim=int(cfg.memory_dim),
+                hidden=int(cfg.narrative_hidden),
+            )
+            if bool(getattr(cfg, "narrative_conditioning", False))
+            else None
         )
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
@@ -966,6 +986,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         risk_state_weight: float = 0.0,
         risk_state_rank_weight: float = 0.0,
         mixed_support_weight: float = 0.0,
+        narrative_emb: torch.Tensor | None = None,
+        narrative_present: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
@@ -994,6 +1016,14 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         if risk_context is not None:
             memory_states = memory_states + risk_context[:, None, :]
+        # Track B optional additive narrative channel (parallel to risk_context). Placed at
+        # the UNCONDITIONAL level so it is independent of risk_state_dim (734a has it 0).
+        # Adapter is None unless cfg.narrative_conditioning; zero-init => exact no-op.
+        if self.narrative_adapter is not None and narrative_emb is not None:
+            narrative_context = self.narrative_adapter(
+                narrative_emb, narrative_present
+            )  # (B, memory_dim)
+            memory_states = memory_states + narrative_context[:, None, :]
         current_level_scores = prefix_level_scores[
             :, start : start + self.cfg.future_len
         ]
@@ -1185,6 +1215,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         n_steps: int = 30,
         chunk_size: int = 8,
         temperature: float | None = None,
+        narrative_emb: torch.Tensor | None = None,
+        narrative_present: torch.Tensor | None = None,
         **_: object,
     ) -> torch.Tensor:
         if n_steps < 1 or n_steps > self.cfg.future_len:
@@ -1247,6 +1279,25 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 scale_rep,
                 drift_rep,
             )
+            # Track B: narrative context is constant across flow steps (like risk_context),
+            # so compute it ONCE per chunk over the bsz*k expanded batch.
+            narrative_context = None
+            if self.narrative_adapter is not None and narrative_emb is not None:
+                emb_rep = (
+                    narrative_emb.unsqueeze(1)
+                    .expand(bsz, k, narrative_emb.shape[-1])
+                    .reshape(bsz * k, narrative_emb.shape[-1])
+                )
+                present_rep = (
+                    None
+                    if narrative_present is None
+                    else narrative_present.unsqueeze(1)
+                    .expand(bsz, k)
+                    .reshape(bsz * k)
+                )
+                narrative_context = self.narrative_adapter(
+                    emb_rep, present_rep
+                )  # (bsz*k, memory_dim)
             base_noise = temp * self._base_noise_like(
                 torch.empty(
                     bsz * k,
@@ -1263,6 +1314,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 )[:, -1]
                 if risk_context is not None:
                     memory_state = memory_state + risk_context
+                if narrative_context is not None:
+                    memory_state = memory_state + narrative_context
                 current_level_score = prefix_level_scores[:, -1]
                 x = base_noise[:, _step]
                 base_noise_scale = self._conditional_base_noise_scale(memory_state)
@@ -1358,7 +1411,12 @@ def load_model(
     # Heads newly instantiated via cfg_overrides (risk_state_dim>0 / conditional base-noise)
     # are expected-missing from a base checkpoint; they initialize fresh (risk_context_proj
     # is zero-init, so the slot is benign until trained).
-    _new_head_markers = ("risk_state_head", "risk_context_proj", "base_noise_log_scale")
+    _new_head_markers = (
+        "risk_state_head",
+        "risk_context_proj",
+        "base_noise_log_scale",
+        "narrative_adapter",
+    )
     residual_missing = {
         k for k in missing.difference(allowed_missing)
         if not any(m in k for m in _new_head_markers)

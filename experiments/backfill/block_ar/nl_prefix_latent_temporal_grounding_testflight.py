@@ -418,14 +418,22 @@ def ground_condition_only_story_with_openai(
     dotenv_path: str | Path = ".env",
     max_output_tokens: int = 1800,
     client: Any | None = None,
+    timeout: float = 60.0,
+    max_retries: int = 2,
 ) -> tuple[ConditionOnlyGroundingResult, dict[str, Any]]:
-    """Call OpenAI structured outputs for one condition-only grounding."""
+    """Call OpenAI structured outputs for one condition-only grounding.
+
+    A bounded ``timeout`` (seconds) and ``max_retries`` are applied to the
+    default client so a hung grounding call cannot hold the demo spinner
+    indefinitely; an exhausted call raises a normal OpenAI exception that the
+    caller maps to plain guidance.
+    """
 
     load_dotenv_key(dotenv_path)
     if client is None:
         from openai import OpenAI
 
-        client = OpenAI()
+        client = OpenAI(timeout=float(timeout), max_retries=int(max_retries))
     response = client.responses.parse(
         model=model,
         input=build_condition_only_grounding_messages(story),

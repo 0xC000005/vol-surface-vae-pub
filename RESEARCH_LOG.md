@@ -134994,3 +134994,256 @@ steering but has demo-distinguishability value. Next: independent Codex verifica
 finding, then record in current_truth + decide the conditionable-generator pivot.
 
 ---
+
+## 2026-06-17: Narrative-generator reframe — matched-eval leakage root-cause + FIX; Track B de-risk; Gap-2 is DIRECTIONAL-only (width crack)
+
+### Context
+Owner reframed the north star: a usable **narrative -> conditional-scenario GENERATOR** (retrieval is a means, not the deliverable). Spec `docs/superpowers/specs/2026-06-17-narrative-factor-panel-reframe-design.md` approved (Tracks A/B/C/D); goal `autoresearch-session/nl_narrative_generator_goal.json`. Per framework-v1 (RATIFIED 2026-06-11, `docs/research_protocols/nl_counterfactual_validation_framework_v1.md`), the BLOCKING prereq before any matched-eval number is trusted = the pool/eval-window leave-episode-out (LEO) leakage audit. Recapped the research log first (autoresearch standing rule). Two parallel read-only recap workflows + one leakage-resolution analyst.
+
+### Key Findings
+
+**1. Matched-eval leakage — root cause located + FIXED (the framework-v1 blocking prereq).**
+- The 990g matched-eval artifact LEAKS: 16/91 windows have `|candidate-query| < 30` (predates the 2026-06-15 factor-map fix). Permanently disqualified. A clean matched-eval over the clean corpus has **never been run** (a gap, not just a leak).
+- Root cause in `nl_episode_narrative_bridge_report.py`: `rank_episode_cards` enforces only MUTUAL diversity (lines 386-397), never query->candidate causality. `build_hybrid_start_text_bridge_report` called `_temporal_gap_filter` WITHOUT `query_index` (causal guard at lines 206-213 skipped); `build_episode_retrieval_bridge_report` never called `_temporal_gap_filter` at all (relied entirely on the mutual-diversity-only ranker).
+- FIX (applied, not git-committed): both functions now route through `_temporal_gap_filter(..., query_index=idx)`. `build_episode_retrieval` now does broad recall (gap=0, top_k*8) then causal filter. Module imports; existing `test_t7_bridge_causal_gap.py` passes 2/2.
+- `nl_14x14_support_audit.py` (the path Tracks A/B/C are scored on) ALREADY enforces `query_index - label >= temporal_gap` (default 30) + diversity `_temporal_gap_filter` — CLEAN. 994a / 994b / 946c independently CLEAN (verified 2026-06-11).
+
+**2. Track B (generator-conditioning) de-risked by prior art.**
+- Exp 153a (additive/FiLM on one-shot FM, RC15-H1-S1): population spread worked (56%->97% GT) but window-specific STEERING failed — real vs shuffled condition nearly identical; root cause = 128-dim bottleneck too compressed for 750-dim output (RESEARCH_LOG 41657-41783). MANDATES for Track B: (a) avoid the low-dim bottleneck (feed condition at high dim); (b) pre-register the real-vs-shuffled-vs-zero ablation.
+- FiLM was NEVER empirically beaten (in DDPM, FiLM won; channel-concat failed at first-conv bottleneck, RESEARCH_LOG 4390-4462). FiLM-lead for Track B is correct; the FMAP "use concat" was an untested cite for a different backbone.
+- NO FiLM / LoRA / unfreeze has EVER touched the SNI AR-flow / 734a itself. Track B is genuinely novel for this backbone (not a 153a rerun: different backbone, and 153a's failure was the bottleneck, not the mechanism family).
+
+**3. Gap 2 is DIRECTIONAL-only — a real crack (width/uncertainty axis works).**
+
+| Axis | Frozen-734a response | Evidence (JSON-backed?) |
+|---|---|---|
+| Direction | washed out (selected history 0.849 -> forward 0.428 ~chance) | T7 directional hitrate — **markdown-only, NO JSON artifact** |
+| Width / uncertainty | FAITHFUL | turb/calm ratio 1.229; width-vs-vov Spearman rho 0.33-0.49 p<1e-12 (h=1..30); risk-state width-spearman 0.924/0.945 — all JSON-backed in 734a scorecard |
+| Support seed-selection (fidelity) | responds | 906c CRPS delta -0.0116; 994b CRPS delta -0.0264 (CI excludes 0) — leakage diagnostics, not directional |
+
+- The frozen 734a ALREADY conditions faithfully on regime/uncertainty (dispersion). Only DIRECTION is blocked. This CONFIRMS the spec reframe: the validated "nudge" is dispersion/ordinal, NOT a directional forecast.
+- Verification gap: the decisive directional-ceiling number (T7 0.849/0.428) is markdown-only; a JSON-persisted directional-hitrate artifact would firm it up (do this in the harness).
+- Closest prior generator = 788a text->memory decoder (text-conditionality unvalidated, start-dominated). World-model JEPA Part-2 conditional-flow decoder exists in harness form but was NEVER wired to text. No trained-in-text generator has ever been attempted = the exact white space the owner's north star targets.
+
+### Decision
+- Leakage fix is in-code; build the CLEAN matched-eval via `nl_14x14_support_audit.py --temporal-gap 30` over `stride5_fourteen_view_bank_clean_20260615` — this is the ONE yardstick for all tracks. Then implement the convex-hull/support-honesty gate [I] (framework-v1 highest-priority new build) + wire the 4 property gates (authenticity / calibration / metamorphic+ordinal / selection-faithfulness).
+- Track B: lead with FiLM/bias on a SEPARATE checkpoint, condition fed at HIGH dim (avoid the 153a bottleneck), pre-register real-vs-shuffled ablation, and ALSO exploit the width/regime channel (the crack) — not just the blocked direction axis. 734a never modified.
+- No method promoted; start-only remains default; demo/paper defaults frozen until independent Codex verifier agrees.
+- Next: end-to-end regression tests for the 2 fixed bridge functions; clean matched-eval + hull gate + 4 property gates (harness, task #3); kick off Track A re-embed (T1) + neighbor cache/gate calibration (T2); write Track B implementation plan.
+
+---
+
+## 2026-06-17: Track A (locality-soft) FIT-GATE CALIBRATION — objective is FEASIBLE; hubness-gaming risk refuted
+
+### Context
+Per the locality-soft plan T2 (`docs/superpowers/plans/2026-06-17-locality-soft-retriever.md` section 4), before training the locality-soft retriever we must compute the fit-gate ceiling (achievable) and floor (gameable) under locality-recall@K and pre-register a pass threshold X in the band. This decides whether the objective is even well-posed. Pure-compute diagnostic (no OpenAI, no GPU training). Script: `experiments/backfill/block_ar/nl_locality_soft_fit_gate_calibration_t2.py`.
+
+### Key Findings
+Metric: locality-recall@K = predicted memory's top-10 retrieved (train-pool) overlap with the target's P(w)=top-K memory-cosine neighbors (>=1 hit). Held-out = purged val frame (ranges 610:730,1490:1610,2370:2490,3250:3370,3915:4010; purge-gap 30) -> n=570 windows after the w+5>=4010 boundary guard (uniform across predictors). All predictors train-pool only; oracle never self-retrieves w+5 (purged). K=5 ceiling independently reproduced from scratch.
+
+| K | Ceiling (992b oracle) | Floor (max of random-row / global-mean) | Recommended X | Feasible? |
+|---|---|---|---|---|
+| 3 | 0.2509 | 0.0095 | 0.1302 | yes |
+| 5 | 0.3158 | 0.0130 | **0.1644** | yes |
+| 10 | 0.4193 | 0.0211 | 0.2202 | yes |
+
+- **FEASIBLE at all K** (ceiling exceeds floor by 5-20x). Pre-registered: **K=5, X=0.16** (in goal JSON `nl_narrative_generator_goal.json:track_a_fit_gate_preregistration`).
+- **Plan risk #2 (hubness-gameable gate) EMPIRICALLY REFUTED.** The global-mean centroid predictor is the LOWEST floor (0.0035/0.0070/0.0157) — *below* random-row. Mechanism: P(w) is each window's specific train-pool local cluster, so a constant hub-region prediction rarely lands in any single window's 3-10 neighbors. The band WIDENS with K (ceiling rises, global-mean floor flat); it does not compress. So the gate is provably non-gameable by hubness.
+- Computed X (0.16 @ K=5) is BELOW the plan's [0.30, 0.55] guess — the guess assumed a higher oracle ceiling than the purged train-pool oracle attains (0.316, not >=0.55). Per the plan, the computed band governs.
+- **Caveat (honest):** X is the midpoint between floor and the PRIVILEGED oracle (which knows memory[w+5]); a text-only bridge has no future info, so X=0.16 asks for ~half the informed-oracle rate — achievable in principle, not guaranteed. A trained bridge above floor+margin but below X = INFORMATIVE PARTIAL (assess downstream scenario eval), not auto-kill.
+
+### Decision
+- Pre-register K=5, X=0.16 (goal JSON). T3 (`nl_14x14_manifest_retrieval_training.py` locality-soft mode) MUST implement the IDENTICAL locality-recall@K metric (binding_t3_metric_spec) or the gate is meaningless.
+- Track A objective is well-posed -> proceed to T3 (harness mod) then T5 (train, GPU). Gate downstream matched-scenario eval + independent verifier before any promotion.
+- Deliverables durable: `stride5_14x14_locality_soft_fit_gate_calibration_t2/{memory_knn_neighbors.npz, locality_soft_fit_gate_calibration_report.json}`.
+
+---
+
+## 2026-06-17: Clean matched-eval harness VERIFIED leakage-free + Track C baseline (training-free embedding retrieval wins)
+
+### Context
+Framework-v1 blocking prereq = a leakage-free matched-eval. After the bridge-report causal-gap fix (this date), built + verified the clean matched-scenario eval over the clean 14x14 corpus (`stride5_*_clean_20260615`) + clean restamp arrays, and scored the available retrieval methods (Track C) on it.
+
+### Key Findings
+**Harness is leakage-free (verified):**
+- E2E regression tests `test_code/test_nl_bridge_causal_gap_e2e.py` PASS for BOTH fixed bridge functions, with a discrimination proof: monkeypatching `_temporal_gap_filter` to ignore `query_index` makes the tests FAIL ("leak window 140 selected"); with the guard active they PASS. The fix bites.
+- Clean support-level audit `stride5_14x14_support_audit_clean_20260617/` (`--temporal-gap 30 --skip-default-baselines`): min query->support gap = **68**, ZERO violations <30. (`--skip-default-baselines` required — the script's DEFAULT_BASELINE_BRIDGE_REPORTS point to pre-fix 981d/981t/982g/984a dirs whose supports are copied without re-applying the causal filter.)
+- Clean scenario-level matched-eval: ground-truth alignment VERIFIED exact — rebuilt-block `future_delta[i]` == 939a support-bank `future_delta[i]`, max|diff|=0.0 across all 13 query windows. Block config `--eval_split train --max_windows 0`.
+
+**Track C ranking (clean, leakage-free; generator narrative_generator_topk vs persistence, 13 windows each):**
+
+| Rank | Retrieval method | CRPS | CRPS_imp | Energy | cov80 |
+|---|---|---|---|---|---|
+| 1 | raw_openai_14x14_top3_90 (TRAINING-FREE) | 0.5879 | +0.1303 | 0.7679 | 0.5869 |
+| 2 | text_space_contrastive 983b (TRAINED) | 0.5940 | +0.1212 | 0.7766 | 0.5836 |
+| 3 | projected_memory (TRAINED) | 0.6297 | +0.0684 | 0.8131 | 0.5539 |
+
+Cross-method rollup: narrative_generator_topk CRPS 0.604 (+10.7% vs persistence 0.676), Energy 0.786 (+14.3% vs 0.917), cov80 0.575.
+
+**Decisive finding:** on the CLEAN leakage-free eval, TRAINING-FREE raw OpenAI embedding retrieval BEATS both trained retrievers (text-space contrastive #2, projected-memory worst). Re-confirms learned retrieval has not earned promotion over simple baselines, and reinforces the owner's north star: the lever is the GENERATOR (Track B) + PRODUCT (Track D), not the retrieval method. Track A (locality-soft) must therefore win on PROVENANCE (mechanism-neighborhood landing), not fidelity — exactly the spec's promotion bar.
+
+### Decision
+- The clean matched-eval (`*_clean_20260617`) is the trusted yardstick. Track C core COMPLETE (3 methods scored leakage-free); remaining methods (984a reranker, embedding-hybrid 25/75, T7 b=0, 906e) are incremental adds on the same harness.
+- Prioritize Track B (generator-conditioning, centerpiece) + Track D (GMRM product). Track A proceeds for provenance value only, gated on its fit gate (X=0.16 @ K=5) + downstream.
+- Outstanding harness build: convex-hull/support-honesty gate [I] + the remaining property gates (authenticity / metamorphic+ordinal beyond CRPS) before full framework-v1 promotion scoring.
+
+---
+
+## 2026-06-17: Track B generator-conditioning — SNI core wiring DONE + non-regression proven; risk_state_dim=0 correction
+
+### Context
+Track B (the centerpiece: a learned narrative-conditioning channel on the frozen SNI generator) Task 3 = wire an OPTIONAL additive `narrative_context` into `generic_state_aware_normalized_innovation_flow_matching.py`, flagged default-off, zero-init no-op, and PROVE non-regression against the real 734a so the tri-scope/NL incumbent path is untouched.
+
+### Key Findings
+**Wiring DONE + verified (6 surgical edits, +59/-1):** config (`narrative_conditioning/narrative_dim/narrative_hidden`), `__init__` (`self.narrative_adapter`), `training_loss` + `sample_batched` (kwargs `narrative_emb, narrative_present`; additive `memory_states += narrative_context`), `_new_head_markers += narrative_adapter`. Adapter = `diffusion/block_ar/narrative_conditioning_adapter.py` (zero-init, presence-gated, high-dim — built+tested 3/3).
+- Unit tests `test_track_b_sni_injection.py` 4/4: OFF vs ON+emb=None max|diff|=0; ON+zero-init+nonzero-emb max|diff|=0; training_loss OFF vs ON+None bit-equal; perturbed adapter + present narrative => output DIFFERS (channel live).
+- **REAL-734a non-regression: max|diff| = 0.0** (`models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt`, loaded OFF vs ON+strict=False, fixed-seed sample_batched, emb=None). 734a sha256 + mtime UNCHANGED (read-only).
+
+**LOAD-BEARING CORRECTION — 734a has `risk_state_dim=0`.** Therefore `risk_state_head`/`risk_context_proj` are None and `risk_context` is None at runtime; the `memory_states += risk_context` adds (lines 996/1265) are NO-OPS on 734a.
+- Consequence for the wiring: the narrative injection was deliberately placed at the UNCONDITIONAL indent (after, not nested inside, `if risk_context is not None:`), or it would be DEAD CODE on the target. A placement-guard test (built with risk_state_dim=0) confirms it.
+- Consequence for the DESIGN: the earlier "additive context parallel to the PROVEN risk_context channel" framing is imprecise — risk_context is inactive on 734a. The verified WIDTH-conditioning (turb/calm 1.229; width-vs-vov rho 0.33-0.49) flows through `memory_states` ITSELF (the history-encoder -> velocity path), NOT a risk head. The narrative_context adds into `memory_states` = the SAME active conditioning tensor the velocity reads and responds to. The architecture-native, into-the-active-path argument still holds; the "risk_context proves propagation" claim does not (it's never active on 734a).
+- Consequence for Track B Task 5 (B-width): CANNOT route narrative -> risk_state through `risk_context_proj` (inactive). B-width must use the SAME `memory_states` additive channel with a width/dispersion OBJECTIVE (vs the B-direction objective). One injection point, two objectives.
+
+### Decision
+- Wiring accepted (non-regression proven). Proceed to Task 4 (training script: freeze backbone except narrative_adapter, train via the existing `training_loss(narrative_emb=...)` on (window, realized-future) pairs + null-narrative anchor; separate checkpoint `generator_conditioning_probe_b1/`). Then Task 6 GATES (direction-match, real-vs-shuffled-vs-zero ablation, metamorphic) test whether it learned faithful steering.
+- Update plan Task 5 + memory: B-width = memory_states channel + width objective (not risk_context_proj).
+- 734a never modified; flagged default-off => tri-scope/NL incumbent byte-identical.
+
+---
+
+## 2026-06-17: Track B B1 (narrative-conditioning, frozen-backbone additive) — DECISIVE NEGATIVE on direction; Gap-2 ceiling 4x-confirmed
+
+### Context
+Track B (the centerpiece: a learned narrative→memory_states additive context on the frozen 734a SNI generator) probe B1. Trained the `narrative_adapter` (zero-init, presence-gated, high-dim→128) via the model's velocity-matching `training_loss(narrative_emb=...)` on the 633 train windows that carry narrative text (30 ep, backbone frozen, max|diff|=0). Definitive held-out gate: `nl_track_b_directional_gate.py` on b1 (115 held-out narrative windows, 50 samples, CRN-by-query, real-vs-shuffled-vs-zero). Pre-registered kill: real≈shuffled within fidelity → Gap-2 directional ceiling on B1.
+
+### Key Findings (track_b_directional_gate.json)
+- **L1 knob-activated: PASS.** mean context norm (real) = **5.65**; present=False norm = 0.0 (exact no-op). The adapter learned a LARGE context.
+- **L2 propagated: FAIL.** direction-match (grounding-emphasis factors, held-out): real **0.5954** / shuffled **0.5938** / zero **0.6015**. real−shuffled = **+0.0015**; real−zero = **−0.0062**; shuffled−zero = 0.0077. All ≈0.595-0.60, identical within noise → the narrative carries NO faithful forward direction. (The ~0.60 > 0.428 chance is the BASELINE generator's natural alignment — present equally at zero narrative.)
+- **L3 moved+monotone+fidelity: FAIL.** α-ladder monotone (0.037→0.082→0.189) but that is a WIRING check (scaling a zero-anchored additive context), not semantic. Fidelity HURT: CRPS conditioned 0.637 vs 734a 0.609 (gap **+0.0277**), Energy 0.810 vs 0.769 (gap **+0.0406**) — both exceed the ±0.015 guardrail.
+- Width (DIAGNOSTIC ONLY): conditioned fan width 0.54 vs baseline 0.36 (conditioning DOES widen), spearman vs intensity −0.34 — but the intensity proxy is realized-derived junk; NOT a width-steering result (real-run TODO = grounded intensity).
+
+### Analysis (WHY — mechanistic, numbers-backed)
+The adapter did NOT under-train (context norm 5.65 = large). It OVERFIT the 633 training windows with a large OFF-MANIFOLD context that, on held-out, (a) does not key on narrative semantics for direction (real≈shuffled≈zero) and (b) degrades fidelity (off-manifold memory_states → worse rollouts). The frozen backbone translates the injected context into DISPERSION + worse fidelity, NOT faithful direction — precisely the risk_context oracle probe's finding (generator insensitive to direction until ~300× off-manifold). This is the **4th independent confirmation** of the Gap-2 directional ceiling: T7 (0.849→0.428) → risk_context oracle (k≈24/300×) → B1-L2 (real−shuffled=0.0015) → B1-L3 (fidelity hurt). Contributing factors: (i) the frozen-backbone transmission ceiling (primary); (ii) small generalizable signal (633 windows). Both point the same way: the frozen-backbone additive channel cannot be steered directionally by this narrative data.
+
+### Decision
+- **B-direction via frozen-backbone additive channel = FALSIFIED.** Pre-registered kill condition met (real≈shuffled, AND fidelity violated).
+- 734a never modified (sha unchanged); b1 is a separate checkpoint.
+- Remaining plan options (to weigh in a CONSOLIDATED decision with the Track A fit-gate verdict): (A) B2 = LoRA / unfreeze last backbone block — last direct attack on direction, LOW expected value given 4× ceiling confirmation; (B) B-width — same channel, GROUNDED narrative-intensity + width objective + proper width gate (the verified crack; the conditioning DID widen the fan); (C) accept the directional ceiling → product = validated spine (start-only + numeric support) + dispersion/regime nudge + CAVEATED directional arrow (the spec's honest reframe). Recommendation pending Track A + advisor.
+
+---
+
+## 2026-06-17: Framework-v1 Tier-1 yardstick build wave — hull gate (Codex-verified), coherence scorer, Track D spine; 994a leakage re-audit CLEAN
+
+### Context
+Autonomous reframe program. The goal's "one yardstick" = framework-v1 matched-eval + 4 property gates. A 6-agent read-only mapping workflow produced an existing-vs-missing plan; advisor sharpened it (Tier-1-only scope; coordinate-consistency is the real hull-gate risk; Codex-verify before wiring; front-load zero-risk Track D spine). This wave built the CPU-side Tier-1 core in parallel with Track A retriever training (GPU).
+
+### Key Findings
+**994a null-band leakage RE-AUDIT — CLEAN (independent recompute, not the self-reported flag).** Gates D/C inherit the 994a null band; the framework doc still listed pool/eval leakage as a LIVE BUG. Recomputed per-query `min(query_index − support_index)` from realized `window_scores` indices in `val_frame_eval_994a_start_only/scenario_level_eval_report.json`: **global min gap = 45**, 0 violations across 89 queries (gate=30). The 994a null band is trustworthy.
+
+**Gate [I] convex-hull support-honesty gate — BUILT + CODEX-VERIFIED + fixes applied.**
+- New `experiments/backfill/block_ar/nl_hull_gate_inputs.py`: builds pool/Σ/x_S in the support bank's OWN 30-day-move coordinate. Verified `future_delta[i,t,f] = future_raw[i,t,f] − history_raw[i,-1,f]` (cumulative; 30-day move = `future_delta[:,-1,:]`); joint39 anchors = cols 25–38. Pool = train-region windows' 14-anchor terminal moves.
+- κ convention (Bitter-clean, validation-side): `x_S[i] = κ·sign(direction_i)·(salience_i/max_salience)·std_i`, κ a single global σ-unit scalar; salience carries relative magnitudes for |S|>1. Graded κ-ladder {0.5,1,2} → `leaves_hull_at_kappa` severity.
+- Codex (independent, read-only, re-ran the 15 tests) verdict = **SOUND-WITH-FIXES**. Fixes applied: (1) all gate math moved to σ-normalized (correlation) space — raw cov condition ~1.85e9 → well-conditioned; mathematically identical hull label (μ_σ = μ_raw/std, diagonal rescale preserves convex hull); (2) added pool-Mahalanobis density diagnostic (§I "pool max-Maha"); (3) LP-failure now labeled `indeterminate_lp_failure` (distinct from true `outside_historical_analogue_support`); (4) strengthened the discrimination test to prove JOINT (not marginal) discrimination.
+- **Empirical sensitivity (Codex-probed):** binary feasibility is low-sensitivity for moderate moves — single-factor ± feasible through κ=2, κ=4→3/28 feasible, κ=8→none; BUT a contradictory JOINT narrative (SPX-up+VIX-up+BBB-wider) is infeasible at κ=1 *while every completion coord stays in its marginal min/max*. ⇒ product must lead with `l1_distance_sigma` + `leaves_hull_at_kappa` + Mahalanobis, not the bare binary. Scope: 14-anchor support (not full-39 IV surface) — label accordingly.
+
+**Gate [B] coherence sign-gate scorer — BUILT (CPU).** New `nl_coherence_sign_gate.py` + 15 passing tests. `sign_agreement_scorer` (sign(tilt)==sign(mu_free) on factors with |conditional_beta|>noise_floor; red-flag for material tilt on near-zero-beta) + `excess_tilt_check` (negative-control: small one-sided p = excess vs placebo = FAIL; `p<=floor` not strict to avoid an inert gate). NOISE_FLOOR=0.048 cited from `nl_996a_n1_tilt_training.py:114`. Production scoring still needs GPU-sampled conditioned tilts + placebo tilts.
+
+**Track D validated-spine product items — BUILT (CPU, zero-risk).** In `nl_risk_manager_story_gradio_app.py`: Kish ESS = 1/Σw² (green/orange/red vs floor 3.0), terminal Day-30 quantile table (baseline vs conditioned), calendar "as of" dating, standing epistemic disclaimer; baseline-median overlay was already present. Wired additively via `.then()` (no output-arity risk); build_demo() + helper unit tests pass. CAVEAT: the cached Gradio smoke fails with a **pre-existing 4-error set in this environment** (identical before/after the edit — 0 new errors; not root-caused — flagged for follow-up).
+
+### Tests
+`PYTHONPATH=. uv run pytest test_code/test_nl_conditional_completion.py test_code/test_nl_hull_honesty_gate.py test_code/test_nl_hull_gate_inputs.py test_code/test_nl_coherence_sign_gate.py -q` → **31 passed**.
+
+### Decision
+- Hull gate built+verified; NEXT = wire `hull_label_from_grounding` into `nl_14x14_support_audit.py` query_reviews (per-query, when grounding available) + the demo honesty block (lead with graded distance + κ-ladder + Maha; binary as a flag only). Gate B/D production gates await GPU-sampled tilts/placebos. Track A fit-gate (X=0.16@K=5) pending training. Track C completion + B2/B-width = subsequent GPU lane (B2/B-width low-EV given the 4×-confirmed directional ceiling).
+- Tier-1-only scope held (no Tier-2/3 SBC/TARP/C2ST/authenticity-triple-gate). Pre-existing demo cached-smoke failure to root-cause before any demo-default change.
+
+---
+
+## 2026-06-18: Track C bake-off COMPLETE — T7 β=0 scored, unified 4-method ranking; no method beats training-free
+
+### Context
+Discharge the "exhaust retrieval methods" mandate on the VERIFIED clean leakage-free matched-eval (`stride5_14x14_matched_scenario_eval_clean_20260617`). Core 3 already scored (raw_openai wins). Remaining: T7 β=0, 984a reranker, 906e, embedding-hybrid. Run parallel to Track A retriever training (GPU coexist, ~880 MiB + 734a sampling). Hard rule: NO new OpenAI calls (user policy + conclusion already drawn).
+
+### Key Findings
+Unified ranking (`ranking_by_crps_then_energy`, 13 windows, identical core-3 args; min causal gap ≥68, 0 violations):
+
+| Rank | Method | CRPS | Energy | cov80 |
+|---|---|---|---|---|
+| 1 | raw_openai_14x14_top3_90 (training-free) | 0.5879 | 0.7679 | 0.5869 |
+| 2 | t7_beta_0_identity (NEW, GPU) | 0.5879 | 0.7679 | 0.5869 |
+| 3 | text_space_contrastive (trained) | 0.5940 | 0.7766 | 0.5836 |
+| 4 | projected_memory (trained) | 0.6297 | 0.8131 | 0.5539 |
+
+- **T7 β=0**: GPU run reproduced raw_openai to **12 decimals** across all 13 windows. Confirms β=0 identity by construction + pipeline determinism + CRN seeding integrity (a methodology check, not new ranking info).
+- **984a reranker SKIPPED**: clean grounding cards exist (802-card 982g clean) but needs text-embedding-3-**large** vectors of 6416 candidate texts — 0/26 batches in any on-disk large cache (never built) ⇒ new OpenAI cost ⇒ skip.
+- **906e SKIPPED**: only pre-fix 885a/schema_v2 mixture-label artifacts; no clean 14×14 regen path.
+- **embedding-hybrid 25/75 DEFERRED**: clean cache is text-embedding-3-small only; large = cache miss ⇒ new OpenAI cost.
+- **Leakage flag NOT triggered** (correctly): trigger = a trained method beating training-free 0.5879. Nothing beat it (T7 ties exactly as a no-op; both trained methods worse). Zero OpenAI calls.
+
+### Decision
+Track C COMPLETE. Training-free raw OpenAI remains rank-1 on the clean harness; re-confirms the lever is the GENERATOR (Track B) + PRODUCT (Track D), not the retrieval method. The 3 unscored variants are cost-gated incremental adds with the conclusion already drawn — not worth new OpenAI spend. Outputs: `stride5_14x14_t7_beta0_eval_clean_20260618/`, `stride5_14x14_matched_eval_summary_all_methods_clean_20260618/`.
+
+---
+
+## 2026-06-18: Track B B2 (limited backbone adaptation) — KILL; directional ceiling localized to the DATA SIGNAL, not the frozen backbone (5th confirmation)
+
+### Context
+Last direct Gap-2 direction attack: does giving the SNI generator's backbone LIMITED adaptation capacity break the FROZEN-backbone directional ceiling that B1 4×-confirmed (B1: held-out real−shuffled +0.0015, fidelity hurt +0.028)? Added an optional `--unfreeze-mode` to the B1 trainer (`train_track_b_generator_conditioning.py`), B1 path (`none`) byte-intact + default-off. **Architectural fork (advisor-caught, load-bearing):** the literal "unfreeze last backbone block" = `model.memory.layers[-1]`, but that block runs in `_encode_prefix` (line 834) BEFORE `narrative_context` is added to `memory_states` (line 1026) — it is UPSTREAM of the injection and cannot raise narrative sensitivity by construction (a confounded null). The narrative reaches the velocity ONLY via `velocity.memory_proj → mixer → out` (`causal_future_memory_transition_flow_matching.py:68-88`). So the INTENT-FAITHFUL B2 (capacity to LISTEN to the narrative) unfreezes the narrative-CONSUMING velocity readout. GPU free ⇒ ran BOTH arms, labeled. Two-group Adam (zero-init adapter @1e-3; pretrained unfrozen block @1e-4 to avoid catastrophic forgetting). 30 ep, openai embeds, 633 train windows; SEPARATE checkpoints. Guards: a KNOWN-FROZEN probe (`feature_proj.weight`) asserted max|diff|=0 (real 734a-lineage safety) + an unfrozen probe asserted nonzero. 734a loaded read-only.
+
+### Key Findings (held-out gate `nl_track_b_directional_gate.py` VERBATIM, 115 val windows, 50 samples, CRN-by-window, same pre-registration as B1)
+**Arm 1 — `velocity_readout` (INTENT-FAITHFUL B2; `generator_conditioning_probe_b2/`):** trainable 1,021,569 (adapter 855,680 + unfrozen velocity 165,889, 20 tensors). Loss DROPPED 3.078→1.620 (channel genuinely fit). frozen_probe_max_diff=0.0; backbone_max_diff=0.0557 (unfrozen moved). **GATE = OVERALL_PASS False (L1 T, L2 F, L3 F).**
+- L2 direction (HEADLINE): real **0.5891** ≈ shuffled **0.5917** ≈ zero **0.5910**. real−shuffled = **−0.00261** (bar >0.05). real−zero −0.00193. all-39 robustness identical pattern (0.6136/0.6181/0.6162 — does NOT flip). **Flat → no faithful direction steering.**
+- L3 fidelity: CRPS conditioned **0.5938** vs 734a 0.6095 (gap **−0.01565**), Energy 0.7603 vs 0.7694 (gap −0.0091). The CRPS gap trips the two-sided ±0.015 band but on the **IMPROVEMENT** side (opposite of B1's +0.0277 degradation) — fidelity was NOT hurt. α-ladder monotone (wiring check). L1 ctx_norm_real 0.623, present=False 0.0.
+
+**Arm 2 — `encoder_last_block` (LITERAL CONTROL; `..._encoder_control/`):** trainable 988,160 (adapter + unfrozen encoder 132,480, 12 tensors). Loss FLAT 3.194→3.140 (narrative-blind by construction — upstream of injection + little narrative-independent slack). frozen_probe 0.0; backbone_max_diff 0.0858. **GATE OVERALL_PASS False (L1 T, L2 F, L3 T).** real−shuffled −0.00097; CRPS gap +0.0018 (fidelity PASS). Confirms the control behaves exactly as the wiring predicts.
+
+### Analysis (mechanistic, advisor-tightened)
+KILL is decided by **L2 alone**: real−shuffled −0.0026 ≪ the +0.05 BREAK margin ⇒ BREAK is impossible regardless of fidelity (fidelity does NOT change the verdict and was not the failure cause — direction is). The decisive new fact vs B1: downstream capacity that demonstrably **improved aggregate fit** (loss 3.08→1.62; CRPS −0.0157) added **ZERO narrative-direction sensitivity** — the model's directional behavior is identical under the real narrative, a wrong (shuffled) narrative, or none. Whatever the unfrozen velocity readout learned is **narrative-INDEPENDENT**. B1 could be dismissed as "frozen backbone couldn't transmit"; B2 cannot — it gave the narrative-consuming readout real capacity and it still won't key on narrative semantics for direction. ⇒ **The directional ceiling is a DATA-SIGNAL limit, not a frozen-backbone transmission limit.** This is the **5th independent confirmation** (T7 0.849→0.428 → risk_context oracle k≈24/300× → B1-L2 → B1-L3 → B2 both arms). CAVEAT (do not over-attribute): the CRPS gain cannot be decomposed into narrative-independent readout fine-tune vs narrative-dependent width — that ambiguity is B-width's question, NOT chased here.
+
+### Decision
+- **B2 = KILL (pre-registered branch).** B-direction via limited backbone adaptation FALSIFIED; the directional ceiling is localized to the data signal. Direct direction-attacks on the frozen 734a are EXHAUSTED (B1 + B2 ×2 arms).
+- Remaining honest options unchanged: (B) **B-width** (same `memory_states` channel + GROUNDED intensity + width objective — the verified crack; conditioning DOES widen the fan) and (C) **accept the directional ceiling** → product = validated spine + dispersion/regime nudge + CAVEATED directional arrow. To weigh in the consolidated decision with Track A.
+- **734a NEVER modified — sha256 `35b3c4…dfb217` byte-identical before/after both training runs + both gates.** Separate checkpoints. Artifacts: `models/backfill/generator_conditioning_probe_b2{,_encoder_control}/`; gate JSONs `nl_scenario_demo_outputs/track_b_directional_gate_b2_{velocity,encoder_control}/`; verifier reports `nl_prefix_latent_verifier_reports/2026-06-18_track_b_directional_gate_b2_{velocity,encoder_control}.md` (the fixed-date `2026-06-18_track_b_directional_gate.md` is the encoder-control copy — same-day arms share that path).
+
+---
+
+## 2026-06-18: Track B B-width (narrative→severity/width dial) — corr-only gate KILL; level-matched refinement early-terminated (runaway starving Track A); NO promotable severity dial
+
+### Context
+User-approved B-width probe (#2): attempt a faithful narrative→WIDTH severity dial on the frozen 734a via the same memory_states additive channel + a GROUNDED narrative-intensity scalar (prose-parse magnitude×|salience|, nl_track_b_grounded_intensity, NO OpenAI) + a width objective. The verified "crack" was that conditioning DOES widen the fan (B1 0.36→0.54); open question = does width track grounded INTENSITY faithfully (vs respond to narrative PRESENCE).
+
+### Key Findings
+**Corr-only width gate (`generator_conditioning_probe_bwidth`) — VERDICT KILL:**
+- spearman(grounded_intensity, width_delta) REAL **0.169** (< 0.3 bar); real−shuffled 0.291 BUT permutation null p2s=**0.38** (exceeds_upper_tail False) → NOT significant.
+- Severity-dial (intercept-aware): low-tercile width_delta **0.443** ≈ high-tercile **0.438**; low/high inflation frac **1.012** (bar ≤0.5) → width responds to narrative PRESENCE, **not INTENSITY**.
+- Fidelity guardrail: CRPS gap **+0.83**, Energy **+1.0** (guardrail ±0.015) → the width objective CATASTROPHICALLY wrecks fidelity.
+**Level-matched refinement (lambda_level=2.0):** the agent flagged the corr-only gate as intercept-confounded and launched a cleaner level-matched run. It reached only **epoch 0** (high_delta 0.375 > low_delta 0.258 — a faint intensity gap under the level term, but frac **0.69** ≫ 0.5 pass bar) before being EARLY-TERMINATED.
+**Process note (HEAD intervention):** the B-width agent became a 79-min / 491-tool-call runaway (confused corr-only-vs-level-matched confound, advisor consult, re-notifying loop). Its detached matched-training pinned the GPU at 99% and STARVED the higher-priority Track A fit-gate (seed0 unupdated 2+ hrs). Per bounded-sidecar / no-rabbit-hole / Track-A-priority, I killed the matched run + orphaned tail to free the GPU. 734a byte-identical throughout (separate checkpoints).
+
+### Decision
+- **No promotable narrative→severity dial demonstrated.** Corr-only KILL (presence-not-intensity + fidelity wrecked); level-matched verdict INCONCLUSIVE (early-terminated at epoch 0, frac 0.69 unpromising) — re-runnable cleanly when the GPU is free if a definitive verdict is wanted.
+- Product UNCHANGED: dispersion stays HISTORY/regime-driven (734a native width-conditioning), not narrative-intensity-dialed. Reinforces the honest dichotomy — width transmits as presence/regime; the narrative faithfully dials neither DIRECTION (5× ceiling) nor INTENSITY. Gap-2 generator-conditioning on the frozen additive channel is exhausted.
+- Paper correctly keeps width qualitative/ungated (no severity-dial claim).
+
+---
+
+## 2026-06-18: SYNTHESIS — NL narrative-generator method sweep COMPLETE + usefulness-first reframe + Codex MEETS-WITH-FIXES
+
+### Context
+Closing synthesis of the 2026-06-17/18 autonomous reframe program (north star: a USABLE narrative→conditional-scenario generator). Ties Tracks A/B/C/D + the product/paper reframe + the promotion-bar Codex verification into one honest state-of-play.
+
+### Key Findings (the honest, exhausted state)
+- **DIRECTION (Track B):** the narrative text does NOT faithfully steer the frozen 734a's forward direction. **5× confirmed** (T7 0.849→0.428 → risk_context oracle → B1 real−shuffled +0.0015 → B2-velocity real−shuffled −0.003 WITH improved fit CRPS −0.016 → B2-encoder control). B2 localizes the limit to the **data signal under these gates** (capacity that improved fit added zero direction sensitivity), not merely the frozen backbone — NOT claimed as a fully general architecture-independent law. 734a byte-identical (separate checkpoints).
+- **B-WIDTH: KILL** — width responds to PRESENCE not INTENSITY (low-tercile 0.443 ≈ high 0.438), fidelity wrecked (CRPS +0.83); no promotable severity dial. Probe agent went runaway (re-spawned detached GPU runs starving Track A) → HEAD killed + disabled the script (`.PAUSED_runaway_20260618`).
+- **RETRIEVAL (Track C): SETTLED** — training-free raw_openai (0.5879) beats trained (0.594/0.630); nothing beats it; start-only wins absolute CRPS 0.506.
+- **THE DICHOTOMY (honest + RM-useful, publishable):** narrative impact flows through grounded RETRIEVAL; the text dials NEITHER direction nor intensity. Useful = what-if exploration + grounding + provenance + honesty labels, NOT a better-than-baseline forecast.
+- **YARDSTICK (framework-v1 Tier-1):** hull support gate [I] (Codex SOUND; discriminates on real scenarios) wired into support-audit + demo; coherence sign-gate [B]; ESS; 994a leakage RE-AUDIT CLEAN (min gap 45). Gate D metamorphic CPU null-band built; GPU placebo rollouts pending.
+
+### Reframe + verification
+- **Usefulness-first reframe (owner-directed):** product = a USEFUL narrative-driven grounded what-if generator (RM sees the narrative's impact); the directional ceiling is an honest NUANCE, not a gutting limit. Applied to demo copy + paper draft (abstract/contributions usefulness-first; ceiling demoted to a transmission-characterization §+Limitations).
+- **Codex verification (promotion bar) = MEETS-WITH-FIXES; ALL fixes applied + validated:** demo indeterminate-label bug; paper Table-4 TODO removed; persistence-vs-start-only disambiguated; ceiling softened; non-durable T7 0.849/0.428 removed + cited durable B1/B2/Track C; B-width passage = honest negative; b2_velocity.md mislabel corrected. Paper recompiles 42pp/0 errors. Final paper gated on owner sign-off.
+
+### Decision
+NOTHING promoted past the bar; start-only remains the production default. The validated spine (start-only + grounded retrieval + honesty labels + CAVEATED directional arrow, arrow primary) is the deliverable. Provenance closed for the paper. Promotion index updated (`nl_prefix_latent_current_truth.md` 2026-06-18). OPEN: Track A fit-gate (secondary), demo GPU smoke + browser QA, Gate D GPU placebo rollouts, AGENTS/GEMINI sync.
+
+---

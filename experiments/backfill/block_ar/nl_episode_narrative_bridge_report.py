@@ -281,13 +281,22 @@ def build_episode_retrieval_bridge_report(
             text=_query_text(card),
             metadata={"window_index": idx},
         )
-        ranked = rank_episode_cards(
+        recalled = rank_episode_cards(
             query,
             ordered_train_cards,
             method=method,
-            top_k=top_k,
-            temporal_gap=temporal_gap,
+            top_k=max(int(top_k) * 8, int(top_k)),
+            temporal_gap=0,
             feature_cache=feature_cache,
+        )
+        # #48 causal gap: rank_episode_cards only enforces mutual diversity, never
+        # query->candidate causality. Route the broad recall through the causal
+        # filter so no support window overlaps the query window (gap >= temporal_gap).
+        ranked = _temporal_gap_filter(
+            recalled,
+            top_k=int(top_k),
+            temporal_gap=int(temporal_gap),
+            query_index=idx,
         )
         scores = [float(item["score"]) for item in ranked]
         weights = _softmax_weights(scores)
@@ -503,6 +512,7 @@ def build_hybrid_start_text_bridge_report(
             reranked,
             top_k=int(top_k),
             temporal_gap=int(temporal_gap),
+            query_index=idx,
         )
         scores = [float(item["score"]) for item in selected]
         weights = _softmax_weights(scores)

@@ -493,6 +493,56 @@ def _load_support_bank(
     }
 
 
+def _select_start_arrays_for_bridge_windows(
+    *,
+    selected_windows: np.ndarray,
+    validation_arrays: dict[str, np.ndarray],
+    support_bank: dict[str, Any] | None,
+) -> tuple[dict[str, np.ndarray], str]:
+    """Select start arrays for bridge rows from validation or full support bank."""
+
+    required = (
+        "history_level",
+        "history_norm",
+        "center",
+        "scale",
+        "drift_feature",
+        "history_raw",
+        "future_raw",
+        "future_delta",
+    )
+    selected = np.asarray(selected_windows, dtype=np.int64).reshape(-1)
+    if selected.size == 0:
+        raise ValueError("selected_windows must be non-empty")
+    if np.any(selected < 0):
+        raise IndexError("selected_windows contains a negative index")
+
+    validation_count = int(np.asarray(validation_arrays["history_level"]).shape[0])
+    if int(selected.max()) < validation_count:
+        return (
+            {key: np.asarray(validation_arrays[key])[selected] for key in required},
+            "validation_block_selected_windows",
+        )
+
+    if support_bank is None:
+        raise IndexError(
+            f"selected bridge window index {int(selected.max())} outside "
+            f"validation block size {validation_count}; provide support-bank arrays "
+            "for full-bank bridge reports"
+        )
+
+    support_count = int(np.asarray(support_bank["history_level"]).shape[0])
+    if int(selected.max()) >= support_count:
+        raise IndexError(
+            f"selected bridge window index {int(selected.max())} outside "
+            f"support bank size {support_count}"
+        )
+    return (
+        {key: np.asarray(support_bank[key])[selected] for key in required},
+        "external_support_bank_selected_windows",
+    )
+
+
 def _safe_start_z(start_state: np.ndarray, fit_indices: np.ndarray) -> np.ndarray:
     start = np.asarray(start_state, dtype=np.float32)
     fit = np.asarray(fit_indices, dtype=np.int64)
@@ -2225,25 +2275,16 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         specs,
         block,
     ) = build_val_block(args, payload)
-    start_history_level = all_history_level[selected_windows]
-    start_history_norm = all_history_norm[selected_windows]
-    start_center = all_center[selected_windows]
-    start_scale = all_scale[selected_windows]
-    start_drift_feature = all_drift_feature[selected_windows]
-    start_history_raw = all_history_raw[selected_windows]
     future_raw_all = _future_raw_from_block(
         block,
         int(all_history_raw.shape[0]),
         int(all_history_raw.shape[-1]),
     )
-    start_future_raw = future_raw_all[selected_windows]
-    start_future_delta = future_delta_paths(all_history_raw, future_raw_all)[
-        selected_windows
-    ]
-    start_window_metadata = window_metadata_by_bridge_local_index(bridge_report)
-    if bool(getattr(args, "support_bank_report", None)) or bool(
+    support_bank: dict[str, Any] | None = None
+    support_bank_requested = bool(getattr(args, "support_bank_report", None)) or bool(
         getattr(args, "support_bank_arrays", None)
-    ):
+    )
+    if support_bank_requested:
         if not args.support_bank_report or not args.support_bank_arrays:
             raise ValueError(
                 "--support-bank-report and --support-bank-arrays must be provided "
@@ -2253,6 +2294,31 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
             report_path=args.support_bank_report,
             arrays_path=args.support_bank_arrays,
         )
+    validation_start_arrays = {
+        "history_level": all_history_level,
+        "history_norm": all_history_norm,
+        "center": all_center,
+        "scale": all_scale,
+        "drift_feature": all_drift_feature,
+        "history_raw": all_history_raw,
+        "future_raw": future_raw_all,
+        "future_delta": future_delta_paths(all_history_raw, future_raw_all),
+    }
+    selected_start_arrays, start_array_source = _select_start_arrays_for_bridge_windows(
+        selected_windows=selected_windows,
+        validation_arrays=validation_start_arrays,
+        support_bank=support_bank,
+    )
+    start_history_level = selected_start_arrays["history_level"]
+    start_history_norm = selected_start_arrays["history_norm"]
+    start_center = selected_start_arrays["center"]
+    start_scale = selected_start_arrays["scale"]
+    start_drift_feature = selected_start_arrays["drift_feature"]
+    start_history_raw = selected_start_arrays["history_raw"]
+    start_future_raw = selected_start_arrays["future_raw"]
+    start_future_delta = selected_start_arrays["future_delta"]
+    start_window_metadata = window_metadata_by_bridge_local_index(bridge_report)
+    if support_bank is not None:
         support_memory_targets = support_bank["memory_targets"]
         support_history_level = support_bank["history_level"]
         support_history_norm = support_bank["history_norm"]
@@ -2269,6 +2335,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         )
         support_bank_summary = {
             "source": "external_support_bank",
+            "start_array_source": start_array_source,
             "report": str(args.support_bank_report),
             "arrays": str(args.support_bank_arrays),
             "support_window_count": int(support_memory_targets.shape[0]),
@@ -2297,6 +2364,7 @@ def run_prefix_latent_story_smoke(args: argparse.Namespace) -> dict[str, Any]:
         support_window_metadata = start_window_metadata
         support_bank_summary = {
             "source": "bridge_labeled_windows",
+            "start_array_source": start_array_source,
             "support_window_count": int(support_memory_targets.shape[0]),
             "support_candidate_count": int(support_candidate_indices.size),
             "train_window_count": int(support_train_indices.size),

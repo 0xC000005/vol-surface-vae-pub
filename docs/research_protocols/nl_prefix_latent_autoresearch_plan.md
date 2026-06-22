@@ -27,34 +27,170 @@ support-family pooled. The selected distribution must affect generated
 scenarios, remain inspectable, and survive distributional historical backtesting
 against the simple mixture floor.
 
-The immediate objective is now **Public Paper Cleanup and Short Technical Paper
-Refactor**. The selected posterior-ensemble family remains **Nearest similar
-regimes / Main-regime view: top 3 / 90%**, but the manuscript must be revised
-so it reads like a concise public technical paper rather than an internal
-autoresearch report.
+The immediate objective is now **Hard-Negative Corpus Audit, Regeneration, and
+Validation**. The selected posterior-ensemble family remains **Nearest similar
+regimes / Main-regime view: top 3 / 90%** for the current paper/demo default.
+The active research branch is paused at a data-method consistency gate: before
+any new bridge or text-space retriever can claim explicit hard-negative
+contrastive learning, the project must build a proper matched hard-negative
+corpus and prove that the training code actually consumes it.
 
-Tracked cleanup plan:
-`docs/research_protocols/nl_prefix_latent_public_paper_cleanup_plan.md`.
+Hard-negative protocol:
+`docs/research_protocols/nl_prefix_latent_hard_negative_corpus_plan.md`.
 
-This work should not change the method, rerun the selector search, or interrupt
-the running Gradio demo. It should document the paper cleanup objective, then
-revise `paper/narrative_grounded_scenarios/main.tex` to:
+The previous episode-level retrieval branch remains relevant, but it must not
+advance to retraining or public method claims until the hard-negative gate
+passes. The current 982g positive narrative bank is direct Codex/GPT-authored
+and remains useful. The gap is the negative layer: stored hard negatives are
+short labels, not matched professional negative narratives linked to real
+incompatible SNI support memories.
 
-1. shorten and de-internalize the abstract;
-2. simplify the introduction and contribution list;
-3. tighten related work around LLM numerical limits, stochastic scenario
-   generation, multimodal/text-latent alignment, and provenance;
-4. remove or reframe internal language such as "product-facing candidate",
-   "promotion gate", and unlabeled "diagnostic";
-5. move or soften volatile provider/cost details as implementation notes rather
-   than main scientific claims;
-6. preserve the Safe-haven Gold explanation as a prefix-support versus terminal
-   response example;
-7. rebuild the PDF and run citation, label, stale-language, and LaTeX checks.
+Tracked branch plan:
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md`.
 
-The previous fixed-start casebook appendix sync is complete and remains the
-source for the current appendix demo-style tables. Any paper edits should
-preserve those tables unless the referenced artifacts are regenerated.
+Active branch goal:
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`.
+
+Method intake:
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_method_intake.md`.
+
+Latest branch result before the hard-negative gate: `984a` adds a Stage-2 grounded text-preference reranker
+over the existing OpenAI text-embedding plus grounding candidate pool. It
+learns support preferences from historical next-30-day replay closeness and
+then applies the unchanged top3/90 assembly. On the 66-window frozen-SNI
+scenario evaluation at 16 samples/support component, it improves CRPS versus
+persistence by `+0.219440`, Energy by `+0.251990`, and has coverage `0.649767`.
+It also passes the start-only lift audit with terminal factor KS `0.274038`,
+path energy distance `0.181869`, and support Jaccard distance `0.990909`.
+However, it remains slightly worse than start-only on absolute CRPS/Energy
+(`+0.015291` / `+0.026206` deltas versus start-only), so it is a strong
+research candidate rather than a paper/demo default.
+
+This work must not change the incumbent paper/demo default, rerun the existing
+selector search in place, or interrupt the running Gradio demo. It should create
+new hard-negative audit/regeneration/validation scripts and tests only.
+
+The active phase order is:
+
+0. Phase -1 hard-negative audit and gate;
+1. Phase 0 hard-negative schema, linked negative-window selection, and
+   Codex/GPT-only hard-negative regeneration;
+2. Phase 1 hard-negative validation: coverage, authoring, leakage,
+   contradiction quality, split safety, and linked-window integrity;
+3. Phase 2 retrain projected-memory and text-space retrievers with explicit
+   negative rows only after validation passes;
+4. Phase 3 scenario-level TestFlight versus the incumbent top3/90 selector;
+5. Phase 4 confirmation/backtest and conditionality evidence;
+6. Phase 5 product readout and promotion review.
+
+Superseded retrieval branch phase order, retained as background:
+
+1. Phase 0 corpus-quality audit and multi-view risk-manager episode-card
+   enrichment;
+2. Phase 1 local narrative-to-narrative retrieval;
+3. Phase 2 scenario-level TestFlight versus the incumbent top3/90 selector;
+4. Phase 3 confirmation/backtest and conditionality evidence;
+5. Phase 4 Codex-assisted online search and online episode enrichment;
+6. Phase 5 product readout and promotion review.
+
+Immediate hard-negative task order:
+
+1. Run `experiments/backfill/block_ar/nl_hard_negative_corpus_audit.py` on the
+   982g cards and current bridge/retriever reports.
+2. Treat any of these as a hard fail: fewer hard-negative texts than positive
+   training views, no linked negative-window ids, hard-negative leakage,
+   deterministic/template authoring, or no evidence that current training used
+   explicit stored negatives.
+3. Define the regenerated hard-negative bank schema with both text negatives
+   and linked incompatible historical windows. For the text-memory bridge, the
+   linked negative window supplies the negative SNI memory target; for the
+   text-space retriever, the negative text supplies the contrastive text sample.
+4. Regenerate hard-negative narratives through Codex/GPT only. Local code may
+   choose candidate incompatible windows and compute contradiction evidence,
+   but it must not write the narrative prose.
+5. Validate the regenerated bank before retraining. Do not update the paper,
+   presentation, or demo claims until validation and downstream comparison pass.
+
+Latest hard-negative audit (`985a`):
+
+- report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_corpus_audit_985a/hard_negative_corpus_audit.json`;
+- status: `fail_needs_regeneration`;
+- cards audited: `4010`;
+- stored hard-negative text count: `3530` cards have `3`, `480` cards have
+  `4`;
+- cards meeting the explicit minimum of `8` matched negative texts: `0`;
+- cards with linked negative-window metadata: `0`;
+- current audited bridge/retriever reports using explicit stored hard-negative
+  rows: `False`.
+
+Interpretation: the 982g positive narrative bank remains useful, but the
+negative layer must be regenerated before the bridge/retriever training can
+honestly match the explicit hard-negative method described in the paper.
+
+Latest hard-negative generation manifest (`985b`):
+
+- manifest:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest.jsonl`;
+- summary:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985b_manifest/hard_negative_generation_manifest_summary.json`;
+- status: `ok`;
+- rows: `32080` = `4010` windows x `8` positive training views;
+- each row links one positive view to a real incompatible historical window;
+- same-window negative links: `0`;
+- duplicate target/view pairs: `0`;
+- local generated negative prose: `False`.
+
+The manifest is ready for Codex/GPT hard-negative authoring. It is not itself
+the regenerated hard-negative corpus because `generated_negative_text` is still
+empty by design.
+
+Latest Codex/GPT hard-negative authoring batch (`985c`):
+
+- generation script:
+  `experiments/backfill/block_ar/nl_hard_negative_codex_batch.py`;
+- independent validator:
+  `experiments/backfill/block_ar/nl_hard_negative_bank_validate.py`;
+- generated bank:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank.jsonl`;
+- generation report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_codex_generation_report.json`;
+- validation report:
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/hard_negative_bank_regeneration_985c_codex_batch/hard_negative_bank_validation_report.json`;
+- status: partial pass under generation limit;
+- generated rows: `12433` / target full corpus `32080`;
+- remaining rows: `19647`;
+- complete target windows: `1554`, plus one partial target window with one
+  valid pre-existing sparse-user view;
+- distinct linked negative windows: `1978`;
+- same-window negative links: `0`;
+- validation: `12433` valid, `0` errors, `65` warnings;
+- warning interpretation: the sixty-five warnings are high token-overlap warnings on
+  mechanical/factor-list rows where the factor names overlap but the directions
+  are contradictory; the two new warnings are the `technical_factor_evidence`
+  and `factor_list_baseline` rows for `joint39_train_1462`; no new warnings
+  were introduced in the latest tranche;
+- latest tranche note: a serialized `--batch-size 8 --max-new 256` tranche
+  accepted all `256` requested rows, continued the normal scale-tranche path,
+  extended contiguous full eight-view coverage through `joint39_train_1553`,
+  and left the first missing manifest row at
+  `joint39_train_1554__weekly_risk_monitor`;
+- validator hardening: same-window negative links and exact positive-text
+  copies are explicit validation errors;
+- current validated view coverage: at least `1554` per positive training view,
+  with sparse-user views at `1555` because of one partial pre-existing target
+  window;
+- latest successful batch size: `8`;
+- local prose generated: `False`.
+
+This proves the Codex/GPT authoring and validation path across `1554` complete
+8-view target windows plus one partial target window. It does not complete the
+full hard-negative corpus.
+
+The previous public paper cleanup and fixed-start casebook appendix sync are
+complete and remain the source for the current paper/demo artifacts. Any future
+paper/demo edits should preserve those artifacts unless the episode-retrieval
+branch is promoted by the verifier.
 
 Current source artifact:
 `experiments/backfill/block_ar/nl_scenario_demo_outputs/posterior_ensemble_candidate_966a_professional_start22_s384_d400`.
@@ -237,6 +373,18 @@ Tracked current goal:
 Tracked current-truth index:
 `docs/research_protocols/nl_prefix_latent_current_truth.md`.
 
+Active exploratory branch for episode-level narrative retrieval:
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_plan.md`.
+This branch must not silently replace the current paper/demo top3/90 workflow.
+Its active goal lives at
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_goal.json`,
+and its method intake lives at
+`docs/research_protocols/nl_prefix_latent_episode_narrative_retrieval_method_intake.md`.
+The branch may create new `nl_episode_narrative_*` scripts and tests, but must
+not edit the existing caption generator, Codex caption batcher, narrative
+pipeline, component-posterior bakeoff, paper, or demo defaults until a
+promotion gate and independent verifier support the change.
+
 Scenario-to-text caption quality gate:
 `experiments/backfill/block_ar/nl_risk_manager_caption_v2.py`.
 
@@ -307,12 +455,15 @@ output paths.
 
 Default rule for future work: every paper-facing, demo-facing, casebook,
 fixed-start conditionality, caption-to-embedding, or autoresearch narrative must
-pass the two-document professional narrative standard unless the user explicitly
-requests a legacy, smoke, or ablation narrative. Use
+pass the two-document professional narrative standard. Local deterministic or
+template prose is banned for narrative artifacts, including smoke tests,
+mechanism tests, ablations, retrieval cards, training captions, and quality
+screens. Use
 `validate_professional_story` / `assert_professional_story` from
 `experiments/backfill/block_ar/nl_prefix_latent_live_casebook.py` and record
 `allow_unqualified_narratives=True` in command/config/artifacts when deliberately
-opting out. Short demo-style prose is not acceptable for promoted results.
+studying unqualified human-written input. Short demo-style prose is not
+acceptable for promoted results.
 
 The optional Codex caption route is now a gold-caption/evaluator lane, not a
 silent production default. Use `codex exec -m gpt-5.5 -c

@@ -683,9 +683,14 @@ def _load_bridge_adapter(
     condition_dim: int,
 ) -> NarrativeAdapter:
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    config = checkpoint.get("config", {})
+    hidden_dim = None
+    if isinstance(config, dict) and config.get("hidden_dim") is not None:
+        hidden_dim = int(config["hidden_dim"])
     adapter = NarrativeAdapter(
         int(embedding_dim),
         int(condition_dim),
+        hidden_dim=hidden_dim,
     )
     adapter.load_state_dict(checkpoint["state_dict"])
     adapter.eval()

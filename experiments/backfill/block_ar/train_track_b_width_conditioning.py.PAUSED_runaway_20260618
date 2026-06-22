@@ -1,0 +1,449 @@
+#!/usr/bin/env python
+"""Track B B-WIDTH STEP 1 -- train a WIDTH-objective narrative adapter on the frozen 734a.
+
+Reuses the B1 trainer's canonical data-prep + held-out split + the SAME adapter / injection
+point (narrative -> additive memory_states), but ADDS a width objective so the conditioned
+ensemble's fan WIDTH tracks the GROUNDED narrative-intensity scalar
+(nl_track_b_grounded_intensity, prose-parse, NO OpenAI). The 734a backbone is loaded
+read-only, FROZEN, and never written; a separate checkpoint is saved.
+
+Why a differentiable rollout (not a noise-scale head): 734a has
+``conditional_base_noise_scale=False`` => ``base_noise_log_scale is None`` => width is produced
+ONLY by the frozen velocity ODE acting on i.i.d. base noise, with narrative_context entering
+through ``memory_state`` (the same path that carries 734a's validated width-conditioning,
+turb/calm 1.229). There is no differentiable width knob. So the width term is computed from a
+gradient-enabled mini-rollout (small K members) that MIRRORS ``sample_batched`` exactly but
+keeps the adapter in the graph. We deliberately do NOT add a base_noise_scale head: that is a
+different mechanism, adds a non-adapter param, and would break the present=False->734a-identity
+invariant.
+
+Loss = velocity_matching (B1's training_loss, the path-fidelity anchor; preserves CRPS/Energy)
+     + lambda_width * width_term
+where width_term encourages a POSITIVE within-batch correlation between grounded_intensity and
+the conditioned cross-member width_DELTA (width(present=True) - width(present=False), CRN base
+noise) -- a soft, differentiable rank/correlation surrogate -- PLUS a null-anchor: examples
+passed present=False must keep the baseline width (this is automatic since the zero-init,
+presence-gated adapter outputs zero context when present=False, but we also include a fraction
+of present=False examples in the velocity-matching term to anchor the no-op).
+
+The width_term correlates intensity vs width_DELTA, NOT raw width (raw width is regime-confounded;
+the marginal narrative effect is the delta). Differentiable rollout uses CRN: the present=True
+and present=False arms share the SAME base noise per example, so width_delta isolates the
+adapter's effect.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
+    GenericStateAwareNormalizedInnovationFlowMatching,
+    load_model,
+    save_checkpoint,
+)
+from experiments.backfill.block_ar.nl_track_b_grounded_intensity import (  # noqa: E402
+    grounded_intensity_for_windows,
+    grounded_intensity_with_raw,
+)
+from experiments.backfill.block_ar.nl_track_b_width_pilot import cached_embeddings  # noqa: E402
+from experiments.backfill.block_ar.train_track_b_generator_conditioning import (  # noqa: E402
+    DEFAULT_CHECKPOINT,
+    DEFAULT_MANIFEST_EXAMPLES,
+    DEFAULT_SUPPORT_BANK,
+    EMBED_DIM,
+    assert_bank_alignment,
+    build_windows,
+    freeze_backbone,
+    load_window_texts,
+    training_window_mask,
+)
+
+DEFAULT_OUTPUT_DIR = "models/backfill/generator_conditioning_probe_bwidth"
+DEFAULT_EMBED_CACHE = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "track_b_width_pilot/embed_cache_small.npz"
+)
+
+
+def differentiable_terminal_widths(
+    model: GenericStateAwareNormalizedInnovationFlowMatching,
+    history_level_values: torch.Tensor,
+    history_norm: torch.Tensor,
+    center: torch.Tensor,
+    scale: torch.Tensor,
+    drift_feature: torch.Tensor | None,
+    *,
+    narrative_emb: torch.Tensor,
+    narrative_present: torch.Tensor,
+    base_noise: torch.Tensor,
+    n_steps: int,
+    flow_steps: int,
+    grad_checkpoint: bool = True,
+) -> torch.Tensor:
+    """Gradient-enabled mini-rollout -> per-window terminal cross-member width (mean over factors).
+
+    MIRRORS sample_batched's flow loop (lines ~1311-1362) but: keeps the adapter in the graph,
+    takes the base noise as an ARGUMENT (so present=True / present=False arms share CRN), and
+    uses the frozen no_update_head=None path (734a). Returns shape (B,) = mean over factors of
+    the cross-member std of the terminal cumulative increment.
+
+    Memory: the autoregressive prefix grows each step and _encode_prefix re-encodes it, so the
+    full graph is O(n_steps^2) activations + n_steps*flow_steps velocity calls -- it OOMs an 8GB
+    card at modest B*K. With grad_checkpoint=True each step's encode+flow is wrapped in
+    torch.utils.checkpoint (activations recomputed in backward), trading compute for memory.
+
+    base_noise: (B, K, n_steps, n_cells) -- shared across arms for CRN.
+    """
+    from torch.utils.checkpoint import checkpoint
+
+    bsz, k = base_noise.shape[0], base_noise.shape[1]
+    n_cells = int(model.cfg.n_cells)
+    dt = 1.0 / float(flow_steps)
+
+    # expand prefix to (B*K, ...)
+    def _rep3(x: torch.Tensor) -> torch.Tensor:
+        return x.unsqueeze(1).expand(bsz, k, x.shape[1], x.shape[2]).reshape(bsz * k, x.shape[1], x.shape[2]).clone()
+
+    def _rep2(x: torch.Tensor) -> torch.Tensor:
+        return x.unsqueeze(1).expand(bsz, k, x.shape[1]).reshape(bsz * k, x.shape[1])
+
+    level_scores = model.level_values_to_scores(history_level_values)
+    hist_flow = model._to_flow_coordinate(history_norm)
+    prefix_level_values = _rep3(history_level_values)
+    prefix_level_scores = _rep3(level_scores)
+    prefix_norm = _rep3(hist_flow)
+    center_rep = _rep2(center)
+    scale_rep = _rep2(scale)
+    drift_rep = None if drift_feature is None else _rep2(drift_feature)
+
+    # narrative context once (constant across steps), gated by present
+    narrative_context = None
+    if model.narrative_adapter is not None and narrative_emb is not None:
+        emb_rep = narrative_emb.unsqueeze(1).expand(bsz, k, narrative_emb.shape[-1]).reshape(bsz * k, narrative_emb.shape[-1])
+        present_rep = narrative_present.unsqueeze(1).expand(bsz, k).reshape(bsz * k)
+        narrative_context = model.narrative_adapter(emb_rep, present_rep)
+
+    base_noise_bk = base_noise.reshape(bsz * k, int(n_steps), n_cells)
+
+    def _step(prefix_level_scores, prefix_norm, prefix_last_level_value, x_in):
+        """One AR step: encode growing prefix -> velocity ODE -> next increment + flow coord.
+
+        Returns (next_increment, next_flow_coordinate, next_level_value). Written as a pure
+        function of tensors so torch.utils.checkpoint can recompute it in backward.
+        """
+        memory_state = model._encode_prefix(
+            prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep
+        )[:, -1]
+        if narrative_context is not None:
+            memory_state = memory_state + narrative_context
+        current_level_score = prefix_level_scores[:, -1]
+        x = x_in
+        scale_factor = model._conditional_base_noise_scale(memory_state)  # None on 734a
+        if scale_factor is not None:
+            x = x * scale_factor
+        for flow_step in range(int(flow_steps)):
+            t = torch.full((bsz * k,), (flow_step + 0.5) * dt, device=x.device, dtype=x.dtype)
+            x = x + dt * model.velocity(x, current_level_score, memory_state, t)
+        next_norm = model._from_flow_coordinate(x)
+        next_increment = next_norm * scale_rep + center_rep
+        next_flow = model._to_flow_coordinate(next_norm)
+        next_level_value = prefix_last_level_value + next_increment
+        return next_increment, next_flow, next_level_value
+
+    frames: list[torch.Tensor] = []
+    for step in range(int(n_steps)):
+        x_in = base_noise_bk[:, step]
+        if grad_checkpoint and torch.is_grad_enabled():
+            next_increment, next_flow, next_level_value = checkpoint(
+                _step, prefix_level_scores, prefix_norm, prefix_level_values[:, -1], x_in,
+                use_reentrant=False,
+            )
+        else:
+            next_increment, next_flow, next_level_value = _step(
+                prefix_level_scores, prefix_norm, prefix_level_values[:, -1], x_in
+            )
+        next_level_score = model.level_values_to_scores(next_level_value)
+        frames.append(next_increment.view(bsz, k, n_cells))
+        prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
+        prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
+        prefix_norm = torch.cat([prefix_norm, next_flow[:, None, :]], dim=1)
+    increments = torch.stack(frames, dim=2)  # (B, K, n_steps, n_cells)
+    terminal = increments.cumsum(dim=2)[:, :, -1, :]  # (B, K, n_cells) terminal cumulative move
+    # cross-member std over K, then mean over factors -> (B,)
+    width = terminal.std(dim=1, unbiased=True).mean(dim=1)
+    return width
+
+
+def soft_corr(x: torch.Tensor, y: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Differentiable Pearson correlation between two 1-D tensors (within-batch)."""
+    xm = x - x.mean()
+    ym = y - y.mean()
+    num = (xm * ym).sum()
+    den = torch.sqrt((xm * xm).sum() + eps) * torch.sqrt((ym * ym).sum() + eps)
+    return num / (den + eps)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--support-bank", default=DEFAULT_SUPPORT_BANK)
+    parser.add_argument("--manifest-examples", default=DEFAULT_MANIFEST_EXAMPLES)
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--embed-mode", choices=["openai", "hash"], default="openai")
+    parser.add_argument("--embed-cache", default=DEFAULT_EMBED_CACHE)
+    parser.add_argument("--dotenv-path", default=".env")
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch-size", type=int, default=24,
+                        help="windows per step; the width term needs several DISTINCT intensities")
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lambda-width", type=float, default=1.0)
+    parser.add_argument("--lambda-level", type=float, default=0.0,
+                        help="intercept guard: penalize positive width_delta on low-ABSOLUTE-"
+                             "intensity present windows (severity dial, not presence-inflation). "
+                             "0 => corr-only (registered objective); raise if the intercept "
+                             "diagnostic shows uniform inflation.")
+    parser.add_argument("--level-low-quantile-value", type=float, default=1.0,
+                        help="absolute-intensity threshold below which a window is 'low' for the "
+                             "level anchor (raw intensity ~ magnitude*count; <=1.0 ~ one large or "
+                             "<=3 small factors).")
+    parser.add_argument("--width-k", type=int, default=8, help="members in the differentiable width rollout")
+    parser.add_argument("--width-flow-steps", type=int, default=0,
+                        help="flow_steps for the width branch only (0 => use model's flow_steps)")
+    parser.add_argument("--null-fraction", type=float, default=0.25)
+    parser.add_argument("--grad-checkpoint", action="store_true", default=True)
+    parser.add_argument("--no-grad-checkpoint", dest="grad_checkpoint", action="store_false")
+    parser.add_argument("--log-every", type=int, default=10, help="print a step line every N steps")
+    parser.add_argument("--max-steps", type=int, default=0)
+    parser.add_argument("--max-windows", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=7344)
+    parser.add_argument("--device", default="cuda")
+    args = parser.parse_args()
+
+    torch.manual_seed(int(args.seed))
+    np.random.seed(int(args.seed))
+    device = torch.device(
+        args.device if (torch.cuda.is_available() or str(args.device) == "cpu") else "cpu"
+    )
+
+    model, payload = load_model(args.checkpoint, device, cfg_overrides={"narrative_conditioning": True})
+    assert model.narrative_adapter is not None, "adapter must be instantiated"
+    flow_steps = int(model.cfg.flow_steps)
+    width_flow_steps = int(args.width_flow_steps) or flow_steps
+    n_steps = int(model.cfg.future_len)
+
+    # B1-style freeze: only the adapter trains; backbone frozen + asserted bit-identical at end.
+    freeze_info = freeze_backbone(model, unfreeze_mode="none")
+    trainable = int(freeze_info["trainable"])
+    print(f"[freeze] adapter-only trainable={trainable}")
+
+    windows = build_windows(args.checkpoint, payload)
+    n_aligned = assert_bank_alignment(windows, args.support_bank)
+    n_windows = int(windows["history_level"].shape[0])
+
+    texts = load_window_texts(args.manifest_examples, n_windows)
+    embeddings = cached_embeddings(texts, args.embed_mode, args.dotenv_path, args.embed_cache)
+
+    keep = training_window_mask(windows["source_index"])
+    train_rows = np.nonzero(keep)[0]
+    # restrict to windows that carry a narrative embedding (width term needs the narrative)
+    train_rows = np.array([r for r in train_rows if int(r) in embeddings], dtype=np.int64)
+    if int(args.max_windows) > 0:
+        train_rows = train_rows[: int(args.max_windows)]
+    if train_rows.size == 0:
+        raise RuntimeError("no training windows with narrative -> STOP")
+
+    # grounded intensity over the TRAIN windows (normalized within the train frame) + absolute
+    train_texts = {int(r): texts[int(r)] for r in train_rows}
+    intensity_norm = grounded_intensity_for_windows(train_texts)
+    intensity_both = grounded_intensity_with_raw(train_texts)
+    abs_intensity = {i: v["raw"] for i, v in intensity_both.items()}
+    print(
+        f"[data] train_windows={train_rows.size} bank_aligned={n_aligned} "
+        f"intensity range=[{min(intensity_norm.values()):.3f},{max(intensity_norm.values()):.3f}] "
+        f"embed_mode={args.embed_mode} width_k={args.width_k} width_flow_steps={width_flow_steps}"
+    )
+
+    def stacked(key: str, rows: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(windows[key][rows]).to(device)
+
+    def emb_for(rows: np.ndarray) -> torch.Tensor:
+        out = np.zeros((rows.size, EMBED_DIM), dtype=np.float32)
+        for i, r in enumerate(rows):
+            out[i] = embeddings[int(r)]
+        return torch.from_numpy(out).to(device)
+
+    # frozen-tensor safety probe
+    frozen_name = next(
+        n for n, p in model.named_parameters()
+        if (not n.startswith("narrative_adapter")) and p.numel() > 0
+    )
+    frozen_ref = dict(model.named_parameters())[frozen_name].detach().clone()
+
+    optimizer = torch.optim.Adam(
+        [p for n, p in model.named_parameters() if p.requires_grad], lr=float(args.lr)
+    )
+    rng = np.random.default_rng(int(args.seed))
+
+    model.train()
+    history: list[dict[str, float]] = []
+    best_loss = float("inf")
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    step = 0
+    stop = False
+    for epoch in range(int(args.epochs)):
+        order = rng.permutation(train_rows)
+        ep_total, ep_fm, ep_width, ep_corr = [], [], [], []
+        ep_low_delta, ep_high_delta = [], []
+        for start in range(0, order.size, int(args.batch_size)):
+            batch_rows = order[start : start + int(args.batch_size)]
+            if batch_rows.size < 3:
+                continue  # width-corr needs >=3 distinct intensities
+            emb_t = emb_for(batch_rows)
+            present_all = torch.ones(batch_rows.size, dtype=torch.bool, device=device)
+            # velocity-matching (fidelity anchor) with a null-fraction present=False
+            null_draw = torch.from_numpy(rng.random(batch_rows.size) < float(args.null_fraction)).to(device)
+            fm_present = present_all & ~null_draw
+            fm_loss, _m = model.training_loss(
+                stacked("history_level", batch_rows),
+                stacked("history_norm", batch_rows),
+                stacked("future_level", batch_rows),
+                stacked("future_norm", batch_rows),
+                stacked("center", batch_rows),
+                stacked("scale", batch_rows),
+                drift_feature=stacked("drift_feature", batch_rows),
+                narrative_emb=emb_t,
+                narrative_present=fm_present,
+            )
+
+            # --- width term: differentiable width_delta vs grounded intensity --------------
+            inten = torch.tensor(
+                [float(intensity_norm[int(r)]) for r in batch_rows], device=device, dtype=fm_loss.dtype
+            )
+            # CRN base noise shared between present=True and present=False arms
+            base_noise = torch.randn(
+                batch_rows.size, int(args.width_k), n_steps, int(model.cfg.n_cells), device=device
+            )
+            hl = stacked("history_level", batch_rows)
+            hn = stacked("history_norm", batch_rows)
+            ce = stacked("center", batch_rows)
+            sc = stacked("scale", batch_rows)
+            dr = stacked("drift_feature", batch_rows)
+            width_on = differentiable_terminal_widths(
+                model, hl, hn, ce, sc, dr,
+                narrative_emb=emb_t, narrative_present=present_all,
+                base_noise=base_noise, n_steps=n_steps, flow_steps=width_flow_steps,
+                grad_checkpoint=bool(args.grad_checkpoint),
+            )
+            width_off = differentiable_terminal_widths(
+                model, hl, hn, ce, sc, dr,
+                narrative_emb=emb_t, narrative_present=torch.zeros_like(present_all),
+                base_noise=base_noise, n_steps=n_steps, flow_steps=width_flow_steps,
+                grad_checkpoint=bool(args.grad_checkpoint),
+            )
+            width_delta = width_on - width_off
+            corr = soft_corr(inten, width_delta)
+            # maximize correlation => minimize (1 - corr)
+            width_term = 1.0 - corr
+            # OPTIONAL level-anchor (intercept guard): pull low-ABSOLUTE-intensity present
+            # windows' width_delta toward zero so the model widens IN PROPORTION to severity
+            # rather than uniformly inflating the fan for any present narrative (the pilot's
+            # b1 failure mode + the gate's KILL pattern). Off by default (lambda_level=0); the
+            # intercept readout (logged below) decides whether to enable it.
+            level_term = fm_loss.new_zeros(())
+            if float(args.lambda_level) > 0.0:
+                abs_inten = torch.tensor(
+                    [float(abs_intensity[int(r)]) for r in batch_rows],
+                    device=device, dtype=fm_loss.dtype,
+                )
+                low_mask = abs_inten <= float(args.level_low_quantile_value)
+                if bool(low_mask.any()):
+                    level_term = width_delta[low_mask].clamp_min(0.0).pow(2).mean()
+            loss = fm_loss + float(args.lambda_width) * width_term + float(args.lambda_level) * level_term
+            if not torch.isfinite(loss):
+                raise RuntimeError(f"non-finite loss at step {step}: {loss}")
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            ep_total.append(float(loss.detach().cpu()))
+            ep_fm.append(float(fm_loss.detach().cpu()))
+            ep_width.append(float(width_term.detach().cpu()))
+            ep_corr.append(float(corr.detach().cpu()))
+            # intercept diagnostic: low/high ABSOLUTE-intensity tercile mean width_delta this batch
+            with torch.no_grad():
+                ai_b = np.array([float(abs_intensity[int(r)]) for r in batch_rows])
+                wd_b = width_delta.detach().cpu().numpy()
+                o = np.argsort(ai_b); c = max(1, ai_b.size // 3)
+                ep_low_delta.append(float(wd_b[o[:c]].mean()))
+                ep_high_delta.append(float(wd_b[o[-c:]].mean()))
+            step += 1
+            if int(args.log_every) > 0 and step % int(args.log_every) == 0:
+                print(f"  [step {step}] total={float(loss.detach().cpu()):.4f} "
+                      f"fm={float(fm_loss.detach().cpu()):.4f} corr={float(corr.detach().cpu()):.3f}",
+                      flush=True)
+            if int(args.max_steps) > 0 and step >= int(args.max_steps):
+                stop = True
+                break
+        mean_total = float(np.mean(ep_total)) if ep_total else float("nan")
+        mean_corr = float(np.mean(ep_corr)) if ep_corr else float("nan")
+        low_d = float(np.mean(ep_low_delta)) if ep_low_delta else float("nan")
+        high_d = float(np.mean(ep_high_delta)) if ep_high_delta else float("nan")
+        history.append({
+            "epoch": epoch, "mean_total": mean_total,
+            "mean_fm": float(np.mean(ep_fm)) if ep_fm else float("nan"),
+            "mean_width_term": float(np.mean(ep_width)) if ep_width else float("nan"),
+            "mean_corr_intensity_width_delta": mean_corr,
+            "low_tercile_mean_width_delta": low_d,
+            "high_tercile_mean_width_delta": high_d, "steps": step,
+        })
+        print(f"[epoch {epoch}] total={mean_total:.5f} fm={history[-1]['mean_fm']:.5f} "
+              f"corr={mean_corr:.4f} low_delta={low_d:.4f} high_delta={high_d:.4f} steps={step}")
+        if ep_total and mean_total < best_loss:
+            best_loss = mean_total
+            save_checkpoint(
+                str(out_dir / "best_model.pt"), model, model.cfg, epoch=epoch, best_val=best_loss,
+                extra={
+                    "track": "B-width", "trainable_params": int(trainable),
+                    "lambda_width": float(args.lambda_width), "width_k": int(args.width_k),
+                    "width_flow_steps": int(width_flow_steps), "embed_mode": str(args.embed_mode),
+                    "base_checkpoint": str(args.checkpoint),
+                    "train_window_count": int(train_rows.size),
+                },
+            )
+        if stop:
+            break
+
+    frozen_now = dict(model.named_parameters())[frozen_name].detach()
+    frozen_max_diff = float((frozen_now - frozen_ref).abs().max())
+    if frozen_max_diff != 0.0:
+        raise AssertionError(
+            f"FROZEN backbone tensor {frozen_name!r} changed (max|diff|={frozen_max_diff}) -> STOP"
+        )
+    (out_dir / "training_history.json").write_text(
+        json.dumps({
+            "history": history, "trainable_params": int(trainable),
+            "lambda_width": float(args.lambda_width), "width_k": int(args.width_k),
+            "width_flow_steps": int(width_flow_steps),
+            "frozen_probe_tensor": frozen_name, "frozen_probe_max_diff": frozen_max_diff,
+            "embed_mode": str(args.embed_mode), "train_window_count": int(train_rows.size),
+            "bank_aligned_windows": int(n_aligned), "steps": int(step),
+        }, indent=2) + "\n", encoding="utf-8",
+    )
+    print(f"[done] steps={step} best_total={best_loss:.5f} "
+          f"frozen_probe_max_diff={frozen_max_diff} (={frozen_name}) trainable_params={trainable}")
+
+
+if __name__ == "__main__":
+    main()

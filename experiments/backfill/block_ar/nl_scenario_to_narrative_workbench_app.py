@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +15,7 @@ from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from pydantic import ValidationError
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -21,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 from experiments.backfill.block_ar.nl_scenario_to_narrative_workbench import (  # noqa: E402
     ScenarioSidecarV1,
+    _compact,
     load_generated_deck_sidecar_from_report,
     load_historical_joint39_sidecar,
     normalize_factor_table_csv_text,
@@ -65,19 +69,148 @@ FACTOR_ROW_COLUMNS = [
 PACKET_COLUMNS = ["View", "Positive", "Negative Window", "Hard Negative"]
 SOURCE_MODE_CHOICES = ["Historical Case", "Uploaded Numerical Scenario"]
 
+# Factors quoted in percent (yields + credit OAS spreads): level shown as "%", move in bp.
+_RATE_FACTORS = {"US2Y", "US5Y", "US10Y", "US30Y", "US3M", "US6M", "FED_FUNDS"}
+# Confidence column: real levels pass through; the historical/generated builders overload the
+# `confidence` field as a provenance tag (raw_history_path / historical_evidence /
+# distribution_mean / support_row_N), so map those to an honest confidence level for display.
+_CONFIDENCE_LEVELS = {"low", "medium", "high"}
+_OBSERVED_PROVENANCE = {"raw_history_path", "historical_evidence", "small", "large", "flat"}
+# Plain-language source label for the status panel (replaces ScenarioSidecarV1 / type-code jargon).
+_SOURCE_LABELS = {
+    "historical_joint39": "Historical case",
+    "generated_deck": "Generated scenario deck",
+    "factor_table_partial": "Uploaded numbers",
+    "factor_table_full": "Uploaded numbers",
+}
+# Snake_case narrative view keys -> human-readable titles for the packet.
+_VIEW_TITLES = {
+    "sparse_user_query": "Risk-desk question",
+    "weekly_risk_monitor": "Weekly risk monitor",
+    "mechanism_first": "Mechanism-first read",
+    "technical_factor_evidence": "Technical factor evidence",
+    "factor_list_baseline": "Factor checklist",
+    "institutional_risk_committee_note": "Risk committee note",
+    "risk_manager_memo": "Risk-manager memo",
+    "full_professional": "Full professional brief",
+    "sparse_variant_tape_read": "Tape read (brief)",
+    "sparse_variant_portfolio_concern": "Portfolio concern (brief)",
+    "sparse_variant_macro_channel": "Macro channel (brief)",
+    "sparse_variant_credit_ambiguity": "Credit ambiguity (brief)",
+    "sparse_variant_rates_commodities": "Rates & commodities (brief)",
+    "sparse_variant_desk_note": "Desk note (brief)",
+}
+
+
+def _factor_is_rate_or_spread(factor: str) -> bool:
+    name = str(factor or "").strip().upper()
+    return name in _RATE_FACTORS or name.endswith("_OAS") or name.endswith(" OAS")
+
+
+def _factor_unit_label(factor: str) -> str:
+    return "%" if _factor_is_rate_or_spread(factor) else "pts"
+
+
+def _format_factor_row_values(row: ScenarioFactorRowV1) -> tuple[str, str, str]:
+    """Return (start, end, delta) as clean per-factor unit strings (no float noise).
+
+    Yields/OAS levels are in percent -> level "x.xx%", move in basis points.
+    All other factors -> "pts" (0 dp for index-scale levels >= 1000, else 2 dp).
+    """
+    try:
+        start, end, delta = float(row.start), float(row.end), float(row.delta)
+    except (TypeError, ValueError):
+        return str(row.start), str(row.end), str(row.delta)
+    if _factor_is_rate_or_spread(row.factor):
+        return f"{start:.2f}%", f"{end:.2f}%", f"{delta * 100.0:+,.0f} bp"
+    decimals = 0 if max(abs(start), abs(end)) >= 1000 else 2
+    return (
+        f"{start:,.{decimals}f} pts",
+        f"{end:,.{decimals}f} pts",
+        f"{delta:+,.{decimals}f} pts",
+    )
+
+
+def _display_confidence(raw: object, scenario_type: str = "") -> str:
+    # Disambiguate by source builder: historical rows are always realized observations and
+    # generated-deck rows are always distribution means, regardless of what the (overloaded)
+    # `confidence` field literally holds. This closes the "medium"-magnitude hole on the
+    # support-metadata fallback path, where a magnitude string lands in the confidence field
+    # and would otherwise read as a user confidence level.
+    stype = str(scenario_type or "").strip()
+    if stype == "historical_joint39":
+        return "Observed"  # realized historical move — not a confidence judgment
+    if stype == "generated_deck":
+        return "Model mean"  # distribution mean, not a confidence
+    text = str(raw or "").strip()
+    if not text:
+        return "Medium"
+    lowered = text.lower()
+    if lowered in _CONFIDENCE_LEVELS:
+        return lowered.capitalize()  # user-supplied confidence (uploaded case)
+    if lowered in _OBSERVED_PROVENANCE or lowered.startswith("support_row_"):
+        return "Observed"
+    if lowered == "distribution_mean":
+        return "Model mean"
+    return text.capitalize()
+
+
+def _friendly_source_label(scenario_type: str) -> str:
+    return _SOURCE_LABELS.get(str(scenario_type or "").strip(), "Scenario")
+
+
+def _view_title(view_key: object) -> str:
+    key = str(view_key or "").strip()
+    if key in _VIEW_TITLES:
+        return _VIEW_TITLES[key]
+    return key.replace("_", " ").strip().title() or "Narrative"
+
+
+@lru_cache(maxsize=8)
+def _window_id_period_map(
+    support_report_path: str = str(DEFAULT_SUPPORT_BANK_REPORT),
+) -> dict[str, tuple[str, str]]:
+    mapping: dict[str, tuple[str, str]] = {}
+    for row in _support_window_metadata(support_report_path):
+        window_id = str(row.get("window_id", "")).strip()
+        start_date = str(row.get("calendar_start_date", "")).strip()
+        end_date = str(row.get("calendar_end_date", "")).strip()
+        if window_id and start_date and end_date:
+            mapping[window_id] = (start_date, end_date)
+    return mapping
+
+
+def _negative_window_label(window_id: object) -> str:
+    """Resolve a hard-negative window id to its calendar period (hide the internal id)."""
+    window_text = str(window_id or "").strip()
+    if not window_text:
+        return ""
+    try:
+        period = _window_id_period_map().get(window_text)
+    except Exception:
+        period = None
+    if period:
+        return f"Contrasting historical period: {period[0]} to {period[1]}"
+    return f"Contrasting window: `{window_text}`"
+
+
 def factor_rows_dataframe(sidecar: ScenarioSidecarV1) -> pd.DataFrame:
-    rows = [
-        {
-            "Factor": row.factor,
-            "Start": row.start,
-            "End": row.end,
-            "Delta": row.delta,
-            "Direction": row.direction,
-            "Magnitude": row.magnitude,
-            "Confidence": row.confidence,
-        }
-        for row in sidecar.factor_rows
-    ]
+    rows = []
+    for row in sidecar.factor_rows:
+        start_str, end_str, delta_str = _format_factor_row_values(row)
+        rows.append(
+            {
+                "Factor": row.factor,
+                "Start": start_str,
+                "End": end_str,
+                "Delta": delta_str,
+                "Direction": row.direction,
+                "Magnitude": row.magnitude,
+                "Confidence": _display_confidence(
+                    row.confidence, sidecar.scenario_type
+                ),
+            }
+        )
     return pd.DataFrame(rows, columns=FACTOR_ROW_COLUMNS)
 
 
@@ -104,19 +237,25 @@ def packet_review_markdown(packet: dict[str, Any] | None) -> str:
     if not pairs:
         return "## Generated Narratives\n\nGenerate a packet to view the narratives."
 
-    lines = ["## Generated Narratives"]
+    lines = [
+        "## Generated Narratives",
+        "Each market scenario below is described two ways. The **Positive** narrative is a "
+        "faithful plain-English reading of your scenario. The **Hard negative** is a "
+        "deliberately-contradictory description used to confirm your scenario can be told apart "
+        "from a near-miss — it is NOT a valid reading of your scenario and NOT a more-bearish "
+        "variant.",
+    ]
     for index, row in enumerate(pairs, start=1):
-        view_name = str(row.get("view_name", "")).strip() or f"view_{index}"
-        negative_window = str(row.get("negative_window_id", "")).strip()
+        view_title = _view_title(row.get("view_name"))
+        negative_label = _negative_window_label(row.get("negative_window_id"))
         positive = str(row.get("positive_text", "")).strip()
         negative = str(row.get("negative_text", "")).strip()
         lines.extend(
             [
-                f"### {index}. `{view_name}`",
+                f"### {index}. {view_title}",
                 "**Positive**",
                 positive or "_No positive narrative returned._",
-                f"**Hard negative**"
-                + (f"  \nNegative window: `{negative_window}`" if negative_window else ""),
+                "**Hard negative**" + (f"  \n{negative_label}" if negative_label else ""),
                 negative or "_No hard-negative narrative returned._",
             ]
         )
@@ -129,14 +268,14 @@ def status_cards_markdown(
     validation_status: str,
 ) -> str:
     if sidecar is None:
-        return "## Status\n\n- Sidecar: `waiting`\n- Validation: `waiting`"
+        return "## Scenario status\n\n- Scenario: `waiting`\n- Input check: `waiting`"
     return (
-        "## Status\n\n"
-        "- Sidecar: `ScenarioSidecarV1`\n"
-        f"- Type: `{sidecar.scenario_type}`\n"
+        "## Scenario status\n\n"
+        "- Scenario: `loaded`\n"
+        f"- Source: `{_friendly_source_label(sidecar.scenario_type)}`\n"
         f"- Factors: `{len(sidecar.factor_rows)}`\n"
-        f"- Warnings: `{len(sidecar.normalization_warnings)}`\n"
-        f"- Validation: `{validation_status}`"
+        f"- Data notes: `{len(sidecar.normalization_warnings)}`\n"
+        f"- Input check: `{validation_status}`"
     )
 
 
@@ -146,17 +285,37 @@ def factor_move_plot(sidecar: ScenarioSidecarV1 | None) -> go.Figure:
         fig.update_layout(title="No scenario loaded")
         return fig
 
-    row_count = len(sidecar.factor_rows)
+    factor_rows = list(sidecar.factor_rows)
+    n_factors = len(factor_rows)
     horizon = max(1, int(sidecar.horizon_days))
     days = list(range(horizon + 1))
-    fig = make_subplots(
-        rows=row_count,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=min(0.04, 0.4 / row_count),
-        subplot_titles=[row.factor for row in sidecar.factor_rows],
-    )
-    for row_number, row in enumerate(sidecar.factor_rows, start=1):
+    # Small-multiples grid: single column when few factors, otherwise two columns so the
+    # full Joint39 set (11 panels) stays a compact block instead of a long scroll.
+    n_cols = 1 if n_factors <= 4 else 2
+    n_rows = math.ceil(n_factors / n_cols)
+    # One label+unit per panel (panel title); no duplicate y-axis title.
+    subplot_titles = [
+        f"{row.factor} ({_factor_unit_label(row.factor)})" for row in factor_rows
+    ]
+    make_kwargs: dict[str, Any] = {
+        "rows": n_rows,
+        "cols": n_cols,
+        "shared_xaxes": n_cols == 1,
+        "subplot_titles": subplot_titles,
+    }
+    if n_cols > 1:
+        make_kwargs["horizontal_spacing"] = 0.12
+    if n_rows > 1:
+        make_kwargs["vertical_spacing"] = min(0.08, 0.5 / (n_rows - 1))
+    fig = make_subplots(**make_kwargs)
+
+    deepest_row_for_col: dict[int, int] = {}
+    for index, row in enumerate(factor_rows):
+        grid_row = index // n_cols + 1
+        grid_col = index % n_cols + 1
+        deepest_row_for_col[grid_col] = max(
+            deepest_row_for_col.get(grid_col, 0), grid_row
+        )
         if row.path_values and len(row.path_values) >= 2:
             values = [float(value) for value in row.path_values]
             x_values = list(range(len(values)))
@@ -178,23 +337,23 @@ def factor_move_plot(sidecar: ScenarioSidecarV1 | None) -> go.Figure:
                 hovertemplate=(
                     f"{row.factor}<br>"
                     "Day %{x}<br>"
-                    "Value %{y:.6g}"
+                    f"Value %{{y:.4g}} {_factor_unit_label(row.factor)}"
                     "<extra></extra>"
                 ),
                 showlegend=False,
             ),
-            row=row_number,
-            col=1,
+            row=grid_row,
+            col=grid_col,
         )
-        fig.update_yaxes(title_text=row.factor, row=row_number, col=1)
-    fig.update_xaxes(title_text="Day", row=row_count, col=1)
-    row_height = 140 if row_count <= 12 else 105
+    for grid_col, grid_row in deepest_row_for_col.items():
+        fig.update_xaxes(title_text="Day", row=grid_row, col=grid_col)
+    row_height = 150 if n_cols > 1 else (140 if n_factors <= 12 else 105)
     fig.update_layout(
         title="30-day scenario movement",
         hovermode="x unified",
         template="plotly_white",
         margin={"l": 70, "r": 20, "t": 70, "b": 55},
-        height=max(420, row_height * row_count + 120),
+        height=max(420, row_height * n_rows + 120),
     )
     return fig
 
@@ -286,15 +445,44 @@ def _metadata_for_calendar_start_date(
     raise ValueError(f"no historical support window starting on {selected!r}")
 
 
+@lru_cache(maxsize=8)
+def _card_backed_window_ids(cards_jsonl: str = str(DEFAULT_CARDS_JSONL)) -> frozenset[str]:
+    """Window ids that actually have a narrative card in the corpus the scenario loader
+    reads. The support bank is stride-1 (~4010 windows) but the clean corpus is stride-5
+    (~802 cards), so the date picker must offer only card-backed windows — otherwise the
+    loader raises 'target window not found' for the ~80% of dates that have no card."""
+    path = Path(cards_jsonl)
+    if not path.exists():
+        return frozenset()
+    ids: set[str] = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                window_id = json.loads(line).get("window_id")
+            except json.JSONDecodeError:
+                continue
+            if window_id:
+                ids.add(_compact(window_id))
+    return frozenset(ids)
+
+
 def historical_date_choices(
     support_report_path: str | Path = DEFAULT_SUPPORT_BANK_REPORT,
+    *,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
 ) -> list[tuple[str, str]]:
+    card_ids = _card_backed_window_ids(str(cards_jsonl))
     choices: list[tuple[str, str]] = []
     for row in _support_window_metadata(str(support_report_path)):
         end_date = str(row.get("calendar_end_date", "")).strip()
         start_date = str(row.get("calendar_start_date", "")).strip()
         window_id = str(row.get("window_id", "")).strip()
         if not end_date or not window_id:
+            continue
+        if card_ids and _compact(window_id) not in card_ids:
             continue
         label = f"{end_date} | {window_id} | {start_date} to {end_date}"
         choices.append((label, end_date))
@@ -303,11 +491,16 @@ def historical_date_choices(
 
 def historical_start_date_choices(
     support_report_path: str | Path = DEFAULT_SUPPORT_BANK_REPORT,
+    *,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
 ) -> list[tuple[str, str]]:
+    card_ids = _card_backed_window_ids(str(cards_jsonl))
     choices: list[tuple[str, str]] = []
     for row in _support_window_metadata(str(support_report_path)):
         start_date = str(row.get("calendar_start_date", "")).strip()
         if not start_date:
+            continue
+        if card_ids and _compact(row.get("window_id")) not in card_ids:
             continue
         choices.append((start_date, start_date))
     return choices
@@ -551,11 +744,14 @@ def generation_status_markdown(
     validation_status: str,
     error_count: int,
 ) -> str:
+    # `packet_path` is retained for call-site stability but intentionally NOT printed here:
+    # the saved artifact is offered through the download button / Technical details instead of
+    # leaking a full filesystem path into the primary view (D9).
+    del packet_path
     return (
         "## Generation Status\n\n"
-        f"- Validation: `{validation_status}`\n"
-        f"- Errors: `{error_count}`\n"
-        f"- Packet JSON: `{packet_path}`"
+        f"- Narrative check: `{validation_status}`\n"
+        f"- Errors: `{error_count}`"
     )
 
 
@@ -585,8 +781,8 @@ def generate_narrative_packet_outputs_for_app(
     if not str(sidecar_json or "").strip():
         return (
             "## Generation Status\n\n"
-            "- Validation: `waiting`\n"
-            "- Packet JSON: `load a scenario first`",
+            "- Narrative check: `waiting`\n"
+            "- Note: `load a scenario first`",
             "## Generated Narratives\n\nload a scenario first, then generate a packet.",
         )
     sidecar = ScenarioSidecarV1.model_validate_json(sidecar_json)
@@ -657,6 +853,166 @@ def assert_clean_corpus_paths(*paths: "str | Path") -> None:
 assert_clean_corpus_paths(DEFAULT_CARDS_JSONL, DEFAULT_SUPPORT_ARRAYS, DEFAULT_SUPPORT_BANK_REPORT)
 
 
+# ---------------------------------------------------------------------------
+# UI-facing error handling (keep friendly messages in the persistent panels)
+# ---------------------------------------------------------------------------
+def _empty_factor_frame() -> pd.DataFrame:
+    return pd.DataFrame([], columns=FACTOR_ROW_COLUMNS)
+
+
+def _load_error_status_markdown(error: Exception) -> str:
+    message = str(error).strip() or "could not parse the scenario input"
+    return (
+        "## Scenario status\n\n"
+        "- Scenario: `could not load`\n"
+        f"- Problem: {message}\n"
+        "- Input check: `failed`"
+    )
+
+
+def _historical_error_range_markdown(error: Exception) -> str:
+    message = str(error).strip() or "could not load the selected period"
+    return f"## Selected Historical Period\n\n- Status: `{message}`"
+
+
+def _generation_failure_markdown(headline: str, detail: str) -> str:
+    return (
+        "## Generation Status\n\n"
+        f"- Narrative generation: `{headline}`\n"
+        f"- Detail: {detail}"
+    )
+
+
+def normalize_uploaded_scenario_safe_for_app(
+    csv_text: str,
+) -> tuple[str, pd.DataFrame, str, str, str]:
+    """D5: catch parse/validation errors into the status panel (5 outputs always)."""
+    try:
+        return normalize_uploaded_scenario_for_app(csv_text)
+    except (ValueError, ValidationError) as exc:
+        return (_load_error_status_markdown(exc), _empty_factor_frame(), "[]", "", "")
+
+
+def normalize_historical_start_date_safe_for_app(
+    calendar_start_date: str,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+    support_arrays_path: str | Path | None = DEFAULT_SUPPORT_ARRAYS,
+) -> tuple[str, pd.DataFrame, str, str, str, str]:
+    """D5: catch lookup/validation/IO errors into the status panel (6 outputs always)."""
+    try:
+        return normalize_historical_start_date_for_app(
+            calendar_start_date,
+            cards_jsonl=cards_jsonl,
+            support_arrays_path=support_arrays_path,
+        )
+    # OSError covers a bad "Reference cards JSONL" path (FileNotFoundError); the broad fallback
+    # ensures any backend failure lands in the panel rather than leaving it stuck on "waiting".
+    except (ValueError, ValidationError, OSError) as exc:
+        error: Exception = exc
+    except Exception as exc:  # noqa: BLE001
+        error = exc
+    return (
+        _load_error_status_markdown(error),
+        _empty_factor_frame(),
+        "[]",
+        "",
+        "",
+        _historical_error_range_markdown(error),
+    )
+
+
+def _uploaded_plot_safe(csv_text: str) -> go.Figure:
+    try:
+        return factor_move_plot(_normalize_factor_table_sidecar_for_app(csv_text))
+    except (ValueError, ValidationError):
+        return factor_move_plot(None)
+
+
+def _historical_plot_safe(
+    calendar_start_date: str,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+) -> go.Figure:
+    try:
+        return factor_move_plot(
+            _normalize_historical_start_date_sidecar_for_app(
+                calendar_start_date,
+                cards_jsonl=cards_jsonl,
+                support_arrays_path=DEFAULT_SUPPORT_ARRAYS,
+            )
+        )
+    except Exception:  # noqa: BLE001 - bad path/parse -> empty plot; message is in the status panel
+        return factor_move_plot(None)
+
+
+def _existing_packet_path(sidecar_json: str, output_dir: str | Path) -> str | None:
+    """Locate the just-written packet JSON for the download button (D9)."""
+    text = str(sidecar_json or "").strip()
+    if not text:
+        return None
+    try:
+        sidecar = ScenarioSidecarV1.model_validate_json(text)
+    except (ValueError, ValidationError):
+        return None
+    path = (
+        _resolve_app_path(output_dir)
+        / _scenario_slug(sidecar.scenario_id)
+        / "scenario_narrative_packet.json"
+    )
+    return str(path) if path.exists() else None
+
+
+def generate_narrative_packet_ui(
+    sidecar_json: str,
+    cards_jsonl: str | Path = DEFAULT_CARDS_JSONL,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+) -> tuple[str, str, str | None]:
+    """D6 + D9: error-guarded generation returning (status, narratives, download_path)."""
+    try:
+        status, narratives = generate_narrative_packet_outputs_for_app(
+            sidecar_json,
+            cards_jsonl=cards_jsonl,
+            output_dir=output_dir,
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            _generation_failure_markdown(
+                "timed out",
+                "The narrative author (Codex) did not return in time. Try again, or load a "
+                "smaller scenario.",
+            ),
+            packet_review_markdown(None),
+            None,
+        )
+    except FileNotFoundError:
+        return (
+            _generation_failure_markdown(
+                "backend unavailable",
+                "The narrative author (Codex CLI) was not found on this machine. Install/enable "
+                "it, then retry.",
+            ),
+            packet_review_markdown(None),
+            None,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface any backend failure legibly in-panel
+        return (
+            _generation_failure_markdown("failed", f"{type(exc).__name__}: {exc}"),
+            packet_review_markdown(None),
+            None,
+        )
+    return status, narratives, _existing_packet_path(sidecar_json, output_dir)
+
+
+def _generation_pending_outputs() -> tuple[str, str, None]:
+    """D6: upfront latency notice shown the instant Generate is clicked."""
+    return (
+        "## Generation Status\n\n"
+        "_Generating narrative packet — this can take several minutes while the narrative "
+        "author drafts each style._",
+        "## Generated Narratives\n\n_Authoring narratives…_",
+        None,
+    )
+
+
 def build_demo() -> Any:
     import gradio as gr
 
@@ -674,16 +1030,43 @@ def build_demo() -> Any:
             for visible in mode_visibility_flags(source_mode)
         )
 
-    with gr.Blocks(title="Scenario-to-Narrative Workbench") as demo:
-        gr.Markdown("# Scenario-to-Narrative Analyst Workbench")
+    def mode_change_outputs(source_mode: str) -> tuple[Any, ...]:
+        # D10: toggle the active input group AND clear the right-panel outputs so stale data
+        # from the previous mode never lingers after switching.
+        historical_update, uploaded_update = mode_visibility_updates(source_mode)
+        return (
+            historical_update,
+            uploaded_update,
+            status_cards_markdown(None, validation_status="waiting"),
+            _empty_factor_frame(),
+            factor_move_plot(None),
+            "",
+            "## Generation Status\n\n- Narrative check: `waiting`",
+            "## Generated Narratives\n\nGenerate a packet to view the narratives.",
+            None,
+            "",  # warnings_json (Technical details)
+            "",  # sidecar_json (Technical details)
+        )
+
+    with gr.Blocks(title="Scenario-to-Narrative Generator") as demo:
+        gr.Markdown("# Scenario-to-Narrative Generator")
+        gr.Markdown(
+            "Turn a market scenario — a historical episode or your own numbers — into "
+            "plain-English risk narratives, each paired with a deliberately-contradictory "
+            "hard-negative so you can confirm the read is distinguishable."
+        )
+        gr.Markdown(
+            "**Two steps:** first **Visualize** a scenario on the left, then **Generate** its "
+            "narrative packet on the right."
+        )
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
                 source_mode = gr.Radio(
                     choices=SOURCE_MODE_CHOICES,
-                    value="Uploaded Numerical Scenario",
+                    value="Historical Case",
                     label="Input mode",
                 )
-                with gr.Column(visible=False) as historical_group:
+                with gr.Column(visible=True) as historical_group:
                     historical_start_date = gr.Dropdown(
                         choices=start_date_choices,
                         value=default_historical_start_date,
@@ -693,8 +1076,11 @@ def build_demo() -> Any:
                     historical_range = gr.Markdown(
                         historical_period_range_markdown(default_historical_start_date)
                     )
-                    historical_button = gr.Button("Visualize Historical Scenario")
-                with gr.Column(visible=True) as uploaded_group:
+                    historical_button = gr.Button(
+                        "Step 1 · Visualize historical scenario",
+                        variant="primary",
+                    )
+                with gr.Column(visible=False) as uploaded_group:
                     factor_csv = gr.Textbox(
                         label="Numerical scenario CSV",
                         lines=10,
@@ -707,7 +1093,7 @@ def build_demo() -> Any:
                         ),
                     )
                     normalize_button = gr.Button(
-                        "Visualize Uploaded Scenario",
+                        "Step 1 · Visualize uploaded scenario",
                         variant="primary",
                     )
                 with gr.Accordion("Technical paths", open=False):
@@ -730,9 +1116,15 @@ def build_demo() -> Any:
                     interactive=False,
                 )
                 factor_plot = gr.Plot(label="30-day movement")
-                generate_button = gr.Button("Generate + Verify Narrative Packet")
+                generate_button = gr.Button(
+                    "Step 2 · Generate + verify narrative packet"
+                )
                 generation_status = gr.Markdown(
-                    "## Generation Status\n\n- Validation: `waiting`"
+                    "## Generation Status\n\n- Narrative check: `waiting`"
+                )
+                packet_download = gr.File(
+                    label="Download narrative packet (JSON)",
+                    interactive=False,
                 )
                 with gr.Accordion("Generated narratives", open=True):
                     narrative_review = gr.Markdown(
@@ -741,12 +1133,26 @@ def build_demo() -> Any:
                     )
                 with gr.Accordion("Technical details", open=False):
                     warnings_json = gr.Code(language="json", label="Warnings")
-                    sidecar_json = gr.Code(language="json", label="ScenarioSidecarV1")
+                    sidecar_json = gr.Code(
+                        language="json", label="Scenario record (raw JSON)"
+                    )
 
         source_mode.change(
-            fn=mode_visibility_updates,
+            fn=mode_change_outputs,
             inputs=[source_mode],
-            outputs=[historical_group, uploaded_group],
+            outputs=[
+                historical_group,
+                uploaded_group,
+                status,
+                factor_frame,
+                factor_plot,
+                sidecar_state,
+                generation_status,
+                narrative_review,
+                packet_download,
+                warnings_json,
+                sidecar_json,
+            ],
             show_progress="hidden",
         )
         historical_start_date.change(
@@ -756,7 +1162,7 @@ def build_demo() -> Any:
             show_progress="hidden",
         )
         historical_button.click(
-            fn=lambda calendar_start_date, cards_jsonl: normalize_historical_start_date_for_app(
+            fn=lambda calendar_start_date, cards_jsonl: normalize_historical_start_date_safe_for_app(
                 calendar_start_date,
                 cards_jsonl=cards_jsonl,
                 support_arrays_path=DEFAULT_SUPPORT_ARRAYS,
@@ -772,19 +1178,16 @@ def build_demo() -> Any:
             ],
             show_progress="full",
         ).then(
-            fn=lambda calendar_start_date, cards_jsonl: factor_move_plot(
-                _normalize_historical_start_date_sidecar_for_app(
-                    calendar_start_date,
-                    cards_jsonl=cards_jsonl,
-                    support_arrays_path=DEFAULT_SUPPORT_ARRAYS,
-                )
+            fn=lambda calendar_start_date, cards_jsonl: _historical_plot_safe(
+                calendar_start_date,
+                cards_jsonl=cards_jsonl,
             ),
             inputs=[historical_start_date, reference_cards_jsonl],
             outputs=[factor_plot],
             show_progress="hidden",
         )
         normalize_button.click(
-            fn=normalize_uploaded_scenario_for_app,
+            fn=normalize_uploaded_scenario_safe_for_app,
             inputs=[factor_csv],
             outputs=[
                 status,
@@ -795,17 +1198,20 @@ def build_demo() -> Any:
             ],
             show_progress="full",
         ).then(
-            fn=lambda text: factor_move_plot(
-                _normalize_factor_table_sidecar_for_app(text)
-            ),
+            fn=_uploaded_plot_safe,
             inputs=[factor_csv],
             outputs=[factor_plot],
             show_progress="hidden",
         )
         generate_button.click(
-            fn=generate_narrative_packet_outputs_for_app,
+            fn=_generation_pending_outputs,
+            inputs=None,
+            outputs=[generation_status, narrative_review, packet_download],
+            show_progress="hidden",
+        ).then(
+            fn=generate_narrative_packet_ui,
             inputs=[sidecar_state, reference_cards_jsonl, output_dir],
-            outputs=[generation_status, narrative_review],
+            outputs=[generation_status, narrative_review, packet_download],
             show_progress="full",
         )
     return demo
@@ -822,6 +1228,7 @@ def main() -> None:
         server_name=args.server_name,
         server_port=int(args.server_port),
         share=bool(args.share),
+        show_error=True,
     )
 
 

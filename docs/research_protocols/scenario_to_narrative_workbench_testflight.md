@@ -2,6 +2,8 @@
 
 Date: 2026-06-05
 
+Updated: 2026-06-11 for single-start-date historical selection.
+
 ## Scope
 
 This TestFlight validates the reverse analyst workbench before demo use. The
@@ -11,7 +13,9 @@ narrative generation.
 
 ## Input Modes
 
-- Historical case: selected by `joint39_*` window id, then visualized as numerical scenario evidence.
+- Historical case: selected by one calendar start date, then mapped internally
+  to the next 30 observed market days and visualized as numerical scenario
+  evidence.
 - Uploaded numerical scenario: CSV with required `factor,start,end` columns and optional `confidence`.
 
 Generated-deck report loading remains available as a backend helper for research
@@ -22,6 +26,11 @@ artifacts, but it is not exposed as a website input mode.
 - Numeric start/end levels are required for uploaded numerical scenarios.
 - Direction-only uploaded tables are rejected for MVP generation.
 - Local code computes facts, visualizations, and validation only; narrative prose must be Codex/GPT-authored and is not displayed as a website narrative table.
+- The historical UI exposes only one start-date selector. It does not expose
+  turbulent presets, an ending-date control, or internal `joint39_*` ids.
+- The 2026-06-11 factor-index correction maps `USDJPY` to Joint39 column `27`
+  and `AAA_OAS` to column `34`. Older support-card-derived narrative artifacts
+  should not be treated as clean for those two channels until regenerated.
 - Partial uploaded scenarios are labeled `factor_table_partial` internally.
 - Dry-run packets are diagnostic artifacts and are not valid narrative banks.
 - The workbench has no launch auth by default; use `--server-name 0.0.0.0` for remote SSH visibility.
@@ -38,6 +47,14 @@ uv run --no-sync pytest \
 ```
 
 Observed on 2026-06-06: `88 passed in 1.84s`.
+
+Focused app regression after the 2026-06-11 single-start-date selector change:
+
+```bash
+uv run --no-sync pytest test_code/test_nl_scenario_to_narrative_workbench_app.py -q
+```
+
+Observed on 2026-06-11: `25 passed in 3.88s`.
 
 ```bash
 uv run --no-sync python - <<'PY'

@@ -40,6 +40,18 @@ from experiments.backfill.block_ar.nl_episode_narrative_embedding_bridge_report 
 )
 from experiments.backfill.block_ar.nl_text_conditioning import normalize_rows  # noqa: E402
 
+# Locality-soft (Track A T3) reuses the EXACT cosine / mask / retrieval primitives
+# and the binding purge constants from the T2 fit-gate calibration so the held-out
+# locality-recall@K eval is byte-identical in definition to the pre-registered gate.
+from experiments.backfill.block_ar.nl_locality_soft_fit_gate_calibration_t2 import (  # noqa: E402
+    PURGE_GAP as CAL_PURGE_GAP,
+    RETRIEVAL_TOP_K as CAL_RETRIEVAL_TOP_K,
+    VAL_WINDOW_RANGES as CAL_VAL_WINDOW_RANGES,
+    build_masks as cal_build_masks,
+    l2_normalize as cal_l2_normalize,
+    topk_in_pool as cal_topk_in_pool,
+)
+
 
 DEFAULT_EXAMPLES_JSONL = Path(
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
@@ -671,6 +683,265 @@ def _target_cosine_and_rank(
     }
 
 
+# ----------------------------------------------------------------------------
+# Locality-soft (Track A T3) helpers — module level so the unit tests can call
+# them in isolation. See docs/superpowers/plans/2026-06-17-locality-soft-retriever.md
+# sections 1 (loss form), 3 (NV-filter decision), 4 (fit-gate metric).
+# ----------------------------------------------------------------------------
+
+def _assert_calibration_purge(val_window_ranges: str | None, purge_gap: int) -> None:
+    """Guard: locality-soft must use the calibration purge or the pre-registered
+    fit-gate X (T2) is meaningless. The binding spec ties X to exactly
+    CAL_VAL_WINDOW_RANGES + CAL_PURGE_GAP. Fail loudly otherwise so a purge
+    ablation cannot silently invalidate the gate comparison.
+    """
+    ranges = _parse_window_ranges(val_window_ranges)
+    if ranges != list(CAL_VAL_WINDOW_RANGES) or int(purge_gap) != CAL_PURGE_GAP:
+        raise ValueError(
+            "locality-soft gate requires the calibration purge "
+            f"(--val-window-ranges == {CAL_VAL_WINDOW_RANGES}, --purge-gap == "
+            f"{CAL_PURGE_GAP}); got ranges={ranges}, purge_gap={purge_gap}. The "
+            "pre-registered fit-gate X is only valid at the calibration purge."
+        )
+
+
+def _load_neighbor_cache(neighbors_npz: str | Path) -> dict[str, np.ndarray]:
+    """Load memory_knn_neighbors.npz (per-window top-50 memory-KNN cache).
+
+    Used ONLY to build the loss positives P(w) on TRAIN windows. The eval-side
+    P(w) (fit gate) is recomputed by exact ranking over the train pool, never
+    truncated from this full-bank/no-purge cache.
+    """
+    path = _resolve(neighbors_npz)
+    with np.load(path) as payload:
+        if "neighbor_indices" not in payload.files:
+            raise ValueError(f"{path}: missing neighbor_indices")
+        indices = np.asarray(payload["neighbor_indices"], dtype=np.int64)
+        cosines = np.asarray(payload["neighbor_cosines"], dtype=np.float32)
+    return {"neighbor_indices": indices, "neighbor_cosines": cosines}
+
+
+def _neighborhood_positives(
+    window: int,
+    neighbor_cache: dict[str, np.ndarray],
+    *,
+    locality_k: int,
+    allowed_windows: set[int] | None = None,
+) -> np.ndarray:
+    """Return P(w) = top-`locality_k` memory-KNN neighbors of `window`.
+
+    Self is already excluded in the cache. When `allowed_windows` is given,
+    neighbors outside that set (e.g. held-out windows for the loss path) are
+    skipped before truncating to K, so a train-side positive never points at a
+    held-out window.
+    """
+    nbr = neighbor_cache["neighbor_indices"][int(window)]
+    if allowed_windows is not None:
+        nbr = np.asarray([int(j) for j in nbr if int(j) in allowed_windows], dtype=np.int64)
+    return np.asarray(nbr[: int(locality_k)], dtype=np.int64)
+
+
+def _neighborhood_infonce_loss(
+    pred: torch.Tensor,
+    batch_windows: torch.Tensor,
+    memory_norm: torch.Tensor,
+    neighbor_cache: dict[str, np.ndarray],
+    *,
+    locality_k: int,
+    tau: float,
+    tau_loc: float,
+    rho: float,
+    allowed_windows: set[int] | None,
+    device: torch.device,
+) -> torch.Tensor:
+    """Neighborhood-InfoNCE for the projected-memory bridge (plan section 1).
+
+        L_nce = - log [  sum_{k in P(w)} pi_k * exp(s(c, m_k)/tau)
+                        / ( sum_{k in P(w)} exp(s(c, m_k)/tau)
+                            + sum_{n in N_rand'} exp(s(c, m_n)/tau) ) ]
+
+    where pi_k = softmax(cos(m_w, m_k)/tau_loc) over P(w) (numerator only),
+    P(w) = top-K memory-KNN of w, and N_rand' = the rest of the in-batch windows
+    minus NV-filtered false negatives minus any n in P(w). `pred` is the bridge
+    output for each batch row; positives/negatives are looked up against the
+    (L2-normalized) memory bank `memory_norm`.
+    """
+    pred_norm = F.normalize(pred, dim=-1)
+    windows = [int(w) for w in batch_windows.detach().cpu().tolist()]
+    per_row: list[torch.Tensor] = []
+    for row, w in enumerate(windows):
+        pw = _neighborhood_positives(
+            w, neighbor_cache, locality_k=locality_k, allowed_windows=allowed_windows
+        )
+        if pw.shape[0] == 0:
+            continue
+        c = pred_norm[row]
+        pw_t = torch.from_numpy(pw).long().to(device)
+        m_pos = memory_norm[pw_t]                      # (P, D), unit rows
+        m_w = memory_norm[int(w)]                      # (D,)
+        # pi_k = softmax over locality cos(m_w, m_k) / tau_loc (numerator weights)
+        loc_cos = m_pos @ m_w                          # (P,)
+        log_pi = F.log_softmax(loc_cos / max(float(tau_loc), 1e-6), dim=0)
+        pos_logits = (m_pos @ c) / max(float(tau), 1e-6)  # (P,)
+        # NV-Retriever false-negative threshold on in-batch random negatives only.
+        max_pos_loc = float(loc_cos.max().item())
+        # Exclude windows in P(w) and apply the NV false-negative mask.
+        pw_window_set = set(int(x) for x in pw.tolist())
+        neg_logits_list: list[torch.Tensor] = []
+        for j, wj in enumerate(windows):
+            if j == row or wj in pw_window_set:
+                continue
+            cos_nw = float((memory_norm[int(wj)] @ m_w).item())
+            if cos_nw > float(rho) * max_pos_loc:
+                continue  # false negative: effectively inside the neighborhood
+            neg_logits_list.append((memory_norm[int(wj)] @ c) / max(float(tau), 1e-6))
+        # numerator = sum_k pi_k * exp(pos_logit_k)  -> logsumexp(log_pi + pos_logits)
+        log_num = torch.logsumexp(log_pi + pos_logits, dim=0)
+        denom_terms = [pos_logits]
+        if neg_logits_list:
+            denom_terms.append(torch.stack(neg_logits_list))
+        log_denom = torch.logsumexp(torch.cat(denom_terms), dim=0)
+        per_row.append(-(log_num - log_denom))
+    if not per_row:
+        return torch.zeros((), dtype=pred.dtype, device=device)
+    return torch.stack(per_row).mean()
+
+
+def _neighborhood_supcon_loss(
+    z: torch.Tensor,
+    batch_windows: torch.Tensor,
+    neighbor_cache: dict[str, np.ndarray],
+    memory_norm: torch.Tensor,
+    *,
+    locality_k: int,
+    tau: float,
+    tau_loc: float,
+    allowed_windows: set[int] | None,
+    device: torch.device,
+) -> torch.Tensor:
+    """Soft-label SupCon for the text-space adapter (plan section 1, text variant).
+
+    Positives for anchor i = batch rows whose window is the anchor's window OR a
+    window in P(anchor_window); soft-weighted by pi_k = softmax(cos(m_w, m_k)/tau_loc)
+    over P(w) (self gets the max neighborhood weight). `z` rows are unit vectors.
+    """
+    windows = [int(w) for w in batch_windows.detach().cpu().tolist()]
+    n = len(windows)
+    sim = z @ z.T / max(float(tau), 1e-6)
+    eye = torch.eye(n, dtype=torch.bool, device=device)
+    sim = sim.masked_fill(eye, -1e9)
+    log_denom = torch.logsumexp(sim, dim=1)
+    per_row: list[torch.Tensor] = []
+    for i, wi in enumerate(windows):
+        pw = _neighborhood_positives(
+            wi, neighbor_cache, locality_k=locality_k, allowed_windows=allowed_windows
+        )
+        m_wi = memory_norm[int(wi)]
+        # weight map: window -> pi weight. self-window uses the max neighborhood weight.
+        weight_by_window: dict[int, float] = {}
+        if pw.shape[0] > 0:
+            loc_cos = (memory_norm[torch.from_numpy(pw).long().to(device)] @ m_wi)
+            pi = F.softmax(loc_cos / max(float(tau_loc), 1e-6), dim=0)
+            pi_max = float(pi.max().item())
+            for k_idx, wk in enumerate(pw.tolist()):
+                weight_by_window[int(wk)] = float(pi[k_idx].item())
+        else:
+            pi_max = 1.0
+        weight_by_window[int(wi)] = pi_max  # self is a guaranteed positive
+        weights = torch.zeros(n, dtype=z.dtype, device=device)
+        for j, wj in enumerate(windows):
+            if j == i:
+                continue
+            if wj in weight_by_window:
+                weights[j] = weight_by_window[wj]
+        total = float(weights.sum().item())
+        if total <= 0.0:
+            continue
+        weights = weights / total
+        log_pos = torch.logsumexp(sim[i] + torch.log(weights + 1e-12), dim=0)
+        per_row.append(-(log_pos - log_denom[i]))
+    if not per_row:
+        return torch.zeros((), dtype=z.dtype, device=device)
+    return torch.stack(per_row).mean()
+
+
+def _locality_recall_at_k(
+    condition_vectors: np.ndarray,
+    memory_targets: np.ndarray,
+    labels: np.ndarray,
+    query_idx: np.ndarray,
+    *,
+    locality_k: int,
+    retrieval_top_k: int = CAL_RETRIEVAL_TOP_K,
+    bank_size: int | None = None,
+    val_window_ranges: list[tuple[int, int]] | None = None,
+    purge_gap: int = CAL_PURGE_GAP,
+) -> dict[str, float]:
+    """locality-recall@K — byte-identical in definition to the T2 calibration.
+
+    For each held-out query example at row r (window w = labels[r]):
+      P(w) = top-`locality_k` memory-KNN of w within the TRAIN POOL (exact
+             ranking, self excluded);
+      retrieved = top-`retrieval_top_k` (FIXED at 10) train-pool windows by
+             cosine to the bridge prediction c;
+      hit = |retrieved INTERSECT P(w)| >= 1; also mean Jaccard.
+    Train pool / val / purge masks come from build_masks over the full memory
+    bank (4010 windows), using the SAME purge constants as the calibration.
+    """
+    memory = np.asarray(memory_targets, dtype=np.float32)
+    normed = cal_l2_normalize(memory)                          # (N, D), unit rows
+    pred = _safe_normalize_rows(np.asarray(condition_vectors, dtype=np.float32))
+    labels = np.asarray(labels, dtype=np.int64)
+    query_idx = np.asarray(query_idx, dtype=np.int64)
+    n_bank = int(bank_size if bank_size is not None else memory.shape[0])
+    ranges = (
+        [tuple(r) for r in val_window_ranges]
+        if val_window_ranges is not None
+        else list(CAL_VAL_WINDOW_RANGES)
+    )
+    # Build train/val/purge masks identically to the calibration (build_masks
+    # reads the module constants; when the caller overrides ranges/gap for a
+    # synthetic test we construct the masks explicitly with the same semantics).
+    if ranges == list(CAL_VAL_WINDOW_RANGES) and int(purge_gap) == CAL_PURGE_GAP:
+        masks = cal_build_masks(n_bank)
+    else:
+        val = np.zeros(n_bank, dtype=bool)
+        for lo, hi in ranges:
+            val[lo:hi] = True
+        purge = np.zeros(n_bank, dtype=bool)
+        for lo, hi in ranges:
+            purge[max(0, lo - int(purge_gap)) : min(n_bank, hi + int(purge_gap))] = True
+        purge = purge & ~val
+        masks = {"val": val, "purge": purge, "train": ~val & ~purge}
+    train_idx = np.where(masks["train"])[0].astype(np.int64)
+
+    pw_cache: dict[int, np.ndarray] = {}
+    hits: list[float] = []
+    jaccards: list[float] = []
+    for r in query_idx.tolist():
+        w = int(labels[int(r)])
+        if w not in pw_cache:
+            pw_cache[w] = cal_topk_in_pool(
+                normed[w], normed, train_idx, int(locality_k), exclude=w
+            )
+        pw = pw_cache[w]
+        if pw.shape[0] == 0:
+            continue
+        retrieved = cal_topk_in_pool(pred[int(r)], normed, train_idx, int(retrieval_top_k))
+        inter = np.intersect1d(retrieved, pw, assume_unique=False).shape[0]
+        union = np.union1d(retrieved, pw).shape[0]
+        hits.append(1.0 if inter >= 1 else 0.0)
+        jaccards.append(float(inter) / float(union) if union > 0 else 0.0)
+    n = len(hits)
+    return {
+        "locality_recall_at_K": float(np.mean(hits)) if n else float("nan"),
+        "locality_mean_jaccard": float(np.mean(jaccards)) if n else float("nan"),
+        "locality_n_eval": int(n),
+        "locality_k": int(locality_k),
+        "retrieval_top_k": int(retrieval_top_k),
+    }
+
+
 def _save_checkpoint(
     state_dict: dict[str, torch.Tensor],
     path: Path,
@@ -790,11 +1061,25 @@ def train_text_space_from_manifest(
     holdout_view_families: str | None = None,
     eval_every: int = 0,
     patience: int = 0,
+    locality_soft: bool = False,
+    locality_k: int = 5,
+    tau_loc: float = 0.10,
+    nv_false_neg_rho: float = 0.95,
+    neighbors_npz: str | Path | None = None,
+    support_arrays_path: str | Path | None = None,
     argv_record: list[str] | None = None,
 ) -> dict[str, Any]:
     output = _resolve(output_dir)
     embedding_output = _resolve(embedding_cache_dir) if embedding_cache_dir else output
     output.mkdir(parents=True, exist_ok=True)
+    if locality_soft:
+        if not neighbors_npz:
+            raise ValueError("--locality-soft requires --neighbors-npz")
+        if not support_arrays_path:
+            raise ValueError(
+                "text-space locality-soft requires support_arrays_path for memory geometry"
+            )
+        _assert_calibration_purge(val_window_ranges, purge_gap)
     data = load_manifest_training_data(
         examples_jsonl=examples_jsonl,
         pairs_jsonl=pairs_jsonl,
@@ -862,14 +1147,43 @@ def train_text_space_from_manifest(
     pair_batch_n = min(max(1, int(batch_size) // 2), train_pair_count)
     all_idx = np.arange(example_count, dtype=np.int64)
 
+    # Locality-soft (T3, text variant): neighbor cache + memory geometry for the
+    # soft-label SupCon. Neighborhood P(w) is defined in 734a memory space, over
+    # the SAME full build_masks(4010) train pool as the fit gate (see the
+    # projected-memory note above) — not the manifest-window subset.
+    neighbor_cache: dict[str, np.ndarray] | None = None
+    allowed_train_windows: set[int] | None = None
+    memory_norm_t: torch.Tensor | None = None
+    if locality_soft:
+        neighbor_cache = _load_neighbor_cache(neighbors_npz)
+        memory_targets_ts = _load_memory_targets(support_arrays_path)
+        gate_train_mask = cal_build_masks(memory_targets_ts.shape[0])["train"]
+        allowed_train_windows = {int(i) for i in np.where(gate_train_mask)[0]}
+        memory_norm_t = F.normalize(
+            torch.from_numpy(memory_targets_ts).float().to(device_t), dim=-1
+        )
+
     def step_fn(step: int) -> dict[str, float]:
         chosen_pos = rng.choice(train_count, size=batch_n, replace=batch_n > train_count)
         chosen = train_idx[chosen_pos]
         chosen_t = torch.from_numpy(chosen.astype(np.int64)).long().to(device_t)
         z = adapter(x_all[chosen_t])
-        supcon = _supervised_contrastive_loss(
-            z, labels_t_all[chosen_t], temperature=float(temperature)
-        )
+        if locality_soft:
+            supcon = _neighborhood_supcon_loss(
+                z,
+                labels_t_all[chosen_t],
+                neighbor_cache,
+                memory_norm_t,
+                locality_k=int(locality_k),
+                tau=float(temperature),
+                tau_loc=float(tau_loc),
+                allowed_windows=allowed_train_windows,
+                device=device_t,
+            )
+        else:
+            supcon = _supervised_contrastive_loss(
+                z, labels_t_all[chosen_t], temperature=float(temperature)
+            )
         pair_choice = rng.choice(
             train_pair_count, size=pair_batch_n, replace=pair_batch_n > train_pair_count
         )
@@ -931,6 +1245,10 @@ def train_text_space_from_manifest(
         "holdout_view_families": list(split["holdout_view_families"]),
         "embedding_backend": str(embedding_backend),
         "embedding_model": str(embedding_model),
+        "locality_soft": bool(locality_soft),
+        "locality_k": int(locality_k),
+        "tau_loc": float(tau_loc),
+        "nv_false_neg_rho": float(nv_false_neg_rho),
     }
     _save_checkpoint(
         loop["final_state"],
@@ -1104,11 +1422,21 @@ def train_projected_memory_from_manifest(
     holdout_view_families: str | None = None,
     eval_every: int = 0,
     patience: int = 0,
+    locality_soft: bool = False,
+    locality_k: int = 5,
+    tau_loc: float = 0.10,
+    nv_false_neg_rho: float = 0.95,
+    neighbors_npz: str | Path | None = None,
+    locality_mse_weight: float = 0.1,
     argv_record: list[str] | None = None,
 ) -> dict[str, Any]:
     output = _resolve(output_dir)
     embedding_output = _resolve(embedding_cache_dir) if embedding_cache_dir else output
     output.mkdir(parents=True, exist_ok=True)
+    if locality_soft:
+        if not neighbors_npz:
+            raise ValueError("--locality-soft requires --neighbors-npz")
+        _assert_calibration_purge(val_window_ranges, purge_gap)
     data = load_manifest_training_data(
         examples_jsonl=examples_jsonl,
         pairs_jsonl=pairs_jsonl,
@@ -1170,6 +1498,24 @@ def train_projected_memory_from_manifest(
     batch_n = min(max(2, int(batch_size)), train_count)
     pair_batch_n = min(max(1, int(batch_size) // 2), train_pair_count)
 
+    # Locality-soft (T3): neighbor cache for P(w) loss positives + the set of
+    # train windows the loss may point a positive at. CRITICAL: this pool MUST
+    # equal the fit-gate P(w) pool (the full build_masks(4010) train mask, ~3165
+    # windows) so T5 optimizes the SAME neighborhood T6 gates on. It is NOT the
+    # manifest-window subset (memory vectors exist for all 4010 windows; restricting
+    # to windows-with-narratives would train toward a different, thinner pool than
+    # the gate scores). Plan section 1 -> "train pool (purge-respecting; Section 4)".
+    neighbor_cache: dict[str, np.ndarray] | None = None
+    allowed_train_windows: set[int] | None = None
+    memory_norm_t: torch.Tensor | None = None
+    if locality_soft:
+        neighbor_cache = _load_neighbor_cache(neighbors_npz)
+        gate_train_mask = cal_build_masks(memory_targets.shape[0])["train"]
+        allowed_train_windows = {
+            int(i) for i in np.where(gate_train_mask)[0]
+        }
+        memory_norm_t = F.normalize(y_all, dim=-1)
+
     def step_fn(step: int) -> dict[str, float]:
         chosen_pos = rng.choice(train_count, size=batch_n, replace=batch_n > train_count)
         chosen = train_idx[chosen_pos]
@@ -1177,15 +1523,6 @@ def train_projected_memory_from_manifest(
         batch_labels = labels_t_all[chosen_t]
         pred = bridge(x_all[chosen_t])
         target = y_all[batch_labels]
-        mse = F.mse_loss(pred, target)
-        cosine = 1.0 - F.cosine_similarity(pred, target, dim=-1).mean()
-        unique_targets, inverse = torch.unique(
-            batch_labels, sorted=True, return_inverse=True
-        )
-        logits = (
-            F.normalize(pred, dim=-1) @ F.normalize(y_all[unique_targets], dim=-1).T
-        ) / max(float(contrastive_temperature), 1e-6)
-        contrastive = F.cross_entropy(logits, inverse)
 
         pair_choice = rng.choice(
             train_pair_count, size=pair_batch_n, replace=pair_batch_n > train_pair_count
@@ -1202,6 +1539,7 @@ def train_projected_memory_from_manifest(
         pred_neg = bridge(x_all[neg_t])
         m_i = y_all[target_t]
         m_j = y_all[neg_window_t]
+        # Curated mechanism margins — UNCHANGED in both objectives.
         source_margin_loss = F.relu(
             float(pair_margin)
             + F.cosine_similarity(pred_pos, m_j, dim=-1)
@@ -1212,6 +1550,51 @@ def train_projected_memory_from_manifest(
             + F.cosine_similarity(pred_neg, m_i, dim=-1)
             - F.cosine_similarity(pred_neg, m_j, dim=-1)
         ).mean()
+
+        if locality_soft:
+            # Total = L_nce + pair_w*L_src + recip_w*L_rec + locality_mse_w*L_mse.
+            # The exact-window InfoNCE + cosine + heavy MSE are REPLACED by the
+            # neighborhood-InfoNCE; MSE becomes a light anchor to memory_w.
+            nce = _neighborhood_infonce_loss(
+                pred,
+                batch_labels,
+                memory_norm_t,
+                neighbor_cache,
+                locality_k=int(locality_k),
+                tau=float(contrastive_temperature),
+                tau_loc=float(tau_loc),
+                rho=float(nv_false_neg_rho),
+                allowed_windows=allowed_train_windows,
+                device=device_t,
+            )
+            mse = F.mse_loss(pred, target)
+            loss = (
+                nce
+                + float(pair_weight) * source_margin_loss
+                + float(reciprocal_pair_weight) * reciprocal_margin_loss
+                + float(locality_mse_weight) * mse
+            )
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(bridge.parameters(), max_norm=5.0)
+            opt.step()
+            return {
+                "loss": float(loss.detach().cpu()),
+                "neighborhood_infonce": float(nce.detach().cpu()),
+                "mse": float(mse.detach().cpu()),
+                "source_margin": float(source_margin_loss.detach().cpu()),
+                "reciprocal_margin": float(reciprocal_margin_loss.detach().cpu()),
+            }
+
+        mse = F.mse_loss(pred, target)
+        cosine = 1.0 - F.cosine_similarity(pred, target, dim=-1).mean()
+        unique_targets, inverse = torch.unique(
+            batch_labels, sorted=True, return_inverse=True
+        )
+        logits = (
+            F.normalize(pred, dim=-1) @ F.normalize(y_all[unique_targets], dim=-1).T
+        ) / max(float(contrastive_temperature), 1e-6)
+        contrastive = F.cross_entropy(logits, inverse)
         loss = (
             float(mse_weight) * mse
             + float(cosine_weight) * cosine
@@ -1233,7 +1616,22 @@ def train_projected_memory_from_manifest(
         }
 
     selection_fn: Callable[[], float] | None = None
-    if val_idx.shape[0] > 0:
+    selection_higher_is_better = False
+    if locality_soft and val_idx.shape[0] > 0:
+        # T5: early-stop on held-out locality-recall@K (higher is better),
+        # computed identically to the T2 fit gate.
+        def selection_fn() -> float:  # noqa: F811
+            condition_now = _module_outputs(bridge, x_all, example_count)
+            stats = _locality_recall_at_k(
+                condition_now,
+                memory_targets,
+                labels_np,
+                val_idx,
+                locality_k=int(locality_k),
+            )
+            return stats["locality_recall_at_K"]
+        selection_higher_is_better = True
+    elif val_idx.shape[0] > 0:
         def selection_fn() -> float:  # noqa: F811
             condition_now = _module_outputs(bridge, x_all, example_count)
             stats = _target_cosine_and_rank(
@@ -1251,7 +1649,7 @@ def train_projected_memory_from_manifest(
         steps=int(steps),
         step_fn=step_fn,
         selection_fn=selection_fn,
-        higher_is_better=False,
+        higher_is_better=selection_higher_is_better,
         eval_every=int(eval_every),
         patience=int(patience),
     )
@@ -1273,6 +1671,11 @@ def train_projected_memory_from_manifest(
         "holdout_view_families": list(split["holdout_view_families"]),
         "embedding_backend": str(embedding_backend),
         "embedding_model": str(embedding_model),
+        "locality_soft": bool(locality_soft),
+        "locality_k": int(locality_k),
+        "tau_loc": float(tau_loc),
+        "nv_false_neg_rho": float(nv_false_neg_rho),
+        "locality_mse_weight": float(locality_mse_weight),
     }
     _save_checkpoint(
         loop["final_state"],
@@ -1323,6 +1726,30 @@ def train_projected_memory_from_manifest(
             evaluation["heldout_recall_at_10_true_memory"] = heldout_stats[
                 "recall_at_10_true_memory"
             ]
+            # Locality-recall@K fit-gate metric (reported alongside the exact-window
+            # rank/recall). Computed for BOTH objectives so the clean restamped
+            # baseline and the locality-soft candidate are gate-comparable, but it
+            # only requires neighbors when locality-soft is on. Definition is
+            # byte-identical to the T2 calibration.
+            if locality_soft:
+                loc_stats = _locality_recall_at_k(
+                    condition_now,
+                    memory_targets,
+                    labels_np,
+                    val_idx,
+                    locality_k=int(locality_k),
+                )
+                evaluation["heldout_locality_recall_at_K"] = loc_stats[
+                    "locality_recall_at_K"
+                ]
+                evaluation["heldout_locality_mean_jaccard"] = loc_stats[
+                    "locality_mean_jaccard"
+                ]
+                evaluation["heldout_locality_n_eval"] = loc_stats["locality_n_eval"]
+                evaluation["heldout_locality_k"] = loc_stats["locality_k"]
+                evaluation["heldout_locality_retrieval_top_k"] = loc_stats[
+                    "retrieval_top_k"
+                ]
         if val_pair_positions.shape[0] > 0:
             heldout_margins = _memory_pair_margins(
                 condition_now, memory_targets, val_pair_idx
@@ -1449,6 +1876,11 @@ def run_training(args: argparse.Namespace) -> dict[str, Any]:
         "holdout_view_families": getattr(args, "holdout_view_families", None),
         "eval_every": int(getattr(args, "eval_every", 0) or 0),
         "patience": int(getattr(args, "patience", 0) or 0),
+        "locality_soft": bool(getattr(args, "locality_soft", False)),
+        "locality_k": int(getattr(args, "locality_k", 5)),
+        "tau_loc": float(getattr(args, "tau_loc", 0.10)),
+        "nv_false_neg_rho": float(getattr(args, "nv_false_neg_rho", 0.95)),
+        "neighbors_npz": getattr(args, "neighbors_npz", None),
         "argv_record": argv_record,
     }
     embedding_cache_dir = getattr(args, "embedding_cache_dir", None)
@@ -1463,6 +1895,7 @@ def run_training(args: argparse.Namespace) -> dict[str, Any]:
             output_dir=output / "text_space",
             embedding_cache_dir=shared_embedding_cache,
             adapter_dim=int(args.adapter_dim),
+            support_arrays_path=args.support_arrays,
             **common,
         )
     if args.method in {"both", "projected-memory"}:
@@ -1513,6 +1946,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cpu")
+    # Locality-soft retriever objective (Track A T3). Flag OFF -> byte-identical
+    # to the exact-window objective. See docs/superpowers/plans/2026-06-17-locality-soft-retriever.md
+    parser.add_argument(
+        "--locality-soft",
+        action="store_true",
+        help="Use the neighborhood (locality-soft) objective instead of exact-window.",
+    )
+    parser.add_argument("--locality-k", type=int, default=5, help="P(w) neighborhood size K.")
+    parser.add_argument("--tau-loc", type=float, default=0.10, help="Locality softmax temperature.")
+    parser.add_argument(
+        "--nv-false-neg-rho",
+        type=float,
+        default=0.95,
+        help="NV-Retriever false-negative threshold rho (random/in-batch negs only).",
+    )
+    parser.add_argument(
+        "--neighbors-npz",
+        type=Path,
+        default=None,
+        help="Path to memory_knn_neighbors.npz (required when --locality-soft).",
+    )
     return parser.parse_args(argv)
 
 

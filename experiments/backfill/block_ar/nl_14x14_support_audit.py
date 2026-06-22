@@ -29,6 +29,13 @@ from experiments.backfill.block_ar.nl_episode_narrative_bridge_report import (  
     _split_indices_from_support_report,
     _temporal_gap_filter,
 )
+from experiments.backfill.block_ar.nl_hull_gate_inputs import (  # noqa: E402
+    build_anchor_move_pool,
+    hull_label_from_grounding,
+)
+
+# framework-v1 §I hull support-honesty gate: kappa ladder (per-factor-sigma severity rungs).
+HULL_GATE_KAPPAS: tuple[float, ...] = (0.5, 1.0, 2.0)
 DEFAULT_EXAMPLES_JSONL = Path(
     "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
     "stride5_self_supervised_training_manifest_990a/training_examples.jsonl"
@@ -583,6 +590,100 @@ def _write_support_markdown(path: Path, report: dict[str, Any]) -> None:
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
+def _grounding_window_index(payload: dict[str, Any]) -> int | None:
+    """Extract a window_index from a grounding JSON object, or None if absent.
+
+    Accepts the common keys used across the NL pipeline (window_index /
+    target_window_index), at the top level or nested under a grounding wrapper.
+    Returns None for scenario-keyed casebooks that carry no window index (e.g. the
+    808c condition-only casebook) — those degrade to `no_grounding_for_window`.
+    """
+    if not isinstance(payload, dict):
+        return None
+    for key in ("window_index", "target_window_index"):
+        value = payload.get(key)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+    for wrapper_key in ("condition_only_grounding", "grounding", "metadata"):
+        wrapper = payload.get(wrapper_key)
+        if isinstance(wrapper, dict):
+            nested = _grounding_window_index(wrapper)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _load_grounding_by_window(source_dir: str | Path) -> dict[int, dict[str, Any]]:
+    """Discover per-window grounding JSON in `source_dir`, keyed by window_index.
+
+    Recursively scans for *.json grounding sidecars and keys each by the
+    window_index found inside it. Files with no discoverable window_index (e.g.
+    scenario-name-keyed casebooks) and summary/rollup files are skipped. On a
+    duplicate window_index the last-read file wins.
+    """
+    directory = _resolve(source_dir)
+    if not directory.is_dir():
+        raise NotADirectoryError(f"grounding source dir not found: {directory}")
+    out: dict[int, dict[str, Any]] = {}
+    for path in sorted(directory.rglob("*.json")):
+        try:
+            payload = _load_json(path)
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        window_index = _grounding_window_index(payload)
+        if window_index is None:
+            continue
+        out[int(window_index)] = payload
+    return out
+
+
+def _hull_rung_summary(rung: dict[str, Any]) -> dict[str, Any]:
+    """Distil one kappa rung to the graded-signal-led shape for the audit query review."""
+    return {
+        "kappa": rung.get("kappa"),
+        "feasible": rung.get("feasible"),
+        "l1_distance_sigma": rung.get("l1_distance_sigma"),
+        "pool_mahalanobis": rung.get("pool_mahalanobis"),
+        "support_label": rung.get("support_label"),
+    }
+
+
+def _hull_support_honesty_block(
+    grounding_output: dict[str, Any],
+    *,
+    pool_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the additive `hull_support_honesty_14anchor` block for one query.
+
+    Leads with the GRADED signals (leaves_hull_at_kappa + per-rung l1_distance_sigma
+    + pool_mahalanobis); `feasible` is a flag only (high-D hulls are inclusive — a
+    documented empirical finding). A bank/LP failure is surfaced as a status, never
+    silently dropped or reported as feasible.
+    """
+    try:
+        label = hull_label_from_grounding(
+            grounding_output, pool_bundle=pool_bundle, kappas=HULL_GATE_KAPPAS
+        )
+    except Exception as exc:  # noqa: BLE001 - surface as status, never silently OK
+        return {"status": "hull_gate_error", "error": str(exc)}
+    return {
+        "status": "ok",
+        "leaves_hull_at_kappa": label.get("leaves_hull_at_kappa"),
+        "any_infeasible": label.get("any_infeasible"),
+        "ladder": [_hull_rung_summary(rung) for rung in label.get("ladder", [])],
+        "emphasis": label.get("emphasis", {}),
+        "scope_note": (
+            "14 named anchors only (joint39 cols 25-38); "
+            "NOT full-39 IV surface support"
+        ),
+    }
+
+
 def build_14x14_support_audit(
     *,
     examples_jsonl: str | Path,
@@ -597,6 +698,7 @@ def build_14x14_support_audit(
     support_pool_size: int = 8,
     temporal_gap: int = 30,
     baseline_bridge_reports: dict[str, str | Path] | None = None,
+    grounding_by_window: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     output = _resolve(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -776,6 +878,18 @@ def build_14x14_support_audit(
     }
     _write_json(combined_report_path, combined_report)
 
+    # framework-v1 §I hull support-honesty gate (ADDITIVE). Build the anchor-move pool ONCE,
+    # only when grounding is supplied — keeps the no-grounding path byte-identical (no bank read,
+    # no behavior change). The bank lives next to the support report (support_bank_arrays.npz).
+    hull_pool_bundle: dict[str, Any] | None = None
+    if grounding_by_window is not None:
+        support_bank_arrays_path = (
+            _resolve(support_report_path).parent / "support_bank_arrays.npz"
+        )
+        hull_pool_bundle = build_anchor_move_pool(
+            str(support_bank_arrays_path), train_only=True
+        )
+
     query_reviews: list[dict[str, Any]] = []
     query_by_window = {int(row["target_window_index"]): row for row in query_rows}
     for idx in queries:
@@ -794,25 +908,38 @@ def build_14x14_support_audit(
                 for item in matched[0].get("top_train_pool", [])
             ]
         query_example = query_by_window[int(idx)]
-        query_reviews.append(
-            {
-                "window_index": int(idx),
-                "window_id": str(query_example.get("target_window_id", _window_id(idx))),
-                "query_text": str(query_example.get("text", "")),
-                "supports_by_method": method_supports,
+        review = {
+            "window_index": int(idx),
+            "window_id": str(query_example.get("target_window_id", _window_id(idx))),
+            "query_text": str(query_example.get("text", "")),
+            "supports_by_method": method_supports,
+        }
+        if grounding_by_window is not None and int(idx) in grounding_by_window:
+            review["hull_support_honesty_14anchor"] = _hull_support_honesty_block(
+                grounding_by_window[int(idx)], pool_bundle=hull_pool_bundle
+            )
+        elif grounding_by_window is not None:
+            review["hull_support_honesty_14anchor"] = {
+                "status": "no_grounding_for_window"
             }
-        )
+        query_reviews.append(review)
 
     audit_report_path = output / "support_level_audit_report.json"
     markdown_path = output / "support_level_audit_report.md"
     audit_report = {
-        "schema_version": "nl_14x14_support_level_audit_v1",
+        "schema_version": "nl_14x14_support_level_audit_v2_hull_gate",
         "status": "pass",
         "scope_note": (
             "Support-level audit over the stride-5 14+14 corpus on the frozen "
             "support-decoder-test overlap. This is a support-selection audit, "
             "not a narrative-generation run."
         ),
+        "hull_gate_config": {
+            "kappas": [float(k) for k in HULL_GATE_KAPPAS],
+            "coordinate": "joint39 anchor 30-day moves (sigma-normalized)",
+            "pool": "train-region support bank",
+            "scope": "14-anchor",
+        },
         "query_window_indices": [int(idx) for idx in queries],
         "query_view": str(query_view),
         "top_k": int(top_k),
@@ -871,11 +998,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--support-pool-size", type=int, default=8)
     parser.add_argument("--temporal-gap", type=int, default=30)
     parser.add_argument("--skip-default-baselines", action="store_true")
+    parser.add_argument(
+        "--grounding-source-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional directory of per-window grounding JSON sidecars (keyed by an "
+            "internal window_index / target_window_index field). When given, attaches "
+            "the framework-v1 §I hull support-honesty label to each matched query "
+            "review. Scenario-name-keyed casebooks carry no window_index and yield no "
+            "attachment (graceful no_grounding_for_window)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     baselines: dict[str, Path] = (
         {} if bool(args.skip_default_baselines) else dict(DEFAULT_BASELINE_BRIDGE_REPORTS)
     )
+    grounding_by_window: dict[int, dict[str, Any]] | None = None
+    if args.grounding_source_dir is not None:
+        grounding_by_window = _load_grounding_by_window(args.grounding_source_dir)
     report = build_14x14_support_audit(
         examples_jsonl=args.examples_jsonl,
         support_report_path=args.support_report,
@@ -889,6 +1031,7 @@ def main(argv: list[str] | None = None) -> int:
         support_pool_size=int(args.support_pool_size),
         temporal_gap=int(args.temporal_gap),
         baseline_bridge_reports=baselines,
+        grounding_by_window=grounding_by_window,
     )
     print(
         json.dumps(

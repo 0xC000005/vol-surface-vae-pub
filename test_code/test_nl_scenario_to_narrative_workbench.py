@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -1007,3 +1008,81 @@ def test_load_historical_joint39_sidecar_compacts_target_window_id(tmp_path) -> 
 
     assert sidecar.scenario_id == "joint39_train_0009"
     assert raw_card == card
+
+
+def test_load_historical_joint39_sidecar_enriches_raw_history_paths(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0001",
+        "scenario_title": "path-rich historical case",
+        "caption_fields": {
+            "evidence_used": ["SPX higher small", "DXY lower small"],
+        },
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+    history_raw = np.zeros((2, 30, 39), dtype=np.float32)
+    history_raw[1, :, 25] = np.asarray([100, 102, 101, 104] + [104] * 26)
+    history_raw[1, :, 28] = np.linspace(90.0, 87.0, 30)
+    arrays_path = tmp_path / "support_bank_arrays.npz"
+    np.savez(arrays_path, history_raw=history_raw)
+
+    sidecar, _ = load_historical_joint39_sidecar(
+        cards_path,
+        "joint39_train_0001",
+        support_arrays_path=arrays_path,
+    )
+
+    rows = {row.factor: row for row in sidecar.factor_rows}
+    assert rows["SPX"].path_values[:4] == pytest.approx([100.0, 102.0, 101.0, 104.0])
+    assert rows["SPX"].start == pytest.approx(100.0)
+    assert rows["SPX"].end == pytest.approx(104.0)
+    assert rows["DXY"].path_values[0] == pytest.approx(90.0)
+    assert rows["DXY"].path_values[-1] == pytest.approx(87.0)
+    assert sidecar.source_artifacts["support_arrays"] == str(arrays_path)
+
+
+def test_load_historical_joint39_sidecar_uses_correct_factor_tail_columns(tmp_path) -> None:
+    card = {
+        "window_id": "joint39_train_0001",
+        "scenario_title": "factor tail mapping",
+        "caption_fields": {
+            "evidence_used": ["AAA_OAS wider small", "USDJPY lower small"],
+        },
+    }
+    cards_path = tmp_path / "cards.jsonl"
+    cards_path.write_text(json.dumps(card) + "\n", encoding="utf-8")
+    history_raw = np.zeros((2, 30, 39), dtype=np.float32)
+    # Joint39 stores 25 IV cells followed by the 14 data/multi_factor_data.npz
+    # level columns:
+    # spx, usdcad, usdjpy, dxy, copper, wheat, crude_oil, us2y,
+    # us10y, aaa_oas, bbb_oas, nikkei, gold, vix.
+    usdjpy_path = np.linspace(106.35, 98.28, 30)
+    copper_path = np.linspace(3.266, 1.844, 30)
+    aaa_oas_path = np.linspace(2.76, 4.07, 30)
+    bbb_oas_path = np.linspace(4.02, 6.98, 30)
+    nikkei_path = np.linspace(12090.59, 8576.98, 30)
+    history_raw[1, :, 27] = usdjpy_path
+    history_raw[1, :, 29] = copper_path
+    history_raw[1, :, 34] = aaa_oas_path
+    history_raw[1, :, 35] = bbb_oas_path
+    history_raw[1, :, 36] = nikkei_path
+    arrays_path = tmp_path / "support_bank_arrays.npz"
+    np.savez(arrays_path, history_raw=history_raw)
+
+    sidecar, _ = load_historical_joint39_sidecar(
+        cards_path,
+        "joint39_train_0001",
+        support_arrays_path=arrays_path,
+    )
+
+    display_order = [row.factor for row in sidecar.factor_rows]
+    assert display_order[:2] == ["SPX", "NIKKEI"]
+    rows = {row.factor: row for row in sidecar.factor_rows}
+    assert rows["USDJPY"].start == pytest.approx(usdjpy_path[0])
+    assert rows["USDJPY"].end == pytest.approx(usdjpy_path[-1])
+    assert rows["AAA_OAS"].start == pytest.approx(aaa_oas_path[0])
+    assert rows["AAA_OAS"].end == pytest.approx(aaa_oas_path[-1])
+    assert rows["BBB_OAS"].start == pytest.approx(bbb_oas_path[0])
+    assert rows["BBB_OAS"].end == pytest.approx(bbb_oas_path[-1])
+    assert rows["NIKKEI"].start == pytest.approx(nikkei_path[0])
+    assert rows["NIKKEI"].end == pytest.approx(nikkei_path[-1])

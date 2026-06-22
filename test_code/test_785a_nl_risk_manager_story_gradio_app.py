@@ -13,6 +13,8 @@ from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
     DEFAULT_PREFIX_BRIDGE_ADAPTER,
     DEFAULT_PREFIX_BRIDGE_ARRAYS,
     DEFAULT_PREFIX_BRIDGE_REPORT,
+    DEFAULT_PREFIX_FULL_START_BRIDGE_ARRAYS,
+    DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
     DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS,
     DEFAULT_PREFIX_SUPPORT_BANK_REPORT,
     DEFAULT_STORY,
@@ -544,16 +546,21 @@ def test_demo_places_product_workflow_before_diagnostics() -> None:
     assert "Recommended narrative examples" in source
     assert "Reliability-checked demo starts" not in source
     assert "Grounded current/recent market claims" in source
-    assert "Selected support regimes" in source
-    assert "top3/90" in source
-    assert "support ensemble" in source
+    # P10: user-facing wording standardized on "historical analogues"; "support"
+    # phrasing is reserved for audit surfaces (not in build_demo's primary copy).
+    assert "Selected historical analogues" in source
+    assert "Selected support regimes" not in source
+    assert "support ensemble" not in source
+    assert "top3/90" not in source
+    assert "closest one-to-three historical regimes" in source
     assert "prefix_preview_button" not in source
     assert "preview_live_openai_start_for_app" not in source
     assert "validate it, then generate" not in source
     assert "approve a starting level" not in source
     assert "How to read this screen" in source
     assert "A historical start is the day-0 market level" in source
-    assert "## Main Workflow" in source
+    # P9: the redundant "## Main Workflow" heading that bisected the inputs is gone.
+    assert "## Main Workflow" not in source
 
 
 def test_recommended_narrative_examples_fill_story_without_cached_casebook() -> None:
@@ -590,7 +597,7 @@ def test_projected_memory_bridge_loader_reads_checkpoint_hidden_dim() -> None:
     assert adapter.net[3].weight.shape == (128, 256)
 
 
-def test_build_prefix_latent_run_args_uses_clean_legacy_oracle_backend() -> None:
+def test_build_prefix_latent_run_args_uses_clean_full_start_bridge_backend() -> None:
     args = build_prefix_latent_run_args(
         start_mode="explicit_start_window",
         samples=12,
@@ -598,17 +605,22 @@ def test_build_prefix_latent_run_args_uses_clean_legacy_oracle_backend() -> None
         story="Dollar squeeze with oil and gold liquidation.",
     )
 
-    # Contamination hold: the 14x14 projected-memory bridge (991a, trained on contaminated 982g)
-    # is NOT used. The demo uses the clean legacy-oracle query bridge (1536->128); the clean-restamp
-    # 14x14 retrain failed its fit gate (992b ceiling), so nothing beats this backend.
-    assert args.bridge_report == DEFAULT_PREFIX_BRIDGE_REPORT
-    assert "manifest_bridge_eval_openai_schema_v2_representative_220" in args.bridge_report
+    # Start pool = the full train-region start bridge (4010 windows, 2000-2015,
+    # incl. 2008), derived from the clean 939a numeric bank with a zeros
+    # condition_vectors placeholder. Contamination hold STILL holds: this is NOT
+    # the 990f/991a/projected_memory_14x14 contaminated bridge, and the query
+    # adapter + embedding model are unchanged (1536->128, text-embedding-3-small).
+    assert args.bridge_report == DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT
+    assert "full_start_bridge" in args.bridge_report
+    assert "991a_seed1" not in args.bridge_report
     assert "projected_memory_14x14" not in args.bridge_report
-    assert args.bridge_arrays == DEFAULT_PREFIX_BRIDGE_ARRAYS
+    assert args.bridge_arrays == DEFAULT_PREFIX_FULL_START_BRIDGE_ARRAYS
     assert "991a_seed1" not in args.bridge_arrays
+    # Query adapter + embedding model unchanged (legacy clean 1536-d oracle).
     assert args.bridge_adapter == DEFAULT_PREFIX_BRIDGE_ADAPTER
-    # embedding model must match the 1536-d legacy adapter (NOT 3072-d text-embedding-3-large)
     assert args.embedding_model == "text-embedding-3-small"
+    # Retrieval pool stays the clean 939a support bank.
+    assert "support_bank_train_all_939a" in str(args.support_bank_report)
 
 
 def test_bridge_adapter_rejects_wrong_embedding_dim() -> None:
@@ -646,19 +658,19 @@ def test_table_formatters_expose_demo_evidence() -> None:
     assert list(prefix_scenario.columns) == [
         "Market",
         "Baseline View",
-        "Baseline Path Count",
+        "Baseline Path Share",
         "Baseline Mean Move",
         "Narrative View",
-        "Narrative Path Count",
+        "Narrative Path Share",
         "Narrative Mean Move",
         "30d Change vs Baseline",
     ]
     assert prefix_scenario.iloc[0]["Market"] == "SPX"
     assert prefix_scenario.iloc[0]["Baseline View"] == "Up"
-    assert prefix_scenario.iloc[0]["Baseline Path Count"] == "n/a"
+    assert prefix_scenario.iloc[0]["Baseline Path Share"] == "n/a"
     assert prefix_scenario.iloc[0]["Baseline Mean Move"] == "+10 pts / +0.9σ"
     assert prefix_scenario.iloc[0]["Narrative View"] == "Down"
-    assert prefix_scenario.iloc[0]["Narrative Path Count"] == "n/a"
+    assert prefix_scenario.iloc[0]["Narrative Path Share"] == "n/a"
     assert prefix_scenario.iloc[0]["Narrative Mean Move"] == "-52 pts / -1.1σ"
     assert prefix_scenario.iloc[0]["30d Change vs Baseline"] == "More down than baseline"
     summary_html = scenario_summary_html(prefix_report)
@@ -715,13 +727,17 @@ def test_table_formatters_expose_demo_evidence() -> None:
     less_down = scenario_table(less_down_report)
     assert less_down.iloc[0]["Baseline View"] == "Down"
     assert less_down.iloc[0]["Narrative View"] == "Down"
-    assert less_down.iloc[0]["Narrative Path Count"] == "n/a"
+    assert less_down.iloc[0]["Narrative Path Share"] == "n/a"
     assert less_down.iloc[0]["Narrative Mean Move"] == "-5 pts / -0.4σ"
     assert less_down.iloc[0]["30d Change vs Baseline"] == "Less down than baseline"
     less_down_html = scenario_summary_html(less_down_report)
     assert 'class="demo-dir demo-dir-moderate"' in less_down_html
-    assert '<span class="demo-dir-arrow">↓</span> Less down than baseline' in less_down_html
-    assert "Less down than baseline" in less_down_html
+    # Relative-tilt labels carry no arrow glyph now (the words carry direction);
+    # only the colour class + text remain.
+    assert (
+        '<span class="demo-dir demo-dir-moderate">Less down than baseline</span>'
+        in less_down_html
+    )
     probability_report = {
         "generation": {
             "terminal_delta_summary": [
@@ -750,10 +766,10 @@ def test_table_formatters_expose_demo_evidence() -> None:
     }
     probability_table = scenario_table(probability_report)
     assert probability_table.iloc[0]["Baseline View"] == "Down"
-    assert probability_table.iloc[0]["Baseline Path Count"] == "70% down"
+    assert probability_table.iloc[0]["Baseline Path Share"] == "70% down"
     assert probability_table.iloc[0]["Baseline Mean Move"] == "-2 pts / -0.6σ"
     assert probability_table.iloc[0]["Narrative View"] == "Up"
-    assert probability_table.iloc[0]["Narrative Path Count"] == "82% up"
+    assert probability_table.iloc[0]["Narrative Path Share"] == "82% up"
     assert probability_table.iloc[0]["Narrative Mean Move"] == "+1 pts / +0.4σ"
     skewed_report = {
         "generation": {
@@ -772,7 +788,7 @@ def test_table_formatters_expose_demo_evidence() -> None:
     }
     skewed_table = scenario_table(skewed_report)
     assert skewed_table.iloc[0]["Narrative View"] == "-"
-    assert skewed_table.iloc[0]["Narrative Path Count"] == "55% down"
+    assert skewed_table.iloc[0]["Narrative Path Share"] == "55% down"
     assert skewed_table.iloc[0]["Narrative Mean Move"] == "+3 pts / +0.9σ"
     assert "Narrative" in analogues_table(report).columns
 
@@ -863,9 +879,9 @@ def test_prefix_latent_live_smoke_formatters_show_current_run_gate() -> None:
     assert variants.iloc[1]["Start Window"] == "joint39_val_0269"
     assert variants.iloc[1]["Memory Support"] == "0.887"
     assert variants.iloc[1]["Selection"] == "max_memory_inside_start_threshold"
-    assert selected.iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert selected.iloc[0]["Starting Level"] == "2001-03-13"  # window 269 day-0 (end date) via full start bridge
     assert "Reliability" not in selected.columns
-    assert selected.iloc[0]["Support Match"] == "0.887"
+    assert selected.iloc[0]["Narrative match (cosine)"] == "0.887"
     assert "Product decision:" not in product_markdown
     assert "Starting level:" not in product_markdown
     assert "Scenario ready" in product_markdown
@@ -1077,12 +1093,12 @@ def test_live_top3_90_posterior_ensemble_selects_dominant_components(
     )
     table = prefix_start_candidates_table(updated)
     assert set(table["Used For"]) == {"Narrative scenario"}
-    assert list(table["Regime"]) == [
-        "joint39_train_0010",
-        "joint39_train_0020",
-        "joint39_train_0030",
+    assert list(table["Episode date"]) == [
+        "2016-02-10",
+        "2016-03-01",
+        "2016-03-21",
     ]
-    assert "joint39_train_0040" not in table["Regime"].tolist()
+    assert "2016-04-10" not in table["Episode date"].tolist()
     markdown = markdown_path.read_text(encoding="utf-8")
     assert "## Live Demo Top3/90 Ensemble" in markdown
     assert "current paper candidate" in markdown
@@ -1140,11 +1156,11 @@ def test_prefix_condition_only_tables_show_used_and_excluded_language() -> None:
         == "warning"
     )
     assert factors.iloc[0]["Factor"] == "SPX"
-    assert candidates.iloc[0]["Regime"] == "joint39_val_0269"
+    assert candidates.iloc[0]["Episode date"] == "2020-03-12"
     assert candidates.iloc[0]["Used For"] == "Narrative scenario"
     assert candidates.iloc[0]["Weight"] == "0.420"
-    assert candidates.iloc[0]["Story Match"] == "0.887"
-    assert candidates.iloc[0]["Required Claims"] == "warning: 1/5 mismatches"
+    assert candidates.iloc[0]["Narrative match (cosine)"] == "0.887"
+    assert candidates.iloc[0]["Narrative directions"] == "🟠 4/5 matched"
 
 
 def test_prefix_start_candidates_table_includes_start_only_baseline_support() -> None:
@@ -1166,8 +1182,8 @@ def test_prefix_start_candidates_table_includes_start_only_baseline_support() ->
 
     assert table.iloc[0]["Used For"] == "Narrative scenario"
     assert table.iloc[-1]["Used For"] == "Start-only baseline"
-    assert table.iloc[-1]["Regime"] == "joint39_train_3942"
-    assert table.iloc[-1]["Start Gap"] == "0.868"
+    assert table.iloc[-1]["Episode date"] == "2015-10-19"
+    assert table.iloc[-1]["Distance from start (σ)"] == "0.868"
 
 
 def test_prefix_user_start_table_shows_supplied_start_diagnostics() -> None:
@@ -1177,7 +1193,7 @@ def test_prefix_user_start_table_shows_supplied_start_diagnostics() -> None:
     assert table.iloc[0]["Format"] == "values_by_name"
     assert table.iloc[0]["Dimension"] == "39"
     assert table.iloc[0]["Nearest Train"] == "18"
-    assert table.iloc[0]["Start Distance"] == "6.940"
+    assert table.iloc[0]["Distance from start (σ)"] == "6.940"
     assert table.iloc[0]["Max Abs Z"] == "1.817"
 
 
@@ -1389,9 +1405,9 @@ def test_fan_chart_figure_can_filter_to_one_analogue() -> None:
     assert "Analogue 1: joint39_val_0031" in figure.layout.annotations[0].text
     assert list(figure.data[1].y) == [1.1, 2.2]
     assert [trace.name for trace in figure.data][-3:] == [
-        "Generated path 1",
+        "Generated sample paths",
         "Generated path 2",
-        "Realized future",
+        "Actual outcome (hindsight)",
     ]
     assert list(figure.data[-1].y) == [0.8, 2.4]
 
@@ -1491,11 +1507,11 @@ def test_run_prefix_latent_for_app_streams_progress_and_outputs_validation() -> 
     assert calls == [("nearest_train_start", 8)]
     assert "Scenario ready" in final[1]
     assert "Completed in" not in final[1]
-    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert final[2].iloc[0]["Starting Level"] == "2001-03-13"  # window 269 day-0 (end date) via full start bridge
     assert final[3].iloc[0]["Variant"] == "original"
     assert final[4].iloc[0]["Status"] == "pass"
     assert final[6].layout.title.text == "SPX 30-day scenario fan (raw level)"
-    assert final[14].iloc[0]["Regime"] == "joint39_val_0269"
+    assert final[14].iloc[0]["Episode date"] == "2020-03-12"
     assert final[16]["choices"] == [
         ("joint39_val_0269 | idx 269 | w 0.420 | start 6.940z", "269")
     ]
@@ -1541,10 +1557,10 @@ def test_run_prefix_latent_for_app_attaches_start_only_baseline_summary() -> Non
     assert baseline["memory_prior_mode"] == "soft_topk_start_only"
     assert baseline["terminal_delta_summary"][0]["mean_terminal_delta"] == 10.0
     assert "Baseline View" in final[5]
-    assert "Baseline Path Count" in final[5]
+    assert "Baseline Path Share" in final[5]
     assert "Baseline Mean Move" in final[5]
     assert "Narrative View" in final[5]
-    assert "Narrative Path Count" in final[5]
+    assert "Narrative Path Share" in final[5]
     assert "Narrative Mean Move" in final[5]
     assert 'class="demo-dir demo-dir-down"' in final[5]
     assert '<span class="demo-dir-arrow">↓</span> Down' in final[5]
@@ -1600,7 +1616,7 @@ def test_run_prefix_latent_for_app_can_preview_start_without_rollout() -> None:
     assert calls == [(True, 8)]
     assert "Scenario ready" in final[1]
     assert "Completed in" not in final[1]
-    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert final[2].iloc[0]["Starting Level"] == "2001-03-13"  # window 269 day-0 (end date) via full start bridge
 
 
 def test_live_openai_wrappers_force_production_story_path() -> None:
@@ -1674,7 +1690,7 @@ def test_live_openai_wrappers_force_production_story_path() -> None:
     assert calls[-1].start_mode == "explicit_start_window"
     assert calls[-1].explicit_start_window_index == 22
     assert calls[-1].skip_rollout is True
-    assert final[2].iloc[0]["Starting Level"] == "joint39_val_0269"
+    assert final[2].iloc[0]["Starting Level"] == "2001-03-13"  # window 269 day-0 (end date) via full start bridge
 
     generated = run_live_openai_prefix_for_app(
         samples=8,
@@ -1930,3 +1946,250 @@ def test_allocate_weighted_sample_counts_preserves_total_and_weights() -> None:
 
     assert counts.tolist() == [6, 3, 2]
     assert int(counts.sum()) == 11
+
+
+def test_prefix_selected_start_table_date_maps_in_range_index() -> None:
+    import re
+
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        _start_index_bounds,
+        _start_window_calendar_label,
+        prefix_selected_start_table,
+    )
+
+    lo, hi = _start_index_bounds()
+    in_range = 22  # a real loaded window in the demo start bank
+    assert lo <= in_range <= hi
+
+    # The operational start window index resolves to a calendar DATE, not the
+    # raw window id (locks the #7 "Starting Level" fix against regression).
+    resolved = _start_window_calendar_label(in_range, "joint39_val_0040")
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolved), resolved
+    assert resolved != "joint39_val_0040"
+
+    report = {
+        "variant_rows": [
+            {
+                "is_operational": True,
+                "start_window_id": "joint39_val_0040",
+                "start_window_index": in_range,
+                "memory_support_cosine": 0.79,
+                "start_distance_z": 14.4,
+                "start_manifest_split": "train",
+            }
+        ]
+    }
+    table = prefix_selected_start_table(report)
+    assert table.iloc[0]["Starting Level"] == resolved
+    # Primary view is now 2-col (date + narrative match); raw Index/Source/distance
+    # were dropped to the audit JSON.
+    assert list(table.columns) == ["Starting Level", "Narrative match (cosine)"]
+
+
+# --- Track-D display-surface unit tests ------------------------------------
+
+
+def test_terminal_level_text_formats_per_factor_units() -> None:
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        _terminal_level_text,
+    )
+
+    assert _terminal_level_text("SPX", 1852.0594) == "1,852.1"  # index, thousands-sep 1dp
+    assert _terminal_level_text("NIKKEI", 27423.96) == "27,424.0"
+    assert _terminal_level_text("US2Y", 4.78) == "4.78%"  # rate level is percent-magnitude
+    assert _terminal_level_text("BBB_OAS", 1.59) == "1.59%"
+    assert _terminal_level_text("USDJPY", 136.18) == "136.18"  # FX, 2dp
+    assert _terminal_level_text("VIX", 20.95) == "20.95"
+    assert _terminal_level_text("CRUDE_OIL", 75.57) == "75.57"
+    assert _terminal_level_text("GOLD", 1817.0) == "1,817.00"
+    assert _terminal_level_text("IV_ATM_3M", 0.1576) == "15.76%"  # IV x100 + %
+    assert _terminal_level_text("IV_SURFACE", 0.183) == "18.30%"
+    assert _terminal_level_text("SPX", None) == "n/a"
+    assert _terminal_level_text("SPX", float("nan")) == "n/a"
+
+
+def test_support_ess_html_reports_effective_analogues() -> None:
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        support_ess_html,
+    )
+
+    report = {
+        "cached_query": {
+            "memory_prior": {
+                "candidate_details": [
+                    {"weight": 0.5},
+                    {"weight": 0.3},
+                    {"weight": 0.2},
+                ]
+            }
+        }
+    }
+    out = support_ess_html(report)
+    # Kish ESS for [.5,.3,.2] = 1/0.38 ~= 2.6, leads with plain "Effective analogues:".
+    assert "Effective analogues: 2.6" in out
+    assert "ess-strip" in out
+    assert "ESS " not in out  # the bare-acronym lead was removed
+
+    na = support_ess_html({})
+    assert "Effective analogues:" in na
+    assert "n/a" in na
+
+
+def test_support_hull_html_green_and_red_branches(monkeypatch) -> None:
+    import experiments.backfill.block_ar.nl_hull_gate_inputs as hull_mod
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        support_hull_html,
+    )
+
+    grounding = {
+        "grounding": {"market_implications": [{"market": "SPX", "direction": "down"}]}
+    }
+
+    # Green: implied move stays inside the historical analogue hull.
+    monkeypatch.setattr(
+        hull_mod,
+        "hull_label_from_grounding",
+        lambda g, **k: {
+            "ladder": [{"status": "ok", "pool_mahalanobis": 1.2}],
+            "any_indeterminate": False,
+            "any_infeasible": False,
+        },
+    )
+    green = support_hull_html(grounding)
+    assert "within precedent" in green
+    assert "pool Mahalanobis" not in green  # jargon removed (#9)
+
+    # Red: implied move exits the hull -> loud "no precedent" flag.
+    monkeypatch.setattr(
+        hull_mod,
+        "hull_label_from_grounding",
+        lambda g, **k: {
+            "ladder": [{"status": "ok"}],
+            "any_indeterminate": False,
+            "any_infeasible": True,
+            "leaves_hull_at_kappa": 2.0,
+        },
+    )
+    red = support_hull_html(grounding)
+    assert "No close historical precedent" in red
+    assert "Details in Audit" not in red  # dangling pointer removed (#9)
+
+    # Degrades to a neutral n/a strip when there is no grounding.
+    assert "n/a" in support_hull_html({})
+
+
+def test_full_start_date_picker_spans_train_region() -> None:
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        _default_full_start_index,
+        _start_index_bounds,
+        full_start_date_choices,
+    )
+
+    choices = full_start_date_choices()
+    # One entry per train-region window (2000-2015), positional indices.
+    assert len(choices) == 4010
+    values = [value for _label, value in choices]
+    assert values == list(range(4010))
+    labels = [label for label, _value in choices]
+    # Labels show the DAY-0 date = calendar_end_date (last observed history day),
+    # so window 0 reads 2000-02-14 and the final window reads 2016-01-26.
+    assert labels[0].startswith("2000-02-14")
+    assert labels[-1].startswith("2016-01-26")
+    assert any("2008-" in label for label in labels)  # GFC day-0 dates are selectable
+
+    lo, hi = _start_index_bounds()
+    assert (lo, hi) == (0, 4009)
+
+    # Default lands on the late-Oct-2008 GFC crash window (day-0 = 2008-10-24).
+    label_by_index = {value: label for label, value in choices}
+    assert label_by_index[_default_full_start_index()].startswith("2008-10-24")
+
+
+def test_start_index_date_hint_in_and_out_of_range() -> None:
+    import re
+
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        _start_index_bounds,
+        start_index_date_hint,
+    )
+
+    lo, hi = _start_index_bounds()
+    assert lo <= 22 <= hi
+
+    in_range = start_index_date_hint(22)
+    assert "as of" in in_range
+    assert re.search(r"\d{4}-\d{2}-\d{2}", in_range)
+
+    out_of_range = start_index_date_hint(hi + 1000)
+    assert "out of range" in out_of_range
+
+    none_hint = start_index_date_hint(None)
+    assert "enter a historical window" in none_hint
+
+
+def test_friendly_error_message_maps_known_openai_errors() -> None:
+    from experiments.backfill.block_ar.nl_risk_manager_story_gradio_app import (
+        _friendly_error_message,
+    )
+
+    class AuthenticationError(Exception):
+        pass
+
+    class RateLimitError(Exception):
+        pass
+
+    class APITimeoutError(Exception):
+        pass
+
+    class APIConnectionError(Exception):
+        pass
+
+    class APIError(Exception):
+        pass
+
+    class SomethingElse(Exception):
+        pass
+
+    assert "credentials" in _friendly_error_message(AuthenticationError())
+    assert "rate-limited" in _friendly_error_message(RateLimitError())
+    assert "did not respond in time" in _friendly_error_message(APITimeoutError())
+    assert "Could not reach" in _friendly_error_message(APIConnectionError())
+    assert "returned an error" in _friendly_error_message(APIError())
+    # Unknown errors fall back to the generic technical status (empty mapping).
+    assert _friendly_error_message(SomethingElse()) == ""
+
+
+def test_live_openai_guards_block_paid_call_on_bad_input() -> None:
+    calls: list = []
+
+    def fake_runner(args: SimpleNamespace) -> dict:
+        calls.append(args)
+        return _prefix_report()
+
+    # Empty narrative: short-circuit, never substitute a default, never call out.
+    blank = list(
+        run_live_openai_prefix_for_app(
+            8,
+            "SPX",
+            "ALL",
+            story="   ",
+            explicit_start_window_index=22,
+            runner=fake_runner,
+        )
+    )
+    assert calls == []
+    assert "Enter a market narrative" in blank[0][0]
+
+    # Out-of-range day-0 index: short-circuit before the paid grounding call.
+    out_of_range = list(
+        run_live_openai_prefix_for_app(
+            8,
+            "SPX",
+            "ALL",
+            story="Risk-off stress.",
+            explicit_start_window_index=10_000,
+            runner=fake_runner,
+        )
+    )
+    assert calls == []
+    assert "out of range" in out_of_range[0][1]

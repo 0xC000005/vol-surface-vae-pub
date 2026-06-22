@@ -27,6 +27,7 @@ from experiments.backfill.block_ar.nl_prefix_latent_story_smoke import (
     response_channels_from_grounding,
     resolve_start_window_index,
     select_cached_story_query,
+    _select_start_arrays_for_bridge_windows,
     user_start_support_summary,
     window_metadata_by_bridge_local_index,
     window_metadata_by_local_index,
@@ -194,6 +195,42 @@ def test_load_support_bank_requires_and_loads_arrays(tmp_path) -> None:
 
     assert bank["memory_targets"].shape == (1, 2)
     assert bank["metadata"][0]["window_id"] == "joint39_train_0000"
+
+
+def test_select_start_arrays_uses_support_bank_for_full_bank_bridge_indices() -> None:
+    validation_arrays = {
+        "history_level": np.zeros((2, 2, 1), dtype=np.float32),
+        "history_norm": np.zeros((2, 2, 1), dtype=np.float32),
+        "center": np.zeros((2, 1), dtype=np.float32),
+        "scale": np.ones((2, 1), dtype=np.float32),
+        "drift_feature": np.zeros((2, 1), dtype=np.float32),
+        "history_raw": np.zeros((2, 2, 1), dtype=np.float32),
+        "future_raw": np.zeros((2, 2, 1), dtype=np.float32),
+        "future_delta": np.zeros((2, 2, 1), dtype=np.float32),
+    }
+    support_bank = {
+        "history_level": np.arange(5, dtype=np.float32).reshape(5, 1, 1),
+        "history_norm": np.arange(10, 15, dtype=np.float32).reshape(5, 1, 1),
+        "center": np.arange(20, 25, dtype=np.float32).reshape(5, 1),
+        "scale": np.arange(30, 35, dtype=np.float32).reshape(5, 1),
+        "drift_feature": np.arange(40, 45, dtype=np.float32).reshape(5, 1),
+        "history_raw": np.arange(50, 55, dtype=np.float32).reshape(5, 1, 1),
+        "future_raw": np.arange(60, 65, dtype=np.float32).reshape(5, 1, 1),
+        "future_delta": np.arange(70, 75, dtype=np.float32).reshape(5, 1, 1),
+    }
+
+    selected, source = _select_start_arrays_for_bridge_windows(
+        selected_windows=np.asarray([0, 2, 4], dtype=np.int64),
+        validation_arrays=validation_arrays,
+        support_bank=support_bank,
+    )
+
+    assert source == "external_support_bank_selected_windows"
+    np.testing.assert_allclose(
+        selected["history_level"].reshape(-1),
+        [0.0, 2.0, 4.0],
+    )
+    np.testing.assert_allclose(selected["future_raw"].reshape(-1), [60.0, 62.0, 64.0])
 
 
 def test_load_user_start_state_accepts_values_by_name(tmp_path) -> None:

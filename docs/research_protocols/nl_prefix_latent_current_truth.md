@@ -1,11 +1,32 @@
 # Narrative Prefix-Latent Current Truth
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 This file is the tracked promotion index for the natural-language prefix-latent
 scenario-generator workflow. Ignored artifacts remain the detailed evidence, but
 this file states which claims are currently promoted and which are still only
 diagnostic.
+
+
+## 2026-06-18 — Method sweep COMPLETE; usefulness-first reframe; Codex-verified MEETS-WITH-FIXES (fixes applied). Nothing promoted past the bar.
+
+**Promoted default UNCHANGED:** start-only nearest-similar top3/90 support-posterior workflow (see Current Contract) remains the production default. NOTHING new is promoted past the bar; the items below are the validated *spine* + an honest characterization.
+
+**North-star reframe (owner, 2026-06-18):** the deliverable is a USEFUL narrative-driven, historically-grounded WHAT-IF generator — a risk manager describes a narrative and SEES its impact as a differentiated, grounded factor-scenario distribution over the 14-anchor panel + an honest support label. The narrative HAS impact (different narratives → different retrieved analogues → different grounded scenarios; clean leakage-free matched-eval: retrieval-conditioned beats persistence **+10.7% CRPS / +14.3% Energy**). Value = what-if exploration + historical grounding + auditable provenance + honesty labels — NOT a better-than-baseline point forecast (start-only still wins absolute CRPS ≈0.506; two distinct baselines, do not conflate).
+
+**Method sweep — COMPLETE (honest, exhausted state):**
+- **DIRECTION (Track B):** the narrative text does NOT faithfully steer/override the frozen generator's forward direction. 5× confirmed (T7 → risk_context oracle → B1 → B2-velocity → B2-encoder). B2 decisive: unfreezing the narrative-consuming velocity readout improved fit (CRPS −0.016) yet added ZERO direction sensitivity (real−shuffled −0.003) ⇒ attributed to the **data signal under these gates** (not merely the frozen backbone; not claimed as a fully general architecture-independent law). 734a byte-identical (B trains separate checkpoints). RESEARCH_LOG 2026-06-18 "Track B B2".
+- **B-WIDTH (severity dial): KILL.** Width responds to narrative PRESENCE not INTENSITY (corr-only gate: low-tercile 0.443 ≈ high 0.438; fidelity wrecked CRPS +0.83); level-matched refinement inconclusive/early-terminated (the probe agent went runaway → killed by HEAD; training script disabled `train_track_b_width_conditioning.py.PAUSED_runaway_20260618`, re-runnable). NO promotable severity dial; dispersion stays history/regime-driven (734a native width-conditioning). RESEARCH_LOG 2026-06-18 "B-width".
+- **RETRIEVAL (Track C): SETTLED.** Training-free raw_openai (CRPS 0.5879) beats trained retrievers (0.594 / 0.630) on the clean leakage-free matched-eval; nothing beats it. The grounding PRINCIPLE is the win; a training-free retriever realizes it.
+- **The dichotomy (honest, publishable):** narrative impact flows through grounded RETRIEVAL; the text faithfully dials NEITHER direction NOR intensity.
+
+**Honesty layer BUILT (framework-v1 Tier-1, validation-side):** convex-hull support gate [I] (`nl_hull_gate_inputs.py` — independent Codex verdict SOUND; discriminates on real scenarios) wired into `nl_14x14_support_audit.py` + the demo (`support_hull_html`: leads with `leaves_hull_at_kappa` + pool Mahalanobis; loud "no close precedent" only when genuinely outside support; "check unavailable" on LP-indeterminate). Coherence sign-gate [B] scorer (`nl_coherence_sign_gate.py`). ESS. Gate D metamorphic = CPU null-band built; GPU placebo rollouts pending.
+
+**Codex verification (promotion bar) = MEETS-WITH-FIXES, ALL fixes applied + validated:** demo indeterminate-label bug; paper Table-4 TODO removed; persistence-vs-start-only disambiguated; ceiling softened (data-signal attribution); non-durable T7 0.849/0.428 removed + cited durable B1/B2/Track C; B-width passage rewritten as honest negative; `b2_velocity.md` mislabel corrected. Paper draft `paper/narrative_grounded_scenarios/main.tex` (gitignored) recompiles 42pp/0 errors; reframe proposal `nl_paper_reframe_proposal_2026-06-18.md`. **Final paper still gated on owner sign-off.**
+
+**Demo:** reframed usefulness-first copy (retrieval-grounded, arrow primary) + Track D spine (ESS, terminal Day-30 table, calendar dating, baseline overlay, disclaimer) + honesty badge; `build_demo` OK. Pre-existing cached-CASEBOOK smoke (4 mode-assertion errors) pending GPU root-cause; not blocking the live build.
+
+**OPEN:** Track A locality-soft fit-gate (running; SECONDARY — affects only the provenance-retriever leg, raw_openai already wins fidelity); demo GPU smoke + browser QA; Gate D GPU placebo rollouts; AGENTS.md/GEMINI.md sync.
 
 
 ## 2026-06-17 — OWNER DECISION: retire the schema_v2 projector; retrain the retriever from scratch on the clean rich 14+14

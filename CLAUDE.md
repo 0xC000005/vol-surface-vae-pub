@@ -6,33 +6,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **HEDA Cycle**: Hypothesize → Experiment → Document → Analyze.
    After each experiment, IMMEDIATELY document results in RESEARCH_LOG.md before moving on.
-2. **Don't stop** until ALL 8 test suites PASS on the raw model (no conformal), or you have
-   exhausted all reasonable hypotheses. Check **MEMORY.md** for accumulated findings.
+2. **Don't stop** until ALL 11 test suites PASS on the raw model (no conformal), or you have
+   exhausted all reasonable hypotheses. (Tri-scope work additionally gates on non-regression
+   vs the `734a/739a` incumbent + the `712a` acceptance scorecard.) Check the project
+   auto-memory at `~/.claude/projects/<project-slug>/memory/MEMORY.md` (surfaced automatically
+   as a system reminder — there is **no repo-root `MEMORY.md`**) for accumulated findings.
 3. **Bitter Lesson**: Everything LEARNED from data. No per-cell/per-tenor constants, no
    data-derived lookup tables, no domain-specific heuristics. Must generalize to any
    conditional scenario generation problem (IV, rates, FX, etc.).
-4. **Autoresearch auto-resume**: If `autoresearch-session/current_state.json` exists,
-   an autoresearch loop is active. Invoke the `autoresearch` skill and follow its
-   Context Recovery Protocol to resume. Check for running training processes first.
+4. **Autoresearch auto-resume**: Multiple concurrent autoresearch threads exist, each with its
+   own `autoresearch-session/*_state.json`. Resume the **most recently modified** one — as of
+   this writing `nl_prefix_latent_state.json` (NL narrative thread, iter 226) is newest, with
+   `current_state.json` (tri-scope thread, iter 766) also live. Read the matching `*_goal*.json`,
+   invoke the `autoresearch` skill, follow its Context Recovery Protocol, and check for running
+   training processes first.
 
 ## Project Overview
 
-**Branch: `diffusion-poc-v1`** — Single-pass afCRPS ensemble for multi-horizon IV surface forecasting.
+**Branch: `diffusion-poc-v1`** — a generalizable **conditional scenario generator** for financial
+factor panels. It began as a single-pass afCRPS IV-surface model (documented below) and has since
+grown into a **tri-scope** (IV-only / anchor-only / joint) generator plus a separate
+**natural-language narrative-conditioned** program.
 
-Two-phase pipeline:
-1. **Pretrained encoder** (DDPM with MSE): `models/backfill/block_ar_vol_scaled_30ep/best_model.pt`
-2. **afCRPS fine-tuning**: Freeze encoder, train decoder with CRPS + auxiliary losses
+**Current best (IV 11-suite gate): 8/11** — `755a` (IV frontier) and `768a` (native-joint IV
+slice). 11/11 is reachable **only** via the non-deployable future-oracle `435a`. **Deployable
+incumbent:** `734a/739a` (real-VIX tri-scope). NL-narrative research candidate: `984a` (not
+promoted — start-only still wins on CRPS/Energy). *These numbers move — the live source of truth
+is `autoresearch-session/*_state.json`, not this file.*
 
-Current best: **5/8 test suites PASS** (confirmed ceiling after 43+ experiments). Best models:
-- **97a+qmap** (best CI: 93.6%, production recommended)
-- **99m_v2** (best factor structure: eff_rank 2.66, kurtosis 0.845)
-- **99l_v3** (best correlation: corr 0.60, coint 0.93)
-- **99j_v3** (best per-cell KS: 24/25)
+### Active Research Threads
+1. **afCRPS single-pass IV** (the original branch, documented in detail below) — the
+   **baseline/reference** generation, **not** the frontier. Two-phase: pretrained DDPM encoder
+   (`models/backfill/block_ar_vol_scaled_30ep/best_model.pt`) → afCRPS decoder fine-tune (freeze
+   encoder, train decoder with CRPS + auxiliary losses).
+2. **Tri-scope 14-anchor generator** — state `autoresearch-session/current_state.json` (iter 766);
+   protocol `docs/research_protocols/662a_normalized_innovation_protocol.md`. One shared
+   state-aware normalized-innovation (SNI) AR-flow core over IV-only / anchor-only / joint panels.
+   Incumbent `734a/739a`.
+3. **NL narrative-conditioned pipeline** — state `autoresearch-session/nl_prefix_latent_state.json`
+   (iter 226). Support-grounded latent retrieval over a frozen SNI generator; scripts in
+   `experiments/backfill/block_ar/nl_*.py`. Promotion index:
+   `docs/research_protocols/nl_prefix_latent_current_truth.md`.
+
+> See **Research Protocols & Governance** and **NL Narrative Pipeline** sections below for
+> how to find the live workflow; the afCRPS material below covers thread (1) only.
 
 ## Research Log
 
-`RESEARCH_LOG.md` is 25,000+ lines. **Never read the full file.** Use the `research-log` skill
-(MCP semantic search or targeted Read with offset/limit).
+`RESEARCH_LOG.md` is 130,000+ lines (~7 MB). **Never read the full file.** Use the `research-log`
+skill (MCP semantic search or targeted Read with offset/limit).
 
 ## Development Environment
 
@@ -44,7 +66,11 @@ Current best: **5/8 test suites PASS** (confirmed ceiling after 43+ experiments)
   With B=32: ~47s/epoch for transformer, ~30s/epoch for MLP. Scale LR linearly if
   changing batch size from a recipe (e.g., B=8→B=32 means LR×4).
 
-## Architecture (afCRPS Single-Pass)
+## Architecture (afCRPS Single-Pass) — baseline branch only
+
+> This describes **thread (1)** only. The classes/dims below are still accurate, but current
+> research runs on newer cores: the tri-scope SNI AR-flow (protocol `662a`) and the NL
+> narrative-prefix latent retrieval pipeline. See **Active Research Threads** above.
 
 ```
 History (30×5×5) → GRUEncoder → condition (128-dim)
@@ -65,7 +91,12 @@ Noise z~N(0,I) → NoiseMLP → noise_embed
 
 **Noise process**: AR(1) with `rho=0.8`: `z_{t+1} = 0.8·z_t + √0.36·ε`
 
-## Common Commands
+## Common Commands (afCRPS baseline branch)
+
+> These cover thread (1). For the active threads, see script patterns
+> `train_*tri*` / `train_537a_*` / `train_662a_*` (tri-scope SNI) and
+> `experiments/backfill/block_ar/nl_*.py` (NL pipeline). The consolidated `n_pass/11`
+> rollup is produced by `evaluate_220h_full_multihorizon_v2_suite.py`.
 
 ```bash
 # Train afCRPS (best recipe: 99m_v2 settings, B=32 for hardware efficiency)
@@ -79,7 +110,7 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
     --disable_early_stop \
     --output_dir models/backfill/afcrps_XXX --device cuda
 
-# Full validation (9 test suites, ~5 min) — ALWAYS use v2
+# Full validation (11 test suites, ~5 min) — ALWAYS use v2
 PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
     --model_path models/backfill/afcrps_XXX/best_model.pt \
     --no_ema --max_batches 20 --n_samples 50 \
@@ -91,9 +122,12 @@ PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py \
     --no_ema --max_batches 10 --n_samples 50 --device cuda
 ```
 
-## Validation Test Suites (9)
+## Validation Test Suites (11)
 
-`test_block_ar_requirements_v2.py` outputs `summary.json` with pass/fail for each:
+`test_block_ar_requirements_v2.py` prints "Test Suite 1–11" and emits a per-suite `overall_pass`
+flag in `summary.json` (distributional under key `distributional`). The consolidated
+`{n_pass, n_total: 11}` rollup is produced by `evaluate_220h_full_multihorizon_v2_suite.py`
+(suite key `distributional_fidelity`). Use `n_pass/11` for the headline score.
 
 1. **Surface Validity**: Explosion rate, calendar/butterfly arbitrage
 2. **CI Coverage**: Per-horizon + per-cell 90% CI (worst_cell_pass is the hard gate)
@@ -102,8 +136,14 @@ PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py \
 5. **Block-AR Boundary**: Smoothness, growing uncertainty (monotonic with horizon)
 6. **Cointegration**: Cell-cell cointegration pass rate
 7. **Regime Coverage**: Per-regime per-cell CI (3-layer: horizon → regime → cell)
-8. **Distributional**: KS on daily changes, KS on IV levels, median bias
+8. **Distributional Fidelity**: KS on daily changes, KS on IV levels, median bias
 9. **Cross-Cell Correlation**: Correlation ratio and effective rank ratio (v2 only)
+10. **Mean Reversion**: per-horizon MR slope ratio (gen vs GT; gate ~0.70 at h30)
+11. **Pathwise Jump Realism**: max-jump KS, per-cell q99 jump pass count /25, window extreme incidence
+
+> Tri-scope work replaces some of these gates: old **Conditionality** → risk-state uncertainty
+> allocation; old IV-EWMA **Cointegration** → monitoring-only. See `goal_11x11.json`
+> `hard_non_regression_gates` and `docs/research_protocols/712a_general_acceptance_scorecard.md`.
 
 ## Loading Models
 
@@ -122,11 +162,18 @@ samples = model.sample(history, n_samples=50)  # (B, 50, 30, 5, 5)
 
 ## Data Format
 
-**Input:** `data/vol_surface_with_ret.npz`
+**afCRPS / IV-only input:** `data/vol_surface_with_ret.npz`
 - `surface`: (N, 5, 5) — 5×5 IV grids (moneyness × tenor)
 - `ret`: (N,) — Daily SPX returns
 
 Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding window.
+
+**Tri-scope / NL input:** `data/multi_factor_data.npz` — `levels`/`returns` of shape (5825, 14)
+over 14 named anchors (spx, usdcad, usdjpy, dxy, copper, wheat, crude_oil, us2y, us10y, aaa_oas,
+bbb_oas, nikkei, gold, **vix**). Regenerate via `scripts/download_multi_factor_data.py` +
+`scripts/add_vix_to_multi_factor_data.py`. **Observed `^VIX` only — the old IV-derived `vix_proxy`
+is forbidden in active modeling** (see `autoresearch-session/config.json`). The NL thread works
+over a derived "joint39" panel.
 
 ## Key Gotchas
 
@@ -142,13 +189,24 @@ Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding
   [0,1] output. Raw IV data is [0,1]. Use `from diffusion.block_ar.single_pass_ar import
   normalize_iv; hist_norm = normalize_iv(raw_hist)`. Forgetting this produces ~3x
   overprediction — looks like catastrophic bias but is an input format error.
+- **Protected-paths hook**: a PreToolUse hook (`.claude/guard_protected_paths.sh`) blocks
+  destructive Bash commands against `results/`, `models/`, and `data/` (relative or absolute).
+  Don't try to `rm`/`mv`/overwrite checkpoints or result dirs directly; use
+  `.claude/backup_artifacts.sh` for snapshots.
+- **Session continuity**: `.remember/` (gitignored) holds the cross-session handoff note
+  (`.remember/remember.md`, written by the `remember` skill) plus autonomous save logs. On a
+  fresh session, check `.remember/remember.md` and the relevant `autoresearch-session/*_state.json`
+  for where work left off.
 
 ## Path Conventions
 
 - Pretrained encoder: `models/backfill/block_ar_vol_scaled_30ep/best_model.pt`
 - afCRPS checkpoints: `models/backfill/afcrps_*/best_model.pt`
 - Test results: `results/block_ar/*/summary.json`
-- Data: `data/vol_surface_with_ret.npz`
+- Data: `data/vol_surface_with_ret.npz` (IV) · `data/multi_factor_data.npz` (tri-scope/NL)
+- Legacy afCRPS-era champion checkpoints (historical): `afcrps_97a` (production base; `+qmap` is a
+  **post-hoc** quantile-mapping transform at inference, no separate dir), `afcrps_99m_v2`,
+  `afcrps_99l_v3_freeze_all` (the `99l_v3` label), `afcrps_99j_v3`.
 
 ## Research Tools
 
@@ -162,6 +220,41 @@ Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding
   with citations. Superhuman on literature search benchmarks. Use via Bash:
   `pqa ask "your question"` — it searches for papers, builds a local index, and answers
   with full citations. For local PDFs: `pqa ask --settings '{"paper_directory": "/path"}' "question"`
+- **OpenAI API** (`.env` `OPENAI_API_KEY`): embeddings + narrative grounding/captioning across
+  ~35 `nl_*.py` scripts. The "gold" text-authoring lane routes through the **Codex CLI**
+  (`codex exec`, model `gpt-5.5`, reasoning `xhigh`) via
+  `experiments/backfill/block_ar/nl_codex_caption_batch.py`.
+- **Sibling agent-instruction files**: `AGENTS.md` (Codex-facing) and `GEMINI.md` (Gemini-facing)
+  mirror this CLAUDE.md for other collaborators — keep all three in sync when conventions change.
+
+## Research Protocols & Governance
+
+`docs/research_protocols/` is the source of truth for how research is actually run and what is
+promoted vs diagnostic:
+
+- **`nl_prefix_latent_current_truth.md`** — read first: what is actually promoted vs diagnostic
+  in the NL thread.
+- **`autoresearch_falsification_workflow.md`** — classify a failure *before* switching method /
+  backend / loss / sampler / calibration.
+- **`712a_general_acceptance_scorecard.md`** — the general acceptance/non-regression gate.
+- **`662a_normalized_innovation_protocol.md`** — the active SNI AR-flow core spec.
+- **`nl_prefix_latent_boss_demo_runbook.md`** / **`nl_prefix_latent_deployment_readiness.md`** —
+  demo launch + deployment boundary.
+- Promotions require a dated report in `nl_prefix_latent_verifier_reports/` and a spec in
+  `nl_prefix_latent_promoted_specs/`.
+
+## NL Narrative Pipeline
+
+Natural-language narrative-conditioned scenario generation (thread 3):
+
+- Scripts: `experiments/backfill/block_ar/nl_*.py`; outputs in
+  `experiments/backfill/block_ar/nl_scenario_demo_outputs/`.
+- Boss demo: `nl_risk_manager_story_gradio_app.py` (launch via the runbook above;
+  `.gradio/` runtime is gitignored).
+- Packaged demo: `deploy/nl_prefix_latent_private_demo/` (Dockerfile + README).
+- Method: support-grounded latent retrieval over a **frozen** SNI generator — historical support
+  mixtures + a text→prefix-latent bridge + bounded residual refinement. Do not hide a single
+  nearest historical prefix as the generator (expose top-k weights).
 
 ## Legacy Modules (Reference Only)
 
@@ -174,6 +267,15 @@ Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding
 Per Bitter Lesson: no conformal calibration, no per-cell data-derived constants, no
 domain-specific heuristics. Everything must be learned end-to-end.
 
-**Exception**: Quantile mapping (qmap) is acceptable for production deployment (97a+qmap
-is the recommended production model). The Bitter Lesson constraint applies to research
-toward 6+/8 — post-hoc fixes don't count toward passing test suites.
+**Exception**: Quantile mapping (qmap) is acceptable for production deployment (`afcrps_97a` +
+post-hoc qmap was the recommended afCRPS-era production model; the current deployable incumbent is
+the `734a/739a` tri-scope baseline). The Bitter Lesson constraint applies to research toward
+higher `n_pass`/11 — post-hoc fixes don't count toward passing test suites.
+<!-- ARIS:BEGIN -->
+## ARIS Skill Scope
+ARIS skills installed in this project: 80 entries.
+Manifest: `.aris/installed-skills.txt` (lists every skill ARIS installed and its upstream target).
+For ARIS workflows, prefer the project-local skills under `.claude/skills/` over global skills.
+Do not modify or delete files inside any skill that is a symlink (symlinks point into `/home/max/aris_repo`).
+Update with: `bash /home/max/aris_repo/tools/install_aris.sh`  (re-runnable; reconciles new/removed skills).
+<!-- ARIS:END -->

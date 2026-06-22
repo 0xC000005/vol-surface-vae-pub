@@ -1,5 +1,11 @@
 # Narrative-Conditioned Scenario Generator Boss Demo Runbook
 
+> 2026-06-11 handoff note: the demo has been upgraded to default to the
+> 14+14 projected-memory retrieval backend and refreshed short/medium/full
+> narrative examples. See
+> `docs/research_protocols/nl_dual_demo_upgrade_handoff.md` for the current
+> artifact paths, caveats, and verification commands.
+
 This runbook is for the current local Gradio demo of the narrative-conditioned
 prefix-latent scenario generator. It is written for a boss or risk manager who
 cares about the product workflow, provenance, and generated scenario relevance,

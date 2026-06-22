@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -127,15 +128,32 @@ DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS = (
 # (the query reflects the user's narrative) — it is NOT a start-only fallback. Both the query bridge
 # and the 939a targets are 734a-encoded and clean; the contamination affected only TEXT authoring,
 # not the numeric encoder outputs used for retrieval.
-DEFAULT_PREFIX_BRIDGE_REPORT: str = _LEGACY_PREFIX_BRIDGE_REPORT  # legacy clean oracle bridge
+DEFAULT_PREFIX_BRIDGE_REPORT: str = _LEGACY_PREFIX_BRIDGE_REPORT  # legacy clean oracle bridge (query projection / val-block export)
 DEFAULT_PREFIX_BRIDGE_ARRAYS: str = _LEGACY_PREFIX_BRIDGE_ARRAYS  # legacy clean oracle arrays
 DEFAULT_PREFIX_BRIDGE_ADAPTER: str = DEFAULT_BRIDGE_ADAPTER  # legacy oracle adapter (embedding_dim=1536, condition_dim=128) — coherent with legacy report/arrays above; was 991a_seed1 (CONTAMINATED)
-_BRIDGE_DISABLED_NOTE = (
-    "\n\n> **Note:** Retrieval uses the validated clean backend — your narrative is projected "
-    "into the generator's state space and matched to clean historical support regimes "
-    "(top3/90 nearest-similar over the 939a bank). The experimental 14×14 text bridge is not "
-    "used: it did not improve on this backend. Scenario generation and fan charts are fully "
-    "operational."
+# ---------------------------------------------------------------------------
+# FULL TRAIN-REGION START BRIDGE (clean, 2026-06-20) — the demo START pool.
+# ---------------------------------------------------------------------------
+# Built by build_train_region_full_start_bridge.py from the clean 939a numeric
+# support bank: 4010 train windows whose day-0 dates span Feb 2000 .. Jan 2016
+# (incl. the 2008 GFC). window_indices are positional [0..4009] so the smoke takes the
+# support-bank start branch (start pool == retrieval pool == 939a, consistent).
+# condition_vectors are a zeros placeholder (held-out eval path only; the live
+# demo gets query memory from the legacy-oracle adapter + 939a, unchanged).
+# This is NOT the contaminated 990f/991a bridge — it carries no episode-card text.
+DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT: str = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_full_start_bridge_train_region_939a/full_start_bridge_report.json"
+)
+DEFAULT_PREFIX_FULL_START_BRIDGE_ARRAYS: str = (
+    "experiments/backfill/block_ar/nl_scenario_demo_outputs/"
+    "prefix_latent_full_start_bridge_train_region_939a/full_start_bridge_arrays.npz"
+)
+_HOW_IT_WORKS_NOTE = (
+    "\n\n> **How it works:** your narrative describes the market conditions *now*. "
+    "The demo matches them to the most similar real historical setups and rolls those "
+    "forward, so the fan shows what has historically *followed* conditions like these — "
+    "which can differ from simply projecting those moves forward."
 )
 DEFAULT_PREFIX_ROLLOUT_TEMPERATURE = 0.5
 DEFAULT_PREFIX_ROLLOUT_FAN_SCALE = 3.5
@@ -143,7 +161,7 @@ DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA = 0.25
 DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_ALPHA = 1.0
 DEFAULT_PREFIX_ENSEMBLE_CALIBRATION_BETA_BOUND = 0.25
 TOP3_90_ANALOGUE_KEY = "TOP3_90"
-TOP3_90_ENSEMBLE_LABEL = "Nearest similar regimes: top3/90 ensemble"
+TOP3_90_ENSEMBLE_LABEL = "Built from the most similar historical regimes"
 TOP3_90_MAX_COMPONENTS = 3
 TOP3_90_MIN_WEIGHT_MASS = 0.90
 JOINT39_SPEC_NAMES = [
@@ -523,6 +541,24 @@ APP_CSS = """
     max-width: calc(100vw - 64px) !important;
   }
 }
+.ess-strip,
+.calendar-start-strip {
+  padding: 8px 12px;
+  margin: 6px 0;
+  border-radius: 6px;
+  background: rgba(33, 150, 243, 0.06);
+  font-size: 0.95em;
+}
+.calendar-start-strip {
+  background: rgba(69, 90, 100, 0.06);
+}
+.ess-strip-na {
+  border-left: 4px solid #9E9E9E;
+}
+.ess-note {
+  color: #607D8B;
+  font-size: 0.85em;
+}
 """
 CACHED_PREFIX_CASEBOOK_CONFIG = [
     (
@@ -643,6 +679,8 @@ assert_clean_corpus_paths(
     DEFAULT_PREFIX_BRIDGE_ADAPTER,  # legacy oracle adapter — clean
     DEFAULT_PREFIX_SUPPORT_BANK_REPORT,   # 939a — clean
     DEFAULT_PREFIX_SUPPORT_BANK_ARRAYS,   # 939a — clean
+    DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,  # 939a-derived full start bridge — clean
+    DEFAULT_PREFIX_FULL_START_BRIDGE_ARRAYS,  # 939a-derived full start arrays — clean
 )
 
 
@@ -680,6 +718,9 @@ IMPLICATION_COLUMNS = [
     "Evidence",
 ]
 WARNING_COLUMNS = ["Severity", "Code", "Message"]
+# Primary (non-audit) warnings display drops the machine "Code"; the code stays
+# in the audit JSON / markdown report for traceability.
+PREFIX_WARNING_DISPLAY_COLUMNS = ["Severity", "Message"]
 PREFIX_CONDITION_COLUMNS = [
     "Market",
     "Direction",
@@ -711,10 +752,10 @@ ANALOGUE_COLUMNS = [
 SCENARIO_COLUMNS = [
     "Market",
     "Baseline View",
-    "Baseline Path Count",
+    "Baseline Path Share",
     "Baseline Mean Move",
     "Narrative View",
-    "Narrative Path Count",
+    "Narrative Path Share",
     "Narrative Mean Move",
     "30d Change vs Baseline",
 ]
@@ -725,7 +766,7 @@ VALIDATION_GATE_COLUMNS = [
     "Start",
     "Status",
     "Memory Cosine",
-    "Start Distance",
+    "Distance from start (σ)",
     "Terminal Shift",
     "Warnings",
     "Failures",
@@ -734,27 +775,28 @@ PREFIX_VARIANT_COLUMNS = [
     "Variant",
     "Query Window",
     "Start Window",
-    "Start Distance",
+    "Distance from start (σ)",
     "Memory Support",
     "Selection",
     "Start Split",
 ]
+# Primary selected-start view shows only the human-meaningful day-0 date and the
+# narrative match. The raw window Index/Source live in the audit JSON, and the
+# "distance from start" is structurally 0 in explicit-start mode (the requested
+# start IS the selected start) so it is omitted rather than shown as a misleading
+# distance-to-the-query-stub.
 PREFIX_SELECTED_START_COLUMNS = [
     "Starting Level",
-    "Index",
-    "Support Match",
-    "Start Distance",
-    "Source",
+    "Narrative match (cosine)",
 ]
 PREFIX_START_CANDIDATE_COLUMNS = [
     "Used For",
     "Rank",
-    "Regime",
-    "History End",
+    "Episode date",
     "Weight",
-    "Story Match",
-    "Start Gap",
-    "Required Claims",
+    "Narrative match (cosine)",
+    "Distance from start (σ)",
+    "Narrative directions",
 ]
 PREFIX_USER_START_COLUMNS = [
     "Label",
@@ -762,7 +804,7 @@ PREFIX_USER_START_COLUMNS = [
     "Format",
     "Dimension",
     "Nearest Train",
-    "Start Distance",
+    "Distance from start (σ)",
     "Max Abs Z",
 ]
 PREFIX_START_PREVIEW_COLUMNS = ["Field", "Value"]
@@ -1141,6 +1183,21 @@ def prefix_condition_warnings_table(report: dict[str, Any]) -> pd.DataFrame:
     )
 
 
+def prefix_condition_warnings_display_table(report: dict[str, Any]) -> pd.DataFrame:
+    """Primary (non-audit) warnings view: severity + plain message only.
+
+    The machine ``Code`` is intentionally dropped from the displayed table (it
+    stays in the full ``prefix_condition_warnings_table`` / audit JSON) so the
+    risk-manager-facing warnings panel reads as plain guidance.
+    """
+
+    full = prefix_condition_warnings_table(report)
+    return _frame(
+        full[PREFIX_WARNING_DISPLAY_COLUMNS].to_dict("records"),
+        PREFIX_WARNING_DISPLAY_COLUMNS,
+    )
+
+
 def prefix_visible_warning_lines(report: dict[str, Any]) -> list[str]:
     """Return product-facing warning lines that should not be hidden in audit details."""
 
@@ -1289,32 +1346,18 @@ def _direction_html(value: str) -> str:
 
 
 def _baseline_change_html(value: str) -> str:
+    # This column is a RELATIVE tilt vs the start-only baseline, not an absolute
+    # direction — so it carries no up/down arrow glyph (the words carry it); only
+    # the colour class conveys the tilt. (The View column keeps its ↑/↓ arrows.)
     text = str(value or "").strip()
     if text in {"Higher than baseline", "More up than baseline"}:
-        return (
-            '<span class="demo-dir demo-dir-up">'
-            f'<span class="demo-dir-arrow">↑</span> {html.escape(text)}</span>'
-        )
+        return f'<span class="demo-dir demo-dir-up">{html.escape(text)}</span>'
     if text in {"Lower than baseline", "More down than baseline"}:
-        return (
-            '<span class="demo-dir demo-dir-down">'
-            f'<span class="demo-dir-arrow">↓</span> {html.escape(text)}</span>'
-        )
-    if text == "Less down than baseline":
-        return (
-            '<span class="demo-dir demo-dir-moderate">'
-            f'<span class="demo-dir-arrow">↓</span> {html.escape(text)}</span>'
-        )
-    if text == "Less up than baseline":
-        return (
-            '<span class="demo-dir demo-dir-moderate">'
-            f'<span class="demo-dir-arrow">↑</span> {html.escape(text)}</span>'
-        )
+        return f'<span class="demo-dir demo-dir-down">{html.escape(text)}</span>'
+    if text in {"Less down than baseline", "Less up than baseline"}:
+        return f'<span class="demo-dir demo-dir-moderate">{html.escape(text)}</span>'
     if text == "Similar to baseline":
-        return (
-            '<span class="demo-dir demo-dir-flat">'
-            '<span class="demo-dir-arrow">-</span> Similar to baseline</span>'
-        )
+        return '<span class="demo-dir demo-dir-flat">Similar to baseline</span>'
     return html.escape(text or "n/a")
 
 
@@ -1457,14 +1500,14 @@ def scenario_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Baseline View": _direction_display_label(
                     _typical_direction_view(baseline_row or {})
                 ),
-                "Baseline Path Count": _path_share_label(baseline_row or {}),
+                "Baseline Path Share": _path_share_label(baseline_row or {}),
                 "Baseline Mean Move": _mean_move_label(
                     baseline_row or {}, market=market
                 ),
                 "Narrative View": _direction_display_label(
                     _typical_direction_view(item)
                 ),
-                "Narrative Path Count": _path_share_label(item),
+                "Narrative Path Share": _path_share_label(item),
                 "Narrative Mean Move": _mean_move_label(item, market=market),
                 "30d Change vs Baseline": _baseline_change_display_label(
                     _terminal_change_vs_baseline(item, baseline_row)
@@ -1504,6 +1547,474 @@ def scenario_summary_html(report: dict[str, Any]) -> str:
         f"<tbody>{body}</tbody>"
         "</table></div>"
     )
+
+
+# --- Track D zero-risk "validated spine" product items ---------------------
+# Five additive, gracefully-degrading product surfaces for the risk-manager
+# demo (ESS, terminal Day-30 table, calendar start label, baseline-median fan
+# overlay, standing disclaimer).  None of these touch generation logic, demo
+# defaults, or the frozen 734a path; each guards on missing fields.
+
+ESS_FLOOR: float = 3.0
+
+TERMINAL_DAY30_COLUMNS = [
+    "Factor",
+    "Baseline P10",
+    "Baseline P50",
+    "Baseline P90",
+    "Conditioned P10",
+    "Conditioned P50",
+    "Conditioned P90",
+]
+
+
+def _support_pool_weights(report: dict[str, Any]) -> list[float]:
+    """Return the support-pool weights used for the displayed scenario fan.
+
+    Mirrors the source ``prefix_start_candidates_table`` reads: the top3/90
+    posterior-ensemble ``selected_support`` weights when present, otherwise the
+    raw ``memory_prior`` candidate weights.  Returns ``[]`` if no usable
+    weights are found so callers can degrade gracefully.
+    """
+
+    generation = _as_dict(report.get("generation"))
+    posterior = _as_dict(generation.get("posterior_ensemble"))
+    candidates = _as_list(posterior.get("selected_support"))
+    if not candidates:
+        memory_prior = _as_dict(_as_dict(report.get("cached_query")).get("memory_prior"))
+        candidates = _as_list(memory_prior.get("candidate_details"))
+        weights: list[float] = []
+        for item in candidates:
+            if isinstance(item, dict) and _is_finite(item.get("weight")):
+                weights.append(float(item.get("weight")))
+        if weights:
+            return weights
+        # Final fallback: a bare weights list on the memory prior.
+        bare = _float_series(memory_prior.get("weights"))
+        return [float(w) for w in bare if _is_finite(w)]
+    weights = []
+    for item in candidates:
+        if isinstance(item, dict) and _is_finite(item.get("weight")):
+            weights.append(float(item.get("weight")))
+    return weights
+
+
+def effective_sample_size(weights: list[float]) -> float | None:
+    """Kish effective sample size ``1 / sum(w**2)`` over normalized weights.
+
+    Defensively renormalizes (the formula is only meaningful when the weights
+    sum to one) and returns ``None`` when the input cannot yield a finite ESS.
+    """
+
+    finite = [float(w) for w in weights if _is_finite(w) and float(w) >= 0.0]
+    total = sum(finite)
+    if not finite or not _is_finite(total) or total <= 0.0:
+        return None
+    normalized = [w / total for w in finite]
+    denominator = sum(w * w for w in normalized)
+    if not _is_finite(denominator) or denominator <= 0.0:
+        return None
+    return 1.0 / denominator
+
+
+def support_ess_html(report: dict[str, Any]) -> str:
+    """Render the support-pool effective sample size with a fixed floor.
+
+    ESS is free: the weights already exist in the report.  Degrades to a
+    neutral placeholder when no weights are available (e.g. the error yield
+    path or a baseline-only report).
+    """
+
+    weights = _support_pool_weights(report)
+    ess = effective_sample_size(weights)
+    floor = ESS_FLOOR  # used only for the colour band below, not as a denominator
+    if ess is None:
+        return (
+            '<div class="ess-strip ess-strip-na">'
+            "<strong>Effective analogues:</strong> n/a "
+            '<span class="ess-note">(no support weights in this run)</span>'
+            "</div>"
+        )
+    # Colour vs floor: green when the pool is genuinely diverse, orange when it
+    # is collapsing toward a single analogue, red when near-degenerate.
+    if ess >= max(2.5, 0.83 * floor):
+        colour = "#2E7D32"  # green
+        tone = "ess-strip-green"
+    elif ess >= 1.5:
+        colour = "#EF6C00"  # orange
+        tone = "ess-strip-orange"
+    else:
+        colour = "#C62828"  # red
+        tone = "ess-strip-red"
+    pool_n = len(weights)
+    return (
+        f'<div class="ess-strip {tone}" style="border-left:4px solid {colour};">'
+        f'<strong style="color:{colour};">Effective analogues: {ess:.1f}</strong> '
+        f'<span class="ess-note">'
+        f"(from {pool_n} historical analogue{'s' if pool_n != 1 else ''}; "
+        "higher = more diverse)"
+        "</span></div>"
+    )
+
+
+def support_hull_html(report: dict[str, Any]) -> str:
+    """Thin honesty badge: is the narrative's implied move within historical analogue support?
+
+    Framework-v1 section I hull gate over the 14 named anchors. Leads with the GRADED signal
+    (the severity kappa at which the implied completion leaves the historical hull, plus the
+    pool Mahalanobis density); raises a loud flag ONLY when the scenario is genuinely outside
+    historical precedent. The directional fan above is the product -- this is a quiet support
+    badge, not a hedge on the arrow. Degrades silently when grounding/anchors are unavailable.
+    """
+
+    try:
+        from experiments.backfill.block_ar.nl_hull_gate_inputs import (
+            hull_label_from_grounding,
+        )
+
+        grounding = _as_dict(report.get("grounding"))
+        if not grounding:
+            grounding = _as_dict(_as_dict(report.get("cached_query")).get("grounding"))
+        if not grounding:
+            return (
+                '<div class="ess-strip ess-strip-na">'
+                "<strong>Historical support:</strong> "
+                'n/a <span class="ess-note">(no grounding in this run)</span></div>'
+            )
+        out = hull_label_from_grounding(grounding, kappas=(0.5, 1.0, 2.0))
+        ok_rungs = [r for r in out.get("ladder", []) if r.get("status") == "ok"]
+        if not ok_rungs:
+            return (
+                '<div class="ess-strip ess-strip-na">'
+                "<strong>Historical support:</strong> no anchor-specific implications to test"
+                '<span class="ess-note"> (narrative did not pin named factors)</span></div>'
+            )
+        if out.get("any_indeterminate") and not out.get("any_infeasible"):
+            # LP could not assess -> "could not check", NEVER conflate with outside-support.
+            return (
+                '<div class="ess-strip ess-strip-na">'
+                "<strong>Historical support:</strong> check unavailable "
+                '<span class="ess-note">(support feasibility LP indeterminate for this scenario)</span></div>'
+            )
+        if out.get("any_infeasible"):
+            leaves = out.get("leaves_hull_at_kappa")
+            colour = "#C62828"  # red -- genuinely outside historical precedent (rare)
+            return (
+                f'<div class="ess-strip" style="border-left:4px solid {colour};">'
+                f'<strong style="color:{colour};">&#9888; No close historical precedent</strong> '
+                '<span class="ess-note">The mix of moves your narrative implies is more extreme, '
+                "taken together, than any real 30-day period on record. This scenario is a "
+                "<strong>stress extrapolation, not a blend of past episodes</strong> &mdash; weight "
+                "it as a what-if. <em>(Technical: implied move exits the historical support hull at "
+                f"&kappa;&ge;{leaves}&sigma;.)</em></span></div>"
+            )
+        colour = "#2E7D32"  # green
+        return (
+            f'<div class="ess-strip" style="border-left:4px solid {colour};">'
+            f'<strong style="color:{colour};">&#10003; Historical support (14 anchors): '
+            "within precedent</strong> "
+            '<span class="ess-note">the mix of moves your narrative implies stays within '
+            "the range of real historical 30-day episodes</span></div>"
+        )
+    except Exception:
+        return (
+            '<div class="ess-strip ess-strip-na">'
+            "<strong>Historical support:</strong> check unavailable</div>"
+        )
+
+
+def _terminal_quantiles_for_row(row: dict[str, Any]) -> tuple[Any, Any, Any]:
+    """Return the LAST (Day-30 terminal) P10/P50/P90 of a raw-level fan row."""
+
+    if not row:
+        return (None, None, None)
+    p10 = _float_series(row.get("p10"))
+    p50 = _float_series(row.get("p50"))
+    p90 = _float_series(row.get("p90"))
+    last10 = p10[-1] if p10 else None
+    last50 = p50[-1] if p50 else None
+    last90 = p90[-1] if p90 else None
+    return (last10, last50, last90)
+
+
+def _terminal_level_text(market: str, value: Any) -> str:
+    """Format a raw Day-30 LEVEL with per-factor units/decimals.
+
+    Distinct from the move-formatter (``_mean_move_raw_part``): these are
+    absolute levels, not deltas.  Index levels get a thousands separator; rates
+    and OAS levels are already in percent magnitude (e.g. US2Y ``4.78`` = 4.78%)
+    so they get a ``%`` suffix; IV cells are decimal vols scaled to percent.
+    """
+
+    if not _is_finite(value):
+        return "n/a"
+    val = float(value)
+    market_key = str(market or "").upper()
+    if market_key == "IV_SURFACE" or market_key.startswith("IV_"):
+        # Implied vol cannot be negative — floor the RENDERED level at 0%
+        # (display-only; does not touch sampling/fan_scale/734a).
+        return f"{max(val, 0.0) * 100.0:.2f}%"
+    if market_key in {"US2Y", "US10Y", "AAA_OAS", "BBB_OAS"}:
+        return f"{val:.2f}%"
+    if market_key in {"SPX", "NIKKEI"}:
+        return f"{val:,.1f}"
+    if market_key in {"USDJPY", "USDCAD", "DXY", "VIX"}:
+        return f"{val:.2f}"
+    if market_key in {"GOLD", "CRUDE_OIL", "COPPER", "WHEAT"}:
+        return f"{val:,.2f}"
+    return f"{val:,.2f}"
+
+
+def terminal_day30_table(report: dict[str, Any]) -> pd.DataFrame:
+    """Per-factor terminal Day-30 quantiles: baseline vs conditioned.
+
+    Uses the same raw-level conversion as the fan chart so units match, and
+    takes the last element of each quantile series.  Degrades to an empty
+    frame when no path-quantile rows are present.
+    """
+
+    generation = _as_dict(report.get("generation"))
+    scope = _default_analogue_scope(report)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for order_idx, raw_row in enumerate(_as_list(generation.get("path_quantiles"))):
+        if not isinstance(raw_row, dict):
+            continue
+        market = str(raw_row.get("market", "")).strip()
+        if not market or market in seen:
+            continue
+        seen.add(market)
+        cond_row = _path_quantile_row_as_raw_level(
+            report,
+            _path_quantile_row(report, market, scope),
+        )
+        if not cond_row:
+            continue
+        baseline_row = _baseline_path_quantile_row_as_raw_level(report, market)
+        c10, c50, c90 = _terminal_quantiles_for_row(cond_row)
+        b10, b50, b90 = _terminal_quantiles_for_row(baseline_row)
+        display = str(
+            cond_row.get("display_name") or cond_row.get("market") or market
+        )
+        # Macro factors the narrative names (SPX, DXY, ...) lead; the IV-surface
+        # cells follow. Stable sort preserves original order within each group.
+        is_iv = 1 if market.upper().startswith("IV") else 0
+        rows.append(
+            (
+                (is_iv, order_idx),
+                {
+                    "Factor": display,
+                    "Baseline P10": _terminal_level_text(market, b10),
+                    "Baseline P50": _terminal_level_text(market, b50),
+                    "Baseline P90": _terminal_level_text(market, b90),
+                    "Conditioned P10": _terminal_level_text(market, c10),
+                    "Conditioned P50": _terminal_level_text(market, c50),
+                    "Conditioned P90": _terminal_level_text(market, c90),
+                },
+            )
+        )
+    rows.sort(key=lambda item: item[0])
+    return _frame([row for _key, row in rows], TERMINAL_DAY30_COLUMNS)
+
+
+def calendar_start_label(
+    report: dict[str, Any] | None,
+    explicit_start_window_index: float | int | None = None,
+    *,
+    bridge_report_path: str | Path = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> str:
+    """Render a calendar 'as of YYYY-MM-DD (window W)' start label.
+
+    Resolves the day-0 as-of date from the bridge-local window metadata keyed
+    by the explicit start window index (the same key the start-state bank
+    uses).  Degrades to 'as of n/a' when the index or metadata is unavailable.
+    """
+
+    start_index: int | None = None
+    if explicit_start_window_index is not None:
+        try:
+            start_index = int(explicit_start_window_index)
+        except (TypeError, ValueError):
+            start_index = None
+    if start_index is None:
+        return (
+            '<div class="calendar-start-strip">'
+            "<strong>Day-0 start:</strong> as of n/a "
+            '<span class="ess-note">(no start window index)</span></div>'
+        )
+    window_id = ""
+    as_of = ""
+    try:
+        path = Path(bridge_report_path)
+        if path.exists():
+            bridge_report = json.loads(path.read_text(encoding="utf-8"))
+            metadata = window_metadata_by_bridge_local_index(bridge_report)
+            entry = _as_dict(metadata.get(int(start_index)))
+            window_id = str(entry.get("window_id", "") or "")
+            calendar = _as_dict(entry.get("calendar"))
+            as_of = str(calendar.get("calendar_end_date", "") or "")
+    except Exception:  # pragma: no cover - defensive UI path
+        window_id = ""
+        as_of = ""
+    if as_of:
+        # A calendar date is the human-recognizable day-0 label; the internal
+        # window id is omitted from the primary strip (it stays in the audit
+        # JSON for traceability).
+        return (
+            '<div class="calendar-start-strip">'
+            f"<strong>Day-0 start:</strong> as of {html.escape(as_of)}</div>"
+        )
+    window_text = window_id if window_id else f"index {start_index}"
+    return (
+        '<div class="calendar-start-strip">'
+        f"<strong>Day-0 start:</strong> as of n/a "
+        f"(window {html.escape(window_text)})</div>"
+    )
+
+
+@lru_cache(maxsize=4)
+def _bridge_window_metadata(bridge_report_path: str) -> dict[int, Any]:
+    """Cached bridge-local window metadata (window_id + calendar) keyed by index.
+
+    Reads the bridge report JSON once per path; used by the day-0 start bounds
+    and the index→date hint so the live ``change`` handler does not re-parse the
+    report on every keystroke.  Returns an empty mapping on any failure.
+    """
+
+    try:
+        path = Path(bridge_report_path)
+        if not path.exists():
+            return {}
+        bridge_report = json.loads(path.read_text(encoding="utf-8"))
+        metadata = window_metadata_by_bridge_local_index(bridge_report)
+        return {int(k): v for k, v in metadata.items()}
+    except Exception:  # pragma: no cover - defensive UI path
+        return {}
+
+
+def _start_index_bounds(
+    bridge_report_path: str | Path = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> tuple[int, int]:
+    """Inclusive [min, max] day-0 window index derived from the loaded start bank."""
+
+    keys = list(_bridge_window_metadata(str(bridge_report_path)).keys())
+    if not keys:
+        return (0, 0)
+    return (min(keys), max(keys))
+
+
+def start_index_date_hint(
+    explicit_start_window_index: float | int | None,
+    *,
+    bridge_report_path: str | Path = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> str:
+    """Resolve a day-0 window index to a calendar date for the live input hint.
+
+    Validates against the loaded start bank's index range and renders a plain
+    'as of <date>' line, or an out-of-range warning, so the risk manager sees
+    what state they picked before spending the paid grounding call.
+    """
+
+    lo, hi = _start_index_bounds(bridge_report_path)
+    idx: int | None = None
+    if explicit_start_window_index is not None:
+        try:
+            idx = int(explicit_start_window_index)
+        except (TypeError, ValueError):
+            idx = None
+    if idx is None:
+        return (
+            '<div class="calendar-start-strip"><strong>Starting market state:</strong> '
+            f"enter a historical window from {lo} to {hi}.</div>"
+        )
+    if idx < lo or idx > hi:
+        return (
+            '<div class="calendar-start-strip" style="border-left:4px solid #C62828;">'
+            f"<strong>Starting market state:</strong> index {idx} is out of range "
+            f"(valid {lo}&ndash;{hi}). Pick a window in this range before generating.</div>"
+        )
+    entry = _as_dict(_bridge_window_metadata(str(bridge_report_path)).get(idx))
+    as_of = str(_as_dict(entry.get("calendar")).get("calendar_end_date", "") or "")
+    if as_of:
+        return (
+            '<div class="calendar-start-strip"><strong>Starting market state:</strong> '
+            f"as of {html.escape(as_of)} (historical window {idx}).</div>"
+        )
+    return (
+        '<div class="calendar-start-strip"><strong>Starting market state:</strong> '
+        f"historical window {idx}.</div>"
+    )
+
+
+def _start_window_calendar_label(
+    window_index: float | int | None,
+    fallback_id: str,
+    *,
+    bridge_report_path: str | Path = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> str:
+    """Resolve a day-0 window index to its calendar start date for display.
+
+    Falls back to the raw window id only when the index is missing or not in the
+    loaded start bank (e.g. synthetic reports), so the primary view shows a
+    recognizable date rather than an internal id.
+    """
+
+    idx: int | None = None
+    if window_index is not None:
+        try:
+            idx = int(window_index)
+        except (TypeError, ValueError):
+            idx = None
+    if idx is not None:
+        entry = _as_dict(_bridge_window_metadata(str(bridge_report_path)).get(idx))
+        as_of = str(_as_dict(entry.get("calendar")).get("calendar_end_date", "") or "")
+        if as_of:
+            return as_of
+    return str(fallback_id or "")
+
+
+@lru_cache(maxsize=2)
+def full_start_date_choices(
+    bridge_report_path: str = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> list[tuple[str, int]]:
+    """Searchable (date label -> window index) choices for the day-0 start picker.
+
+    One entry per train-region window in the full start bank, chronological, so
+    the dropdown is filterable by typing a year (e.g. "2008"). Degrades to a
+    single placeholder when the bank has not been built yet.
+    """
+
+    meta = _bridge_window_metadata(str(bridge_report_path))
+    choices: list[tuple[str, int]] = []
+    for idx in sorted(meta.keys()):
+        as_of = str(_as_dict(meta[idx].get("calendar")).get("calendar_end_date", "") or "")
+        # Label is the day-0 date only (no internal window id); the integer index
+        # remains the dropdown VALUE so the run wiring is unchanged.
+        label = as_of if as_of else f"window {idx}"
+        choices.append((label, int(idx)))
+    if not choices:
+        choices = [("start bank not built — run build_train_region_full_start_bridge.py", 0)]
+    return choices
+
+
+def _default_full_start_index(
+    bridge_report_path: str = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+) -> int:
+    """Default day-0 selection: the late-Oct-2008 GFC crash window when available.
+
+    Selected on the DAY-0 date (calendar_end_date = last observed history day) so
+    the shown date and the day-0 SPX level agree (~2008-10-24, SPX ~877).
+    """
+
+    meta = _bridge_window_metadata(str(bridge_report_path))
+    keys = sorted(meta.keys())
+    if not keys:
+        return 0
+    for idx in keys:
+        day0 = str(_as_dict(meta[idx].get("calendar")).get("calendar_end_date", "") or "")
+        if day0 >= "2008-10-24":  # late-Oct 2008 crash; ISO dates sort lexicographically
+            return int(idx)
+    return int(keys[len(keys) // 2])
 
 
 def load_validation_gate_report(
@@ -1664,7 +2175,7 @@ def validation_gate_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Start": str(item.get("start_window_index", "")),
                 "Status": str(item.get("status", "")),
                 "Memory Cosine": _fmt_float(item.get("input_memory_cosine")),
-                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Distance from start (σ)": _fmt_float(item.get("start_distance_z")),
                 "Terminal Shift": _fmt_float(item.get("terminal_mean_abs_delta_z")),
                 "Warnings": ", ".join(str(x) for x in _as_list(item.get("warnings"))),
                 "Failures": ", ".join(str(x) for x in _as_list(item.get("failures"))),
@@ -1683,11 +2194,13 @@ def prefix_selected_start_table(report: dict[str, Any]) -> pd.DataFrame:
     if row:
         rows.append(
             {
-                "Starting Level": str(row.get("start_window_id", "")),
-                "Index": str(row.get("start_window_index", "")),
-                "Support Match": _fmt_float(row.get("memory_support_cosine")),
-                "Start Distance": _fmt_float(row.get("start_distance_z")),
-                "Source": str(row.get("start_manifest_split", "")),
+                "Starting Level": _start_window_calendar_label(
+                    row.get("start_window_index"),
+                    str(row.get("start_window_id", "")),
+                ),
+                "Narrative match (cosine)": _fmt_float(
+                    row.get("memory_support_cosine")
+                ),
             }
         )
     return _frame(rows, PREFIX_SELECTED_START_COLUMNS)
@@ -1721,7 +2234,7 @@ def _prefix_variant_table_for_role(
                 "Variant": str(item.get("variant", "")),
                 "Query Window": str(item.get("query_window_id", "")),
                 "Start Window": str(item.get("start_window_id", "")),
-                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Distance from start (σ)": _fmt_float(item.get("start_distance_z")),
                 "Memory Support": _fmt_float(item.get("memory_support_cosine")),
                 "Selection": str(item.get("start_selection_method", "")),
                 "Start Split": str(item.get("start_manifest_split", "")),
@@ -1744,13 +2257,24 @@ def prefix_validation_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Start": str(item.get("start_window_index", "")),
                 "Status": str(item.get("status", "")),
                 "Memory Cosine": _fmt_float(item.get("input_memory_cosine")),
-                "Start Distance": _fmt_float(item.get("start_distance_z")),
+                "Distance from start (σ)": _fmt_float(item.get("start_distance_z")),
                 "Terminal Shift": _fmt_float(item.get("terminal_mean_abs_delta_z")),
                 "Warnings": ", ".join(str(x) for x in _as_list(item.get("warnings"))),
                 "Failures": ", ".join(str(x) for x in _as_list(item.get("failures"))),
             }
         )
     return _frame(rows, VALIDATION_GATE_COLUMNS)
+
+
+def _episode_label(item: dict[str, Any]) -> str:
+    """Human-recognizable episode label: the history-end date when present,
+    otherwise the internal window id with the ``joint39_`` prefix stripped."""
+
+    date = str(item.get("history_end_date", "") or "").strip()
+    if date:
+        return date
+    window = str(item.get("window_id") or item.get("window_index", "") or "").strip()
+    return window.replace("joint39_", "").replace("_", " ").strip() or window
 
 
 def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
@@ -1777,22 +2301,23 @@ def prefix_start_candidates_table(report: dict[str, Any]) -> pd.DataFrame:
                 except (TypeError, ValueError):
                     mismatch_count = 0
                     checked_count = 0
-                direction_status = "pass" if mismatch_count == 0 else "warning"
-                direction_check = (
-                    f"{direction_status}: {mismatch_count}/{checked_count} mismatches"
-                )
+                matched = max(checked_count - mismatch_count, 0)
+                # Green when every checked direction matched, amber otherwise.
+                # gr.Dataframe cells cannot carry CSS classes like the HTML
+                # scenario table, so the colour cue is a status dot in the value.
+                cue = "🟢" if mismatch_count == 0 else "🟠"
+                direction_check = f"{cue} {matched}/{checked_count} matched"
             rows.append(
                 {
                     "Used For": used_for,
                     "Rank": int(item.get("rank", rank)),
-                    "Regime": str(
-                        item.get("window_id") or item.get("window_index", "")
-                    ),
-                    "History End": str(item.get("history_end_date", "")),
+                    "Episode date": _episode_label(item),
                     "Weight": _fmt_float(item.get("weight")),
-                    "Story Match": _fmt_float(item.get("memory_support_cosine")),
-                    "Start Gap": _fmt_float(item.get("start_distance_z")),
-                    "Required Claims": direction_check,
+                    "Narrative match (cosine)": _fmt_float(
+                        item.get("memory_support_cosine")
+                    ),
+                    "Distance from start (σ)": _fmt_float(item.get("start_distance_z")),
+                    "Narrative directions": direction_check,
                 }
             )
 
@@ -1831,7 +2356,7 @@ def prefix_user_start_table(report: dict[str, Any]) -> pd.DataFrame:
                 "Format": str(user_start.get("source_format", "")),
                 "Dimension": str(user_start.get("dimension", "")),
                 "Nearest Train": nearest,
-                "Start Distance": distance,
+                "Distance from start (σ)": distance,
                 "Max Abs Z": max_abs_z,
             }
         ],
@@ -2366,6 +2891,12 @@ def fan_chart_figure(
         return fig
 
     display_name = str(row.get("display_name") or row.get("market") or market)
+    # Implied vol cannot be negative; floor the RENDERED IV series at 0 so the
+    # band/lines never dip below zero (display-only; sampling/734a untouched).
+    is_iv = str(row.get("market") or market or "").upper().startswith("IV")
+    def _floor_iv(series: list[float]) -> list[float]:
+        return [max(float(v), 0.0) for v in series] if is_iv else series
+
     days = _float_series(row.get("days"))
     start_level = row.get("start_level")
     p10 = _float_series(row.get("p10"))
@@ -2378,6 +2909,7 @@ def fan_chart_figure(
     _, mean = _prepend_start_to_series(
         _float_series(row.get("days")), mean, start_level
     )
+    p10, p50, p90, mean = _floor_iv(p10), _floor_iv(p50), _floor_iv(p90), _floor_iv(mean)
     band_x = days + list(reversed(days))
     band_y = p90 + list(reversed(p10))
     fig = go.Figure()
@@ -2399,7 +2931,7 @@ def fan_chart_figure(
             y=p50,
             mode="lines",
             line={"color": "#1565C0", "width": 3},
-            name="Median",
+            name="Median (conditioned)",
         )
     )
     fig.add_trace(
@@ -2407,8 +2939,8 @@ def fan_chart_figure(
             x=days,
             y=mean,
             mode="lines",
-            line={"color": "#455A64", "width": 2, "dash": "dash"},
-            name="Mean",
+            line={"color": "#00897B", "width": 2, "dash": "dot"},
+            name="Mean (conditioned)",
         )
     )
     fig.add_trace(
@@ -2418,6 +2950,7 @@ def fan_chart_figure(
             mode="lines",
             line={"color": "rgba(21, 101, 192, 0.45)", "width": 1},
             name="P90",
+            showlegend=False,
         )
     )
     path_colors = [
@@ -2428,6 +2961,7 @@ def fan_chart_figure(
         "#AD1457",
         "#5D4037",
     ]
+    sample_path_count = 0
     for idx, path in enumerate(_as_list(row.get("sample_paths"))):
         if not isinstance(path, dict):
             continue
@@ -2437,8 +2971,15 @@ def fan_chart_figure(
             values,
             start_level,
         )
+        values = _floor_iv(values)
         if len(values) != len(days):
             continue
+        # Collapse the individual sample paths into a single legend row: only the
+        # first path shows in the legend (as a representative "Generated sample
+        # paths" entry); the rest share its legend group so the legend stays
+        # short.  Per-trace names are preserved for hover/inspection.
+        first_path = sample_path_count == 0
+        sample_path_count += 1
         fig.add_trace(
             go.Scatter(
                 x=days,
@@ -2449,7 +2990,13 @@ def fan_chart_figure(
                     "width": 1.6,
                 },
                 opacity=0.78,
-                name=str(path.get("label", f"Generated path {idx + 1}")),
+                legendgroup="generated_sample_paths",
+                showlegend=first_path,
+                name=(
+                    "Generated sample paths"
+                    if first_path
+                    else str(path.get("label", f"Generated path {idx + 1}"))
+                ),
             )
         )
     realized = _float_series(row.get("realized_path"))
@@ -2458,14 +3005,15 @@ def fan_chart_figure(
         realized,
         start_level,
     )
+    realized = _floor_iv(realized)
     if len(realized) == len(days):
         fig.add_trace(
             go.Scatter(
                 x=days,
                 y=realized,
                 mode="lines",
-                line={"color": "#111111", "width": 3.5},
-                name="Realized future",
+                line={"color": "#616161", "width": 1.3, "dash": "dot"},
+                name="Actual outcome (hindsight)",
             )
         )
     # --- Start-only baseline secondary fan (dashed / translucent) ---
@@ -2483,6 +3031,7 @@ def fan_chart_figure(
         b_days, b_p10 = _prepend_start_to_series(b_days_raw, b_p10, b_start_level)
         _, b_p50 = _prepend_start_to_series(b_days_raw, b_p50, b_start_level)
         _, b_p90 = _prepend_start_to_series(b_days_raw, b_p90, b_start_level)
+        b_p10, b_p50, b_p90 = _floor_iv(b_p10), _floor_iv(b_p50), _floor_iv(b_p90)
         if b_days and b_p10 and len(b_p10) == len(b_days):
             b_band_x = b_days + list(reversed(b_days))
             b_band_y = b_p90 + list(reversed(b_p10))
@@ -2514,32 +3063,34 @@ def fan_chart_figure(
         xaxis_title="Forward day",
         yaxis_title="Raw market level",
         template="plotly_white",
-        margin={"l": 55, "r": 25, "t": 60, "b": 50},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+        # Legend below the plot so it never collides with the title/subtitle in
+        # the top band; generous top/bottom margins give the subtitle and the
+        # horizontal legend room to breathe.
+        margin={"l": 55, "r": 25, "t": 90, "b": 120},
+        legend={"orientation": "h", "yanchor": "top", "y": -0.18, "x": 0},
     )
+    # Fold the former corner annotations (analogue label + IV cell coordinates)
+    # into a single centered subtitle line under the title.  Kept as an
+    # annotation (annotations[0]) rather than a plotly title.subtitle so the
+    # main title text stays exactly "<factor> 30-day scenario fan (raw level)".
+    subtitle_parts: list[str] = []
     analogue_label = str(row.get("analogue_label", ""))
     if analogue_label and str(row.get("analogue_key", "ALL")) != "ALL":
-        fig.add_annotation(
-            text=analogue_label,
-            xref="paper",
-            yref="paper",
-            x=0.0,
-            y=1.14,
-            showarrow=False,
-            font={"size": 12, "color": "#455A64"},
-            xanchor="left",
-        )
+        subtitle_parts.append(analogue_label)
     cell = _as_dict(row.get("cell"))
     if cell:
+        subtitle_parts.append(f"{cell.get('maturity')} / K={cell.get('moneyness')}")
+    if subtitle_parts:
         fig.add_annotation(
-            text=f"{cell.get('maturity')} / K={cell.get('moneyness')}",
+            text="  ·  ".join(subtitle_parts),
             xref="paper",
             yref="paper",
-            x=1.0,
-            y=1.14,
+            x=0.5,
+            y=1.045,
             showarrow=False,
             font={"size": 12, "color": "#455A64"},
-            xanchor="right",
+            xanchor="center",
+            yanchor="bottom",
         )
     return fig
 
@@ -2554,6 +3105,26 @@ def refresh_fan_chart(
         report_dict,
         fan_market,
         _resolve_analogue_scope(report_dict, analogue_scope),
+    )
+
+
+def refresh_validated_spine_panels(
+    report: dict[str, Any] | None,
+    explicit_start_window_index: float | int | None = None,
+) -> tuple[str, str, str, pd.DataFrame]:
+    """Refresh the Track D zero-risk product panels from the final report.
+
+    Returns (calendar-start label HTML, support-ESS HTML, hull-support HTML,
+    terminal Day-30 table).  Each underlying helper guards on missing fields,
+    so this fires safely on the error/blank yield paths too.
+    """
+
+    report_dict = _as_dict(report)
+    return (
+        calendar_start_label(report_dict, explicit_start_window_index),
+        support_ess_html(report_dict),
+        support_hull_html(report_dict),
+        terminal_day30_table(report_dict),
     )
 
 
@@ -2705,22 +3276,22 @@ def _prefix_progress_status_markdown(
     if bool(cached_condition_report):
         condition_step = (
             f"cached story report, {start_label}, selected support regimes, "
-            "top3/90 ensemble setup"
+            "support-ensemble setup"
         )
     elif bool(condition_only_story):
         condition_step = (
             "OpenAI story check, text embedding, "
-            f"{start_label}, selected support regimes, top3/90 ensemble setup"
+            f"{start_label}, selected support regimes, support-ensemble setup"
         )
     elif bool(live_story):
         condition_step = (
             f"OpenAI story check and embedding, {start_label}, selected support "
-            "regimes, top3/90 ensemble setup"
+            "regimes, support-ensemble setup"
         )
     else:
         condition_step = (
             f"cached text memory, {start_label}, selected support regimes, "
-            "top3/90 ensemble setup"
+            "support-ensemble setup"
         )
     if bool(skip_rollout):
         condition_step = f"{condition_step}; scenario rollout skipped"
@@ -2759,6 +3330,43 @@ def _error_status_markdown(error: BaseException, start_time: float) -> str:
             f"- Message: `{str(error)}`",
         ]
     )
+
+
+def _friendly_error_message(error: BaseException) -> str:
+    """Map known OpenAI grounding failures to plain risk-manager guidance.
+
+    Returns an empty string for unknown errors so the caller falls back to the
+    generic technical status; in all cases the raw error type/message is kept in
+    the audit report JSON.
+    """
+
+    names = {cls.__name__ for cls in type(error).__mro__}
+    if "AuthenticationError" in names:
+        return (
+            "The narrative grounding service rejected the API credentials. "
+            "Check the OpenAI API key, then generate again."
+        )
+    if "RateLimitError" in names:
+        return (
+            "The narrative grounding service is rate-limited right now. "
+            "Wait a few seconds and generate again."
+        )
+    if "APITimeoutError" in names:
+        return (
+            "The narrative grounding service did not respond in time. "
+            "Generate again; if it keeps timing out, shorten the narrative."
+        )
+    if "APIConnectionError" in names:
+        return (
+            "Could not reach the narrative grounding service. "
+            "Check the network connection and generate again."
+        )
+    if names & {"APIError", "APIStatusError", "BadRequestError"}:
+        return (
+            "The narrative grounding service returned an error. Generate again; "
+            "technical details are in Audit details > Raw JSON."
+        )
+    return ""
 
 
 def _blank_run_outputs(
@@ -2826,7 +3434,7 @@ def _blank_prefix_outputs(
         {},
         analogue_scope_update({}),
         _frame([], PREFIX_CONDITION_COLUMNS),
-        _frame([], WARNING_COLUMNS),
+        _frame([], PREFIX_WARNING_DISPLAY_COLUMNS),
         _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
         _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
         _frame([], PREFIX_START_CANDIDATE_COLUMNS),
@@ -3621,8 +4229,11 @@ def build_prefix_latent_run_args(
     output_dir: str = DEFAULT_PREFIX_APP_OUTPUT_DIR,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        bridge_report=DEFAULT_PREFIX_BRIDGE_REPORT,
-        bridge_arrays=DEFAULT_PREFIX_BRIDGE_ARRAYS,
+        # Full train-region start bridge (4010 windows; day-0 Feb 2000 - Jan 2016)
+        # so the demo can start from any historical date incl. 2008. Start pool == 939a support
+        # bank (below); the legacy oracle bridge stays the query projector.
+        bridge_report=DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT,
+        bridge_arrays=DEFAULT_PREFIX_FULL_START_BRIDGE_ARRAYS,
         support_bank_report=(
             DEFAULT_PREFIX_SUPPORT_BANK_REPORT
             if Path(DEFAULT_PREFIX_SUPPORT_BANK_REPORT).exists()
@@ -3929,9 +4540,27 @@ def run_prefix_latent_for_app(
             "error_type": type(error).__name__,
             "error_message": str(error),
         }
+        friendly = _friendly_error_message(error)
+        if friendly:
+            headline = f"## Scenario generation could not complete\n\n{friendly}"
+            status = "\n".join(
+                [
+                    "## Scenario Workflow Status",
+                    "",
+                    "- Status: `could not complete`",
+                    f"- {friendly}",
+                    "- Technical details are in Audit details > Raw JSON.",
+                ]
+            )
+        else:
+            headline = (
+                "The scenario run failed before a report could be produced. "
+                "Technical details are in Audit details > Raw JSON."
+            )
+            status = _error_status_markdown(error, start_time)
         yield (
-            "The prefix-latent run failed before a report could be produced.",
-            _error_status_markdown(error, start_time),
+            headline,
+            status,
             _frame([], PREFIX_SELECTED_START_COLUMNS),
             _frame([], PREFIX_VARIANT_COLUMNS),
             _frame([], VALIDATION_GATE_COLUMNS),
@@ -3941,7 +4570,7 @@ def run_prefix_latent_for_app(
             error_report,
             analogue_scope_update({}),
             _frame([], PREFIX_CONDITION_COLUMNS),
-            _frame([], WARNING_COLUMNS),
+            _frame([], PREFIX_WARNING_DISPLAY_COLUMNS),
             _frame([], PREFIX_WARNING_COMPONENT_COLUMNS),
             _frame([], PREFIX_SHIFT_FACTOR_COLUMNS),
             _frame([], PREFIX_START_CANDIDATE_COLUMNS),
@@ -3968,7 +4597,7 @@ def run_prefix_latent_for_app(
         report,
         analogue_scope_update(report),
         prefix_condition_implications_table(report),
-        prefix_condition_warnings_table(report),
+        prefix_condition_warnings_display_table(report),
         prefix_warning_component_table(report),
         prefix_shift_factor_table(report),
         prefix_start_candidates_table(report),
@@ -4056,6 +4685,68 @@ def _manual_start_required_outputs(*, fan_market: str) -> tuple[
     return tuple(outputs)
 
 
+def _prefix_guard_outputs(
+    *,
+    fan_market: str,
+    headline: str,
+    status_lines: list[str],
+) -> tuple[Any, ...]:
+    """Blank prefix-latent outputs carrying a plain guard message (no model run)."""
+
+    outputs = list(
+        _blank_prefix_outputs(
+            status="\n".join(status_lines),
+            fan_market=fan_market,
+        )
+    )
+    outputs[0] = headline
+    return tuple(outputs)
+
+
+def _blank_narrative_guard_outputs(*, fan_market: str) -> tuple[Any, ...]:
+    """Short-circuit panel for an empty narrative (never substitutes a default)."""
+
+    return _prefix_guard_outputs(
+        fan_market=fan_market,
+        headline=(
+            "## Enter a market narrative\n\n"
+            "Describe the current/recent market state in the narrative box above, "
+            "then generate scenarios."
+        ),
+        status_lines=[
+            "## Scenario Workflow Status",
+            "",
+            "- Waiting for a market narrative.",
+            "- Enter a narrative describing current/recent market conditions, then generate.",
+        ],
+    )
+
+
+def _out_of_range_start_guard_outputs(
+    *,
+    fan_market: str,
+    start_index: int,
+    lo: int,
+    hi: int,
+) -> tuple[Any, ...]:
+    """Short-circuit panel for an out-of-range day-0 index (before the paid call)."""
+
+    return _prefix_guard_outputs(
+        fan_market=fan_market,
+        headline=(
+            "## Starting market state out of range\n\n"
+            f"The starting market state index {start_index} is outside the available "
+            f"history ({lo}–{hi}). Pick a window in this range, then generate."
+        ),
+        status_lines=[
+            "## Scenario Workflow Status",
+            "",
+            f"- Starting market state index {start_index} is out of range (valid {lo}–{hi}).",
+            "- No grounding call was made. Adjust the starting market state and generate again.",
+        ],
+    )
+
+
 def preview_live_openai_start_for_app(
     samples: int,
     fan_market: str,
@@ -4072,9 +4763,18 @@ def preview_live_openai_start_for_app(
 ) -> Any:
     """Preview a production-style live OpenAI narrative condition and start."""
 
+    if not str(story or "").strip():
+        yield _blank_narrative_guard_outputs(fan_market=fan_market)
+        return
     explicit_start = _manual_start_index(explicit_start_window_index)
     if explicit_start is None:
         yield _manual_start_required_outputs(fan_market=fan_market)
+        return
+    lo, hi = _start_index_bounds()
+    if hi > lo and (explicit_start < lo or explicit_start > hi):
+        yield _out_of_range_start_guard_outputs(
+            fan_market=fan_market, start_index=explicit_start, lo=lo, hi=hi
+        )
         return
     yield from run_prefix_latent_for_app(
         start_mode="explicit_start_window",
@@ -4113,9 +4813,18 @@ def run_live_openai_prefix_for_app(
 ) -> Any:
     """Run production-style live OpenAI narrative conditioning and rollout."""
 
+    if not str(story or "").strip():
+        yield _blank_narrative_guard_outputs(fan_market=fan_market)
+        return
     explicit_start = _manual_start_index(explicit_start_window_index)
     if explicit_start is None:
         yield _manual_start_required_outputs(fan_market=fan_market)
+        return
+    lo, hi = _start_index_bounds()
+    if hi > lo and (explicit_start < lo or explicit_start > hi):
+        yield _out_of_range_start_guard_outputs(
+            fan_market=fan_market, start_index=explicit_start, lo=lo, hi=hi
+        )
         return
     yield from run_prefix_latent_for_app(
         start_mode="explicit_start_window",
@@ -4161,12 +4870,21 @@ def build_demo() -> Any:
         prefix_samples = gr.State(48)
         gr.Markdown(
             "# Narrative-Conditioned Scenario Generator\n"
-            "Describe the current market story, choose the day-0 market state, "
-            "and generate raw-level 30-day scenario fans from the nearest-similar "
-            "support ensemble."
-            + _BRIDGE_DISABLED_NOTE,
+            "Describe the current market story and choose the day-0 market state; "
+            "the demo builds a 30-day scenario distribution from the closest real "
+            "historical episodes."
+            + _HOW_IT_WORKS_NOTE,
             elem_classes=["demo-hero", "demo-shell"],
         )
+        with gr.Accordion("About these scenarios", open=False):
+            gr.Markdown(
+                "These scenarios are built from the historical market episodes "
+                "most similar to your narrative and starting state — a grounded "
+                "what-if distribution over the next 30 days, not a point forecast. "
+                "The directional read reflects those retrieved analogues and the "
+                "day-0 state, not the wording of the narrative.",
+                elem_classes=["demo-shell"],
+            )
         story = gr.Textbox(
             label="Risk-manager narrative",
             value=APP_DEFAULT_STORY,
@@ -4186,34 +4904,33 @@ def build_demo() -> Any:
             ),
             elem_classes=["demo-shell"],
         )
-        gr.Markdown("## Main Workflow")
-        gr.Markdown(
-            "Pick a professional narrative, set the starting market state, and run the scenario deck."
-        )
         with gr.Accordion("How to read this screen", open=False):
             gr.Markdown(
                 "- A historical start is the day-0 market level. In production, "
                 "the risk manager supplies this level from today's market or a "
                 "chosen historical window.\n"
-                "- The narrative selects historical support regimes with similar "
+                "- The narrative selects historical analogues with similar "
                 "current/recent market behavior. Future-looking language is shown "
                 "as a warning, not treated as an input target.\n"
-                "- The top3/90 support ensemble keeps the strongest one to three regimes "
-                "covering about 90% of the selected support mass, then renormalizes "
-                "their weights for the scenario fan.\n"
+                "- The demo keeps the closest one-to-three historical regimes that "
+                "together cover about 90% of the match weight, then rebalances their "
+                "weights for the scenario fan.\n"
                 "- Result notes are product guidance, not forecasts. The fan chart "
                 "is the model's 30-day conditional distribution from the selected start."
             )
+        start_date_choices = full_start_date_choices()
+        start_default_index = _default_full_start_index()
         with gr.Row(equal_height=False, elem_classes=["demo-responsive-row"]):
             with gr.Column(scale=1, min_width=280):
-                prefix_explicit_start_index = gr.Number(
-                    value=22,
-                    precision=0,
-                    label="Starting market state",
+                prefix_explicit_start_index = gr.Dropdown(
+                    choices=start_date_choices,
+                    value=start_default_index,
+                    label="Starting market state (day-0)",
+                    filterable=True,
                     info=(
-                        "Demo uses a historical window index as the day-0 market "
-                        "state. In production this would be today's market state "
-                        "or a risk-manager-selected state."
+                        "Pick the historical date the scenario starts from — type "
+                        "a year to search. Spans Feb 2000 – Jan 2016, including the "
+                        "2008 crisis. In production this would be today's market state."
                     ),
                 )
             with gr.Column(scale=1, min_width=280):
@@ -4227,8 +4944,14 @@ def build_demo() -> Any:
                     "Generate 30-Day Scenarios",
                     variant="primary",
                 )
+        prefix_start_date_hint = gr.HTML(
+            value=start_index_date_hint(start_default_index),
+            elem_classes=["demo-shell"],
+        )
         prefix_status = gr.Markdown(
-            "## Scenario Workflow Status\n\n- Waiting. Enter a narrative and starting market state, then generate scenarios.",
+            "## Scenario Workflow Status\n\n"
+            "- Sample narrative and an Oct-2008 start are loaded — click "
+            "**Generate 30-Day Scenarios** (or edit the narrative/date first).",
             label="Prefix-latent status",
         )
         prefix_analogue_scope = gr.Dropdown(
@@ -4243,47 +4966,38 @@ def build_demo() -> Any:
             visible=False,
             show_label=False,
         )
-        gr.Markdown("## Story Grounding")
-        gr.Markdown(
-            "The model first extracts current/recent market claims from the story. "
-            "Forward-looking phrases are shown as warnings and excluded from conditioning."
-        )
-        with gr.Row(equal_height=False, elem_classes=["demo-responsive-row"]):
-            with gr.Column(scale=2, min_width=320):
-                prefix_condition_implications = gr.Dataframe(
-                    headers=PREFIX_CONDITION_COLUMNS,
-                    label="Grounded current/recent market claims",
-                    interactive=False,
-                    elem_classes=[DEMO_TABLE_CLASS],
-                )
-            with gr.Column(scale=1, min_width=280):
-                prefix_condition_warnings = gr.Dataframe(
-                    headers=WARNING_COLUMNS,
-                    label="Warnings",
-                    interactive=False,
-                    elem_classes=[DEMO_TABLE_CLASS],
-                )
-        gr.Markdown("## Historical Support")
-        gr.Markdown(
-            "This table shows both support sets: the narrative-conditioned "
-            "regimes used for the displayed scenario fan, and the start-only "
-            "baseline regimes chosen from the same starting market level "
-            "without the narrative."
-        )
-        prefix_start_candidates = gr.Dataframe(
-            headers=PREFIX_START_CANDIDATE_COLUMNS,
-            label="Selected support regimes",
-            interactive=False,
-            elem_classes=[DEMO_TABLE_CLASS],
-        )
+        # --- Lead with the scenario distribution (the product) -------------
         gr.Markdown("## Scenario Distribution")
-        prefix_fan_plot = gr.Plot(label="30-day scenario fan chart")
+        prefix_fan_plot = gr.Plot(
+            value=fan_chart_figure({}, "SPX"),  # labeled empty state until first run
+            label="30-day scenario fan chart",
+        )
+        # Thin badge chip-row directly under the chart (day-0 date, effective
+        # analogues, historical-support honesty badge).
+        with gr.Row(elem_classes=["demo-responsive-row"]):
+            prefix_calendar_start = gr.HTML(value=calendar_start_label({}, None))
+            prefix_support_ess = gr.HTML(value=support_ess_html({}))
+            prefix_support_hull = gr.HTML(value=support_hull_html({}))
         gr.Markdown(
             "The colored fan is the narrative-conditioned scenario; the grey dashed "
             "median + translucent band is the start-only baseline (same start, no "
-            "narrative) — the gap between them is the narrative's baseline-relative effect. "
-            "The selected starting level is the day-0 market state used before the "
-            "support ensemble and rollout are built."
+            "narrative). The gap between them reflects the historical analogues the "
+            "narrative retrieved versus the start-only analogues. The selected "
+            "starting level is the day-0 market state used before the historical "
+            "analogues and rollout are built."
+        )
+        gr.Markdown(
+            "### Terminal Day-30 levels (per factor)\n"
+            "Day-30 P10 / P50 / P90 raw levels for the start-only baseline versus "
+            "the narrative-conditioned scenario. These are the terminal slices of "
+            "the fan above — the gap between baseline and conditioned columns "
+            "reflects the analogues the narrative retrieved at the 30-day horizon."
+        )
+        prefix_terminal_day30 = gr.Dataframe(
+            headers=TERMINAL_DAY30_COLUMNS,
+            label="Terminal Day-30 quantiles",
+            interactive=False,
+            elem_classes=[DEMO_TABLE_CLASS],
         )
         prefix_selected_start = gr.Dataframe(
             headers=PREFIX_SELECTED_START_COLUMNS,
@@ -4292,24 +5006,74 @@ def build_demo() -> Any:
             elem_classes=[DEMO_TABLE_CLASS],
         )
         gr.Markdown(
+            "_The day-0 window the scenario starts from: its date and its "
+            "narrative match (cosine) — how closely that historical market state "
+            "matches your narrative._"
+        )
+        gr.Markdown(
             "This table compares the start-only baseline with the "
             "narrative-conditioned scenario. Views are the headline direction "
-            "versus the starting level; path counts show how many terminal "
-            "paths point that way; mean moves show the average terminal change "
-            "in market units and standardized size. "
+            "versus the starting level; path shares show what fraction of "
+            "terminal paths point that way; mean moves show the average terminal "
+            "change in market units and standardized size. "
             "_The change-vs-baseline tilt is baseline-relative directional context "
             "from the narrative-selected historical analogues — useful for monitoring, "
             "not a calibrated point forecast._"
+        )
+        gr.Markdown(
+            "_How direction is set:_ your narrative selects which historical "
+            "episodes ground the scenario; the distribution — including its "
+            "direction — emerges from those analogues and the day-0 market state. "
+            "It reflects what has historically followed conditions like these, so it "
+            "can run opposite to the moves your narrative describes — testing your "
+            "read against the historical record rather than echoing it."
         )
         prefix_scenario = gr.HTML(
             value=scenario_summary_html({}),
             elem_classes=["demo-scenario-summary"],
         )
+        # --- Provenance & grounding (secondary; collapsed by default) ------
+        with gr.Accordion("Provenance & grounding", open=False):
+            gr.Markdown("### Story grounding")
+            gr.Markdown(
+                "The model first extracts current/recent market claims from the story. "
+                "Forward-looking phrases are shown as warnings and excluded from conditioning."
+            )
+            with gr.Row(equal_height=False, elem_classes=["demo-responsive-row"]):
+                with gr.Column(scale=2, min_width=320):
+                    prefix_condition_implications = gr.Dataframe(
+                        headers=PREFIX_CONDITION_COLUMNS,
+                        label="Grounded current/recent market claims",
+                        interactive=False,
+                        elem_classes=[DEMO_TABLE_CLASS],
+                    )
+                with gr.Column(scale=1, min_width=280):
+                    prefix_condition_warnings = gr.Dataframe(
+                        headers=PREFIX_WARNING_DISPLAY_COLUMNS,
+                        label="Warnings",
+                        interactive=False,
+                        elem_classes=[DEMO_TABLE_CLASS],
+                    )
+            gr.Markdown("### Historical analogues")
+            gr.Markdown(
+                "Both analogue sets: the narrative-conditioned episodes used for the "
+                "displayed scenario fan, and the start-only baseline episodes chosen "
+                "from the same starting market level without the narrative. "
+                "_Narrative match (cosine)_ is how closely each analogue matches the "
+                "narrative; _distance from start (σ)_ is how far its day-0 state sits "
+                "from your starting market state."
+            )
+            prefix_start_candidates = gr.Dataframe(
+                headers=PREFIX_START_CANDIDATE_COLUMNS,
+                label="Selected historical analogues",
+                interactive=False,
+                elem_classes=[DEMO_TABLE_CLASS],
+            )
         with gr.Accordion("Audit details", open=False):
             gr.Markdown(
                 "Technical run details are kept here for traceability. The main "
                 "demo should be read from the story claims, warnings, selected "
-                "support regimes, fan chart, and terminal level summary above."
+                "historical analogues, fan chart, and terminal level summary above."
             )
             prefix_validation = gr.Dataframe(
                 headers=VALIDATION_GATE_COLUMNS,
@@ -4350,7 +5114,7 @@ def build_demo() -> Any:
                 prefix_report_markdown = gr.Markdown(label="Report")
             with gr.Accordion("Raw JSON", open=False):
                 prefix_report_json = gr.Code(language="json", label="JSON")
-        prefix_run_button.click(
+        prefix_run_event = prefix_run_button.click(
             fn=run_live_openai_prefix_for_app,
             inputs=[
                 prefix_samples,
@@ -4382,6 +5146,20 @@ def build_demo() -> Any:
             show_progress_on=prefix_status,
             api_name="run_live_openai_prefix_for_app",
         )
+        # Track D zero-risk product panels: refreshed from the final report once
+        # the generator above has exhausted (prefix_report_state is populated).
+        prefix_run_event.then(
+            fn=refresh_validated_spine_panels,
+            inputs=[prefix_report_state, prefix_explicit_start_index],
+            outputs=[
+                prefix_calendar_start,
+                prefix_support_ess,
+                prefix_support_hull,
+                prefix_terminal_day30,
+            ],
+            show_progress="hidden",
+            api_name="refresh_validated_spine_panels",
+        )
         recommended_narrative.change(
             fn=recommended_narrative_text,
             inputs=[recommended_narrative, story],
@@ -4395,6 +5173,13 @@ def build_demo() -> Any:
             outputs=prefix_fan_plot,
             show_progress="hidden",
             api_name="refresh_fan_chart",
+        )
+        prefix_explicit_start_index.change(
+            fn=start_index_date_hint,
+            inputs=[prefix_explicit_start_index],
+            outputs=prefix_start_date_hint,
+            show_progress="hidden",
+            api_name="start_index_date_hint",
         )
     return demo
 
