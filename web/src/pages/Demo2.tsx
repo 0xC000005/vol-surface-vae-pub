@@ -1,19 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { generateNarrative, fetchHistoricalDates, fetchScenarioMovement, type NarrativePacket, type FactorRow } from "@/lib/backend";
 import { Sparkline } from "@/components/Sparkline";
-
-// minimal markdown render for the live narrative packet (## headings, **bold**)
-function renderMd(md: string): ReactNode {
-  const bold = (s: string) => s.split(/(\*\*[^*]+\*\*)/g).map((seg, j) => (seg.startsWith("**") ? <strong key={j}>{seg.slice(2, -2)}</strong> : seg));
-  return md.split("\n").map((ln, i) => {
-    if (ln.startsWith("### ")) return <h4 key={i} className="mt-3 text-sm font-semibold">{ln.slice(4)}</h4>;
-    if (ln.startsWith("## ")) return <h3 key={i} className="mt-4 text-base font-semibold">{ln.slice(3)}</h3>;
-    if (!ln.trim()) return null;
-    return <p key={i} className="mt-1.5 text-[14px] leading-relaxed">{bold(ln)}</p>;
-  });
-}
+import { NarrativePacketView } from "@/components/NarrativePacket";
 
 const DIR_COLOR: Record<string, string> = { up: "text-emerald-600", down: "text-destructive", higher: "text-emerald-600", lower: "text-destructive" };
 
@@ -107,7 +97,7 @@ export default function Demo2() {
           <Card className="p-6">
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Generated narrative {packet ? "— live" : ""}</div>
             {packet ? (
-              <div className="mt-3 max-h-[30rem] overflow-y-auto pr-1">{renderMd(packet.markdown)}</div>
+              <NarrativePacketView md={packet.markdown} />
             ) : (
               <div className="mt-3 flex h-40 items-center justify-center text-sm text-muted-foreground">{generating ? "LLM author writing the packet (≈2 min)…" : "The grounded narrative + hard-negative appear here."}</div>
             )}
