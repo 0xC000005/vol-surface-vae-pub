@@ -4862,12 +4862,57 @@ RunStoryForAppOutput = tuple[
 ]
 
 
+def start_window_context_for_app(window_index: float | int | None) -> str:
+    """Read-only: the 30 observed market days up to day-0 (the conditioning context) for a start
+    window, per factor. Returns a JSON map {market: [levels...]} for the anchor factors so the
+    React demo can draw the conditioning history before the forward fan. Never returns futures."""
+    import json
+    import numpy as np
+
+    bridge_report_path = DEFAULT_PREFIX_FULL_START_BRIDGE_REPORT
+    data_path = "data/multi_factor_data.npz"
+    try:
+        idx = int(window_index)
+    except (TypeError, ValueError):
+        return "{}"
+    entry = _as_dict(_bridge_window_metadata(str(bridge_report_path)).get(idx))
+    as_of = str(_as_dict(entry.get("calendar")).get("calendar_end_date", "") or "")
+    if not as_of:
+        return "{}"
+    try:
+        data = np.load(data_path, allow_pickle=True)
+    except FileNotFoundError:
+        return "{}"
+    levels = data["levels"]
+    dates = [str(np.datetime64(x, "D")) for x in data["dates"]]
+    if as_of in dates:
+        di = dates.index(as_of)
+    else:
+        arr = np.array([np.datetime64(x) for x in dates])
+        di = int(np.argmin(np.abs(arr - np.datetime64(as_of))))
+    lo = max(0, di - 29)
+    cols = {"SPX": 0, "USDJPY": 2, "DXY": 3, "CRUDE_OIL": 6, "US2Y": 7, "US10Y": 8,
+            "AAA_OAS": 9, "BBB_OAS": 10, "GOLD": 12, "VIX": 13}
+
+    def _clean(col: "np.ndarray") -> list[float]:
+        col = col.astype(float)
+        mask = np.isnan(col)
+        if mask.any():
+            idx = np.where(~mask)[0]
+            col = np.interp(np.arange(len(col)), idx, col[idx]) if len(idx) else np.zeros_like(col)
+        return [float(v) for v in col]
+
+    out = {m: _clean(levels[lo:di + 1, c]) for m, c in cols.items()}
+    return json.dumps(out)
+
+
 def build_demo() -> Any:
     import gradio as gr
 
     with gr.Blocks(title="Narrative Conditioned Scenario Demo") as demo:
         prefix_report_state = gr.State({})
         prefix_samples = gr.State(48)
+        gr.api(start_window_context_for_app, api_name="start_window_context")
         gr.Markdown(
             "# Narrative-Conditioned Scenario Generator\n"
             "Describe the current market story and choose the day-0 market state; "

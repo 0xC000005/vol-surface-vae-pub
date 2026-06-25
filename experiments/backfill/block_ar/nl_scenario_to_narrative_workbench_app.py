@@ -1013,6 +1013,39 @@ def _generation_pending_outputs() -> tuple[str, str, None]:
     )
 
 
+def scenario_movement_for_app(start_date: str) -> str:
+    """Read-only: the scenario's 30-day forward factor paths (the observed movement the narrative
+    describes) for a historical start date, per factor, from the market data. Returns a JSON map
+    {FACTOR: [levels...]} so the React demo can draw a 30-day movement sparkline per factor."""
+    import json
+    import numpy as np
+
+    try:
+        data = np.load("data/multi_factor_data.npz", allow_pickle=True)
+    except FileNotFoundError:
+        return "{}"
+    levels = data["levels"]
+    cols = [str(c) for c in data["level_columns"]]
+    dates = [str(np.datetime64(x, "D")) for x in data["dates"]]
+    if start_date in dates:
+        di = dates.index(start_date)
+    else:
+        arr = np.array([np.datetime64(x) for x in dates])
+        di = int(np.argmin(np.abs(arr - np.datetime64(start_date))))
+    hi = min(len(levels), di + 30)
+
+    def _clean(col: "np.ndarray") -> list[float]:
+        col = col.astype(float)
+        mask = np.isnan(col)
+        if mask.any():
+            idx = np.where(~mask)[0]
+            col = np.interp(np.arange(len(col)), idx, col[idx]) if len(idx) else np.zeros_like(col)
+        return [float(v) for v in col]
+
+    out = {cols[c].upper(): _clean(levels[di:hi, c]) for c in range(len(cols))}
+    return json.dumps(out)
+
+
 def build_demo() -> Any:
     import gradio as gr
 
@@ -1049,6 +1082,7 @@ def build_demo() -> Any:
         )
 
     with gr.Blocks(title="Scenario-to-Narrative Generator") as demo:
+        gr.api(scenario_movement_for_app, api_name="scenario_movement")
         gr.Markdown("# Scenario-to-Narrative Generator")
         gr.Markdown(
             "Turn a market scenario — a historical episode or your own numbers — into "
@@ -1177,6 +1211,7 @@ def build_demo() -> Any:
                 historical_range,
             ],
             show_progress="full",
+            api_name="historical_scenario",
         ).then(
             fn=lambda calendar_start_date, cards_jsonl: _historical_plot_safe(
                 calendar_start_date,
@@ -1213,6 +1248,7 @@ def build_demo() -> Any:
             inputs=[sidecar_state, reference_cards_jsonl, output_dir],
             outputs=[generation_status, narrative_review, packet_download],
             show_progress="full",
+            api_name="generate_narrative",
         )
     return demo
 

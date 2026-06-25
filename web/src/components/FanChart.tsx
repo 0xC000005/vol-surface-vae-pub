@@ -1,13 +1,13 @@
 import { useEffect, useState, type ComponentType } from "react";
 
 type FPt = { day: number } & Partial<Record<"p05" | "p10" | "p25" | "p50" | "p75" | "p90" | "p95" | "gt", number>>;
-type Fan = { start_level: number; start_date: string; history: { day: number; spx?: number; v?: number }[]; forecast: FPt[]; paths?: number[][] };
+type Fan = { start_level: number; start_date?: string; history: { day: number; spx?: number; v?: number }[]; forecast: FPt[]; paths?: number[][] };
 
 const INK = "#1d1d1f", BLUE = "#0071e3", GRID = "#ececef", HAIR = "#d2d2d7", SUB = "#86868b";
 const sl = { shape: "spline" as const, smoothing: 0.85 };
 
-export function FanChart({ src = "/data/sample_fan.json", height = 360, baseline }: { src?: string; height?: number; baseline?: number[] }) {
-  const [fan, setFan] = useState<Fan | null>(null);
+export function FanChart({ src = "/data/sample_fan.json", height = 360, baseline, inlineFan }: { src?: string; height?: number; baseline?: number[]; inlineFan?: Fan }) {
+  const [fetched, setFetched] = useState<Fan | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [Plot, setPlot] = useState<ComponentType<any> | null>(null);
 
@@ -23,7 +23,8 @@ export function FanChart({ src = "/data/sample_fan.json", height = 360, baseline
     return () => { ok = false; };
   }, []);
 
-  useEffect(() => { setFan(null); fetch(src).then((r) => r.json()).then(setFan); }, [src]);
+  useEffect(() => { if (inlineFan) return; setFetched(null); fetch(src).then((r) => r.json()).then(setFetched); }, [src, inlineFan]);
+  const fan = inlineFan ?? fetched;
   if (!fan || !Plot) return <div style={{ height }} />;
 
   const hx = fan.history.map((h) => h.day), hy = fan.history.map((h) => (h.spx ?? h.v) as number);
